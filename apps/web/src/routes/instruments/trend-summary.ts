@@ -51,6 +51,12 @@ export interface SlotSummary {
   /** As resolved on the payload. Null when neither instrument nor room says. */
   limitMin: number | null;
   limitMax: number | null;
+  /** The attribute's own TEXT for each bound (`60 (For Reference)`), printed
+   *  in the number's place wherever the bound is quoted (operator, 2026-10-03).
+   *  Null = the number. Comes from the SERVER summary beside the number it
+   *  captions, so the printed bound and its breach count are one answer. */
+  limitMinText?: string | null;
+  limitMaxText?: string | null;
   /** Null when there are no limits to judge against — NOT zero, which would
    *  read as "nothing was out of spec" when the truth is "nothing was checked". */
   belowCount: number | null;
@@ -139,6 +145,10 @@ export interface ServerSlotSummary {
    *  from two different answers to "which limit applies?". */
   limitMin: number | null;
   limitMax: number | null;
+  /** The text each bound prints in place of its number; null = the number.
+   *  Optional: a server from before 2026-10-03 sends neither. */
+  limitMinText?: string | null;
+  limitMaxText?: string | null;
 }
 
 /**
@@ -190,5 +200,7 @@ export function withServerSummary(
     outOfSpecCount: server.outOfSpecCount,
     limitMin: server.limitMin,
     limitMax: server.limitMax,
+    limitMinText: server.limitMinText ?? null,
+    limitMaxText: server.limitMaxText ?? null,
   };
 }

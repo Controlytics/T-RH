@@ -119,6 +119,11 @@ export interface SensorRangeSnapshot {
    *  `High Temperature Range` = 50" stays answerable after a rename. */
   lowKey: string | null;
   highKey: string | null;
+  /** The TEXT each bound's attribute carried beside its number at raise time
+   *  (`50 (max)`), null for a bare number — printed in place of the number
+   *  (2026-10-03). Optional: rows raised before it existed carry neither. */
+  rangeLowText?: string | null;
+  rangeHighText?: string | null;
   decimals: number;
   description: string;
   snapshotAt: string;
@@ -139,10 +144,21 @@ export function describeRangeFault(
   return `${word} ${reading} is outside the sensor range ${span}`;
 }
 
-/** The Limit column's cell: the span it left, from the FROZEN snapshot. */
-export function rangeLimitText(low: number | null, high: number | null): string {
-  if (low !== null && high !== null) return `${low} – ${high}`;
-  if (high !== null) return `> ${high}`;
-  if (low !== null) return `< ${low}`;
+/**
+ * The Limit column's cell: the span it left, from the FROZEN snapshot.
+ *
+ * A bound whose attribute carried text prints that text in place of its
+ * number (`-40 – 50 (max)`), the same rule as every other set point.
+ */
+export function rangeLimitText(
+  low: number | null,
+  high: number | null,
+  texts?: { low?: string | null; high?: string | null },
+): string {
+  const lo = low === null ? null : (texts?.low ?? String(low));
+  const hi = high === null ? null : (texts?.high ?? String(high));
+  if (lo !== null && hi !== null) return `${lo} – ${hi}`;
+  if (hi !== null) return `> ${hi}`;
+  if (lo !== null) return `< ${lo}`;
   return '—';
 }

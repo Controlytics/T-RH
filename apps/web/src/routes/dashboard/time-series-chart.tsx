@@ -147,6 +147,14 @@ interface Props {
   /** Room limits — drawn as the in-spec band. */
   min?: number | null;
   max?: number | null;
+  /**
+   * The attribute's own TEXT for each bound (`60 (For Reference)`), from the
+   * server's `limitText`. The LINE is still drawn at the number; the label
+   * beside it prints the text verbatim, without the unit (operator,
+   * 2026-10-03). Null / absent = the number at the chart's precision.
+   */
+  minText?: string | null;
+  maxText?: string | null;
   /** Window span, so the x labels can choose clock vs date. */
   spanMs: number;
   title: string;
@@ -244,7 +252,7 @@ const PADS = {
 const MIN_ZOOM_SPAN_MS = 60_000;
 
 export function TimeSeriesChart({
-  series, envelope, unit, min, max, spanMs, title, onZoom, onResetZoom,
+  series, envelope, unit, min, max, minText = null, maxText = null, spanMs, title, onZoom, onResetZoom,
   variant = 'plain', lastReading = null, dateTimeFormat,
 }: Props) {
   const { formatDateTime } = useDatetimeFormat(dateTimeFormat);
@@ -378,6 +386,11 @@ export function TimeSeriesChart({
    */
   const limitDecimals = Math.max(0, ...withPoints.map((s) => s.decimals));
   const limitText = (v: number) => formatDecimals(v, limitDecimals) ?? String(v);
+  // A bound's own text wins over its number, and the unit is then withheld —
+  // it belongs to a number, and the text may carry its own.
+  const hasText = (t: string | null) => typeof t === 'string' && t.trim() !== '';
+  const boundLabel = (v: number, text: string | null) =>
+    (hasText(text) ? text! : `${limitText(v)}${unit ? ` ${unit}` : ''}`);
 
   const bandTop = max != null ? g.sy(Math.min(max, g.scale.max)) : null;
   const bandBottom = min != null ? g.sy(Math.max(min, g.scale.min)) : null;
@@ -395,8 +408,8 @@ export function TimeSeriesChart({
    * costs nothing. The pill sits ABOVE its line, and flips below when there is
    * no room — never clipped off the top of the plot.
    */
-  const limitPill = (value: number, label: string, color: string) => {
-    const text = `${label} ${limitText(value)}${unit ? ` ${unit}` : ''}`;
+  const limitPill = (value: number, label: string, color: string, valueText: string | null) => {
+    const text = `${label} ${boundLabel(value, valueText)}`;
     const w = text.length * 5.9 + 16;
     const y = g.sy(value);
     const above = y - PAD.top >= 24;
@@ -568,8 +581,8 @@ export function TimeSeriesChart({
             with a white halo (`paintOrder`) so it stays legible where the
             series crosses under it, rather than in the right margin where the
             direct series labels already sit. */}
-        {trend && max != null && max <= g.scale.max && limitPill(max, 'High Limit', LIMIT_HIGH)}
-        {trend && min != null && min >= g.scale.min && limitPill(min, 'Low Limit', LIMIT_LOW)}
+        {trend && max != null && max <= g.scale.max && limitPill(max, 'High Limit', LIMIT_HIGH, maxText)}
+        {trend && min != null && min >= g.scale.min && limitPill(min, 'Low Limit', LIMIT_LOW, minText)}
         {!trend && max != null && max <= g.scale.max && (
           <g>
             <line x1={PAD.left} x2={W - PAD.right} y1={g.sy(max)} y2={g.sy(max)}
@@ -578,7 +591,7 @@ export function TimeSeriesChart({
               x={PAD.left + 4} y={g.sy(max) - 4} fontSize={10} fontWeight={600}
               fill={LIMIT_LINE} stroke="#fff" strokeWidth={3} paintOrder="stroke"
             >
-              {`Max ${limitText(max)}`}
+              {`Max ${hasText(maxText) ? maxText : limitText(max)}`}
             </text>
           </g>
         )}
@@ -590,7 +603,7 @@ export function TimeSeriesChart({
               x={PAD.left + 4} y={g.sy(min) + 11} fontSize={10} fontWeight={600}
               fill={LIMIT_LINE} stroke="#fff" strokeWidth={3} paintOrder="stroke"
             >
-              {`Min ${limitText(min)}`}
+              {`Min ${hasText(minText) ? minText : limitText(min)}`}
             </text>
           </g>
         )}

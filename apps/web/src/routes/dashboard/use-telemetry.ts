@@ -66,6 +66,14 @@ export interface OverviewRow {
    * Optional so a cached response from before this field existed still renders.
    */
   limitEnabled?: { tempMin: boolean; tempMax: boolean; rhMin: boolean; rhMax: boolean };
+  /**
+   * The TEXT a bound's attribute carries beside its number (`60 (For
+   * Reference)`), printed in the number's place on every set point (operator,
+   * 2026-10-03). Null = the number. Follows `limits` exactly — null wherever
+   * the bound is null — and the browser never re-derives it from an attribute.
+   * Optional so a cached response from before this field existed still renders.
+   */
+  limitText?: { tempMin: string | null; tempMax: string | null; rhMin: string | null; rhMax: string | null };
   /** Which of the two said it. Null when no bound survives. */
   limitSource: 'INSTRUMENT' | 'ROOM' | null;
   temperature: SlotValue | null;

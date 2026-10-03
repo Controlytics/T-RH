@@ -261,6 +261,43 @@ describe('telemetry-overview and the per-bound enable attributes', () => {
     expect(row.limits).toMatchObject({ tempMin: null, tempMax: null, rhMin: null, rhMax: null });
     expect(row.limitSource).toBeNull();
   });
+
+  /**
+   * A limit attribute may carry TEXT beside its number (operator, 2026-10-03:
+   * "text is included in limits and ranges show that text in reports and show
+   * max and min values, in dashboard show the same text only"). The live case:
+   * CWH/RDU/101-00's `h_hl` was edited to `60 (For Reference)` and the
+   * humidity bound vanished from every screen and report, with
+   * `Enable_Humid_NMT = True` looking like the thing that had failed.
+   *
+   * Over the wire, inner key by inner key: `limitText` is a nested object,
+   * and Fastify strips an undeclared inner key silently.
+   */
+  it('a limit carrying text keeps its NUMBER as the bound and sends the TEXT beside it', async () => {
+    const inst = await withAttributes(`TOV-TEXT-${s}`, {
+      ...LIMITS,
+      'High Humidity Limit': '60 (For Reference)',
+      Enable_Humid_NMT: 'True',
+    });
+    await ingest(inst.token, { temperature: 22, humidity: 65 });
+    const row = rowFor(await overview(), inst.id)!;
+    // The number is still the bound — enforced, and breached by 65.
+    expect(row.limits.rhMax).toBe(60);
+    expect(row.status).toBe('OUT_OF_SPEC');
+    // The text rides beside it, for that bound ALONE; a bare number has none.
+    expect(row.limitText).toEqual({ tempMin: null, tempMax: null, rhMin: null, rhMax: '60 (For Reference)' });
+  });
+
+  it('a switched-off bound keeps no text either — the caption follows the bound', async () => {
+    const inst = await withAttributes(`TOV-TEXTOFF-${s}`, {
+      ...LIMITS,
+      'High Humidity Limit': '60 (For Reference)',
+      Enable_Humid_NMT: '0',
+    });
+    const row = rowFor(await overview(), inst.id)!;
+    expect(row.limits.rhMax).toBeNull();
+    expect(row.limitText.rhMax).toBeNull();
+  });
 });
 
 /**

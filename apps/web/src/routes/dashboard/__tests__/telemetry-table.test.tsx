@@ -256,4 +256,23 @@ describe('TelemetryTable — readings and set points are highlighted chips (2026
     expect(specCells[0].textContent).toBe('NA');
     expect(specCells[0].querySelector('.tv-range')).toBeNull();
   });
+
+  // Operator, 2026-10-03: "text is included in limits … in dashboard show the
+  // same text only". The server's `limitText` is printed in the figure's place,
+  // VERBATIM; the bound beside it with no text prints its number as before.
+  it('prints a bound\'s own text in place of its figure', () => {
+    const texted: OverviewRow = {
+      ...row,
+      instrumentId: 'i-4', code: 'CWH/RDU/101-00',
+      limits: { tempMin: 18, tempMax: 27, rhMin: null, rhMax: 60 },
+      limitText: { tempMin: null, tempMax: '27 (For Reference)', rhMin: null, rhMax: '60 (For Reference)' },
+    };
+    const { container } = renderWith([texted]);
+    const badges = Array.from(container.querySelectorAll('td.tv-spec .tv-range'));
+    expect(badges.map((b) => b.getAttribute('aria-label')))
+      .toEqual(['18.0 - 27 (For Reference)', 'NMT 60 (For Reference)']);
+    expect(Array.from(badges[0].querySelectorAll('.tv-range-v')).map((v) => v.textContent))
+      .toEqual(['18.0', '27 (For Reference)']);
+    expect(badges[1].querySelector('.tv-range-v')?.textContent).toBe('60 (For Reference)');
+  });
 });

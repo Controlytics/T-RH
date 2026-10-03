@@ -37,6 +37,10 @@ export interface ChartImageInput {
   spanMs: number;
   min?: number | null;
   max?: number | null;
+  /** The attribute's own text for each bound, printed beside the limit line
+   *  in the number's place (operator, 2026-10-03). */
+  minText?: string | null;
+  maxText?: string | null;
   series: ChartSeries[];
 }
 

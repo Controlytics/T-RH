@@ -118,6 +118,7 @@ export {
   resolveEnableFlag,
   parseLimitKeys,
   parseLimitValue,
+  limitDisplayText,
   resolveLimit,
 } from './types/alarm-limits.js';
 export type { LimitBound } from './types/alarm-limits.js';

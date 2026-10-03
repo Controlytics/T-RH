@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parseLimitKeys,
   parseLimitValue,
+  limitDisplayText,
   resolveLimit,
   ALARM_LIMIT_KEYS_DEFAULT,
   ALARM_LIMIT_ENABLE_KEYS_DEFAULT,
@@ -52,12 +53,48 @@ describe('parseLimitValue', () => {
     expect(parseLimitValue(undefined)).toBeNull();
   });
 
-  it('rejects text and values carrying units', () => {
+  it('rejects values with no number in them', () => {
     expect(parseLimitValue('twenty five')).toBeNull();
-    expect(parseLimitValue('25 C')).toBeNull();
     expect(parseLimitValue('n/a')).toBeNull();
+    expect(parseLimitValue('NA')).toBeNull();
     expect(parseLimitValue('NaN')).toBeNull();
     expect(parseLimitValue('Infinity')).toBeNull();
+  });
+
+  // Operator, 2026-10-03: "text is included in limits and ranges" — the number
+  // inside the text is the bound. CWH/RDU/101-00's `h_hl` reads
+  // `60 (For Reference)` and had lost its humidity bound everywhere.
+  it('takes the number out of a value that carries text', () => {
+    expect(parseLimitValue('60 (For Reference)')).toBe(60);
+    expect(parseLimitValue('NMT 27')).toBe(27);
+    expect(parseLimitValue('25 C')).toBe(25);
+    expect(parseLimitValue('limit -40')).toBe(-40);
+    expect(parseLimitValue('27.5 degC')).toBe(27.5);
+  });
+
+  it('takes the FIRST number when there are several — keep the number first', () => {
+    expect(parseLimitValue('v2 limit 60')).toBe(2);
+  });
+});
+
+describe('limitDisplayText', () => {
+  it('is null for a bare number — the number prints at the instrument precision', () => {
+    expect(limitDisplayText('25')).toBeNull();
+    expect(limitDisplayText(' 25.0 ')).toBeNull();
+    expect(limitDisplayText('-5.5')).toBeNull();
+    expect(limitDisplayText('0')).toBeNull();
+  });
+
+  it('is the whole trimmed value when it carries text beside the number', () => {
+    expect(limitDisplayText(' 60 (For Reference) ')).toBe('60 (For Reference)');
+    expect(limitDisplayText('NMT 27')).toBe('NMT 27');
+  });
+
+  it('is null when there is no number at all — nothing to caption', () => {
+    expect(limitDisplayText('NA')).toBeNull();
+    expect(limitDisplayText('')).toBeNull();
+    expect(limitDisplayText(null)).toBeNull();
+    expect(limitDisplayText(undefined)).toBeNull();
   });
 });
 
@@ -66,7 +103,7 @@ describe('resolveLimit', () => {
 
   it('matches case-insensitively on operator-typed keys', () => {
     expect(resolveLimit(keys, [{ key: 'HIGH TEMPERATURE', value: '25' }]))
-      .toEqual({ key: 'HIGH TEMPERATURE', value: 25 });
+      .toEqual({ key: 'HIGH TEMPERATURE', value: 25, text: null });
   });
 
   it('prefers the earlier key when an instrument holds both', () => {
@@ -75,7 +112,12 @@ describe('resolveLimit', () => {
       { key: 'High Temperature', value: '30' },
       { key: 'High Temperature Limit', value: '25' },
     ];
-    expect(resolveLimit(keys, attrs)).toEqual({ key: 'High Temperature Limit', value: 25 });
+    expect(resolveLimit(keys, attrs)).toEqual({ key: 'High Temperature Limit', value: 25, text: null });
+  });
+
+  it('carries the text beside the number, so the set point can print it', () => {
+    expect(resolveLimit(keys, [{ key: 'High Temperature Limit', value: '27 (For Reference)' }]))
+      .toEqual({ key: 'High Temperature Limit', value: 27, text: '27 (For Reference)' });
   });
 
   it('returns null when no key matches', () => {

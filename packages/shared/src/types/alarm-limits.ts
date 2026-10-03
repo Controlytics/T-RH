@@ -113,20 +113,58 @@ export function parseLimitKeys(raw: string | null | undefined): string[] {
   return out;
 }
 
+/** A string that is nothing but a number: `25`, `-5.5`, `.5`, `0`. */
+const BARE_NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)$/;
+
+/** The FIRST numeric token anywhere in a string. */
+const FIRST_NUMBER = /[+-]?(?:\d+\.?\d*|\.\d+)/;
+
 /**
  * A limit value, or null when there is not one.
  *
+ * **A limit or range attribute may carry TEXT beside its number (operator,
+ * 2026-10-03: "text is included in limits and ranges")** — `60 (For Reference)`,
+ * `NMT 27`, `25 C`. The number is the bound the alarm evaluator, the dashboard
+ * status and the report extremes work from; the text is what the set point
+ * PRINTS (see {@link limitDisplayText}). So this takes the FIRST numeric token
+ * in the string: `60 (For Reference)` → 60, `limit -40` → -40. Stated plainly:
+ * a value with two numbers (`v2 limit 60`) resolves to the first one — keep the
+ * number first, or alone.
+ *
  * NOT `Number(raw)`: `Number("")` is 0, so a blank attribute would become a 0 °C
- * limit that breaches on every reading forever. An explicit numeric-string test
- * also rejects `"25 C"`, which a bare parseFloat would happily read as 25.
+ * limit that breaches on every reading forever. A string with no digits at all
+ * (`NA`, `warm`, `Infinity`) is no limit.
+ *
+ * Until 2026-10-03 anything but a bare number was refused, which is how an
+ * instrument whose `h_hl` was edited to `60 (For Reference)` lost its humidity
+ * bound everywhere with nothing on screen to say so.
  */
 export function parseLimitValue(raw: string | null | undefined): number | null {
   if (raw === null || raw === undefined) return null;
   const s = String(raw).trim();
   if (!s) return null;
-  if (!/^[+-]?(\d+\.?\d*|\.\d+)$/.test(s)) return null;
-  const n = Number(s);
+  const m = FIRST_NUMBER.exec(s);
+  if (!m) return null;
+  const n = Number(m[0]);
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * The text a limit attribute carries BEYOND its number — the whole trimmed
+ * value when it is more than a bare number, else null.
+ *
+ * Null for `25` (the number prints at the instrument's precision as always);
+ * `60 (For Reference)` for `60 (For Reference)`. Null too when the value holds
+ * no number at all: there is no bound, so there is nothing to caption.
+ * Printed VERBATIM wherever the set point shows (operator: "show that text in
+ * reports … in dashboard show the same text only"), so it is never trimmed
+ * further or reformatted here.
+ */
+export function limitDisplayText(raw: string | null | undefined): string | null {
+  if (raw === null || raw === undefined) return null;
+  const s = String(raw).trim();
+  if (!s || BARE_NUMBER.test(s)) return null;
+  return parseLimitValue(s) === null ? null : s;
 }
 
 /**
@@ -137,16 +175,19 @@ export function parseLimitValue(raw: string | null | undefined): number | null {
  * A matched-but-unparseable value resolves to null rather than falling through to
  * the next key: a typo on the preferred key must read as "no limit", never be
  * silently replaced by a different attribute's number.
+ *
+ * `text` is {@link limitDisplayText} of the matched value: the words the set
+ * point prints in place of the bare number, null when the value IS a bare number.
  */
 export function resolveLimit(
   keys: string[],
   attributes: { key: string; value: string }[],
-): { key: string; value: number } | null {
+): { key: string; value: number; text: string | null } | null {
   for (const k of keys) {
     const hit = attributes.find((a) => a.key.trim().toLowerCase() === k);
     if (!hit) continue;
     const value = parseLimitValue(hit.value);
-    return value === null ? null : { key: hit.key, value };
+    return value === null ? null : { key: hit.key, value, text: limitDisplayText(hit.value) };
   }
   return null;
 }

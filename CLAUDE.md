@@ -733,6 +733,22 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
     Those alarms can never clear on their own (humidity below 0 cannot occur), and
     a permanently red row asserts an excursion that is not real. `raisedAt` and
     `triggeredValue` survive; the acknowledgement is untouched.
+  - **A limit or range attribute may carry TEXT beside its number (2026-10-03,
+    operator: "text is included in limits and ranges show that text in reports
+    and show max and min values, in dashboard show the same text only").**
+    `parseLimitValue` takes the FIRST numeric token (`60 (For Reference)` → 60;
+    no digits = no limit) — until then anything but a bare number was refused,
+    which is how CWH/RDU/101-00's edited `h_hl` silently lost its humidity
+    bound everywhere. The NUMBER is enforced, judged, charted and summarised as
+    before; the TEXT prints verbatim wherever the bound is quoted —
+    `OverviewRow.limitText`, the chart summary's `limitMinText`/`limitMaxText`,
+    and the alarm snapshot's `thresholdHighText`/`thresholdLowText`
+    (`rangeLowText`/`rangeHighText`) — all server-resolved, declared in the
+    schemas, following the bound through every gate (no text for a withheld
+    bound). `limitDisplayText` / `resolveLimit().text` in `@digilog/shared` is
+    the ONE reader; `boundText` in `routes/dashboard/set-point.ts` the ONE
+    browser rule. Notifications, webhooks and the room-detail band stay
+    numeric on purpose. No count moved.
 - **Sensor RANGE alarms — a FIFTH alarm source (2026-08-31).** `AlarmSource`
   gains `SENSOR_RANGE` (enum VALUE — models stay 36, enums stay 13). Config def
   `sensor-range-alarms` (27 → 28 defs). Raised when a reading falls outside the

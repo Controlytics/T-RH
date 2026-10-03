@@ -29,22 +29,45 @@ export function boundInForce(v: number | null | undefined): v is number {
   return typeof v === 'number' && Number.isFinite(v);
 }
 
+/**
+ * The TEXT a bound's attribute carries beside its number (`60 (For
+ * Reference)`), as the server sends it on `limitText` — printed VERBATIM in
+ * the number's place (operator, 2026-10-03: "in dashboard show the same text
+ * only"). Null / absent = the number at the instrument's precision, as always.
+ * Never read for a bound that is not in force: the server nulls the text with
+ * the bound, and this module does not trust a caller to have done the same.
+ */
+export interface SetPointTexts {
+  min?: string | null;
+  max?: string | null;
+}
+
+/** What one bound prints: its text when it has one, else the number. */
+export function boundText(
+  v: number | null | undefined,
+  text: string | null | undefined,
+  decimals: number,
+): string | null {
+  if (!boundInForce(v)) return null;
+  if (typeof text === 'string' && text.trim()) return text;
+  // Clamped, not trusted: `decimals` now comes from an operator-typed instrument
+  // attribute, and `toFixed` throws a RangeError outside 0…100 — which here would
+  // take down the whole table rather than one cell.
+  return v.toFixed(clampDecimals(decimals));
+}
+
 export function formatSetPoint(
   min: number | null | undefined,
   max: number | null | undefined,
   decimals: number,
+  texts?: SetPointTexts,
 ): string {
-  const hasMin = boundInForce(min);
-  const hasMax = boundInForce(max);
-  // Clamped, not trusted: `decimals` now comes from an operator-typed instrument
-  // attribute, and `toFixed` throws a RangeError outside 0…100 — which here would
-  // take down the whole table rather than one cell.
-  const dp = clampDecimals(decimals);
-  const f = (n: number) => n.toFixed(dp);
+  const lo = boundText(min, texts?.min, decimals);
+  const hi = boundText(max, texts?.max, decimals);
 
-  if (hasMin && hasMax) return `${f(min)} - ${f(max)}`;
-  if (hasMax) return `NMT ${f(max)}`;
-  if (hasMin) return `NLT ${f(min)}`;
+  if (lo !== null && hi !== null) return `${lo} - ${hi}`;
+  if (hi !== null) return `NMT ${hi}`;
+  if (lo !== null) return `NLT ${lo}`;
   return NOT_AVAILABLE;
 }
 

@@ -94,6 +94,8 @@ export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
             period: reportPeriod, fmt, formatDateTime,
             temp: {
               key: tempKey, min: ov?.limits?.tempMin, max: ov?.limits?.tempMax,
+              // The attribute's own text for each bound, printed in the limit cell.
+              minText: ov?.limitText?.tempMin, maxText: ov?.limitText?.tempMax,
               // The ONE fallback, shared with the trend page: two documents under
               // one audit type must not print one instrument at two precisions.
               decimals: ov?.decimals.temperature ?? TELEMETRY_DECIMALS_FALLBACK,
@@ -102,6 +104,7 @@ export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
             },
             rh: {
               key: humidKey, min: ov?.limits?.rhMin, max: ov?.limits?.rhMax,
+              minText: ov?.limitText?.rhMin, maxText: ov?.limitText?.rhMax,
               decimals: ov?.decimals.humidity ?? TELEMETRY_DECIMALS_FALLBACK,
               rangeLow: ov?.rangeBounds?.humidityLow ?? null, rangeHigh: ov?.rangeBounds?.humidityHigh ?? null,
               ...slotExtremes(fetched.summaries, humidKey),

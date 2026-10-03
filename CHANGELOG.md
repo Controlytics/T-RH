@@ -1,5 +1,55 @@
 # Changelog
 
+## [Unreleased] - A limit or range attribute may carry text beside its number (2026-10-03)
+
+Operator, on being shown why CWH/RDU/101-00's humidity limit had vanished
+from every screen with `Enable_Humid_NMT = True`: *"text is included in limits
+and ranges show that text in reports and show max and min values, in
+dashboard show the same text only"*.
+
+- **The defect**: `parseLimitValue` accepted only a bare number. That
+  instrument's `h_hl` had been edited to `60 (For Reference)`, so the
+  humidity high bound resolved to NULL — no set point, no RH Max in the Data
+  Report, no high-humidity alarm possible, nothing on screen saying why — and
+  the enable flag beside it looked like the thing that had failed.
+- **The number inside the text is the bound** (`parseLimitValue` takes the
+  FIRST numeric token: `60 (For Reference)` → 60, `NMT 27` → 27, `25 C` → 25;
+  a value with no digits is still no limit). Alarms are evaluated against it,
+  status is judged on it, the chart's limit LINE is drawn at it, and the
+  report's Max / Min print from it — all exactly as for a bare number. Stated
+  once: a value holding two numbers resolves to the first; keep the number
+  first or alone.
+- **The text is what PRINTS, verbatim, wherever the bound is quoted**
+  (`limitDisplayText` / `resolveLimit().text` in `@digilog/shared`, ONE
+  reader): the dashboard SET POINT badge (`NMT 60 (For Reference)`,
+  `18.0 - 27 (For Reference)`), the trend page's bound cells (without the
+  unit — the text may carry its own) and chart limit pills, the Data Report's
+  `Temp. Limit :` / `RH Limit :` cells, the Trend report's `N above …` line and
+  its chart raster, the alarm Limit cell on all three alarm tables, and the
+  Alarm Report's set-point columns. A bare number prints at the instrument's
+  precision as before; a bound that is not in force (switched off, inverted,
+  absent, room-sourced) carries no text either.
+- **Server-resolved, frozen with the number**: `telemetry-overview` rows
+  carry `limitText {tempMin, tempMax, rhMin, rhMax}`; the chart summary
+  carries `limitMinText` / `limitMaxText` beside the bound its breach counts
+  were taken against; an alarm snapshot freezes `thresholdHighText` /
+  `thresholdLowText` (a range alarm `rangeLowText` / `rangeHighText`) so an
+  edit tomorrow cannot re-caption a closed excursion. All declared in the
+  response schemas (mutation-checked: dropping an inner key fails the e2e).
+  The browser never re-derives the text from an attribute.
+- **Not changed**: the room-detail chart's agreed band (several instruments,
+  numbers only), notification and webhook `${limit}` (a device may parse it as
+  a number), and the Settings / Attributes panels, which show the stored value
+  as typed. The 2026-09-01 "every server resolver agrees" rule still holds —
+  both resolvers now also agree on the text.
+- Pinned by 7 shared unit cases, 3 API e2e (`telemetry-overview`,
+  `instrument-telemetry-range`) + 1 unit (`limitSnapshot`), and web cases on
+  `set-point`, `telemetry-table`, `data-report`, `band-gauge`,
+  `trend-report-chart`, `alarm-display` and `alarms-report`. No count moved.
+- **Still true for CWH/RDU/101-00**: its humidity LOW bound and temperature
+  LOW bound are withheld because `Enable_Humid_NLT` / `Enable_Temp_NLT` are
+  `False` — that is the flag doing what it is for, not this defect.
+
 ## [Unreleased] - Delete a functional location, with everything in it for a super admin (2026-10-03)
 
 Operator: *"add delete option for functional locations for super admin"*.

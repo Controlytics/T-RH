@@ -170,7 +170,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
       const attributes = attrsByInstrument.get(row.instrumentId) ?? [];
       if (attributes.length === 0) continue;
 
-      const { limits, attributeKeys } = limitsFor(limitCfg.keys, attributes);
+      const { limits, attributeKeys, texts: limitTexts } = limitsFor(limitCfg.keys, attributes);
       const reading = {
         temperature: row.temperature?.value ?? null,
         humidity: row.humidity?.value ?? null,
@@ -268,6 +268,10 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
                 // from one nobody ever administered — both of which are null above.
                 highEnabled: boundEnabled[LIMIT_BOUND[check.metric].HIGH],
                 lowEnabled: boundEnabled[LIMIT_BOUND[check.metric].LOW],
+                // The text beside each bound's number, frozen with it;
+                // `limitSnapshot` nulls it for a bound that is not in force.
+                thresholdHighText: limitTexts[LIMIT_BOUND[check.metric].HIGH],
+                thresholdLowText: limitTexts[LIMIT_BOUND[check.metric].LOW],
                 snapshotAt: now.toISOString(),
               }) as Prisma.InputJsonObject,
               instrumentId: row.instrumentId,
@@ -834,7 +838,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
         if (action === 'raise' && raw && typeof raw.value === 'number') {
           const shown = formatDecimals(raw.value, decimals) ?? String(raw.value);
           const condition = describeRangeFault(metric, shown, low, high);
-          const { attributeKeys } = rangeFor(rangeCfg.keys, attrsByInstrument.get(row.instrumentId) ?? []);
+          const { attributeKeys, texts } = rangeFor(rangeCfg.keys, attrsByInstrument.get(row.instrumentId) ?? []);
           const snapshot: SensorRangeSnapshot = {
             kind: 'SENSOR_RANGE',
             metric,
@@ -846,6 +850,10 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
             rangeHigh: high,
             lowKey: isTemp ? attributeKeys.temperatureLow : attributeKeys.humidityLow,
             highKey: isTemp ? attributeKeys.temperatureHigh : attributeKeys.humidityHigh,
+            // The text beside each bound's number, frozen with it; null for a
+            // bound that is not in force.
+            rangeLowText: low === null ? null : (isTemp ? texts.temperatureLow : texts.humidityLow),
+            rangeHighText: high === null ? null : (isTemp ? texts.temperatureHigh : texts.humidityHigh),
             decimals,
             description: condition,
             snapshotAt: now.toISOString(),

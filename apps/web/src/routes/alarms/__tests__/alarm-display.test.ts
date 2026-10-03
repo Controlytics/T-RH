@@ -199,6 +199,24 @@ describe('limitText', () => {
     expect(limitText({ ...base, ruleSnapshot: {} })).toBe('—');
   });
 
+  // Operator, 2026-10-03: a limit attribute may carry text beside its number
+  // (`60 (For Reference)`); the text is FROZEN on the snapshot and prints in
+  // the number's place. A bare number (null text) prints as before.
+  it('prints the bound\'s FROZEN text in place of the number', () => {
+    expect(limitText({ ...base, ruleSnapshot: { limit: 60, decimals: 0, thresholdHigh: 60, thresholdHighText: '60 (For Reference)' } }))
+      .toBe('> 60 (For Reference)');
+    expect(limitText({ ...base, limitKind: 'LOW', ruleSnapshot: { limit: 18, decimals: 1, thresholdLowText: '18 min', thresholdHighText: 'ignored' } }))
+      .toBe('< 18 min');
+    expect(limitText({ ...base, ruleSnapshot: { limit: 25, decimals: 1, thresholdHighText: null } })).toBe('> 25.0');
+  });
+
+  it('prints a range alarm\'s frozen span text too', () => {
+    expect(limitText({
+      ...base, source: 'SENSOR_RANGE', limitKind: null,
+      ruleSnapshot: { rangeLow: -40, rangeHigh: 50, rangeHighText: '50 (max)' } as AlarmRowT['ruleSnapshot'],
+    })).toBe('-40 – 50 (max)');
+  });
+
   // A RULE alarm's snapshot has no `limit` field at all — it is the real shape
   // `ruleSnapshot()` produces in apps/api/src/modules/alarms/decide.ts:117-129:
   // { ruleId, name, metric, comparison, thresholdLow, thresholdHigh, delaySeconds,

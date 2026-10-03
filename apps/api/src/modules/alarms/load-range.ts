@@ -53,7 +53,13 @@ export async function loadRangeConfig(): Promise<SensorRangeConfig> {
 export function rangeFor(
   keys: SensorRangeConfig['keys'],
   attributes: { key: string; value: string }[],
-): { bounds: SensorRangeBounds; attributeKeys: Record<RangeBound, string | null> } {
+): {
+  bounds: SensorRangeBounds;
+  attributeKeys: Record<RangeBound, string | null>;
+  /** The text each bound's attribute carries beside its number, null for a
+   *  bare number — frozen onto the range alarm and printed in its place. */
+  texts: Record<RangeBound, string | null>;
+} {
   const hit = (bound: RangeBound) => resolveLimit(keys[bound], attributes);
   const th = hit('temperatureHigh');
   const tl = hit('temperatureLow');
@@ -71,6 +77,12 @@ export function rangeFor(
       temperatureLow: tl?.key ?? null,
       humidityHigh: hh?.key ?? null,
       humidityLow: hl?.key ?? null,
+    },
+    texts: {
+      temperatureHigh: th?.text ?? null,
+      temperatureLow: tl?.text ?? null,
+      humidityHigh: hh?.text ?? null,
+      humidityLow: hl?.text ?? null,
     },
   };
 }

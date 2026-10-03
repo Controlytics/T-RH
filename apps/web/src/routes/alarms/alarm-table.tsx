@@ -329,7 +329,7 @@ function valueMark(text: string, word: boolean): ReactNode {
 }
 
 /** The bound it fired against, from the FROZEN snapshot. */
-export function AlarmLimitCell({ a, texts, limits }: {
+export function AlarmLimitCell({ a, texts, limits, limitTexts }: {
   a: AlarmRow;
   texts?: AlarmDisplayTexts;
   /**
@@ -339,9 +339,11 @@ export function AlarmLimitCell({ a, texts, limits }: {
    * it showed for those rows before the alarm's own thresholds were suppressed.
    */
   limits?: { tempMin?: number | null; tempMax?: number | null; rhMin?: number | null; rhMax?: number | null } | null;
+  /** The attribute's own text for each current bound, printed in its place. */
+  limitTexts?: { tempMin?: string | null; tempMax?: string | null; rhMin?: string | null; rhMax?: string | null } | null;
 }) {
   const lg = useLarge();
-  return <td className={`whitespace-nowrap ${ALARM_CELL} tabular-nums ${lg ? 'font-semibold text-slate-700' : 'text-slate-500'}`}>{screenLimitText(a, texts, limits)}</td>;
+  return <td className={`whitespace-nowrap ${ALARM_CELL} tabular-nums ${lg ? 'font-semibold text-slate-700' : 'text-slate-500'}`}>{screenLimitText(a, texts, limits, limitTexts)}</td>;
 }
 
 /** The reading that brought it back in limit. */

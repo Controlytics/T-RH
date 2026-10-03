@@ -64,7 +64,7 @@ import {
  * records the page shows.
  */
 export function AlarmsWidget({
-  instrumentId, period, limits, onExportPdf, statusTexts, inactivityTexts,
+  instrumentId, period, limits, limitTexts, onExportPdf, statusTexts, inactivityTexts,
   labels, dateTimeFormat, settingsButton = null,
 }: {
   instrumentId: string;
@@ -72,6 +72,9 @@ export function AlarmsWidget({
   /** This instrument's current bounds. The widget covers ONE instrument, so it
    *  can fill the Limit cell for the sources that carry no bound themselves. */
   limits?: { tempMin?: number | null; tempMax?: number | null; rhMin?: number | null; rhMax?: number | null } | null;
+  /** The attribute's own text for each of those bounds (`limitText` on the
+   *  overview row), printed in the number's place (operator, 2026-10-03). */
+  limitTexts?: { tempMin?: string | null; tempMax?: string | null; rhMin?: string | null; rhMax?: string | null } | null;
   onExportPdf: () => void;
   /** Configured status wording, from the same `/api/config/alarm-limits/status-texts`
    *  the Alarms page reads — `undefined` while loading, in which case `statusText()`
@@ -296,7 +299,7 @@ export function AlarmsWidget({
                   <AlarmTypeCell a={a} texts={inactivityTexts} marker={quadrantTone(a)} />
                   <AlarmTimeCell value={a.raisedAt} formatDate={formatDate} formatTime={formatTime} />
                   <AlarmValueCell a={a} texts={inactivityTexts} />
-                  <AlarmLimitCell a={a} texts={inactivityTexts} limits={limits} />
+                  <AlarmLimitCell a={a} texts={inactivityTexts} limits={limits} limitTexts={limitTexts} />
                   <AlarmTimeCell
                     value={a.clearedAt}
                     formatDate={formatDate}

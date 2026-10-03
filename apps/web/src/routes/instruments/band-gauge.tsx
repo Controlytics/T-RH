@@ -170,6 +170,14 @@ export interface BandGaugeProps {
   decimals: number;
   min: number | null | undefined;
   max: number | null | undefined;
+  /**
+   * The attribute's own TEXT for each bound (`60 (For Reference)`), from the
+   * server's `limitText` — printed in the bound cell in the number's place,
+   * without the unit (the unit belongs to a number; the text may carry its
+   * own). Null / absent = the number at the precision (operator, 2026-10-03).
+   */
+  minText?: string | null;
+  maxText?: string | null;
   limitSource: 'INSTRUMENT' | 'ROOM' | null;
   roomCode: string | null;
   /**
@@ -224,7 +232,7 @@ export interface BandGaugeProps {
 }
 
 export function BandGauge({
-  label, unit, reading, decimals, min, max, limitSource, roomCode,
+  label, unit, reading, decimals, min, max, minText = null, maxText = null, limitSource, roomCode,
   instrumentStatus = null, accent, icon = null,
   sensorError = false, rangeError = false, sensorWords, formatTs, delayMs = 0,
   settingsButton = null,
@@ -302,8 +310,12 @@ export function BandGauge({
   // Same problem in the third of a card each bound gets, and ONE size for both:
   // two bounds of one quantity set at different sizes would read as different
   // kinds of number.
-  const hiText = formatDecimals(max, decimals) ?? '—';
-  const loText = formatDecimals(min, decimals) ?? '—';
+  // A bound's own text wins over its number (operator, 2026-10-03); the unit
+  // is then withheld, since it belongs to a number.
+  const hiHasText = finite(max) && typeof maxText === 'string' && maxText.trim() !== '';
+  const loHasText = finite(min) && typeof minText === 'string' && minText.trim() !== '';
+  const hiText = hiHasText ? maxText! : (formatDecimals(max, decimals) ?? '—');
+  const loText = loHasText ? minText! : (formatDecimals(min, decimals) ?? '—');
   const boundLen = Math.max(hiText.length, loText.length);
   const boundSize = boundLen <= 6 ? 'text-2xl' : boundLen <= 9 ? 'text-lg' : 'text-sm';
 
@@ -340,7 +352,7 @@ export function BandGauge({
   });
 
   const cells = [
-    finite(max) ? boundCell('up', 'High limit', hiText, true) : null,
+    finite(max) ? boundCell('up', 'High limit', hiText, !hiHasText) : null,
     {
       key: 'status',
       gap: 'gap-1',
@@ -362,7 +374,7 @@ export function BandGauge({
         </>
       ),
     },
-    finite(min) ? boundCell('down', 'Low limit', loText, true) : null,
+    finite(min) ? boundCell('down', 'Low limit', loText, !loHasText) : null,
   ].filter((c): c is { key: string; gap: string; body: ReactElement } => c !== null);
   // Red the moment the reading leaves the band, so a low breach — whose arc has
   // no length to see — still reads as one from the ring alone.
@@ -487,7 +499,7 @@ export function BandGauge({
         <div
           className="relative grid overflow-hidden rounded-lg border border-slate-200 bg-white py-3"
           style={{ gridTemplateColumns: `repeat(${cells.length}, minmax(0, 1fr))` }}
-          title={`Limits ${formatSetPoint(min, max, decimals)} (${sourceText})`}
+          title={`Limits ${formatSetPoint(min, max, decimals, { min: minText, max: maxText })} (${sourceText})`}
         >
           {cells.map((cell, i) => (
             <div

@@ -40,6 +40,30 @@ describe('formatSetPoint', () => {
     expect(formatSetPoint(Number.NaN, Number.NaN, 1)).toBe(NOT_AVAILABLE);
     expect(formatSetPoint(Number.NEGATIVE_INFINITY, 25, 1)).toBe('NMT 25.0');
   });
+
+  // Operator, 2026-10-03: "text is included in limits … in dashboard show the
+  // same text only". The server sends the attribute's text beside the number
+  // (`limitText`); the text prints in the number's place, verbatim.
+  describe('a bound carrying text', () => {
+    it('prints the text in place of the number, keeping the NMT / NLT word', () => {
+      expect(formatSetPoint(null, 60, 0, { max: '60 (For Reference)' })).toBe('NMT 60 (For Reference)');
+      expect(formatSetPoint(30, null, 0, { min: '30 min' })).toBe('NLT 30 min');
+    });
+
+    it('mixes a text bound and a numeric bound in one range', () => {
+      expect(formatSetPoint(18, 27, 1, { max: '27 (For Reference)' })).toBe('18.0 - 27 (For Reference)');
+    });
+
+    it('never captions a bound that is not in force', () => {
+      // A text for a null bound is a stale caller; the server nulls both together.
+      expect(formatSetPoint(null, null, 1, { max: '60 (For Reference)' })).toBe(NOT_AVAILABLE);
+      expect(formatSetPoint(18, null, 1, { max: '60 (For Reference)' })).toBe('NLT 18.0');
+    });
+
+    it('a null text prints the number at the precision, as before', () => {
+      expect(formatSetPoint(18, 25, 1, { min: null, max: null })).toBe('18.0 - 25.0');
+    });
+  });
 });
 
 describe('outOfSpec', () => {

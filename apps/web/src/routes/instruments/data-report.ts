@@ -153,6 +153,12 @@ export interface SlotBounds {
   min: number | null | undefined;
   max: number | null | undefined;
   decimals: number;
+  /** The attribute's own TEXT for each bound (`60 (For Reference)`), from the
+   *  server's `limitText` — printed in the limit cell in the number's place
+   *  (operator, 2026-10-03). The extremes beside it are still judged on the
+   *  number. Absent / null = the number at the precision. */
+  minText?: string | null;
+  maxText?: string | null;
   /** The probe's declared SPAN — not the spec limit above it. A reading outside
    *  it is not a measurement and prints the out-of-range word. Undeclared =
    *  unbounded, the same rule the on-screen table and the range alarm use. */
@@ -184,7 +190,7 @@ const orDash = (v: string) => (v.trim() ? v.trim() : '-');
 /** `NMT 27.0`, `NLT 18.0`, `18.0 - 27.0`, or the set-point module's own word for
  *  "no bound" — ONE definition of how a bound is written, shared with the screens. */
 export function limitText(b: SlotBounds): string {
-  return formatSetPoint(b.min, b.max, b.decimals);
+  return formatSetPoint(b.min, b.max, b.decimals, { min: b.minText, max: b.maxText });
 }
 
 /** A reading at the slot's own resolved precision, or a dash. */

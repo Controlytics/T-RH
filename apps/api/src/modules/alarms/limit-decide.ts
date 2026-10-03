@@ -146,6 +146,16 @@ export function limitSnapshot(input: {
    */
   highEnabled?: boolean;
   lowEnabled?: boolean;
+  /**
+   * The TEXT each bound's attribute carried beside its number at raise time —
+   * `60 (For Reference)` — null when the value was a bare number (2026-10-03).
+   * The Limit cells and the Alarm Report print it in place of the number, so
+   * it is frozen for the same reason the number is: editing the attribute
+   * tomorrow must not re-caption a closed excursion. Only ever set for a bound
+   * that is in force (`thresholdHigh`/`Low` non-null).
+   */
+  thresholdHighText?: string | null;
+  thresholdLowText?: string | null;
   snapshotAt: string;
 }): Record<string, unknown> {
   return {
@@ -161,6 +171,8 @@ export function limitSnapshot(input: {
     thresholdLow: input.thresholdLow ?? null,
     highEnabled: input.highEnabled ?? null,
     lowEnabled: input.lowEnabled ?? null,
+    thresholdHighText: input.thresholdHigh == null ? null : (input.thresholdHighText ?? null),
+    thresholdLowText: input.thresholdLow == null ? null : (input.thresholdLowText ?? null),
     description: describeLimit({
       metric: input.metric as LimitMetric,
       limitKind: input.limitKind as LimitKind,

@@ -2,10 +2,10 @@ import { useMemo, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { readingAge, oldestReadingTs } from './status';
-import { formatSetPoint, outOfSpec, faultWord, boundInForce, NOT_AVAILABLE } from './set-point';
+import { formatSetPoint, outOfSpec, faultWord, boundText, NOT_AVAILABLE, type SetPointTexts } from './set-point';
 import { useSensorWords } from '@/hooks/use-failure-text';
 import { usePanelToolbarSlot } from './panel-card';
-import { formatDecimals, clampDecimals } from '@digilog/shared';
+import { formatDecimals } from '@digilog/shared';
 import {
   useTelemetryOverview,
   type OverviewRow,
@@ -265,30 +265,32 @@ function actual(
  * `aria-label` is `formatSetPoint`'s string, so what a screen reader hears —
  * and what a test asserts — is unchanged by the drawing.
  */
-function RangeBadge({ min, max, decimals, hue }: {
+function RangeBadge({ min, max, decimals, hue, texts }: {
   min: number | null | undefined;
   max: number | null | undefined;
   decimals: number;
   hue: 'temp' | 'rh';
+  /** The attribute's own text for each bound, printed in the figure's place. */
+  texts?: SetPointTexts;
 }) {
-  const text = formatSetPoint(min, max, decimals);
+  const text = formatSetPoint(min, max, decimals, texts);
   if (text === NOT_AVAILABLE) return <>{text}</>;
-  const dp = clampDecimals(decimals);
-  const f = (n: number) => n.toFixed(dp);
-  const hasMin = boundInForce(min);
-  const hasMax = boundInForce(max);
+  // Each figure through the ONE rule (`boundText`): the attribute's text when
+  // it carries one, else the number at the instrument's precision.
+  const lo = boundText(min, texts?.min, decimals);
+  const hi = boundText(max, texts?.max, decimals);
   return (
     <span className={`tv-range tv-range-${hue}`} aria-label={text} role="img">
-      {hasMin && hasMax ? (
+      {lo !== null && hi !== null ? (
         <>
-          <span className="tv-range-v">{f(min)}</span>
+          <span className="tv-range-v">{lo}</span>
           <span className="tv-range-sep" aria-hidden="true" />
-          <span className="tv-range-v">{f(max)}</span>
+          <span className="tv-range-v">{hi}</span>
         </>
       ) : (
         <>
-          <span className="tv-range-k">{hasMax ? 'NMT' : 'NLT'}</span>
-          <span className="tv-range-v">{f(hasMax ? (max as number) : (min as number))}</span>
+          <span className="tv-range-k">{hi !== null ? 'NMT' : 'NLT'}</span>
+          <span className="tv-range-v">{hi ?? lo}</span>
         </>
       )}
     </span>
@@ -655,7 +657,10 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
                       it answers "why do two probes in one room show different
                       bands" when asked, without another cell to read past. */}
                   <td className={spec} title={setPointSource(r.limitSource)}>
-                    <RangeBadge min={r.limits?.tempMin} max={r.limits?.tempMax} decimals={r.decimals.temperature} hue="temp" />
+                    <RangeBadge
+                      min={r.limits?.tempMin} max={r.limits?.tempMax} decimals={r.decimals.temperature} hue="temp"
+                      texts={{ min: r.limitText?.tempMin, max: r.limitText?.tempMax }}
+                    />
                   </td>
 
                   <td
@@ -665,7 +670,10 @@ export function TelemetryTable({ functionalLocationId, directOnly }: { functiona
                     {chip(rhText, r.humidity ? '%' : undefined)}
                   </td>
                   <td className={spec} title={setPointSource(r.limitSource)}>
-                    <RangeBadge min={r.limits?.rhMin} max={r.limits?.rhMax} decimals={r.decimals.humidity} hue="rh" />
+                    <RangeBadge
+                      min={r.limits?.rhMin} max={r.limits?.rhMax} decimals={r.decimals.humidity} hue="rh"
+                      texts={{ min: r.limitText?.rhMin, max: r.limitText?.rhMax }}
+                    />
                   </td>
 
                   {/* ONLINE / OFFLINE as a pill, per the reference. The word carries

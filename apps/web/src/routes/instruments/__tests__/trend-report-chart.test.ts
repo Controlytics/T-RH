@@ -350,6 +350,33 @@ describe('the trend report shows the trend', () => {
     expect(byLabel['First reading']).toContain('22.4');
   });
 
+  // Operator, 2026-10-03: "text is included in limits … show that text in
+  // reports and show max and min values". The server sends the attribute's
+  // text beside the bound it counted against; the line quotes the text, the
+  // extremes still print.
+  it('quotes a bound\'s own text on the below / above line and keeps the extremes', async () => {
+    const { report } = await capture(baseInput({
+      charts: [{
+        ...drawnChart,
+        summary: withServerSummary(
+          summariseSlot(readings, 't', 'Temperature', '°C', 1, 18, 27),
+          {
+            numericCount: 2500, min: 17.0, max: 99.9, avg: 20.2,
+            belowCount: 2, aboveCount: 7, outOfSpecCount: 9,
+            limitMin: 18, limitMax: 27, limitMinText: null, limitMaxText: '27 (For Reference)',
+          },
+        ),
+      }],
+      coverage: { returned: 3, total: 2500 },
+    }));
+    const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x);
+    const summary = tables.find((t: any) => t.head[0] === 'Temperature — period summary')!;
+    const byLabel = Object.fromEntries(summary.body.map((r: string[]) => [r[0], r[1]]));
+    expect(byLabel['— below / above limit']).toBe('2 below 18.0  /  7 above 27 (For Reference)');
+    expect(byLabel['Maximum']).toBe('99.9 °C');
+    expect(byLabel['Minimum']).toBe('17.0 °C');
+  });
+
   it('labels the table as averaged when it holds averaged points, and points at the raw record', async () => {
     const { report, text } = await capture(baseInput({ tableIsAveraged: true, averagedLabel: '5 minutes' }));
     const titles = report.getSnapshot().sections.map((x: any) => x.title).filter(Boolean);

@@ -268,9 +268,14 @@ function addSummary(report: ReportDoc, summary: SlotSummary, formatDateTime: (d:
     // An absent side is NOT narrated either ("no low limit set — not assessed"
     // until 2026-09-07): a bound not in force is not shown, and the qualifier
     // on the total above already says which side was assessed.
+    // The bound prints its attribute's own text when it carries one
+    // (`27 (For Reference)`), else the number — the same rule as every set
+    // point (operator, 2026-10-03).
+    const bound = (v: number | null, text: string | null | undefined) =>
+      (typeof text === 'string' && text.trim() ? text : num(v, d));
     const sides = [
-      lowAssessed ? `${(summary.belowCount ?? 0).toLocaleString()} below ${num(summary.limitMin, d)}` : null,
-      highAssessed ? `${(summary.aboveCount ?? 0).toLocaleString()} above ${num(summary.limitMax, d)}` : null,
+      lowAssessed ? `${(summary.belowCount ?? 0).toLocaleString()} below ${bound(summary.limitMin, summary.limitMinText)}` : null,
+      highAssessed ? `${(summary.aboveCount ?? 0).toLocaleString()} above ${bound(summary.limitMax, summary.limitMaxText)}` : null,
     ].filter((s): s is string => s !== null);
     if (sides.length) rows.push(['— below / above limit', sides.join('  /  ')]);
   }

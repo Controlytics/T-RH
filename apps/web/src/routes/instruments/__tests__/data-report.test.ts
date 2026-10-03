@@ -74,6 +74,21 @@ describe('the reference layout', () => {
     expect(limitText({ min: 18, max: 27, decimals: 1 })).toBe('18.0 - 27.0');
   });
 
+  // Operator, 2026-10-03: "text is included in limits and ranges show that
+  // text in reports and show max and min values". The attribute's own text
+  // prints in the limit cell; the extremes still print, judged on the NUMBER.
+  it('prints a limit\'s own text in the limit cell and keeps the extremes', () => {
+    expect(limitText({ min: null, max: 60, decimals: 0, maxText: '60 (For Reference)' }))
+      .toBe('NMT 60 (For Reference)');
+    const rows = dataReportParameterRows({
+      scope, period, intervalMs: null, fmt,
+      temp: { ...temp, min: 18, max: 27, maxText: '27 (For Reference)' },
+      rh: { ...rh, max: 60, maxText: '60 (For Reference)' },
+    });
+    expect(rows[4]).toEqual(['Temp. Limit :', '18.0 - 27 (For Reference)', 'RH Limit :', 'NMT 60 (For Reference)']);
+    expect(rows[5]).toEqual(['Temp. Max :', '22.9 , Temp. Min : 21.2', 'RH Max :', '63']);
+  });
+
   it('prints a dash, never an empty cell, for a field nobody could fill', () => {
     const rows = dataReportParameterRows({
       scope: { blockName: '', areaName: '  ', locationName: '', instrumentLabel: 'X' },

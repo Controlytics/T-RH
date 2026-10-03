@@ -177,6 +177,27 @@ describe('a row', () => {
   it('has no unit for a metric that is not a measurement', () => {
     expect(uomFor(alarm({ metric: 'OFFLINE' }))).toBe('-');
   });
+
+  // Operator, 2026-10-03: "text is included in limits … show that text in
+  // reports". The text is FROZEN beside the number; a bare number (null text)
+  // prints at the frozen precision as before.
+  it('prints a bound\'s FROZEN text in its set-point column', () => {
+    const { high, low } = setPoints(alarm({
+      limitKind: 'HIGH',
+      ruleSnapshot: {
+        limit: 60, limitKind: 'HIGH', thresholdHigh: 60, thresholdLow: 30, decimals: 0,
+        thresholdHighText: '60 (For Reference)', thresholdLowText: null,
+      },
+    }));
+    expect(high).toBe('60 (For Reference)');
+    expect(low).toBe('30');
+  });
+
+  it('a row raised before the pair was frozen still prints the breached bound\'s text', () => {
+    expect(setPoints(alarm({
+      ruleSnapshot: { limit: 27, limitKind: 'HIGH', decimals: 1, thresholdHighText: '27 (For Reference)' },
+    })).high).toBe('27 (For Reference)');
+  });
 });
 
 describe('truncationNote', () => {

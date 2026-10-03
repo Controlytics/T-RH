@@ -272,16 +272,23 @@ export function setPoints(a: AlarmRow): { high: string; low: string } {
   // fixture that omits them fails the build rather than silently reading undefined.
   const s = a.ruleSnapshot;
   const dp = s?.decimals ?? undefined;
-  const show = (v: number | null | undefined) =>
-    (typeof v === 'number' ? (formatDecimals(v, dp ?? 1) ?? String(v)) : null);
+  // The bound's own FROZEN text (`60 (For Reference)`) prints in the number's
+  // place, as on every set point (operator, 2026-10-03: "show that text in
+  // reports"). Frozen with the number, so an edit tomorrow cannot re-caption
+  // this row; a bare number prints at the frozen precision as before.
+  const show = (v: number | null | undefined, text?: string | null) => {
+    if (typeof v !== 'number') return null;
+    if (typeof text === 'string' && text.trim()) return text;
+    return formatDecimals(v, dp ?? 1) ?? String(v);
+  };
 
-  let high = show(s?.thresholdHigh);
-  let low = show(s?.thresholdLow);
+  let high = show(s?.thresholdHigh, s?.thresholdHighText);
+  let low = show(s?.thresholdLow, s?.thresholdLowText);
 
   if (high === null && low === null && typeof s?.limit === 'number') {
     const kind = (s.limitKind ?? a.limitKind ?? '').toUpperCase();
-    if (kind === 'HIGH') high = show(s.limit);
-    else if (kind === 'LOW') low = show(s.limit);
+    if (kind === 'HIGH') high = show(s.limit, s.thresholdHighText);
+    else if (kind === 'LOW') low = show(s.limit, s.thresholdLowText);
   }
 
   /**

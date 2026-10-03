@@ -140,6 +140,7 @@ interface ChartBody {
     first: string; last: string;
     belowCount: number | null; aboveCount: number | null; outOfSpecCount: number | null;
     limitMin: number | null; limitMax: number | null;
+    limitMinText?: string | null; limitMaxText?: string | null;
   }>;
 }
 
@@ -712,5 +713,41 @@ describe('every server resolver agrees about a disabled bound', () => {
     // 99.9 is above 27. If the gate were lost this would be 1, and the strip
     // would print a breach the chart above it draws no line for.
     expect(sum.aboveCount).toBeNull();
+  });
+});
+
+/**
+ * A limit attribute carrying TEXT beside its number (`60 (For Reference)`,
+ * operator 2026-10-03): the NUMBER is the bound the breach counts are taken
+ * against, and the TEXT rides on the summary beside it so the report's
+ * printed bound and its count come from one answer. Over the wire, because
+ * Fastify strips an undeclared summary key silently.
+ */
+describe('a limit carrying text, on the chart summary', () => {
+  let textId: string;
+
+  beforeAll(async () => {
+    textId = await createInstrument(`TRNG-TEXT-${s}`);
+    await prisma.instrumentAttribute.createMany({
+      data: [
+        { instrumentId: textId, key: 'High Temperature Limit', value: '27 (For Reference)' },
+        { instrumentId: textId, key: 'Low Temperature Limit', value: '18' },
+      ],
+    });
+    await seed(textId, 'temperature', [
+      { ts: new Date(t0.getTime()), value: 24.5 },
+      { ts: new Date(t0.getTime() + STEP_MS), value: 30 },
+    ]);
+  });
+
+  it('counts breaches against the NUMBER and sends the TEXT beside it', async () => {
+    const res = await telemetry(textId, `?from=${FROM}&to=${TO}&points=100`);
+    const sum = (res.json() as ChartBody).summaries!.temperature;
+    expect(sum.limitMax).toBe(27);
+    expect(sum.aboveCount).toBe(1);
+    expect(sum.limitMaxText).toBe('27 (For Reference)');
+    // A bare number carries no text — the report prints it at the precision.
+    expect(sum.limitMin).toBe(18);
+    expect(sum.limitMinText).toBeNull();
   });
 });

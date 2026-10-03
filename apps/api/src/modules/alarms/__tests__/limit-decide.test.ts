@@ -131,6 +131,20 @@ describe('limitSnapshot — both bounds are frozen', () => {
     snapshotAt: '2026-09-01T10:00:00.000Z',
   };
 
+  // Operator, 2026-10-03: a limit attribute may carry text beside its number
+  // (`27 (For Reference)`). The text is frozen WITH the number, and never for a
+  // bound that is not in force — a caption for a withheld bound would print it.
+  it('freezes each bound\'s TEXT beside its number, and only for a bound in force', () => {
+    const snap = limitSnapshot({
+      ...base, thresholdHigh: 27, thresholdLow: null,
+      thresholdHighText: '27 (For Reference)', thresholdLowText: '18 (stale)',
+    });
+    expect(snap.thresholdHighText).toBe('27 (For Reference)');
+    expect(snap.thresholdLowText).toBeNull();
+    // A bare number freezes a null text, and an older caller omits both.
+    expect(limitSnapshot({ ...base, thresholdHigh: 27 }).thresholdHighText).toBeNull();
+  });
+
   it('freezes the pair, not just the one that fired', () => {
     const snap = limitSnapshot({ ...base, thresholdHigh: 27, thresholdLow: 18 });
     expect(snap.thresholdHigh).toBe(27);

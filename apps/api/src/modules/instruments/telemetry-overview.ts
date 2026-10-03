@@ -120,6 +120,17 @@ export interface OverviewRow {
    */
   limitEnabled: { tempMin: boolean; tempMax: boolean; rhMin: boolean; rhMax: boolean };
   /**
+   * The TEXT a bound's attribute carries beside its number — `60 (For
+   * Reference)` — which the set point prints in place of the bare number
+   * (operator, 2026-10-03: "text is included in limits and ranges show that
+   * text in reports … in dashboard show the same text only"). Null = print
+   * the number at the instrument's precision, as always. Follows `limits`
+   * exactly: null wherever the bound is null (switched off, inverted, absent,
+   * room-sourced), so no consumer can caption a bound the server withheld.
+   * The NUMBER in `limits` is still what status and alarms are judged on.
+   */
+  limitText: LimitTexts;
+  /**
    * Where `limits` came from, so the UI can say so rather than leaving an
    * operator to guess why two instruments in one room show different bands.
    */
@@ -317,7 +328,25 @@ export function instrumentLimits(
   keys: Awaited<ReturnType<typeof loadLimitConfig>>['keys'],
   attributes: { key: string; value: string }[],
 ): RoomLimits | null {
-  const { limits } = limitsFor(keys, attributes);
+  return instrumentLimitsWithText(keys, attributes)?.band ?? null;
+}
+
+/** The text each bound prints in place of its number, null = the number. */
+export type LimitTexts = { tempMin: string | null; tempMax: string | null; rhMin: string | null; rhMax: string | null };
+
+export const NO_LIMIT_TEXT: LimitTexts = { tempMin: null, tempMax: null, rhMin: null, rhMax: null };
+
+/**
+ * `instrumentLimits` plus the TEXT each bound carries (operator, 2026-10-03:
+ * "text is included in limits … show that text"). ONE resolution: a text
+ * follows its bound exactly — an inverted pair nulls both, a room-sourced band
+ * has none — so a caption can never print for a bound that is not there.
+ */
+export function instrumentLimitsWithText(
+  keys: Awaited<ReturnType<typeof loadLimitConfig>>['keys'],
+  attributes: { key: string; value: string }[],
+): { band: RoomLimits; texts: LimitTexts } | null {
+  const { limits, texts } = limitsFor(keys, attributes);
   const tempOk = !limitsInverted(limits.temperatureHigh, limits.temperatureLow);
   const rhOk = !limitsInverted(limits.humidityHigh, limits.humidityLow);
   const band: RoomLimits = {
@@ -328,7 +357,16 @@ export function instrumentLimits(
   };
   const declaresSomething =
     band.tempMin !== null || band.tempMax !== null || band.rhMin !== null || band.rhMax !== null;
-  return declaresSomething ? band : null;
+  if (!declaresSomething) return null;
+  return {
+    band,
+    texts: {
+      tempMin: band.tempMin === null ? null : texts.temperatureLow,
+      tempMax: band.tempMax === null ? null : texts.temperatureHigh,
+      rhMin: band.rhMin === null ? null : texts.humidityLow,
+      rhMax: band.rhMax === null ? null : texts.humidityHigh,
+    },
+  };
 }
 
 export async function buildTelemetryOverview(
@@ -458,7 +496,8 @@ export async function buildTelemetryOverview(
     // that declares nothing — a cleanroom's specification IS a property of the
     // room, and that reasoning (2026-08-11) still holds where the device is
     // silent.
-    const own = instrumentLimits(limitCfg.keys, inst.attributes);
+    const ownResolved = instrumentLimitsWithText(limitCfg.keys, inst.attributes);
+    const own = ownResolved?.band ?? null;
     const roomBand: RoomLimits | null = inst.room
       ? {
           tempMin: inst.room.tempMin, tempMax: inst.room.tempMax,
@@ -500,6 +539,16 @@ export async function buildTelemetryOverview(
       rhMin: limitEnabled.rhMin ? resolved.rhMin : null,
       rhMax: limitEnabled.rhMax ? resolved.rhMax : null,
     };
+    // The text follows its bound through the same gate — a switched-off bound
+    // keeps no caption either. A room-sourced band has no text (a room's
+    // bound is a number column, not an attribute).
+    const ownTexts = ownResolved?.texts ?? NO_LIMIT_TEXT;
+    const limitText: LimitTexts = {
+      tempMin: limits?.tempMin === null || limits === null ? null : ownTexts.tempMin,
+      tempMax: limits?.tempMax === null || limits === null ? null : ownTexts.tempMax,
+      rhMin: limits?.rhMin === null || limits === null ? null : ownTexts.rhMin,
+      rhMax: limits?.rhMax === null || limits === null ? null : ownTexts.rhMax,
+    };
     // The source describes a band. Once every bound in it is gone there is no
     // band left to attribute, and "from this instrument" over an empty set is a
     // §11 string that contradicts itself.
@@ -522,6 +571,7 @@ export async function buildTelemetryOverview(
       locationAttribute: attributeValue(inst.attributes, 'location'),
       limits,
       limitEnabled,
+      limitText,
       limitSource,
       temperature,
       humidity,

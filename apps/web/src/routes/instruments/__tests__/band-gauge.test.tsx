@@ -319,6 +319,21 @@ describe('BandGauge render', () => {
       .toHaveAttribute('title', 'Limits 18.0 - 27.0 (from this instrument)');
   });
 
+  // Operator, 2026-10-03: "text is included in limits … in dashboard show the
+  // same text only". The server's `limitText` prints in the bound cell in the
+  // number's place, WITHOUT the unit; the arc still sweeps against the number.
+  it('prints a bound\'s own text in its cell, without the unit', () => {
+    renderGauge({ maxText: '27 (For Reference)' });
+    const hi = screen.getByText('27 (For Reference)');
+    expect(hi).toBeInTheDocument();
+    expect(hi.textContent).toBe('27 (For Reference)');
+    // The low bound, with no text, prints its number WITH the unit as before.
+    expect(screen.getByText('18.0').textContent).toBe('18.0°C');
+    expect(screen.getByTestId('band-arc').getAttribute('data-position')).toBe('48.89');
+    expect(screen.getByText('High limit').closest('div')!.parentElement)
+      .toHaveAttribute('title', 'Limits 18.0 - 27 (For Reference) (from this instrument)');
+  });
+
   it('holds the arc’s resting position in the style, not in the animation', () => {
     // The keyframe's `to` is this same value, so the reading's position is
     // correct with the animation absent, disabled or already finished.

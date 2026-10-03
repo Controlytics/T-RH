@@ -26,7 +26,7 @@ import { sanitizeStrings } from '../../lib/sanitize.js';
 import { generateToken, hashToken, tokenPrefix, tokenMatches } from './token.js';
 import { encryptToken, decryptToken, tokenKeyConfigured } from './token-crypto.js';
 import { parseInstrumentCsv, type InstrumentDraft, type AttributeColumn } from './bulk-csv.js';
-import { buildTelemetryOverview, loadAliases, instrumentLimits, loadActiveWindowMinutes } from './telemetry-overview.js';
+import { buildTelemetryOverview, loadAliases, instrumentLimitsWithText, NO_LIMIT_TEXT, loadActiveWindowMinutes } from './telemetry-overview.js';
 import { loadLimitConfig, enabledBoundsFor } from '../alarms/load-limits.js';
 import { loadDecimalsConfig, decimalsFor, annotateAttribute } from './decimals.js';
 import { loadAttributeAccess, refuseAttributeWrite, needsReauth } from './attribute-access.js';
@@ -181,6 +181,8 @@ const CHART_HARD_CAP = 200_000;
  */
 type SerialisedSummary = Omit<RangeSummary, 'first' | 'last'> & {
   first: string; last: string; limitMin: number | null; limitMax: number | null;
+  /** The text each bound prints in place of its number; null = the number. */
+  limitMinText: string | null; limitMaxText: string | null;
 };
 
 type CredentialRow = { tokenPrefix: string; tokenEncrypted?: string | null };
@@ -723,6 +725,20 @@ export default async function instrumentRoutes(app: FastifyInstance) {
                       rhMax: { type: 'boolean' },
                     },
                   },
+                  // The text a bound's attribute carries beside its number
+                  // (`60 (For Reference)`), printed in place of the bare
+                  // number on every set point. Null = the number. Declared
+                  // inner key by inner key — an undeclared nested key is
+                  // stripped silently, which has bitten this endpoint before.
+                  limitText: {
+                    type: 'object',
+                    properties: {
+                      tempMin: { type: 'string', nullable: true },
+                      tempMax: { type: 'string', nullable: true },
+                      rhMin: { type: 'string', nullable: true },
+                      rhMax: { type: 'string', nullable: true },
+                    },
+                  },
                   limitSource: { type: 'string', nullable: true },
                   temperature: {
                     type: 'object', nullable: true,
@@ -1040,6 +1056,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
                   outOfSpecCount: { type: 'integer', nullable: true },
                   limitMin: { type: 'number', nullable: true },
                   limitMax: { type: 'number', nullable: true },
+                  // The text each bound prints in place of its number
+                  // (2026-10-03). Declared or Fastify strips it silently.
+                  limitMinText: { type: 'string', nullable: true },
+                  limitMaxText: { type: 'string', nullable: true },
                   min: { type: 'number' }, max: { type: 'number' }, avg: { type: 'number' },
                   first: { type: 'string' }, last: { type: 'string' },
                 },
@@ -1124,7 +1144,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
      * against a band the alarm system deliberately ignores would put a number
      * in a §11 report that no alarm on this system could ever corroborate.
      */
-    const own = instrumentLimits(limitCfg.keys, attributes);
+    const ownResolved = instrumentLimitsWithText(limitCfg.keys, attributes);
+    const own = ownResolved?.band ?? null;
     const rawBand = own ?? (exists.room
       ? { tempMin: exists.room.tempMin, tempMax: exists.room.tempMax, rhMin: exists.room.rhMin, rhMax: exists.room.rhMax }
       : null);
@@ -1162,12 +1183,24 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       rhMin: boundEnabled.humidityLow ? rawBand.rhMin : null,
       rhMax: boundEnabled.humidityHigh ? rawBand.rhMax : null,
     };
-    const boundsFor = (key: string): { low: number | null; high: number | null } => {
+    // The TEXT each bound prints (`60 (For Reference)`), following the bound
+    // through the same gate — null wherever the bound is null, and always null
+    // for a room-sourced band. Rides on the summary beside `limitMin`/`limitMax`
+    // so the report's printed bound and its breach count come from ONE answer.
+    const texts = ownResolved?.texts ?? NO_LIMIT_TEXT;
+    const boundsFor = (key: string): {
+      low: number | null; high: number | null; lowText: string | null; highText: string | null;
+    } => {
       const slot = slotFor(key);
-      if (!band || !slot) return { low: null, high: null };
-      return slot === 'temperature'
-        ? { low: band.tempMin ?? null, high: band.tempMax ?? null }
-        : { low: band.rhMin ?? null, high: band.rhMax ?? null };
+      if (!band || !slot) return { low: null, high: null, lowText: null, highText: null };
+      const low = (slot === 'temperature' ? band.tempMin : band.rhMin) ?? null;
+      const high = (slot === 'temperature' ? band.tempMax : band.rhMax) ?? null;
+      return {
+        low,
+        high,
+        lowText: low === null || !own ? null : (slot === 'temperature' ? texts.tempMin : texts.rhMin),
+        highText: high === null || !own ? null : (slot === 'temperature' ? texts.tempMax : texts.rhMax),
+      };
     };
 
     const latest = await getLatest(id);
@@ -1252,6 +1285,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           last: k.summary.last.toISOString(),
           limitMin: k.bounds.low,
           limitMax: k.bounds.high,
+          limitMinText: k.bounds.lowText,
+          limitMaxText: k.bounds.highText,
         };
       }
     }

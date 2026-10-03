@@ -51,6 +51,15 @@ export interface AlarmRow {
      * must treat `undefined` as "unknown" and never as "off".
      */
     highEnabled?: boolean | null; lowEnabled?: boolean | null;
+    /**
+     * The TEXT each bound's attribute carried beside its number at raise time
+     * (`60 (For Reference)`), printed in the number's place (2026-10-03). Null
+     * for a bare number; absent on rows raised before the field existed.
+     * Frozen with the number, for the same reason.
+     */
+    thresholdHighText?: string | null; thresholdLowText?: string | null;
+    /** The same for a SENSOR_RANGE alarm's span. */
+    rangeLowText?: string | null; rangeHighText?: string | null;
     /** The instrument's display precision AT RAISE TIME. Null on rows raised before
      *  the field existed. */
     decimals?: number | null;
@@ -356,18 +365,24 @@ export function screenLimitText(
   a: AlarmRow,
   texts?: AlarmDisplayTexts,
   limits?: { tempMin?: number | null; tempMax?: number | null; rhMin?: number | null; rhMax?: number | null } | null,
+  /** The attribute's own text for each current bound (`limitText` on the
+   *  overview row), printed in the number's place (operator, 2026-10-03). */
+  limitTexts?: { tempMin?: string | null; tempMax?: string | null; rhMin?: string | null; rhMax?: string | null } | null,
 ): string {
   if (a.source === 'INSTRUMENT_LIMIT') return limitText(a, texts);
 
   const dp = alarmDecimals(a);
   const f = (n: number) => formatDecimals(n, dp) ?? String(n);
+  const withText = (n: number, t: string | null | undefined) => (typeof t === 'string' && t.trim() ? t : f(n));
   const metric = a.metric === 'TEMPERATURE' ? 'temp' : a.metric === 'HUMIDITY' ? 'rh' : null;
   if (metric && limits) {
     const lo = metric === 'temp' ? limits.tempMin : limits.rhMin;
     const hi = metric === 'temp' ? limits.tempMax : limits.rhMax;
+    const loText = metric === 'temp' ? limitTexts?.tempMin : limitTexts?.rhMin;
+    const hiText = metric === 'temp' ? limitTexts?.tempMax : limitTexts?.rhMax;
     const parts: string[] = [];
-    if (typeof hi === 'number' && Number.isFinite(hi)) parts.push(`> ${f(hi)}`);
-    if (typeof lo === 'number' && Number.isFinite(lo)) parts.push(`< ${f(lo)}`);
+    if (typeof hi === 'number' && Number.isFinite(hi)) parts.push(`> ${withText(hi, hiText)}`);
+    if (typeof lo === 'number' && Number.isFinite(lo)) parts.push(`< ${withText(lo, loText)}`);
     if (parts.length) return parts.join(' / ');
   }
   return '—';
@@ -394,7 +409,11 @@ export function limitText(a: AlarmRow, texts?: AlarmDisplayTexts): string {
   // the probe declared. From the frozen snapshot, so re-specifying the sensor
   // tomorrow does not rewrite what a past fault says it exceeded.
   if (a.source === 'SENSOR_RANGE') {
-    return rangeLimitText(a.ruleSnapshot?.rangeLow ?? null, a.ruleSnapshot?.rangeHigh ?? null);
+    return rangeLimitText(
+      a.ruleSnapshot?.rangeLow ?? null,
+      a.ruleSnapshot?.rangeHigh ?? null,
+      { low: a.ruleSnapshot?.rangeLowText, high: a.ruleSnapshot?.rangeHighText },
+    );
   }
 
   // The bound is quoted at the same precision as the reading it was compared
@@ -405,7 +424,11 @@ export function limitText(a: AlarmRow, texts?: AlarmDisplayTexts): string {
   const limit = a.ruleSnapshot?.limit;
   if (typeof limit === 'number' && Number.isFinite(limit)) {
     const kind = a.limitKind ?? a.ruleSnapshot?.limitKind;
-    return `${kind === 'LOW' ? '<' : '>'} ${f(limit)}`;
+    // The bound's own frozen TEXT (`60 (For Reference)`) prints in the
+    // number's place, as on every set point (operator, 2026-10-03).
+    const frozenText = kind === 'LOW' ? a.ruleSnapshot?.thresholdLowText : a.ruleSnapshot?.thresholdHighText;
+    const shown = typeof frozenText === 'string' && frozenText.trim() ? frozenText : f(limit);
+    return `${kind === 'LOW' ? '<' : '>'} ${shown}`;
   }
 
   const { comparison, thresholdLow, thresholdHigh } = a.ruleSnapshot ?? {};

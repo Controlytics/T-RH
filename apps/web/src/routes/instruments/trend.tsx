@@ -441,8 +441,10 @@ export function InstrumentTrend() {
       ? `Room ${trend.overview.room.code}${trend.overview.room.label ? ` (${trend.overview.room.label})` : ''}`
       : 'Not placed on a floorplan',
     limitsText: trend.overview
-      ? `Temp ${formatSetPoint(trend.overview.limits?.tempMin, trend.overview.limits?.tempMax, tempDecimals)} / `
-        + `RH ${formatSetPoint(trend.overview.limits?.rhMin, trend.overview.limits?.rhMax, humidDecimals)} `
+      ? `Temp ${formatSetPoint(trend.overview.limits?.tempMin, trend.overview.limits?.tempMax, tempDecimals,
+          { min: trend.overview.limitText?.tempMin, max: trend.overview.limitText?.tempMax })} / `
+        + `RH ${formatSetPoint(trend.overview.limits?.rhMin, trend.overview.limits?.rhMax, humidDecimals,
+          { min: trend.overview.limitText?.rhMin, max: trend.overview.limitText?.rhMax })} `
         + `(${trend.overview.limitSource === 'INSTRUMENT' ? 'from this instrument'
           : trend.overview.limitSource === 'ROOM' ? `from room ${trend.overview.room?.code ?? '—'}` : 'no limits set'})`
       : 'Unknown',
@@ -514,6 +516,9 @@ export function InstrumentTrend() {
     reportSpanMs: number,
     color: string,
     serverSummaries: Record<string, ServerSlotSummary> | undefined,
+    // The attribute's own text for each bound, printed beside the limit
+    // line in the number's place (operator, 2026-10-03).
+    texts: { min?: string | null; max?: string | null } = {},
   ): Promise<{ section: TrendChartSection; plotted: { ts: string; value: number }[] }> => {
     // The summary is computed from `rows` (the report's own STORED readings,
     // never the averaged points the chart plots): the minimum of a set of
@@ -562,7 +567,9 @@ export function InstrumentTrend() {
         plotted: [],
       };
     }
-    const image = await renderChartToPng({ title, unit, spanMs: reportSpanMs, min, max, series: [series] });
+    const image = await renderChartToPng({
+      title, unit, spanMs: reportSpanMs, min, max, minText: texts.min, maxText: texts.max, series: [series],
+    });
     return {
       section: {
         title,
@@ -616,6 +623,7 @@ export function InstrumentTrend() {
             'Temperature', '°C', tempKey, tempDecimals,
             trend.overview?.limits?.tempMin, trend.overview?.limits?.tempMax, rows, reportSpanMs, TEMP_COLOR,
             fetched.summaries,
+            { min: trend.overview?.limitText?.tempMin, max: trend.overview?.limitText?.tempMax },
           );
           charts.push(r.section);
           if (tempKey) plottedLong.push(...r.plotted.map((pt) => ({ key: tempKey, value: pt.value, ts: pt.ts })));
@@ -625,6 +633,7 @@ export function InstrumentTrend() {
             'Humidity', '%RH', humidKey, humidDecimals,
             trend.overview?.limits?.rhMin, trend.overview?.limits?.rhMax, rows, reportSpanMs, HUMID_COLOR,
             fetched.summaries,
+            { min: trend.overview?.limitText?.rhMin, max: trend.overview?.limitText?.rhMax },
           );
           charts.push(r.section);
           if (humidKey) plottedLong.push(...r.plotted.map((pt) => ({ key: humidKey, value: pt.value, ts: pt.ts })));
@@ -690,6 +699,8 @@ export function InstrumentTrend() {
           formatDateTime,
           temp: {
             key: tempKey, min: trend.overview?.limits?.tempMin, max: trend.overview?.limits?.tempMax, decimals: tempDecimals,
+            // The attribute's own text for each bound, printed in the limit cell.
+            minText: trend.overview?.limitText?.tempMin, maxText: trend.overview?.limitText?.tempMax,
             // The probe's SPAN, distinct from the spec limits — a reading outside
             // it prints the out-of-range word, exactly as the on-screen table does.
             rangeLow: trend.overview?.rangeBounds?.temperatureLow ?? null,
@@ -698,6 +709,7 @@ export function InstrumentTrend() {
           },
           rh: {
             key: humidKey, min: trend.overview?.limits?.rhMin, max: trend.overview?.limits?.rhMax, decimals: humidDecimals,
+            minText: trend.overview?.limitText?.rhMin, maxText: trend.overview?.limitText?.rhMax,
             rangeLow: trend.overview?.rangeBounds?.humidityLow ?? null,
             rangeHigh: trend.overview?.rangeBounds?.humidityHigh ?? null,
             ...extremes(humidKey),
@@ -904,6 +916,8 @@ export function InstrumentTrend() {
               decimals={trend.overview.decimals.temperature ?? TELEMETRY_DECIMALS_FALLBACK}
               min={trend.overview.limits?.tempMin}
               max={trend.overview.limits?.tempMax}
+              minText={trend.overview.limitText?.tempMin}
+              maxText={trend.overview.limitText?.tempMax}
               limitSource={trend.overview.limitSource}
               roomCode={trend.overview.room?.code ?? null}
               instrumentStatus={trend.overview.status}
@@ -927,6 +941,8 @@ export function InstrumentTrend() {
               decimals={trend.overview.decimals.humidity ?? TELEMETRY_DECIMALS_FALLBACK}
               min={trend.overview.limits?.rhMin}
               max={trend.overview.limits?.rhMax}
+              minText={trend.overview.limitText?.rhMin}
+              maxText={trend.overview.limitText?.rhMax}
               limitSource={trend.overview.limitSource}
               roomCode={trend.overview.room?.code ?? null}
               instrumentStatus={trend.overview.status}
@@ -1029,6 +1045,8 @@ export function InstrumentTrend() {
               spanMs={spanMs}
               min={trend.overview?.limits?.tempMin}
               max={trend.overview?.limits?.tempMax}
+              minText={trend.overview?.limitText?.tempMin}
+              maxText={trend.overview?.limitText?.tempMax}
               series={tempSeries ? [{ ...tempSeries, color: TEMP_COLOR }] : []}
               // The latest STORED reading, not the last plotted point — which is
               // a bucket MEAN whenever a chart interval is selected. Same value
@@ -1063,6 +1081,8 @@ export function InstrumentTrend() {
               spanMs={spanMs}
               min={trend.overview?.limits?.rhMin}
               max={trend.overview?.limits?.rhMax}
+              minText={trend.overview?.limitText?.rhMin}
+              maxText={trend.overview?.limitText?.rhMax}
               series={humidSeries ? [{ ...humidSeries, color: HUMID_COLOR }] : []}
               onZoom={onZoom}
               onResetZoom={onResetZoom}
@@ -1148,6 +1168,7 @@ export function InstrumentTrend() {
           instrumentId={id}
           period={period}
           limits={trend.overview?.limits}
+          limitTexts={trend.overview?.limitText}
           onExportPdf={() => setPendingReport({ kind: 'alarms' })}
           statusTexts={statusTexts}
           inactivityTexts={inactivityTexts}

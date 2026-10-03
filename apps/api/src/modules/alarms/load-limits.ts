@@ -79,7 +79,18 @@ export function enabledBoundsFor(
 export function limitsFor(
   keys: LimitConfig['keys'],
   attributes: { key: string; value: string }[],
-): { limits: InstrumentLimits; attributeKeys: Record<LimitBound, string | null> } {
+): {
+  limits: InstrumentLimits;
+  attributeKeys: Record<LimitBound, string | null>;
+  /**
+   * The TEXT each bound's attribute carries beside its number (`60 (For
+   * Reference)`), null when the value is a bare number. The number in
+   * `limits` is what is enforced; this is what the set point prints
+   * (operator, 2026-10-03). Frozen onto the alarm snapshot beside the number
+   * for the same reason the number is.
+   */
+  texts: Record<LimitBound, string | null>;
+} {
   const hit = (bound: LimitBound) => resolveLimit(keys[bound], attributes);
   const th = hit('temperatureHigh');
   const tl = hit('temperatureLow');
@@ -97,6 +108,12 @@ export function limitsFor(
       temperatureLow: tl?.key ?? null,
       humidityHigh: hh?.key ?? null,
       humidityLow: hl?.key ?? null,
+    },
+    texts: {
+      temperatureHigh: th?.text ?? null,
+      temperatureLow: tl?.text ?? null,
+      humidityHigh: hh?.text ?? null,
+      humidityLow: hl?.text ?? null,
     },
   };
 }
