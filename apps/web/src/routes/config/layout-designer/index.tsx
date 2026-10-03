@@ -148,6 +148,28 @@ export function LayoutDesignerPage() {
     }, { title: 'Plan created', message: `"${body.name}" is a blank ${preset.label.toLowerCase()} canvas. Draw rooms on it.` }, () => setNewPlan(null));
   };
 
+  // Delete the whole plan (2026-10-01, operator: "add delete option in layout
+  // designer configuration"): its rooms and links go with it (cascade) and
+  // the instruments in those rooms become UNPLACED — they are not deleted,
+  // and the confirm says how many. The same audited, re-authenticated
+  // request the API has always had (`DELETE /api/floorplans/:id`,
+  // FLOORPLAN_DELETED); nothing on the dashboard lists a plan that is gone.
+  const deletePlan = () => {
+    if (!plan) return;
+    const rooms = plan.rooms.length;
+    const placed = (planDetail?.id === plan.id ? planDetail.rooms : []).reduce((n, r) => n + (r.instruments?.length ?? 0), 0);
+    const what = [`${rooms} room${rooms === 1 ? '' : 's'}`, ...(plan.links.length ? [`${plan.links.length} link${plan.links.length === 1 ? '' : 's'}`] : [])].join(' and ');
+    if (!window.confirm(`Delete the plan "${plan.name}" with its ${what}?${placed ? ` ${placed} instrument${placed === 1 ? '' : 's'} become unplaced (not deleted).` : ''} This cannot be undone.`)) return;
+    const name = plan.name;
+    run('UPDATE_FLOORPLAN', async (pw) => {
+      await del(`/api/floorplans/${plan.id}`, pw);
+    }, { title: 'Plan deleted', message: `"${name}" and its rooms are gone${placed ? `; ${placed} instrument${placed === 1 ? ' is' : 's are'} unplaced` : ''}.` }, () => {
+      dispatch({ type: 'setTool', tool: 'select' });
+      setPending(null);
+      setPlanId('');   // the list's first plan is picked, if one is left
+    });
+  };
+
   const fileRef = useRef<HTMLInputElement | null>(null);
   const uploadTracing = async (file: File) => {
     if (!plan) return;
@@ -360,6 +382,11 @@ export function LayoutDesignerPage() {
             <Button size="sm" className="border border-white/30 bg-white/10 text-white hover:bg-white/20" onClick={() => setNewPlan({ name: '', preset: 'landscape' })}>New plan</Button>
             <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadTracing(f); }} />
             {plan && <Button size="sm" className="border border-white/30 bg-white/10 text-white hover:bg-white/20" onClick={() => fileRef.current?.click()}>Tracing image</Button>}
+            {plan && (
+              <Button size="sm" className="border border-red-300/60 bg-red-500/25 text-white hover:bg-red-500/40" onClick={deletePlan} disabled={saving} aria-label={`Delete plan ${plan.name}`}>
+                Delete plan
+              </Button>
+            )}
           </div>
         }
       />

@@ -1563,6 +1563,37 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
       drop that gate**: without it the compact card wins in mid-size rooms and
       changes QC's cards, whose smallest Location is 9.1. An empty room's name
       steps clear of door swings and columns (`placeRoomName`).
+    - **"CWH — Module-F" is TWO floors (2026-10-01, operator: "for module F
+      there are 2 layouts ground floor and first floor … give option in
+      Module F like Ground Floor and First floor").** `module-f-layout.ts`
+      traces BOTH from the vector PDFs `Layouts/CWH/Mod-F Ground floor.pdf` /
+      `Mod-F First floor.pdf` (PDF points, PyMuPDF, page stored rotated
+      270°): plans "CWH — Module-F — Ground Floor" (the generated plan
+      RENAMED, `renamesPlan`) and "— First Floor" (created at the same sort
+      order). 16 of 17 instruments placed; **072-00 "3.5KL Blender" is
+      deliberately UNPLACED** — no Module-F drawing has that room (Module-E's
+      does). **Both floors are DRAWN LARGER than measured** — half as tall
+      again, the narrow instrument columns wider — through `enlargeLayout()`
+      in `architectural-layout.ts` (the ONE rule: leafless openings stretch,
+      hinged doors keep their width and stay beside the nearest wall line,
+      columns keep their size); the trace keeps the MEASURED numbers
+      (`MODULE_F_*_TRACE`), `MODULE_F_*_LAYOUT` is what is drawn. **A plan
+      can be ONE FLOOR of a building** — `annotations.floor {group, label,
+      order}` — and say where NORTH is (`annotations.north`, degrees
+      clockwise from the top; Module-F: 90); both DECLARED in `planProps`.
+      The dashboard lists a building once with a floor switch in its title
+      bar (`planEntries`), **offers only the SELECTED location's layouts**
+      (`plansForSelection`: the plans holding one of the selection's
+      instruments; a selection on no plan says so), and the legend's compass
+      turns to the marked north. Cards: drawn OVER outlined plant only when
+      illegible clear of it (`chooseCardOverPlant`; the plant layer
+      `fp-plant` now sits between walls and cards), `mini` wins a tie on a
+      quarter-larger ID and wraps to three lines sooner
+      (`CARD_SHAPES[*].three`). The Layout Designer has a **Delete plan**
+      button (confirm names the unplaced instruments; the existing audited
+      `DELETE /api/floorplans/:id`). The four older 2D floors and Stability
+      render byte-identically. `draw-architectural-floor.ts --area "Module-F"`
+      draws both; **applied LOCALLY; AWS needs it.** No count moved.
   - **A SECOND QC plan, "CWH — QC Layout-2" (2026-10-01)**, traced from
     `Layouts/CWH/QC Layout-2.png` (the same floor, clean) in
     `qc-layout-2.ts` by `scripts/draw-qc-layout-2.ts`: polygon rooms (the two

@@ -1,5 +1,96 @@
 # Changelog
 
+## [Unreleased] - Module-F as two floors, only the selected area's layouts, delete a plan (2026-10-01)
+
+Operator, three asks in one message: *"for module F there are 2 layouts ground
+floor and first floor, we need to show as 2 seperate layouts in Module F, we
+need to give option in Module F like Ground Floor and First floor, when user
+selected one layout should be displayed"*; *"when ever im going to cwh block
+and click on area and going to graphical view there all areas layouts was
+displaying only that area layout should be displayed other areas should not
+displayed"*; *"and add delete option in layout designer configuration"*.
+
+- **"CWH — Module-F" is TWO plans now, "CWH — Module-F — Ground Floor" and
+  "CWH — Module-F — First Floor"**, traced from the two vector PDFs
+  (`Layouts/CWH/Mod-F Ground floor.pdf`, `Mod-F First floor.pdf`, now in the
+  repo) in `apps/api/src/modules/floorplans/module-f-layout.ts` and drawn in
+  the 2D architectural style: 28 and 21 rooms, 39 and 31 door leaves and
+  openings, the lift and sliding doors with their bars, 15 columns each, the
+  east-wall glazing and the first floor's eight windows, the two charging
+  hoppers and the RMG platform outlined. Both overlaid on their drawings
+  before applying. The generated plan was RENAMED to the ground floor (its
+  20 rooms replaced; audited), the first floor CREATED beside it at the same
+  sort order. **16 of Module-F's 17 instruments are placed**, each in the room
+  its Location names (five by judgement, listed in the file header);
+  **CWH/RDU/072-00 "3.5KL Blender" is NOT placed** — neither Module-F drawing
+  has a room for a 3.5KL blender (the only one so labelled is on the Module-E
+  drawing), so it is left unplaced rather than guessed at; it shows in the
+  Tabular view and on the Instruments page.
+- **Both floors are DRAWN LARGER than the drawing, in two ways**, like QC 3's
+  north row: half as tall again (each is ~2.9:1 as drawn and sat in the top
+  half of its panel with ten of the sixteen cards too small to read), and the
+  narrow instrument columns wider (the BLENDER AREA and HOLD AREA-01 columns
+  on the ground floor, the staging and dispensing columns on the first).
+  `enlargeLayout()` in `architectural-layout.ts` is the one rule: corners and
+  stubs move through the axis maps, a leafless opening stretches with its
+  wall, a HINGED door keeps its width and stays beside the wall line nearest
+  it (a door beside a corner stays beside that corner), a column keeps its
+  size in its wall. The trace keeps the MEASURED numbers
+  (`MODULE_F_*_TRACE`); `MODULE_F_*_LAYOUT` is what is drawn.
+- **A plan can be ONE FLOOR of a building** — `annotations.floor = {group,
+  label, order}` — and can say where NORTH is (`annotations.north`, degrees
+  clockwise from the top; both Module-F drawings mark it to the right). Both
+  declared in the plan response schema (mutation-checked: dropping an inner
+  key fails the e2e). The dashboard lists a building ONCE, by its group name,
+  with a **Ground Floor | First Floor** switch in the title bar (the shown
+  floor pressed; the lowest floor first — the server lists "First" before
+  "Ground" alphabetically). Full screen shows the floor's own name and no
+  switch, as before. The legend's compass turns to where the drawing marks
+  north and reads **North**; a plan whose drawing marks none still reads
+  "Plan north".
+- **With a location selected, the graphical view offers ONLY that location's
+  layouts** — the plans that hold one of the selection's instruments in a
+  room (`plansForSelection`); other areas' plans are neither drawn nor listed.
+  A Block selection offers every plan that holds one of its instruments. A
+  selection placed on no plan says so ("No layout shows this location's
+  instruments") instead of showing another area's floor; while the rows are
+  still loading it says nothing. With nothing selected every plan is offered,
+  as before.
+- **Layout Designer: a "Delete plan" button** (beside New plan / Tracing
+  image) — confirms with the plan's name, its room and link counts and how
+  many instruments become UNPLACED (not deleted), then the existing audited,
+  re-authenticated `DELETE /api/floorplans/:id` (`FLOORPLAN_DELETED`,
+  `UPDATE_FLOORPLAN` re-auth); the next plan on the list is selected.
+- **Three card rules for the small rooms, all floors**: (1) a card that would
+  be illegible clear of the outlined plant is drawn OVER it
+  (`chooseCardOverPlant`; Module-F's charging hoppers filled the middle of
+  two rooms ~90 units wide and the card went into the strip above at 5.7
+  units) — the plant layer now draws BETWEEN the walls and the cards
+  (`fp-plant`), where it was last; (2) the narrow-room `mini` card wins a TIE
+  on the smaller heading when its two-line ID prints a quarter larger
+  (ground-floor BINDER PREPARATION: ID 7.8 → 12.7, Location unchanged);
+  (3) `mini` wraps a Location to three lines as soon as a two-line half is
+  over its wrap (`CARD_SHAPES[*].three`; "Blender Charging Area-01" 7.0 → 9.6).
+  QC, QC Microbiology, QC 3, Module-E and Stability render byte-identically
+  in the panel and in full screen (compared before and after; the plant-layer
+  move changes QC 3 by anti-aliasing noise only, measured).
+- `draw-architectural-floor.ts --area "Module-F"` draws both floors (an area
+  may have several layouts; a plan is found by name, else renamed from
+  `renamesPlan`, else created beside its sibling); `draw-cwh-floorplan.ts`
+  skips Module-F. **Applied to `compliance_core_db`; AWS needs
+  `draw-architectural-floor.ts --area "Module-F" --apply` after the next
+  deploy.**
+- Tests: `module-f-layout.test.ts` (61: both floors measured and as drawn —
+  tiling with the voids, every corner on a PDF wall line, every door on its
+  own wall and at its measured width, the corner door anchoring, the
+  instruments; mutation-checked), `floorplan-annotations.e2e.test.ts` 8 → 9,
+  `floorplan-floors.test.tsx` (19: the switch, the per-location offer, the
+  loading guard, north, the plant rules; four mutations caught),
+  `designer-page.test.tsx` 6 → 8, `floorplan-arch.test.tsx` one baseline
+  re-pointed (65). `tsc` clean on both apps, `vite build` OK. Reference
+  renders: `Layouts/CWH/concepts/applied-module-f-{ground,first}-floor.png`.
+  Not seen in the running app.
+
 ## [Unreleased] - The drawn floor plans get the "vivid status" look (2026-10-01)
 
 Operator: *"these layouts look wise not good, make those layout more

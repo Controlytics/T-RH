@@ -830,9 +830,11 @@ describe('an L-shaped room: the card goes in the arm that holds it best', () => 
     return Math.min(locationFont(spec, c.k), codeFont(spec, c.k, CODE));
   };
 
-  it('with only the largest rectangle the Location prints under 5.5 units', () => {
+  it('with only the largest rectangle the smaller heading prints under the legible size', () => {
     const card = chooseCard(BAY, [], LOC, CODE)!;
-    expect(smaller(card)).toBeLessThan(5.5);
+    // 4.9 when this was written; 6.4 since the mini card wraps a Location to
+    // three lines sooner (Module-F, 2026-10-01). Illegible either way.
+    expect(smaller(card)).toBeLessThan(LEGIBLE_LOC_FONT - 2);
   });
 
   it('given the other arm it takes it: both headings over 8 units, the card inside that arm', () => {

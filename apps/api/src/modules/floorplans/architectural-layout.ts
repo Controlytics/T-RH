@@ -63,6 +63,14 @@ export interface ArchAnnotations {
   labels?: { x: number; y: number; text: string }[];
 }
 
+/**
+ * One of several FLOORS of a building (Module-F, 2026-10-01: a ground floor and
+ * a first floor, "we need to give option in Module F like Ground Floor and
+ * First floor"). Plans that share a `group` are one building; the dashboard
+ * lists the group once and offers its floors, lowest `order` first, by `label`.
+ */
+export interface ArchFloor { group: string; label: string; order: number }
+
 /** One floor, as the generic draw script takes it. */
 export interface ArchLayout {
   /** The functional-location AREA this floor is, exactly as stored. */
@@ -74,6 +82,14 @@ export interface ArchLayout {
   building: ArchBuilding;
   rooms: ArchRoom[];
   annotations: ArchAnnotations;
+  /** Set when the area has more than one plan: which floor this one is. */
+  floor?: ArchFloor;
+  /** The plan this floor's plan was called before it was one of several: it is
+   *  RENAMED to `planName` (and audited) rather than left beside the new ones. */
+  renamesPlan?: string;
+  /** Where NORTH is on the drawing, in degrees clockwise from the top of the
+   *  plan, when the drawing marks it. Absent = not marked. */
+  north?: number;
 }
 
 export const rect = (x0: number, y0: number, x1: number, y1: number): Pt[] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
@@ -95,6 +111,96 @@ function pair(axis: ArchDoor['axis'], at: number, from: number, to: number, kind
 }
 export const vPair = (at: number, from: number, to: number, kind: ArchDoor['kind'] = 'ENTRY', swing?: 'out') => pair('x', at, from, to, kind, swing);
 export const hPair = (at: number, from: number, to: number, kind: ArchDoor['kind'] = 'ENTRY', swing?: 'out') => pair('y', at, from, to, kind, swing);
+
+/** A SLIDING door, a lift door or an open bay: an opening with no leaf. */
+export const vSlide = (at: number, from: number, to: number): ArchDoor => vDoor(at, from, to, 'none', 'PASSAGE');
+export const hSlide = (at: number, from: number, to: number): ArchDoor => hDoor(at, from, to, 'none', 'PASSAGE');
+/** The bar a sliding door's panel is drawn as, on its wall: [x0, y0, x1, y1]. */
+export const hBar = (y: number, x0: number, x1: number): [number, number, number, number] => [x0, y - 1.5, x1, y + 1.5];
+export const vBar = (x: number, y0: number, y1: number): [number, number, number, number] => [x - 1.5, y0, x + 1.5, y1];
+
+/**
+ * A stretch of one axis that is DRAWN `add` units longer than the drawing has
+ * it: everything from `from` to `to` spreads out evenly, everything past `to`
+ * moves `add` along.
+ */
+export interface EnlargeBand { from: number; to: number; add: number }
+export interface EnlargeSpec { x?: EnlargeBand[]; y?: EnlargeBand[] }
+
+/** A coordinate on the drawing → where it is drawn, for one axis's bands. */
+export function axisMap(bands: EnlargeBand[] = []): (v: number) => number {
+  return (v) => bands.reduce((n, b) => n + Math.min(1, Math.max(0, (v - b.from) / (b.to - b.from))) * b.add, v);
+}
+
+/** Under this size a box is a column, a window's or a sliding door's thickness:
+ *  it keeps its size and moves with the wall line it stands on. */
+const RIGID_SIZE = 20;
+
+/**
+ * A trace drawn LARGER than the drawing in places (Module-F, 2026-10-01; QC 3's
+ * north row was the first, by hand). A floor whose rooms are too small for an
+ * instrument's card at the size a dashboard panel shows it is stretched where
+ * that is, and nowhere else. The trace keeps the MEASURED numbers; this maps
+ * them, so a re-measure compares like with like. What stretches and what does
+ * not:
+ *   - every corner, stub and caption moves through the axis maps, so rooms
+ *     that tiled still tile and a wall two rooms shared is still shared;
+ *   - an opening with NO leaf (a sliding door, a lift door, an open bay)
+ *     stretches with its wall, and so does its bar;
+ *   - a HINGED door keeps its width — a leaf is as long as the door is wide,
+ *     and a stretched one would sweep the room — and moves with the wall line
+ *     nearest its doorway, so a door drawn beside a corner stays beside that
+ *     corner; the two leaves of a double door move together;
+ *   - a COLUMN keeps its size, and a window or a bar its thickness: each moves
+ *     with the wall line nearest it, so a column in a wall stays in that wall.
+ */
+export function enlargeLayout(layout: ArchLayout, spec: EnlargeSpec): ArchLayout {
+  const fx = axisMap(spec.x), fy = axisMap(spec.y);
+  const xs = [...new Set(layout.rooms.flatMap((r) => r.outline.map(([x]) => x)))];
+  const ys = [...new Set(layout.rooms.flatMap((r) => r.outline.map(([, y]) => y)))];
+  const nearest = (lines: number[], v: number) => lines.reduce((best, g) => (Math.abs(g - v) < Math.abs(best - v) ? g : best), lines[0]);
+  /** One side of a box: its two ends mapped, or — when it is a thickness — moved rigidly with its wall line. */
+  const span = (lo: number, hi: number, f: (v: number) => number, lines: number[]): [number, number] => {
+    if (hi - lo > RIGID_SIZE) return [f(lo), f(hi)];
+    const g = nearest(lines, (lo + hi) / 2);
+    const shift = f(g) - g;
+    return [lo + shift, hi + shift];
+  };
+  const box = ([x0, y0, x1, y1]: [number, number, number, number]): [number, number, number, number] => {
+    const [a0, a1] = span(x0, x1, fx, xs), [b0, b1] = span(y0, y1, fy, ys);
+    return [a0, b0, a1, b1];
+  };
+  const room = (r: ArchRoom): ArchRoom => {
+    const door = (d: ArchDoor): ArchDoor => {
+      const along = d.axis === 'x' ? fy : fx, across = d.axis === 'x' ? fx : fy;
+      if (d.hinge === 'none') return { ...d, at: across(d.at), from: along(d.from), to: along(d.to) };
+      // The doorway: this leaf, and the other leaf of a double door (1 unit away on the same wall).
+      const mates = r.doors.filter((o) => o.hinge !== 'none' && o.axis === d.axis && o.at === d.at
+        && (o === d || Math.abs(o.from - d.to) <= 1.01 || Math.abs(d.from - o.to) <= 1.01));
+      const mid = (Math.min(...mates.map((o) => o.from)) + Math.max(...mates.map((o) => o.to))) / 2;
+      // The wall's own two ends are wall lines, so the nearest one is never past
+      // either: the doorway stays on its wall, and two doors on one wall keep their order.
+      const g = nearest(d.axis === 'x' ? ys : xs, mid);
+      const shift = along(g) - g;
+      return { ...d, at: across(d.at), from: d.from + shift, to: d.to + shift };
+    };
+    return { ...r, outline: r.outline.map(([x, y]) => [fx(x), fy(y)] as Pt), doors: r.doors.map(door) };
+  };
+  const sum = (bands: EnlargeBand[] = []) => bands.reduce((n, b) => n + b.add, 0);
+  const a = layout.annotations;
+  return {
+    ...layout,
+    building: { ...layout.building, x1: layout.building.x1 + sum(spec.x), y1: layout.building.y1 + sum(spec.y) },
+    rooms: layout.rooms.map(room),
+    annotations: {
+      columns: a.columns.map(box),
+      windows: a.windows.map(box),
+      walls: a.walls.map(([x1, y1, x2, y2]) => [fx(x1), fy(y1), fx(x2), fy(y2)] as [number, number, number, number]),
+      ...(a.equipment ? { equipment: a.equipment.map(box) } : {}),
+      ...(a.labels ? { labels: a.labels.map((l) => ({ ...l, x: fx(l.x), y: fy(l.y) })) } : {}),
+    },
+  };
+}
 
 /** The plan's stored canvas: only the RATIO matters (it sets the viewBox height). */
 export function archCanvas(b: ArchBuilding): { width: number; height: number } {
@@ -144,12 +250,19 @@ export function edgeDoor(room: ArchRoom, d: ArchDoor): { edge: number; offset: n
   throw new Error(`door ${d.axis}=${d.at} ${d.from}..${d.to} is on no edge of ${room.code}`);
 }
 
-/** The annotation layer as stored: columns and windows as boxes, stubs as segments. */
-export function archAnnotations(b: ArchBuilding, a: ArchAnnotations) {
+/**
+ * The annotation layer as stored: columns and windows as boxes, stubs as
+ * segments. `plan` adds what belongs to the plan rather than to the drawing's
+ * structure — which floor of a building it is, and where north is; a plan with
+ * neither stores exactly what it always did.
+ */
+export function archAnnotations(b: ArchBuilding, a: ArchAnnotations, plan: { floor?: ArchFloor; north?: number } = {}) {
   const { nx, ny } = normalizer(b);
   const box = ([x0, y0, x1, y1]: [number, number, number, number]) =>
     ({ x: nx(x0), y: ny(y0), w: nx(x1) - nx(x0), h: ny(y1) - ny(y0) });
   return {
+    ...(plan.floor ? { floor: { group: plan.floor.group, label: plan.floor.label, order: plan.floor.order } } : {}),
+    ...(plan.north !== undefined ? { north: plan.north } : {}),
     // The dashboard draws this plan in the 2D ARCHITECTURAL style the operator
     // chose from three concepts (Layouts/CWH/concepts/concept-a-2d.png).
     style: 'architectural' as const,

@@ -37,6 +37,10 @@ const ANNOTATIONS = {
   columns: [{ x: 0.22, y: 0.36, w: 0.045, h: 0.035 }],
   windows: [{ x: 0.001, y: 0.216, w: 0.017, h: 0.044 }],
   walls: [{ x1: 0.337, y1: 0.538, x2: 0.337, y2: 0.6 }],
+  // One floor of a building of several, and where the drawing marks north
+  // (2026-10-01, Module-F).
+  floor: { group: 'FIX — Building', label: 'Ground Floor', order: 0 },
+  north: 90,
 };
 
 beforeAll(async () => {
@@ -134,6 +138,15 @@ describe('the building STRUCTURE survives the response filter (2026-10-01)', () 
     expect(plan.annotations.columns).toEqual(ANNOTATIONS.columns);
     expect(plan.annotations.windows).toEqual(ANNOTATIONS.windows);
     expect(plan.annotations.walls).toEqual(ANNOTATIONS.walls);
+  });
+  it('the FLOOR and NORTH reach the client, inner keys and all (or a building of two floors lists twice and north is "plan north")', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/floorplans', headers: auth });
+    const plan = res.json().data.find((p: any) => p.id === planId);
+    expect(plan.annotations.floor).toEqual({ group: 'FIX — Building', label: 'Ground Floor', order: 0 });
+    expect(plan.annotations.north).toBe(90);
+    const one = await app.inject({ method: 'GET', url: `/api/floorplans/${planId}`, headers: auth });
+    expect(one.json().annotations.floor.label).toBe('Ground Floor');
+    expect(one.json().annotations.north).toBe(90);
   });
   it('the drawing STYLE reaches the client (or the plan silently draws in the standard style)', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/floorplans', headers: auth });

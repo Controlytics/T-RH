@@ -175,6 +175,14 @@ const planProps = {
         x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } } } },
       walls: { type: 'array', items: { type: 'object', properties: {
         x1: { type: 'number' }, y1: { type: 'number' }, x2: { type: 'number' }, y2: { type: 'number' } } } },
+      // ONE FLOOR of a building of several (Module-F, 2026-10-01): plans
+      // sharing `group` are one entry on the dashboard, with a floor switch,
+      // lowest `order` first. Inner keys declared, or Fastify strips them.
+      floor: { type: 'object', nullable: true, properties: {
+        group: { type: 'string' }, label: { type: 'string' }, order: { type: 'number' } } },
+      // Where the drawing marks north, degrees clockwise from the top; absent
+      // when it marks none.
+      north: { type: 'number', nullable: true },
     },
   },
 } as const;

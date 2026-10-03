@@ -315,6 +315,13 @@ export interface PlanAnnotations {
   columns?: { x: number; y: number; w: number; h: number }[];
   windows?: { x: number; y: number; w: number; h: number }[];
   walls?: { x1: number; y1: number; x2: number; y2: number }[];
+  /** Set on a plan that is ONE FLOOR of a building of several (Module-F,
+   *  2026-10-01): plans sharing a `group` are listed once, with a floor switch,
+   *  lowest `order` first. */
+  floor?: { group: string; label: string; order: number } | null;
+  /** Where the drawing marks NORTH, in degrees clockwise from the top of the
+   *  plan. Absent = the drawing marks none, and the legend says "plan north". */
+  north?: number | null;
 }
 
 export interface FloorplanShape {

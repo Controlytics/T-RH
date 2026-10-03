@@ -829,6 +829,34 @@ qc"*).
   proper, and the card sat in the bay with the Location at 4.9 units; 8.5
   now. The gate is what keeps every other floor's cards where they are
   (byte-identical; mutation-checked both ways).
+- **A building of several FLOORS, and only the selected location's layouts
+  (Module-F, same day, operator: "give option in Module F like Ground Floor
+  and First floor"; "only that area layout should be displayed other areas
+  should not displayed").** `plansForSelection(plans, placedRoomIds,
+  scoped)`: with a location selected only the plans holding one of its
+  instruments are offered (the rows are the server's scope; this is a
+  lookup) — a selection on no plan renders `fp-no-layout`, and NOT while the
+  rows are loading. `planEntries(plans)`: plans sharing
+  `annotations.floor.group` are ONE entry, at the first's place, floors by
+  `order` (the server lists "First" before "Ground"); the title bar names
+  the entry and shows a `fp-floor-switch` (aria-pressed) when it has several
+  floors; the other entries are the buttons beside, a building opening on
+  its lowest floor. Full screen: the plan's own name, no switch. `northMark(
+  annotations.north)`: the compass turns and reads "North"; absent = "Plan
+  north" as before. **Cards**: `chooseCardOverPlant` draws a card OVER the
+  outlined plant only when clear of it is under `LEGIBLE_LOC_FONT` — so the
+  plant layer (`fp-plant`) now sits between the walls and the cards, not
+  last; `chooseCard` lets `mini` win a tie on the smaller heading when its
+  two-line ID is a quarter larger; `CARD_SHAPES[*].three` (1.5; `mini` 1)
+  is how far a two-line half may run over the wrap before `splitLabel`
+  takes three lines. The four older 2D floors and Stability are
+  byte-identical in panel and full screen. Layout Designer: **Delete plan**
+  (confirm with room / link / unplaced-instrument counts; `DELETE
+  /api/floorplans/:id` through `run('UPDATE_FLOORPLAN')`; next plan
+  selected). Tests: `floorplan-floors.test.tsx` (19, four mutations caught),
+  `designer-page.test.tsx` 6 → 8; one baseline in `floorplan-arch.test.tsx`
+  re-pointed (the mini three-line wrap raised the L-room's bay card from 4.9
+  to 6.4, still illegible).
 - **Judge a floor at a PANEL's size, not at 2000px.** The first Microbiology
   renders were checked at ~2000px wide and looked roomy; in the dashboard the
   drawing was 1000px wide. Dump the mounted view's `container.innerHTML`, load

@@ -432,6 +432,27 @@ node apps/api/dist/app.js
     continuation rule does not match because that needs `(digits)`).
     Pinned by `__tests__/module-e-layout.test.ts` (16, mutation-checked six
     ways). Applied to `compliance_core_db` only; AWS needs the script run.
+  - **Module-F is TWO floors (same day).** `module-f-layout.ts` (ground: 28
+    rooms, first: 21; both from VECTOR PDFs in PDF points) exports the
+    MEASURED traces (`MODULE_F_GROUND_TRACE` / `_FIRST_TRACE`) and the DRAWN
+    layouts (`_LAYOUT`), the latter through the new `enlargeLayout(layout,
+    {x, y bands})` in `architectural-layout.ts` — taller and wider where the
+    rooms were too small for a card (QC 3's north-row precedent, generalised):
+    leafless openings and bars stretch with the wall, a hinged door keeps its
+    width and moves with the wall line nearest its doorway (a double door's
+    leaves together), a column / window / bar keeps its size or thickness and
+    moves with its wall line. `ArchLayout` gained `floor?` (`{group, label,
+    order}`), `north?` and `renamesPlan?`; `archAnnotations(b, a, {floor,
+    north})` emits them; **`planProps.annotations` DECLARES `floor` (inner
+    keys) and `north`** — the ninth time the response filter has mattered;
+    pinned in `floorplan-annotations.e2e.test.ts` (9), mutation-checked.
+    `draw-architectural-floor.ts` takes SEVERAL layouts per area, finds the
+    plan by name, else RENAMES the plan named by `renamesPlan` (audited
+    `FLOORPLAN_UPDATED`), else CREATES it beside its sibling floor
+    (`FLOORPLAN_CREATED`). 072-00 "3.5KL Blender" is unplaced on purpose.
+    Pinned by `__tests__/module-f-layout.test.ts` (61; mutation-checked:
+    the door anchoring). Applied to `compliance_core_db` only; AWS needs
+    `--area "Module-F" --apply`.
 - **2026-09-16 — the instrument CODE is changeable.** `PUT /api/instruments/:id`
   accepts `code` (shared `updateInstrumentSchema`, same `codeSchema` as create).
   **No count moved, no migration.** The code is the MQTT client id and every

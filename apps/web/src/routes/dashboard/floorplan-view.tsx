@@ -221,6 +221,45 @@ export function roomsToDraw<T extends { rows: unknown[] }>(all: T[], scoped: boo
   return all.some((r) => r.rows.length > 0) ? all : [];
 }
 
+/**
+ * Which plans the view offers (2026-10-01, operator: "when ever im going to cwh
+ * block and click on area and going to graphical view there all areas layouts
+ * was displaying only that area layout should be displayed other areas should
+ * not displayed"). Nothing selected: every plan. A functional location
+ * selected: ONLY the plans that hold one of its instruments in a room — the
+ * layouts of that location — in the order the server sent them. `placed` is
+ * the ids of the rooms the selection's instruments sit in; the rows are scoped
+ * server-side, so this is a lookup, not a second scope.
+ */
+export function plansForSelection<T extends { rooms: { id: string }[] }>(plans: T[], placed: ReadonlySet<string>, scoped: boolean): T[] {
+  if (!scoped) return plans;
+  return plans.filter((p) => p.rooms.some((r) => placed.has(r.id)));
+}
+
+/** One line of the plan switcher: a plan, or a BUILDING of several floors. */
+export interface PlanEntry<T> { key: string; name: string; floors: T[] }
+
+/**
+ * The plans as the switcher lists them (same day, operator: "for module F
+ * there are 2 layouts ground floor and first floor … we need to give option in
+ * Module F like Ground Floor and First floor"). Plans whose annotations name
+ * the same `floor.group` are ONE entry, at the place of the first of them,
+ * with its floors lowest `order` first; every other plan is an entry of its
+ * own. The entry's name is the group's, so the building is listed once.
+ */
+export function planEntries<T extends { id: string; name: string; annotations: { floor?: { group: string; label: string; order: number } | null } | null }>(plans: T[]): PlanEntry<T>[] {
+  const out: PlanEntry<T>[] = [];
+  for (const p of plans) {
+    const group = p.annotations?.floor?.group?.trim();
+    if (!group) { out.push({ key: p.id, name: p.name, floors: [p] }); continue; }
+    const have = out.find((e) => e.key === `group:${group}`);
+    if (have) have.floors.push(p);
+    else out.push({ key: `group:${group}`, name: group, floors: [p] });
+  }
+  for (const e of out) e.floors.sort((a, b) => (a.annotations?.floor?.order ?? 0) - (b.annotations?.floor?.order ?? 0));
+  return out;
+}
+
 export function continuationBase(code: string): string | null {
   const m = /^(.+) \(\d+\)$/.exec(code.trim());
   return m ? m[1].toUpperCase() : null;
@@ -525,7 +564,7 @@ const CARD_LINE = 15;
  * wrap) — the bracket starts the second line. A space still wins when it is
  * nearer the middle.
  */
-export function splitLabel(text: string, max = 20): string[] {
+export function splitLabel(text: string, max = 20, three = 1.5): string[] {
   const t = text.trim();
   if (t.length <= max) return [t];
   const mid = t.length / 2;
@@ -540,17 +579,20 @@ export function splitLabel(text: string, max = 20): string[] {
   // again as the card wraps at (QC 3, CWH/RDU/003-00: "Working standard &
   // reference Standard storage Room (or) stability Room", 68 characters — in
   // two lines it printed at 7.9 units). A label two lines serve keeps two.
-  if (Math.max(two[0].length, two[1].length) <= max * 1.5) return two;
+  // `three` is that "half as long again"; the narrow `mini` card passes 1 —
+  // on a card that wraps at 12, a 16-character line is already the problem
+  // (Module-F, "Blender Charging Area-01": 7.0 units on two lines, 9.9 on three).
+  if (Math.max(two[0].length, two[1].length) <= max * three) return two;
   const words = t.split(/\s+/);
-  let three = two, longest = Math.max(two[0].length, two[1].length);
+  let split = two, longest = Math.max(two[0].length, two[1].length);
   for (let a = 1; a < words.length - 1; a++) {
     for (let b = a + 1; b < words.length; b++) {
       const lines = [words.slice(0, a).join(' '), words.slice(a, b).join(' '), words.slice(b).join(' ')];
       const len = Math.max(...lines.map((l) => l.length));
-      if (len < longest) { longest = len; three = lines; }
+      if (len < longest) { longest = len; split = lines; }
     }
   }
-  return three;
+  return split;
 }
 
 /**
@@ -586,16 +628,17 @@ export function splitLabel(text: string, max = 20): string[] {
  * still leave a heading under `LEGIBLE_LOC_FONT` — otherwise its two-line ID
  * would take over rooms those serve (Microbiology's LAF rooms).
  *
- * `wrap` is how long a Location may be before it takes two lines and `line`
- * the height each extra line adds; `val2Y` is the second reading's baseline on
+ * `wrap` is how long a Location may be before it takes two lines, `three`
+ * how far over that a two-line half may run before it takes three (see
+ * `splitLabel`), and `line` the height each extra line adds; `val2Y` is the second reading's baseline on
  * a stacked card; `idPitch` the second ID line's drop.
  */
 export const CARD_SHAPES = {
-  std: { w: 196, h: 104, band: 26, idY: 19, idFont: 15.5, idLines: 1, idPitch: 0, locY: 46, locFont: 14, line: CARD_LINE, valY: 78, val2Y: 0, valFont: 20, capY: 95, wrap: 20, captions: true, stack: false },
-  wide: { w: 280, h: 76, band: 24, idY: 17, idFont: 15.5, idLines: 1, idPitch: 0, locY: 43, locFont: 14, line: CARD_LINE, valY: 68, val2Y: 0, valFont: 20, capY: 0, wrap: 30, captions: false, stack: false },
-  tall: { w: 124, h: 102, band: 24, idY: 17, idFont: 14, idLines: 1, idPitch: 0, locY: 42, locFont: 14, line: CARD_LINE, valY: 69, val2Y: 93, valFont: 20, capY: 0, wrap: 14, captions: false, stack: true },
-  compact: { w: 170, h: 62, band: 20, idY: 14.5, idFont: 13, idLines: 1, idPitch: 0, locY: 35, locFont: 13, line: CARD_LINE, valY: 54.5, val2Y: 0, valFont: 17, capY: 0, wrap: 26, captions: false, stack: false },
-  mini: { w: 120, h: 112, band: 44, idY: 18.5, idFont: 19, idLines: 2, idPitch: 20, locY: 60.5, locFont: 15, line: 17, valY: 82, val2Y: 104, valFont: 19, capY: 0, wrap: 12, captions: false, stack: true },
+  std: { w: 196, h: 104, band: 26, idY: 19, idFont: 15.5, idLines: 1, idPitch: 0, locY: 46, locFont: 14, line: CARD_LINE, valY: 78, val2Y: 0, valFont: 20, capY: 95, wrap: 20, three: 1.5, captions: true, stack: false },
+  wide: { w: 280, h: 76, band: 24, idY: 17, idFont: 15.5, idLines: 1, idPitch: 0, locY: 43, locFont: 14, line: CARD_LINE, valY: 68, val2Y: 0, valFont: 20, capY: 0, wrap: 30, three: 1.5, captions: false, stack: false },
+  tall: { w: 124, h: 102, band: 24, idY: 17, idFont: 14, idLines: 1, idPitch: 0, locY: 42, locFont: 14, line: CARD_LINE, valY: 69, val2Y: 93, valFont: 20, capY: 0, wrap: 14, three: 1.5, captions: false, stack: true },
+  compact: { w: 170, h: 62, band: 20, idY: 14.5, idFont: 13, idLines: 1, idPitch: 0, locY: 35, locFont: 13, line: CARD_LINE, valY: 54.5, val2Y: 0, valFont: 17, capY: 0, wrap: 26, three: 1.5, captions: false, stack: false },
+  mini: { w: 120, h: 112, band: 44, idY: 18.5, idFont: 19, idLines: 2, idPitch: 20, locY: 60.5, locFont: 15, line: 17, valY: 82, val2Y: 104, valFont: 19, capY: 0, wrap: 12, three: 1, captions: false, stack: true },
 } as const;
 export type CardShape = keyof typeof CARD_SHAPES;
 /** A reading's pill, in units of the reading's font: how far it starts above
@@ -626,7 +669,7 @@ export const LEGIBLE_LOC_FONT = 9;
 /** A card's base size and Location lines for a given shape and Location text. */
 export function cardSpec(shape: CardShape, location: string) {
   const c = CARD_SHAPES[shape];
-  const lines = splitLabel(location, c.wrap);
+  const lines = splitLabel(location, c.wrap, c.three);
   const extra = (lines.length - 1) * c.line;
   return { ...c, lines, extra, h: c.h + extra };
 }
@@ -662,6 +705,13 @@ export function codeFont(spec: ReturnType<typeof cardSpec>, k: number, code: str
  * half the size). `others` gives the room's other inscribed rectangles; they
  * are tried, the same way, ONLY when the largest cannot hold a legible card —
  * so a room whose card is legible where it is never moves.
+ *
+ * The NARROW-room shape also wins a TIE (Module-F, same day): when its smaller
+ * heading prints no smaller than the best so far and its two-line ID prints a
+ * quarter larger. Ground-floor BINDER PREPARATION: the Location is what binds
+ * (7.3 on `tall` and on `mini` alike), so on the smaller heading alone the
+ * first shape tried kept the room and printed the ID at 7.8 where `mini`
+ * prints 12.7. A tie between any other two shapes still goes to the earlier.
  */
 export function chooseCard(
   inner: PixelBox,
@@ -672,14 +722,17 @@ export function chooseCard(
 ): (NonNullable<ReturnType<typeof placeCard>> & { shape: CardShape }) | null {
   let best: (NonNullable<ReturnType<typeof placeCard>> & { shape: CardShape }) | null = null;
   let bestFont = -1;
+  let bestId = -1;
   const tryShapes = (box: PixelBox, shapes: readonly CardShape[]) => {
     for (const shape of shapes) {
       const spec = cardSpec(shape, location);
       const placed = placeCard(box, obstacles, spec.w, spec.h);
       if (!placed) continue;
       const loc = locationFont(spec, placed.k);
-      const font = code ? Math.min(loc, codeFont(spec, placed.k, code)) : loc;
-      if (font > bestFont + 0.25) { bestFont = font; best = { ...placed, shape }; }
+      const id = code ? codeFont(spec, placed.k, code) : loc;
+      const font = Math.min(loc, id);
+      const tie = spec.idLines > 1 && font > bestFont - 0.01 && id > bestId * 1.25;
+      if (font > bestFont + 0.25 || tie) { bestFont = Math.max(font, bestFont); bestId = id; best = { ...placed, shape }; }
     }
   };
   const tryBox = (box: PixelBox) => {
@@ -695,6 +748,40 @@ export function chooseCard(
     }
   }
   return best;
+}
+
+/** The smaller of the two headings a placed card prints — what `chooseCard` ranks by. */
+export function cardHeadingFont(card: { shape: CardShape; k: number }, location: string, code?: string): number {
+  const spec = cardSpec(card.shape, location);
+  const loc = locationFont(spec, card.k);
+  return code ? Math.min(loc, codeFont(spec, card.k, code)) : loc;
+}
+
+/**
+ * A one-instrument room's card, clear of everything on the plan — or, when
+ * that leaves it illegible, clear of the door swings and columns only and
+ * drawn OVER the outlined plant (Module-F first floor, 2026-10-01: each
+ * BLENDER CHARGING AREA has a hopper outlined in the middle of a room ~90
+ * units wide; kept clear of it, the card went into the strip above and
+ * printed the ID at 5.7 units). A reading is what the floor is for; an
+ * outline of fixed plant is context, and the card is drawn after it. Only
+ * when the clear card is under `LEGIBLE_LOC_FONT` and covering the plant
+ * prints larger — a room whose card is legible beside its plant keeps it there.
+ */
+export function chooseCardOverPlant(
+  inner: PixelBox,
+  hard: PixelBox[],
+  plant: PixelBox[],
+  location: string,
+  code?: string,
+  others?: () => PixelBox[],
+): ReturnType<typeof chooseCard> {
+  const clear = chooseCard(inner, plant.length ? [...hard, ...plant] : hard, location, code, others);
+  if (!plant.length) return clear;
+  const clearFont = clear ? cardHeadingFont(clear, location, code) : -1;
+  if (clearFont >= LEGIBLE_LOC_FONT) return clear;
+  const over = chooseCard(inner, hard, location, code, others);
+  return over && cardHeadingFont(over, location, code) > clearFont + 0.25 ? over : clear;
 }
 
 /** The card's Location text for a row: its own Location attribute, else the room's name. */
@@ -802,11 +889,9 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
   const { plans, isLoading: plansLoading } = useFloorplans();
   // Scoped server-side. When a functional location is selected the rows are only
   // that location's instruments, so the rooms drawn below narrow with it.
-  const { rows } = useTelemetryOverview({ functionalLocationId, directOnly });
+  const { rows, isLoading: rowsLoading } = useTelemetryOverview({ functionalLocationId, directOnly });
 
   const [planId, setPlanId] = useState<string>('');
-
-  const plan = plans.find((p) => p.id === planId) ?? plans[0] ?? null;
 
   const byRoom = useMemo(() => {
     const map = new Map<string, OverviewRow[]>();
@@ -818,6 +903,16 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
     }
     return map;
   }, [rows]);
+
+  // With a location selected, only ITS layouts are offered — see
+  // `plansForSelection`; a building of several floors is one entry — see
+  // `planEntries`. The plan shown is the one picked while it is still offered,
+  // else the first entry's lowest floor.
+  const scoped = !!functionalLocationId;
+  const offered = useMemo(() => plansForSelection(plans, new Set(byRoom.keys()), scoped), [plans, byRoom, scoped]);
+  const entries = useMemo(() => planEntries(offered), [offered]);
+  const plan = offered.find((p) => p.id === planId) ?? entries[0]?.floors[0] ?? null;
+  const entry = plan ? entries.find((e) => e.floors.some((p) => p.id === plan.id)) ?? null : null;
 
   const roomViews: RoomView[] = useMemo(() => {
     if (!plan) return [];
@@ -836,8 +931,8 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
     // in, and dropping them left windows floating in space. Readings are still
     // only the selection's (the rows are scoped server-side). A plan holding
     // none of them still draws nothing, and says so below.
-    return roomsToDraw(all, !!functionalLocationId);
-  }, [plan, byRoom, functionalLocationId]);
+    return roomsToDraw(all, scoped);
+  }, [plan, byRoom, scoped]);
 
   // There is NO "not placed on any plan" tray here any more (operator,
   // 2026-09-22: "in graphical view dont show not placed on any panel section").
@@ -882,6 +977,28 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
   // The room-detail panel is no longer opened from here (2026-10-01): a room
   // opens its instrument's TREND page instead (see the room's onClick).
 
+  // A building of several floors: one button per floor, the shown one pressed,
+  // in the panel's title bar. Not in full screen, which shows no option.
+  const floorSwitch = entry && entry.floors.length > 1 ? (
+    <div role="group" aria-label={`Floors of ${entry.name}`} className="flex items-center gap-0.5 rounded-lg bg-white/10 p-0.5" data-testid="fp-floor-switch">
+      {entry.floors.map((p) => {
+        const on = p.id === plan?.id;
+        return (
+          <button
+            key={p.id}
+            type="button"
+            aria-pressed={on}
+            onClick={() => setPlanId(p.id)}
+            className={`rounded-md px-3 py-1 text-xs font-semibold transition-colors ${on ? 'bg-white shadow-sm' : 'text-white/85 hover:bg-white/15 hover:text-white'}`}
+            style={on ? { color: 'var(--theme-primary-dark)' } : undefined}
+          >
+            {p.annotations?.floor?.label ?? p.name}
+          </button>
+        );
+      })}
+    </div>
+  ) : null;
+
   if (!plansLoading && plans.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
@@ -892,6 +1009,25 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
             Configuration → Layout Designer
           </Link>
           {' '}to see rooms here.
+        </p>
+      </div>
+    );
+  }
+
+  // A location is selected and none of its instruments sits in a room on any
+  // plan: there is no layout of THIS location to show, and another area's would
+  // be the wrong picture. Not while the rows are still on their way — an empty
+  // list then means "not loaded", and this would flash before the floor.
+  if (scoped && !plansLoading && !rowsLoading && offered.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center" data-testid="fp-no-layout">
+        <p className="text-sm font-medium text-slate-700">No layout shows this location's instruments.</p>
+        <p className="mt-1 text-xs text-slate-500">
+          Place them in rooms on{' '}
+          <Link to="/config/floorplans" className="font-medium underline" style={{ color: 'var(--theme-primary)' }}>
+            Configuration → Layout Designer
+          </Link>
+          , or switch to the Tabular view, which does not need geometry.
         </p>
       </div>
     );
@@ -952,9 +1088,10 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
   // What a card or a room's name must stay clear of in the 2D style: every
   // door swing on the plan (a neighbour's door can swing in), the columns and
   // the outlined plant.
-  const planObstacles = arch
-    ? [...roomViews.flatMap((o) => polygonDoorPlacements(roomOutline(o.room, VB_W, vbH), o.room.doors ?? []).map(swingSquare)), ...columnBoxes, ...equipmentBoxes]
+  const hardObstacles = arch
+    ? [...roomViews.flatMap((o) => polygonDoorPlacements(roomOutline(o.room, VB_W, vbH), o.room.doors ?? []).map(swingSquare)), ...columnBoxes]
     : [];
+  const planObstacles = arch ? [...hardObstacles, ...equipmentBoxes] : [];
   const geoms = new Map(roomViews.map(({ room, rows: roomRows }) => {
     // A corridor is ONE space that the schema stores as several
     // rectangles (a room is a rectangle; an L is two). The seam
@@ -1016,8 +1153,10 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
     // clear of every swing on the plan (a neighbour's door can swing in) and of
     // the columns; a room with several instruments keeps the tile grid.
     // The shape is whichever prints the Location largest — see `chooseCard`.
+    // ...and over the outlined plant only when clear of it would be illegible
+    // — see `chooseCardOverPlant`.
     const card = arch && roomRows.length === 1
-      ? chooseCard(largestInscribedRect(outline), planObstacles, cardLocation(roomRows[0], room), roomRows[0].code,
+      ? chooseCardOverPlant(largestInscribedRect(outline), hardObstacles, equipmentBoxes, cardLocation(roomRows[0], room), roomRows[0].code,
         // The room's other arms, tried only when the largest holds no legible card.
         () => inscribedRects(outline).slice(1, 6))
       : null;
@@ -1417,6 +1556,25 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                   })}
                 </g>
 
+                {/* The fixed plant the drawing OUTLINES (Microbiology, 2026-10-01,
+                    operator: "rooms dooars and room lines are some places not
+                    matches with image"): the pass-through autoclave standing in a
+                    wall, the change room's cross-over bench, Module-F's charging
+                    hoppers. A thin opaque box with the drawing's caption — AFTER
+                    the walls, so the wall an autoclave stands in stops at it as
+                    on the drawing, and BEFORE the names and cards, so a card
+                    that has to sit over a hopper (`chooseCardOverPlant`) is on
+                    top of it, not under it. Never a status colour. */}
+                <g pointerEvents="none" data-testid="fp-plant">
+                  {equipmentBoxes.map((b, i) => (
+                    <rect key={`eq${i}`} data-structure="equipment" x={b.x} y={b.y} width={b.w} height={b.h}
+                      fill="#ffffff" stroke={ARCH.wallOuter} strokeWidth={1.5} />
+                  ))}
+                  {(structure?.labels ?? []).map((l, i) => (
+                    <text key={`lbl${i}`} x={l.x * VB_W} y={l.y * vbH} textAnchor="middle" fontSize={6.5} fill={ARCH.roomName} letterSpacing="0.04em">{l.text}</text>
+                  ))}
+                </g>
+
                 {/* A room with no instrument: its name, letter-spaced, and its
                     number under it; a continuation piece prints nothing. The
                     name sits in the room's middle unless a door swing or a
@@ -1584,16 +1742,10 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                 takes a click. A plan without them (every other plan) draws
                 nothing here.
 
-                AND, in the 2D style only, the fixed plant the drawing OUTLINES
-                (2026-10-01, Microbiology, operator: "rooms dooars and room
-                lines are some places not matches with image"): the pass-through
-                autoclave standing in a wall and the change room's cross-over
-                bench are lines on that drawing, and a plan without them did
-                not match it. A thin outlined box with the drawing's caption —
-                opaque, so the wall the autoclave stands in stops at it, as it
-                does on the drawing. Not a symbol with a legend, never a status
-                colour; the standard style still draws none of it. */}
-            {structure && (structure.columns?.length || structure.windows?.length || structure.walls?.length || equipmentBoxes.length) ? (
+                The fixed plant the 2D style outlines is drawn INSIDE the 2D
+                layer (`fp-plant`), between the walls and the cards; the standard
+                style still draws none of it. */}
+            {structure && (structure.columns?.length || structure.windows?.length || structure.walls?.length) ? (
               <g pointerEvents="none" data-testid="fp-structure">
                 <defs>
                   <pattern id="fp-column-hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
@@ -1601,13 +1753,6 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
                     <line x1="0" y1="0" x2="0" y2="4" stroke={arch ? ARCH.columnInk : '#c2410c'} strokeWidth="1.4" />
                   </pattern>
                 </defs>
-                {equipmentBoxes.map((b, i) => (
-                  <rect key={`eq${i}`} data-structure="equipment" x={b.x} y={b.y} width={b.w} height={b.h}
-                    fill="#ffffff" stroke={ARCH.wallOuter} strokeWidth={1.5} />
-                ))}
-                {arch && (structure.labels ?? []).map((l, i) => (
-                  <text key={`lbl${i}`} x={l.x * VB_W} y={l.y * vbH} textAnchor="middle" fontSize={6.5} fill={ARCH.roomName} letterSpacing="0.04em">{l.text}</text>
-                ))}
                 {(structure.walls ?? []).map((l, i) => (
                   <line key={`sw${i}`} x1={l.x1 * VB_W} y1={l.y1 * vbH} x2={l.x2 * VB_W} y2={l.y2 * vbH}
                     stroke={arch ? ARCH.wallOuter : PALETTE.wall} strokeWidth={arch ? 8 * lineK : 2.5} strokeLinecap="butt" />
@@ -1659,6 +1804,9 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
           className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5"
           style={{ background: 'linear-gradient(135deg, var(--theme-sidebar-bg), var(--theme-primary-dark))' }}
         >
+          {/* The plan's own name here — "CWH — Module-F — First Floor" — and
+              no floor switch: full screen shows no option (operator,
+              2026-09-22). */}
           <h3 className="text-sm font-bold tracking-wide text-white">{plan.name}</h3>
           <Button
             variant="ghost"
@@ -1699,7 +1847,10 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
         className="flex flex-wrap items-center justify-between gap-3 rounded-t-2xl px-4 py-2.5"
         style={{ background: 'linear-gradient(135deg, var(--theme-sidebar-bg), var(--theme-primary-dark))' }}
       >
-        <h3 className="text-sm font-bold tracking-wide text-white">{plan?.name ?? 'Floor plan'}</h3>
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <h3 className="text-sm font-bold tracking-wide text-white">{entry?.name ?? plan?.name ?? 'Floor plan'}</h3>
+          {floorSwitch}
+        </div>
         <div className="flex flex-wrap items-center gap-1">
           <Button
             variant="ghost"
@@ -1712,41 +1863,31 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
           >
             <Maximize2 className="h-4 w-4" aria-hidden="true" />
           </Button>
-          {plans.filter((p) => p.id !== plan?.id).map((p) => (
+          {/* The OTHER layouts on offer — with a location selected, only that
+              location's (see `plansForSelection`). A building of several floors
+              is one button; it opens on its lowest floor. */}
+          {entries.filter((e) => e !== entry).map((e) => (
             <Button
               variant="ghost"
               size="sm"
-              key={p.id}
+              key={e.key}
               type="button"
-              onClick={() => setPlanId(p.id)}
+              onClick={() => setPlanId(e.floors[0].id)}
               // This bar is a dark gradient, so ghost's slate ink is invisible
               // on it. The variant is still right — no fill, no border — it just
               // has to be the inverse ink here.
               className="text-white/80 hover:bg-white/15 hover:text-white"
             >
-              {p.name}
+              {e.name}
             </Button>
           ))}
         </div>
       </div>
 
-      {/* Scoped, but none of this location's instruments sit in a room on this
-          plan. Drawing the building with no rooms would read as "the plan is
-          broken"; naming the actual fix is more useful than an empty rectangle. */}
-      {plan && functionalLocationId && plan.rooms.length > 0 && roomViews.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
-          <p className="text-sm font-medium text-slate-700">
-            No instruments in this functional location are placed on {plan.name}.
-          </p>
-          <p className="mt-1 text-xs text-slate-500">
-            Place them on{' '}
-            <Link to="/config/floorplans" className="font-medium underline" style={{ color: 'var(--theme-primary)' }}>
-              Configuration → Layout Designer
-            </Link>
-            , or switch to the Tabular view, which does not need geometry.
-          </p>
-        </div>
-      ) : plan && plan.rooms.length === 0 ? (
+      {/* A selected location with no layout of its own never reaches here —
+          see the `fp-no-layout` return above; every plan offered for a
+          selection holds one of its instruments. */}
+      {plan && plan.rooms.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
           <p className="text-sm font-medium text-slate-700">{plan.name} has no rooms drawn yet.</p>
           <p className="mt-1 text-xs text-slate-500">
@@ -1778,7 +1919,7 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
           <div className={`min-h-0 min-w-0 flex-1 overflow-hidden rounded-b-2xl border border-slate-300 bg-white shadow-soft ${legendUnder ? 'p-1.5' : 'p-3'}`}>
             {floorSvg}
           </div>
-          <ArchSidePanel summary={archSummary(roomViews.flatMap((v) => v.rows), sensorWords)} strip={legendUnder} />
+          <ArchSidePanel summary={archSummary(roomViews.flatMap((v) => v.rows), sensorWords)} strip={legendUnder} north={plan.annotations?.north ?? null} />
         </div>
       ) : plan && (
         <div className="min-h-0 flex-1 overflow-hidden rounded-b-2xl border border-slate-300 bg-white p-3 shadow-soft">
@@ -1815,8 +1956,23 @@ export function FloorplanView({ functionalLocationId, directOnly }: { functional
  * The arrow is PLAN north — the top of the drawing. The source drawing
  * (`Layouts/CWH/QC Layout-2.png`) marks no true north, and an unqualified "N"
  * would assert an orientation nobody recorded; the caption says so.
+ *
+ * A plan whose drawing DOES mark north carries it (`annotations.north`,
+ * degrees clockwise from the top of the plan — Module-F's two drawings have an
+ * N arrow pointing right, 90): the arrow then points that way and is captioned
+ * North, with no disclaimer. `northMark` is the one place the two are told apart.
  */
-function ArchSidePanel({ summary, strip = false }: { summary: ReturnType<typeof archSummary>; strip?: boolean }) {
+export function northMark(north: number | null | undefined): { marked: boolean; angle: number; caption: string; note: string; label: string } {
+  if (typeof north !== 'number' || !Number.isFinite(north)) {
+    return { marked: false, angle: 0, caption: 'Plan north', note: 'Plan north. True north is not marked on the drawing.', label: 'Plan north: the top of the drawing' };
+  }
+  const angle = ((north % 360) + 360) % 360;
+  const side = angle === 0 ? 'the top' : angle === 90 ? 'the right' : angle === 180 ? 'the bottom' : angle === 270 ? 'the left' : `${angle}° clockwise from the top`;
+  return { marked: true, angle, caption: 'North', note: 'North, as marked on the drawing.', label: `North is to ${side} of the drawing` };
+}
+
+function ArchSidePanel({ summary, strip = false, north = null }: { summary: ReturnType<typeof archSummary>; strip?: boolean; north?: number | null }) {
+  const compass = northMark(north);
   const states: { tone: ChipTone; label: string }[] = [
     { tone: 'OK', label: statusClasses('OK').label },
     { tone: 'OUT_OF_SPEC', label: statusClasses('OUT_OF_SPEC').label },
@@ -1898,15 +2054,32 @@ function ArchSidePanel({ summary, strip = false }: { summary: ReturnType<typeof 
       </section>
       <section
         className={strip ? 'ml-auto flex items-center gap-1.5' : 'mt-auto flex flex-col items-center gap-1 text-center'}
-        title={strip ? 'Plan north. True north is not marked on the drawing.' : undefined}
+        title={strip ? compass.note : undefined}
+        data-testid="fp-north"
+        data-north={compass.marked ? compass.angle : undefined}
       >
-        <svg width={strip ? 26 : 64} height={strip ? 26 : 64} viewBox="-32 -32 64 64" role="img" aria-label="Plan north: the top of the drawing">
+        <svg width={strip ? 26 : 64} height={strip ? 26 : 64} viewBox="-32 -32 64 64" role="img" aria-label={compass.label}>
           <circle r="30" fill="#ffffff" stroke="#cbd5e1" strokeWidth={strip ? 2.5 : 1} />
-          <path d="M0 -22 L9 9 L0 3 L-9 9 Z" fill="#0f172a" />
-          <text y="23" textAnchor="middle" fontSize="11" fontWeight="700" fill="#0f172a">N</text>
+          {compass.marked ? (
+            // The arrow turns to where the drawing says north is; the letter
+            // stays upright, behind the arrow's tail.
+            <>
+              <path d="M0 -24 L9 7 L0 1 L-9 7 Z" fill="#0f172a" transform={`rotate(${compass.angle})`} />
+              <text
+                x={-Math.sin((compass.angle * Math.PI) / 180) * 19}
+                y={Math.cos((compass.angle * Math.PI) / 180) * 19 + 4}
+                textAnchor="middle" fontSize="11" fontWeight="700" fill="#0f172a"
+              >N</text>
+            </>
+          ) : (
+            <>
+              <path d="M0 -22 L9 9 L0 3 L-9 9 Z" fill="#0f172a" />
+              <text y="23" textAnchor="middle" fontSize="11" fontWeight="700" fill="#0f172a">N</text>
+            </>
+          )}
         </svg>
         {/* The strip says it in two words and keeps the sentence as a tooltip. */}
-        <p className="text-[0.6875rem] leading-tight text-slate-500">{strip ? 'Plan north' : 'Plan north. True north is not marked on the drawing.'}</p>
+        <p className="text-[0.6875rem] leading-tight text-slate-500">{strip ? compass.caption : compass.note}</p>
       </section>
     </aside>
   );

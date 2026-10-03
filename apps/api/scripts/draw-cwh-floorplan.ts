@@ -356,6 +356,8 @@ const DRAWN_ELSEWHERE: Record<string, string> = {
   'QC Microbiology': 'scripts/draw-architectural-floor.ts --area "QC Microbiology"',
   'QC 3': 'scripts/draw-architectural-floor.ts --area "QC 3"',
   'Module-E': 'scripts/draw-architectural-floor.ts --area "Module-E"',
+  // Two floors, two plans; the generated plan was RENAMED to its ground floor.
+  'Module-F': 'scripts/draw-architectural-floor.ts --area "Module-F"',
 };
 
 /** Replace a plan's rooms wholesale, audited, and place its instruments. */

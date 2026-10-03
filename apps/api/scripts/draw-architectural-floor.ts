@@ -6,8 +6,13 @@
  *   npx tsx scripts/draw-architectural-floor.ts --area "QC Microbiology" --apply    # writes
  *
  * Floors it knows: QC Microbiology (`microbiology-layout.ts`, traced from
- * `Layouts/CWH/Microbiology.png`) and QC 3 (`qc3-layout.ts`, from
- * `Layouts/CWH/QC 3 Layout.png`), both 2026-10-01. The QC floor is drawn the same
+ * `Layouts/CWH/Microbiology.png`), QC 3 (`qc3-layout.ts`, from
+ * `Layouts/CWH/QC 3 Layout.png`), Module-E (`module-e-layout.ts`) and
+ * Module-F's TWO floors (`module-f-layout.ts`, from `Layouts/CWH/Mod-F Ground
+ * floor.pdf` and `Mod-F First floor.pdf`), all 2026-10-01. An area with
+ * several floors is drawn whole: one plan per floor, each with its
+ * `annotations.floor`, so the dashboard lists the building once and offers
+ * the floors. The QC floor is drawn the same
  * way by its OWN script, `draw-qc-layout-2.ts`, which was written first and
  * also retires the second plan that floor was once drawn on; this is that
  * script without the retire step, for every floor after it.
@@ -17,7 +22,10 @@
  * What it writes, each step audited like the other drawing scripts (no
  * e-signature: a script cannot prompt for re-authentication):
  *   - the area's plan: canvas = the building, the structure layer and the 2D
- *     style flag on its annotations;
+ *     style flag on its annotations — FOUND by the trace's plan name; else
+ *     RENAMED from the name the trace says it had (`renamesPlan`: Module-F's
+ *     generated plan becomes its ground floor rather than standing beside it);
+ *     else CREATED (a second floor), with the sibling floor's sort order;
  *   - its rooms, replaced wholesale — every room through the API's own
  *     `validateRoomPayload`, so nothing lands that the Layout Designer would
  *     refuse; outlines as polygons, the box derived by `roomGeometry`; a room's
@@ -35,12 +43,14 @@ import { archCanvas, archPoints, archAnnotations, edgeDoor, type ArchLayout } fr
 import { MICROBIOLOGY_LAYOUT } from '../src/modules/floorplans/microbiology-layout.js';
 import { QC3_LAYOUT } from '../src/modules/floorplans/qc3-layout.js';
 import { MODULE_E_LAYOUT } from '../src/modules/floorplans/module-e-layout.js';
+import { MODULE_F_GROUND_LAYOUT, MODULE_F_FIRST_LAYOUT } from '../src/modules/floorplans/module-f-layout.js';
 
-/** The floors drawn in this style by this script, keyed by AREA name. */
-const LAYOUTS: Record<string, ArchLayout> = {
-  [MICROBIOLOGY_LAYOUT.area]: MICROBIOLOGY_LAYOUT,
-  [QC3_LAYOUT.area]: QC3_LAYOUT,
-  [MODULE_E_LAYOUT.area]: MODULE_E_LAYOUT,
+/** The floors drawn in this style by this script, keyed by AREA name — one or several per area. */
+const LAYOUTS: Record<string, ArchLayout[]> = {
+  [MICROBIOLOGY_LAYOUT.area]: [MICROBIOLOGY_LAYOUT],
+  [QC3_LAYOUT.area]: [QC3_LAYOUT],
+  [MODULE_E_LAYOUT.area]: [MODULE_E_LAYOUT],
+  [MODULE_F_GROUND_LAYOUT.area]: [MODULE_F_GROUND_LAYOUT, MODULE_F_FIRST_LAYOUT],
 };
 
 const APPLY = process.argv.includes('--apply');
@@ -57,19 +67,78 @@ const LINK_SELECT = {
 /** "A ↔ B", the same code the link routes audit under. */
 const linkCode = (l: { fromRoom: { code: string }; toRoom: { code: string } }) => `${l.fromRoom.code} ↔ ${l.toRoom.code}`;
 
+const PLAN_SELECT = {
+  id: true, name: true, sortOrder: true,
+  rooms: { select: { id: true, code: true, label: true, grade: true, meta: true } },
+  links: { select: LINK_SELECT },
+} as const;
+
 async function main() {
-  const layout = AREA ? LAYOUTS[AREA] : undefined;
-  if (!layout) {
+  const layouts = AREA ? LAYOUTS[AREA] : undefined;
+  if (!layouts) {
     throw new Error(`--area "<name>" is required. Floors this script draws: ${Object.keys(LAYOUTS).map((a) => `"${a}"`).join(', ')}`);
   }
+  console.log(`MODE: ${APPLY ? 'APPLY (writes)' : 'DRY RUN (no writes)'}`);
+  for (const layout of layouts) await drawFloor(layout, layouts);
+  if (!APPLY) console.log('\nDry run only. Re-run with --apply to execute.');
+  await prisma.$disconnect();
+}
+
+/**
+ * The plan a floor is drawn on: the one of its name; else the one it RENAMES
+ * (the generated plan the area had before it had floors — renamed, audited,
+ * never left beside the new ones); else a NEW plan beside its sibling floor
+ * (same sort order, so the building's floors stay together in the list).
+ * In a dry run a plan that would be renamed or created is reported and the
+ * floor is checked against it as it is, or against an empty plan.
+ */
+async function targetPlan(layout: ArchLayout, siblings: ArchLayout[], reason: string) {
+  const found = await prisma.floorplan.findFirst({ where: { name: layout.planName }, select: PLAN_SELECT });
+  if (found) return found;
+  if (layout.renamesPlan) {
+    const old = await prisma.floorplan.findFirst({ where: { name: layout.renamesPlan }, select: PLAN_SELECT });
+    if (!old) throw new Error(`neither "${layout.planName}" nor "${layout.renamesPlan}" (the plan it renames) exists.`);
+    console.log(`plan "${old.name}" -> renamed "${layout.planName}"`);
+    if (!APPLY) return { ...old, name: layout.planName };
+    await prisma.$transaction(async (tx) => {
+      await tx.floorplan.update({ where: { id: old.id }, data: { name: layout.planName, updatedBy: ACTOR } });
+      await auditLog({
+        ...audit, action: 'FLOORPLAN_UPDATED', targetType: 'floorplan', targetId: old.id,
+        beforeValue: { name: old.name }, afterValue: { name: layout.planName },
+        reason, signatureMeaning: `Floor plan "${old.name}" renamed "${layout.planName}" — one floor of ${layout.floor?.group ?? layout.area}`,
+      }, tx);
+    });
+    return { ...old, name: layout.planName };
+  }
+  // Beside its sibling floor, when one is on the plan list already.
+  // ...by its name, or the name it had before it was renamed (a dry run renames nothing).
+  const siblingNames = siblings.filter((l) => l !== layout).flatMap((l) => (l.renamesPlan ? [l.planName, l.renamesPlan] : [l.planName]));
+  const sibling = siblingNames.length ? await prisma.floorplan.findFirst({ where: { name: { in: siblingNames } }, select: { sortOrder: true } }) : null;
+  const sortOrder = sibling?.sortOrder ?? ((await prisma.floorplan.aggregate({ _max: { sortOrder: true } }))._max.sortOrder ?? -1) + 1;
+  const canvas = archCanvas(layout.building);
+  const empty = { id: '', name: layout.planName, sortOrder, rooms: [], links: [] };
+  console.log(`plan "${layout.planName}" — not on the list: created (sort order ${sortOrder})`);
+  if (!APPLY) return empty;
+  const created = await prisma.$transaction(async (tx) => {
+    const plan = await tx.floorplan.create({
+      data: { name: layout.planName, imagePath: null, imageWidth: canvas.width, imageHeight: canvas.height, isActive: true, sortOrder, createdBy: ACTOR, updatedBy: ACTOR },
+      select: { id: true },
+    });
+    await auditLog({
+      ...audit, action: 'FLOORPLAN_CREATED', targetType: 'floorplan', targetId: plan.id,
+      afterValue: { name: layout.planName, imagePath: null, imageWidth: canvas.width, imageHeight: canvas.height, isActive: true, sortOrder },
+      reason, signatureMeaning: `Floor plan "${layout.planName}" created — one floor of ${layout.floor?.group ?? layout.area}, from ${layout.source}`,
+    }, tx);
+    return plan;
+  });
+  return { ...empty, id: created.id };
+}
+
+async function drawFloor(layout: ArchLayout, siblings: ArchLayout[]) {
   const REASON = `Floor traced from ${layout.source} by ${SCRIPT}. `
     + 'No e-signature was captured: a script cannot prompt for re-authentication as the HTTP route does.';
 
-  const target = await prisma.floorplan.findFirst({
-    where: { name: layout.planName },
-    select: { id: true, rooms: { select: { id: true, code: true, label: true, grade: true, meta: true } }, links: { select: LINK_SELECT } },
-  });
-  if (!target) throw new Error(`"${layout.planName}" not found — it is the plan this floor is drawn on.`);
+  const target = await targetPlan(layout, siblings, REASON);
   const byCode = new Map(target.rooms.map((r) => [r.code.toUpperCase(), r]));
 
   const codes = layout.rooms.flatMap((r) => (r.instrument ? [r.instrument] : []));
@@ -101,17 +170,17 @@ async function main() {
   });
 
   const canvas = archCanvas(layout.building);
-  const ann = archAnnotations(layout.building, layout.annotations);
+  const ann = archAnnotations(layout.building, layout.annotations, { floor: layout.floor, north: layout.north });
   const dropped = target.rooms.filter((o) => !layout.rooms.some((r) => r.code.toUpperCase() === o.code.toUpperCase()));
-  console.log(`MODE: ${APPLY ? 'APPLY (writes)' : 'DRY RUN (no writes)'}`);
-  console.log(`plan "${layout.planName}" ${canvas.width}x${canvas.height}: ${target.rooms.length} rooms replaced by ${specs.length}, ${codes.length} instruments placed, style ${ann.style}`);
+  const floorNote = (ann.floor ? `, floor "${ann.floor.label}" of "${ann.floor.group}"` : '') + (ann.north !== undefined ? `, north ${ann.north} deg` : '');
+  console.log(`plan "${layout.planName}" ${canvas.width}x${canvas.height}: ${target.rooms.length} rooms replaced by ${specs.length}, ${codes.length} instruments placed, style ${ann.style}${floorNote}`);
   for (const s of specs) {
     console.log(`  ${s.payload.code.padEnd(14)} ${String(s.payload.label).padEnd(26)} grade=${String(s.payload.grade).padEnd(11)} corners=${s.payload.points.length} doors=${s.payload.doors.length}${s.instrumentId ? ' +instrument' : ''}`);
   }
   for (const o of dropped) console.log(`  room ${o.code} — on the plan today, not in the trace: deleted`);
   for (const l of target.links) console.log(`  link ${l.kind} ${linkCode(l)} — deleted (its rooms are replaced)`);
   console.log(`structure: ${ann.columns.length} columns, ${ann.windows.length} windows, ${ann.walls.length} stubs, ${ann.equipment.length} outlined plant`);
-  if (!APPLY) { console.log('\nDry run only. Re-run with --apply to execute.'); await prisma.$disconnect(); return; }
+  if (!APPLY) return;
 
   // 0. Links die with their rooms (FK cascade) WITHOUT an audit row of their
   // own, so each is deleted here first, in the route's own shape.
@@ -134,7 +203,7 @@ async function main() {
     });
     await auditLog({
       ...audit, action: 'FLOORPLAN_UPDATED', targetType: 'floorplan', targetId: target.id,
-      afterValue: { name: layout.planName, source: layout.source, canvas, style: ann.style, structure: { columns: ann.columns.length, windows: ann.windows.length, stubs: ann.walls.length, equipment: ann.equipment.length } },
+      afterValue: { name: layout.planName, source: layout.source, canvas, style: ann.style, floor: ann.floor ?? null, north: ann.north ?? null, structure: { columns: ann.columns.length, windows: ann.windows.length, stubs: ann.walls.length, equipment: ann.equipment.length } },
       reason: REASON, signatureMeaning: `Floor plan "${layout.planName}" redrawn from ${layout.source}`,
     }, tx);
   });
@@ -181,7 +250,6 @@ async function main() {
     });
   }
   console.log(`rooms=${specs.length} instruments placed=${placed}`);
-  await prisma.$disconnect();
 }
 
 main().catch(async (e) => { console.error(e); await prisma.$disconnect(); process.exit(1); });

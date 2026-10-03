@@ -166,6 +166,32 @@ describe('LayoutDesignerPage', () => {
     expect(body).toMatchObject({ doors: null });
   });
 
+  it('Delete plan: confirms with the room and instrument counts, deletes through the audited endpoint, and moves to the next plan', async () => {
+    const rooms = [rect('A', 'A', 0.1, 0.1, 0.2, 0.2), rect('B', 'B', 0.5, 0.1, 0.2, 0.2)];
+    const other = { ...PLAN, id: 'p2', name: 'Other plan', rooms: [] };
+    PLANS.current = { data: [{ ...PLAN, rooms }, other] };
+    DETAIL.current = { ...PLAN, rooms: [{ ...rooms[0], instruments: [{ id: 'i1', code: 'CWH/RDU/001-00' }] }, rooms[1]] };
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete plan Blank' }));
+    expect(confirm.mock.calls[0][0]).toBe('Delete the plan "Blank" with its 2 rooms? 1 instrument become unplaced (not deleted). This cannot be undone.');
+    await waitFor(() => expect(del).toHaveBeenCalledWith('/api/floorplans/p1'));
+    expect(toast.success).toHaveBeenCalledWith('Plan deleted', '"Blank" and its rooms are gone; 1 instrument is unplaced.');
+    // The list is re-read; with the deleted plan gone the next one is selected.
+    PLANS.current = { data: [other] };
+    expect(mutate).toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  it('Delete plan: declining the confirm deletes nothing', () => {
+    PLANS.current = { data: [PLAN] };
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /^Delete plan/ }));
+    expect(del).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
   it('selecting a room and pressing Delete removes it through the audited endpoint', async () => {
     const rooms = [rect('A', 'A', 0.1, 0.1, 0.2, 0.2)];
     PLANS.current = { data: [{ ...PLAN, rooms }] };
