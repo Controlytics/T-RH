@@ -440,6 +440,22 @@ const aggregateBoundProps = {
   max: { type: 'number', nullable: true },
 } as const;
 
+/**
+ * The ONE way a route that names an instrument by id looks it up (audit
+ * 2026-10-03, API-5 / API-9): the caller's resolved visibility ANDed onto the
+ * id, so an instrument outside the caller's scope is a 404 — never a 403,
+ * which would confirm it exists. The read routes (`GET /:id`, telemetry,
+ * telemetry-keys, dead-letters) had this since 2026-08; the attribute read,
+ * the writes (update, delete, tokens, attributes) and the pickers did not,
+ * so a supervisor scoped to Block A could read Block B's limits by id, or
+ * rename, delete or re-limit a Block B instrument. Root CLAUDE.md records
+ * scope as "enforced on the query"; writes were simply never listed.
+ */
+async function visibleInstrumentWhere(req: FastifyRequest, id: string): Promise<{ id: string }> {
+  const { where: visibility } = await resolveVisibility(buildContext(req));
+  return withVisibility({ id }, visibility) as { id: string };
+}
+
 export default async function instrumentRoutes(app: FastifyInstance) {
   // GET /api/instruments — paginated list
   app.get('/', {
@@ -561,9 +577,12 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async () => {
+  }, async (req) => {
+    // Scoped (audit 2026-10-03, API-8): the picker handed every id in the
+    // plant to a caller scoped to four instruments.
+    const { where: visibility } = await resolveVisibility(buildContext(req));
     const data = await prisma.instrument.findMany({
-      where: { isGateway: false, gatewayId: null, isActive: true },
+      where: withVisibility({ isGateway: false, gatewayId: null, isActive: true }, visibility) as never,
       select: { id: true, code: true, name: true, isActive: true, profile: { select: { name: true } } },
       orderBy: { code: 'asc' },
     });
@@ -587,11 +606,12 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const exists = await prisma.instrument.findUnique({ where: { id }, select: { id: true } });
+    const exists = await prisma.instrument.findFirst({ where: await visibleInstrumentWhere(req, id), select: { id: true } });
     if (!exists) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
 
+    const { where: visibility } = await resolveVisibility(buildContext(req));
     const data = await prisma.instrument.findMany({
-      where: { gatewayId: id },
+      where: withVisibility({ gatewayId: id }, visibility) as never,
       select: { id: true, code: true, name: true, isActive: true, profile: { select: { name: true } } },
       orderBy: { code: 'asc' },
     });
@@ -1501,7 +1521,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       // ever gains a child reads an explicit "no children" instead of an empty
       // slot it cannot tell from a broker that lost the message.
       await announceRoster(parsed.data.gatewayId ?? (parsed.data.isGateway ? id : null));
-      const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential, ...withProfileName } });
+      const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential, ...withProfileName } }); // post-write re-read; the write already resolved visibility
       return reply.code(201).send({ ...present(row as unknown as InstrumentRow), token });
     } catch (err) {
       if (err instanceof GatewayInvariantViolation) return reply.code(err.status).send(err.body);
@@ -1651,7 +1671,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
 
-    const existing = await prisma.instrument.findUnique({ where: { id } });
+    const existing = await prisma.instrument.findFirst({ where: await visibleInstrumentWhere(req, id) });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
 
     if (await profileMissing((parsed.data as { profileId?: string }).profileId)) {
@@ -1887,7 +1907,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // and clearing an already-clear slot is harmless.
     else if (existing.isGateway) await clearChildRoster(existing.code);
 
-    const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential, ...withProfileName } });
+    const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential, ...withProfileName } }); // post-write re-read; the write already resolved visibility
     return present((row ?? updated) as unknown as InstrumentRow);
   });
 
@@ -1903,7 +1923,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const existing = await prisma.instrument.findUnique({ where: { id } });
+    const existing = await prisma.instrument.findFirst({ where: await visibleInstrumentWhere(req, id) });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
 
     const ctx = buildContext(req);
@@ -2008,7 +2028,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     if (!ok) return;
 
     const { id } = req.params as { id: string };
-    const existing = await prisma.instrument.findUnique({ where: { id } });
+    const existing = await prisma.instrument.findFirst({ where: await visibleInstrumentWhere(req, id) });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
 
     const ctx = buildContext(req);
@@ -2083,7 +2103,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     if (!ok) return;
 
     const { id } = req.params as { id: string };
-    const existing = await prisma.instrument.findUnique({ where: { id }, select: { id: true, code: true } });
+    const existing = await prisma.instrument.findFirst({ where: await visibleInstrumentWhere(req, id), select: { id: true, code: true } });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
 
     const credential = await prisma.instrumentCredential.findFirst({
@@ -2193,7 +2213,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const token = parsed.data.token;
 
     const { id } = req.params as { id: string };
-    const existing = await prisma.instrument.findUnique({ where: { id }, select: { id: true, code: true } });
+    const existing = await prisma.instrument.findFirst({ where: await visibleInstrumentWhere(req, id), select: { id: true, code: true } });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
 
     const hash = hashToken(token);
@@ -2611,7 +2631,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const exists = await prisma.instrument.findUnique({ where: { id }, select: { id: true } });
+    const exists = await prisma.instrument.findFirst({ where: await visibleInstrumentWhere(req, id), select: { id: true } });
     if (!exists) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
 
     const all = await prisma.instrumentAttribute.findMany({
@@ -2711,7 +2731,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // than one that never had a field. All three verbs read it the same way.
     const reason = readRemark(req);
 
-    const existing = await prisma.instrument.findUnique({ where: { id }, select: attributeOwnerSelect });
+    const existing = await prisma.instrument.findFirst({ where: await visibleInstrumentWhere(req, id), select: attributeOwnerSelect });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
 
     // Whether this is a change or a first fill decides BOTH the access rule and
@@ -2805,7 +2825,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const key = normaliseKey(rawKey);
     const reason = readRemark(req);
 
-    const existing = await prisma.instrument.findUnique({ where: { id }, select: attributeOwnerSelect });
+    const existing = await prisma.instrument.findFirst({ where: await visibleInstrumentWhere(req, id), select: attributeOwnerSelect });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
     if (!key) return reply.code(404).send(noSuchAttribute(rawKey));
 
@@ -2885,7 +2905,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const key = normaliseKey(rawKey);
     const reason = readRemark(req);
 
-    const existing = await prisma.instrument.findUnique({ where: { id }, select: attributeOwnerSelect });
+    const existing = await prisma.instrument.findFirst({ where: await visibleInstrumentWhere(req, id), select: attributeOwnerSelect });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
     if (!key) return reply.code(404).send(noSuchAttribute(rawKey));
 

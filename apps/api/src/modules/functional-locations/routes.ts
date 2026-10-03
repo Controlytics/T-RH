@@ -196,10 +196,14 @@ export default async function functionalLocationRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async () => {
+  }, async (req) => {
+    // Scoped (audit 2026-10-03, API-8): this picker listed EVERY instrument
+    // with its location path to any FUNCTIONAL_LOCATION_READ holder.
+    const { where: visibility } = await resolveVisibility(buildContext(req));
     const [nodes, rows] = await Promise.all([
       loadNodes(),
       prisma.instrument.findMany({
+        where: withVisibility({}, visibility) as never,
         select: { id: true, code: true, name: true, functionalLocationId: true },
         orderBy: { code: 'asc' },
       }),
@@ -244,7 +248,12 @@ export default async function functionalLocationRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const [nodes, counts] = await Promise.all([loadNodes(), loadOwnCounts()]);
+    // Scoped like the list (audit 2026-10-03, API-8): the detail route called
+    // `loadOwnCounts()` with no visibility and listed the location's instruments
+    // unscoped — the "CWH Block: 100" disclosure the list route closed, one
+    // click deeper.
+    const { where: visibility } = await resolveVisibility(buildContext(req));
+    const [nodes, counts] = await Promise.all([loadNodes(), loadOwnCounts(visibility)]);
     const self = nodes.find((n) => n.id === id);
     if (!self) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Functional location not found.' });
 
@@ -253,7 +262,7 @@ export default async function functionalLocationRoutes(app: FastifyInstance) {
     // helper exists to prevent.
     const scope = resolveLocationIds(id, nodes);
     const instruments = await prisma.instrument.findMany({
-      where: { functionalLocationId: { in: scope } },
+      where: withVisibility({ functionalLocationId: { in: scope } }, visibility) as never,
       select: { id: true, code: true, name: true, functionalLocationId: true },
       orderBy: { code: 'asc' },
     });

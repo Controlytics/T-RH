@@ -1,5 +1,41 @@
 # Changelog
 
+## [Unreleased] - Audit fixes, batch 6: instrument visibility on the attribute read, the writes, the pickers, the location detail and the profile cascade (2026-10-03)
+
+Closes API-5, API-8, API-9 and API-10 of `docs/audit/2026-10-03-technical-audit.md`.
+
+- **`visibleInstrumentWhere(req, id)` in `instruments/routes.ts` is the ONE
+  way a route that names an instrument by id looks it up** — the caller's
+  resolved `instrument_scope` ANDed onto the id, 404 (never 403) outside it.
+  Applied to the ten bare `findUnique({ where: { id } })` lookups that the
+  read routes had already replaced in August: `GET /:id/attributes` (every
+  limit, range and placement attribute, and an existence oracle), `PUT /:id`,
+  `DELETE /:id`, `GET /:id/token`, `PUT /:id/token`,
+  `POST /:id/regenerate-token`, `POST / PUT / DELETE /:id/attributes[/:key]`
+  and `GET /:id/children`. The two post-write re-reads at the tails of create
+  and update stay bare on purpose and say so.
+- **The two instrument pickers are scoped** (`GET /eligible-children`,
+  `GET /api/functional-locations/linkable-instruments`), and **the
+  functional-location DETAIL route passes visibility to `loadOwnCounts` and
+  scopes its instrument list**, as the list route already did — the
+  "CWH Block: 100" disclosure closed in August had survived one click deeper.
+- **A profile key removal now answers to the same two rules as the direct
+  attribute delete**: the role's Attribute Access rule per removed key
+  (`refuseAttributeWrite`, 403 `ATTRIBUTE_NOT_EDITABLE`), and the caller's
+  scope — if any instrument carrying the key is outside it the whole removal
+  is refused 403 `OUT_OF_SCOPE` rather than half-applied. Until now a
+  SELECTED-keys role that could not delete a limit on one instrument could
+  remove it from all 101 through the profile, with no scope consulted.
+- Tests: new `e2e/instrument-scope-writes.e2e.test.ts` (8, through the
+  seeded OPERATOR scoped to one Block: attributes read, update and delete,
+  the three attribute writes, the re-authenticated token routes, both
+  pickers, the location detail's counts and list, the profile cascade).
+  Mutation-checked: a bare lookup on the attribute read fails its case.
+  `instrument-scope-selection` (36), `instruments` (39),
+  `instrument-profiles` (32), `instrument-rename` (6),
+  `role-attribute-access` (9), `attribute-labels` (10), `bulk-attributes`
+  (2) and `telemetry-history` (5) unchanged and green. No count moved.
+
 ## [Unreleased] - Audit fixes, batch 5: audit column widths, one signature bound, functional-location writes made atomic and the rename 500 (2026-10-03)
 
 Closes DATA-3, API-3 and API-4 of `docs/audit/2026-10-03-technical-audit.md`.

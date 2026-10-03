@@ -13,7 +13,8 @@ import { buildContext } from '../../lib/build-context.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { logger } from '../../lib/logger.js';
-import { resolveVisibility } from '../instruments/visibility.js';
+import { resolveVisibility, withVisibility } from '../instruments/visibility.js';
+import { loadAttributeAccess, refuseAttributeWrite } from '../instruments/attribute-access.js';
 import { publishAttributeDownlink } from '../instruments/attribute-downlink.js';
 import { announceChildAttributeChange } from '../instruments/child-attributes-bundle.js';
 
@@ -411,6 +412,35 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
       // Scoped like the read routes: this response replaces the row on screen, and
       // an edit must not make the count jump to a number the list never shows.
       const { where: visibility } = await resolveVisibility(ctx);
+      if (affected.length > 0) {
+        // The cascade is an attribute DELETE on every instrument of the profile,
+        // so it answers to the same two rules the direct delete answers to
+        // (audit 2026-10-03, API-10): the role's Attribute Access rule per key
+        // — a SELECTED-keys role that may not delete a limit on one instrument
+        // must not remove it from all 101 via the profile — and the caller's
+        // instrument scope: a key carried by an instrument the caller cannot
+        // see is refused outright rather than half-removed.
+        const access = await loadAttributeAccess(ctx.userRole);
+        for (const a of affected) {
+          const refusal = refuseAttributeWrite({ access, hasUpdatePermission: true, key: a.key, isNewKey: false, remark: reason as string | undefined });
+          if (refusal) return reply.code(refusal.status).send(refusal.body);
+        }
+        const folds = new Set(affected.map((a) => fold(a.key)));
+        const carrying = await prisma.instrumentAttribute.findMany({
+          where: { instrument: { profileId: id } },
+          select: { key: true, instrument: { select: { id: true } } },
+        });
+        const carryingIds = new Set(carrying.filter((r) => folds.has(fold(r.key))).map((r) => r.instrument.id));
+        if (carryingIds.size > 0) {
+          const visibleCount = await prisma.instrument.count({ where: withVisibility({ id: { in: [...carryingIds] } }, visibility) as never });
+          if (visibleCount < carryingIds.size) {
+            return reply.code(403).send({
+              error: 'OUT_OF_SCOPE',
+              message: 'Removing this key would delete attributes on instruments outside your instrument scope.',
+            });
+          }
+        }
+      }
       const deleted: { instrument: { id: string; code: string; gatewayId: string | null }; key: string }[] = [];
       const row = await prisma.$transaction(async (tx) => {
         const updated = await tx.instrumentProfile.update({
