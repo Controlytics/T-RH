@@ -238,7 +238,7 @@ model AuditTrail {
   timestamp        DateTime @default(now()) @db.Timestamptz
   userId           String?  @map("user_id") @db.VarChar(100)
   userName         String?  @map("user_name") @db.VarChar(100)
-  userRole         String?  @map("user_role") @db.VarChar(20)
+  userRole         String?  @map("user_role") @db.VarChar(50)
   action           String   @db.VarChar(100)
   targetType       String?  @map("target_type") @db.VarChar(50)
   targetId         String?  @map("target_id") @db.VarChar(255)

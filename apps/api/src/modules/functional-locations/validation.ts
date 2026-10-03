@@ -37,6 +37,8 @@ export interface FlFieldError {
  *   row — and that contract is asserted in the tests.
  * @param selfId set on update, so a location cannot be re-parented to itself.
  */
+export const FL_NAME_MAX = 120;
+
 export function validateFlDraft(
   draft: FlDraft,
   parent: FlParentRef | null,
@@ -45,6 +47,12 @@ export function validateFlDraft(
 ): FlFieldError | null {
   const name = (draft.name ?? '').trim();
   if (!name) return { field: 'name', message: 'Name is required.' };
+  // Bounded (audit 2026-10-03, API-4): the name is interpolated into audit
+  // signature meanings and shown in every breadcrumb; unbounded it overflowed
+  // `signature_meaning` after the row had committed.
+  if (name.length > FL_NAME_MAX) {
+    return { field: 'name', message: `Name must be ${FL_NAME_MAX} characters or fewer.` };
+  }
 
   if (draft.type === 'BLOCK') {
     if (draft.parentId) {

@@ -94,6 +94,21 @@ const AUDIT_CHAIN_LOCK_ID = 7421151037n;
  * pre-chain row IF one exists, or NULL otherwise. That single bridge step
  * means a deletion of the last pre-chain row is detectable too.
  */
+/**
+ * `audit_trail.signature_meaning` is VARCHAR(255). A meaning longer than that
+ * is cut to fit with an ellipsis rather than refused: the sentence names the
+ * act, the detail belongs in `beforeValue` / `afterValue` (JSONB, unbounded),
+ * and a 500 after the mutation committed is the worse outcome. Callers that
+ * list many names should still compose with `boundedMeaning()` so the cut is
+ * at a name boundary; this is the backstop for every other caller.
+ */
+export const SIGNATURE_MEANING_MAX = 255;
+export function clampSignatureMeaning(meaning: string | undefined | null): string | undefined {
+  if (meaning === undefined || meaning === null) return undefined;
+  if (meaning.length <= SIGNATURE_MEANING_MAX) return meaning;
+  return meaning.slice(0, SIGNATURE_MEANING_MAX - 1) + '…';
+}
+
 export async function auditLog(entry: AuditEntry, tx?: AuditTx): Promise<void> {
   // 21 CFR §11.10(e): every state-changing action must identify the
   // individual responsible. Reject calls that omit userId unless the
@@ -106,6 +121,11 @@ export async function auditLog(entry: AuditEntry, tx?: AuditTx): Promise<void> {
     );
   }
   const timestamp = new Date();
+  // Bounded ONCE here, before it is hashed or stored (audit 2026-10-03,
+  // API-4): `signature_meaning` is VARCHAR(255) behind this raw insert, and a
+  // longer meaning was a 22001 AFTER the caller's mutation had committed — a
+  // record with no audit row. The bound and the hash must see the same string.
+  const signatureMeaning = clampSignatureMeaning(entry.signatureMeaning);
   const afterValueClean = entry.afterValue ? JSON.parse(JSON.stringify(entry.afterValue)) : undefined;
   const beforeValueClean = entry.beforeValue ? JSON.parse(JSON.stringify(entry.beforeValue)) : undefined;
   // Checksum field set (expanded 2026-07-04): cover EVERY persisted audit column so
@@ -127,7 +147,7 @@ export async function auditLog(entry: AuditEntry, tx?: AuditTx): Promise<void> {
     ipAddress: entry.ipAddress ?? undefined,
     userAgent: entry.userAgent ?? undefined,
     sessionId: entry.sessionId ?? undefined,
-    signatureMeaning: entry.signatureMeaning ?? undefined,
+    signatureMeaning,
   } as Record<string, unknown>;
 
   if (tx) {
@@ -203,7 +223,7 @@ async function writeAuditRow(
       ${entry.sessionId ?? null},
       ${checksum},
       ${previousChecksum},
-      ${entry.signatureMeaning ?? null},
+      ${(baseFields.signatureMeaning as string | undefined) ?? null},
       ${checksumVersion}
     )
   `;

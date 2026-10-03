@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateFlDraft } from '../validation.js';
+import { FL_NAME_MAX, validateFlDraft } from '../validation.js';
 
 const block = { id: 'b1', type: 'BLOCK' as const };
 const area = { id: 'a1', type: 'AREA' as const };
@@ -61,4 +61,13 @@ describe('validateFlDraft', () => {
   it('rejects a location parented to itself', () => {
     expect(validateFlDraft({ name: 'M-E', type: 'AREA', parentId: 'a1' }, block, [], 'a1')?.field).toBe('parentId');
   });
+
+  // Audit 2026-10-03, API-4: an unbounded name overflowed the audit column
+  // after the row had committed.
+  it('refuses a name over FL_NAME_MAX characters, and accepts one at the bound', () => {
+    expect(validateFlDraft({ name: 'x'.repeat(FL_NAME_MAX + 1), type: 'BLOCK', parentId: null }, null, []))
+      .toMatchObject({ field: 'name' });
+    expect(validateFlDraft({ name: 'x'.repeat(FL_NAME_MAX), type: 'BLOCK', parentId: null }, null, [])).toBeNull();
+  });
 });
+

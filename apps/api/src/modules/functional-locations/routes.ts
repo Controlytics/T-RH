@@ -310,23 +310,29 @@ export default async function functionalLocationRoutes(app: FastifyInstance) {
     const err = validateFlDraft(draft, parent, siblings);
     if (err) return reply.code(400).send({ error: 'VALIDATION_ERROR', message: err.message, field: err.field });
 
-    const created = await prisma.functionalLocation.create({
-      data: {
-        name: draft.name.trim(),
-        type: draft.type,
-        parentId: draft.parentId,
-        createdBy: ctx.userId,
-        updatedBy: ctx.userId,
-      },
-    });
-    const path = locationPath(created.id, [...nodes, { ...created, type: created.type as FlType }]);
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'FUNCTIONAL_LOCATION_CREATED',
-      targetType: 'functional_location', targetId: created.id,
-      afterValue: { location: path, name: created.name, type: created.type, parentId: created.parentId },
-      signatureMeaning: `Functional location "${path}" created`,
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    // The row and its audit record land together or not at all (audit
+    // 2026-10-03, API-4): until then the create committed first and a failed
+    // audit insert left a location with no FUNCTIONAL_LOCATION_CREATED row.
+    const created = await prisma.$transaction(async (tx) => {
+      const row = await tx.functionalLocation.create({
+        data: {
+          name: draft.name.trim(),
+          type: draft.type,
+          parentId: draft.parentId,
+          createdBy: ctx.userId,
+          updatedBy: ctx.userId,
+        },
+      });
+      const path = locationPath(row.id, [...nodes, { ...row, type: row.type as FlType }]);
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole,
+        action: 'FUNCTIONAL_LOCATION_CREATED',
+        targetType: 'functional_location', targetId: row.id,
+        afterValue: { location: path, name: row.name, type: row.type, parentId: row.parentId },
+        signatureMeaning: `Functional location "${path}" created`,
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
+      return row;
     });
     return reply.code(201).send({ ...created, ownCount: 0, totalCount: 0 });
   });
@@ -515,22 +521,35 @@ export default async function functionalLocationRoutes(app: FastifyInstance) {
     }
 
     const before = locationPath(id, nodes);
-    const updated = await prisma.functionalLocation.update({
-      where: { id },
-      data: { name: draft.name.trim(), type: draft.type, parentId: draft.parentId, updatedBy: ctx.userId },
+    // Mutation and audit row in ONE transaction (audit 2026-10-03, API-4).
+    const updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.functionalLocation.update({
+        where: { id },
+        data: { name: draft.name.trim(), type: draft.type, parentId: draft.parentId, updatedBy: ctx.userId },
+      });
+      // The path after the change, from the nodes already loaded with this
+      // row's new name / parent substituted — no second read inside the tx.
+      const after = locationPath(id, nodes.map((n) => (n.id === id
+        ? { ...n, name: row.name, type: row.type as FlType, parentId: row.parentId }
+        : n)));
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole,
+        action: 'FUNCTIONAL_LOCATION_UPDATED',
+        targetType: 'functional_location', targetId: id,
+        beforeValue: { location: before, name: current.name, type: current.type, parentId: current.parentId },
+        afterValue: { location: after, name: row.name, type: row.type, parentId: row.parentId },
+        signatureMeaning: `Functional location "${before}" updated`,
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
+      return row;
     });
-    const after = locationPath(updated.id, (await loadNodes()));
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'FUNCTIONAL_LOCATION_UPDATED',
-      targetType: 'functional_location', targetId: id,
-      beforeValue: { location: before, name: current.name, type: current.type, parentId: current.parentId },
-      afterValue: { location: after, name: updated.name, type: updated.type, parentId: updated.parentId },
-      signatureMeaning: `Functional location "${before}" updated`,
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
-    });
+    // `loadOwnCounts` returns {total, active} per id; the response declares
+    // integers (audit 2026-10-03, API-3 — the object made the serializer throw
+    // AFTER the rename and its audit row had committed, so every rename of a
+    // location holding an instrument read as "could not save").
     const counts = await loadOwnCounts();
-    return { ...updated, ownCount: counts.get(id) ?? 0, totalCount: counts.get(id) ?? 0 };
+    const c = counts.get(id);
+    return { ...updated, ownCount: c?.total ?? 0, totalCount: c?.total ?? 0, activeCount: c?.active ?? 0 };
   });
 
   // DELETE /:id — refused while it holds anything, UNLESS a SUPER_ADMIN asks
@@ -690,31 +709,31 @@ export default async function functionalLocationRoutes(app: FastifyInstance) {
     const toUnlink = existing.filter((i) => i.functionalLocationId === id && !wanted.includes(i.id));
     const moved = toLink.filter((i) => i.functionalLocationId !== null);
 
-    await prisma.$transaction([
-      ...(toLink.length
-        ? [prisma.instrument.updateMany({ where: { id: { in: toLink.map((i) => i.id) } }, data: { functionalLocationId: id } })]
-        : []),
-      ...(toUnlink.length
-        ? [prisma.instrument.updateMany({ where: { id: { in: toUnlink.map((i) => i.id) } }, data: { functionalLocationId: null } })]
-        : []),
-    ]);
-
     const path = locationPath(id, nodes);
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'FUNCTIONAL_LOCATION_INSTRUMENTS_CHANGED',
-      targetType: 'functional_location', targetId: id,
-      beforeValue: {
-        location: path,
-        linked: existing.filter((i) => i.functionalLocationId === id).map((i) => i.code),
-      },
-      afterValue: {
-        location: path,
-        linked: wanted.map((w) => existing.find((i) => i.id === w)?.code ?? w),
-        movedFromElsewhere: moved.map((i) => i.code),
-      },
-      signatureMeaning: `Instruments linked to functional location "${path}" changed`,
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    // Links and their audit row in ONE transaction (audit 2026-10-03, API-4).
+    await prisma.$transaction(async (tx) => {
+      if (toLink.length) {
+        await tx.instrument.updateMany({ where: { id: { in: toLink.map((i) => i.id) } }, data: { functionalLocationId: id } });
+      }
+      if (toUnlink.length) {
+        await tx.instrument.updateMany({ where: { id: { in: toUnlink.map((i) => i.id) } }, data: { functionalLocationId: null } });
+      }
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole,
+        action: 'FUNCTIONAL_LOCATION_INSTRUMENTS_CHANGED',
+        targetType: 'functional_location', targetId: id,
+        beforeValue: {
+          location: path,
+          linked: existing.filter((i) => i.functionalLocationId === id).map((i) => i.code),
+        },
+        afterValue: {
+          location: path,
+          linked: wanted.map((w) => existing.find((i) => i.id === w)?.code ?? w),
+          movedFromElsewhere: moved.map((i) => i.code),
+        },
+        signatureMeaning: `Instruments linked to functional location "${path}" changed`,
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
     });
 
     return { linked: toLink.length, unlinked: toUnlink.length, moved: moved.length };

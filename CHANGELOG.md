@@ -1,5 +1,42 @@
 # Changelog
 
+## [Unreleased] - Audit fixes, batch 5: audit column widths, one signature bound, functional-location writes made atomic and the rename 500 (2026-10-03)
+
+Closes DATA-3, API-3 and API-4 of `docs/audit/2026-10-03-technical-audit.md`.
+
+- **`audit_trail.user_role` is `VARCHAR(50)`** (migration
+  `20261003130000_audit_user_role_width`, schema updated, applied to both
+  local databases, drift guard PASS). It was 20 while `roles.name` and
+  `users.role` are 50 and the role zod allows 50; the raw audit insert has no
+  clamp, so a user in a role named longer than 20 characters could not even
+  log in (`LOGIN_SUCCESS` → 22001).
+- **Every `signature_meaning` is bounded ONCE, in `auditLog`**
+  (`clampSignatureMeaning`, `SIGNATURE_MEANING_MAX` = 255), before the
+  meaning is hashed or stored, so the hash and the row agree and no caller
+  can 500 after its mutation committed. `boundedMeaning()` stays the better
+  composer for lists of names; this is the backstop for everyone else.
+- **Functional-location name is bounded** (`FL_NAME_MAX` = 120,
+  `validateFlDraft`), and the **create, update and instrument-link routes
+  write their audit row inside the same transaction** as the mutation
+  (`auditLog(entry, tx)`), so a location can no longer exist with no
+  `FUNCTIONAL_LOCATION_CREATED` row. The update's "after" path is composed
+  from the nodes already loaded, with no second read inside the transaction.
+- **`PUT /api/functional-locations/:id` no longer 500s after the rename
+  committed.** It returned `loadOwnCounts()`'s `{total, active}` object into
+  a field declared `integer`; the serializer threw and every rename of a
+  location holding an instrument read as "could not save" (and a retry wrote
+  a second audit row). It returns `total` / `total` / `active` as integers,
+  `activeCount` declared in the schema.
+- Tests: new `e2e/functional-location-update.e2e.test.ts` (4: rename with
+  an instrument returns integers and exactly one audit row; an over-long name
+  is refused before any write; a name at the bound creates with a meaning
+  inside the column; a long Block › Area path is clamped, the full path kept
+  in `afterValue`), `validation.test.ts` 12 → **13**, new
+  `lib/__tests__/audit-signature-bound.test.ts` (3). Mutation-checked: the
+  old `counts.get(id)` return fails the rename case. The location delete and
+  order e2e, the tree and bounded-meaning unit tests, `audit-immutability`,
+  `audit-chain` and `audit` e2e all unchanged and green. No count moved.
+
 ## [Unreleased] - Audit fixes, batch 4: the seed never resets an existing role's permissions (2026-10-03)
 
 Closes DATA-4 of `docs/audit/2026-10-03-technical-audit.md`.
