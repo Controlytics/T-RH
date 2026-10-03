@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased] - The header's "AWS testing" chip is removed (2026-10-03)
+
+Operator: *"remove aws testing testing on top nav bar"*. The chip added on
+2026-09-18 ("Add aws text word on nav bar") is gone from
+`components/layout/header.tsx`; nothing read it. `header.test.tsx` now pins
+its absence in both sidebar states. No count moved.
+
 ## [Unreleased] - Fix: popups inside the hero band were clipped and painted over; every Select was transparent (2026-10-03)
 
 Operator: *"instrument selection dropdown was not showing values properly in

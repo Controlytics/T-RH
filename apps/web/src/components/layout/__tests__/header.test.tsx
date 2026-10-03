@@ -21,13 +21,17 @@ function mount(props: Partial<React.ComponentProps<typeof Header>> = {}) {
 afterEach(cleanup);
 
 describe('Header', () => {
-  // Operator (2026-09-18): "Add aws text word on nav bar".
-  it('shows the AWS word in the left cluster whatever the sidebar state', () => {
+  // The "AWS testing" chip (2026-09-18, "Add aws text word on nav bar") was
+  // removed on 2026-10-03 (operator: "remove aws testing testing on top nav
+  // bar"). It must not come back in either sidebar state.
+  it('carries no AWS chip whatever the sidebar state', () => {
     mount({ collapsed: false });
-    expect(screen.getByTestId('header-aws-label')).toHaveTextContent('AWS testing');
+    expect(screen.queryByTestId('header-aws-label')).toBeNull();
+    expect(screen.queryByText(/AWS/)).toBeNull();
     cleanup();
     mount({ collapsed: true });
-    expect(screen.getByTestId('header-aws-label')).toHaveTextContent('AWS testing');
+    expect(screen.queryByTestId('header-aws-label')).toBeNull();
+    expect(screen.queryByText(/AWS/)).toBeNull();
   });
 
   it('shows the app name only once the sidebar has collapsed to a rail', () => {
