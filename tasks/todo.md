@@ -90,7 +90,7 @@ MEDIUM/LOW sweeps (per module, after the HIGHs):
 - [x] S4 security mediums/lows 4, 5, 6 + DATA-8 — commit `c0faa0e` (SEC-3 / SEC-7 are in the api-b sweep)
 - [x] S5 web mediums/lows (3, 6–17; 18 closed as non-defect) + System Health flags + SEC-7 prompts + bulk-create gate — commit `3ff8d7c`; full web run 141 files one at a time, all exit 0 (two pre-existing time-bomb/default assertions fixed)
 - [x] S6 docs (1, 4–13, 15, 16, 18–23) + counts re-derived + stale verify-route refs — commit `8738373`
-- [~] Final: web full run DONE (141/141); api full run one file at a time IN PROGRESS; tsc/lint clean on both; CHANGELOG batches 12–18 written; memory ledger updated; the operator decides on push
+- [x] Final: web 141/141 files, api 208/208 files (4 reds fixed in `40ebab7`), shared 33/33, queue 4/4 — each file alone by exit code; api lint + web tsc clean; CHANGELOG batches 12–18; memory ledger; NOT pushed — the operator decides
 
 - [x] Fix order in §3 of the report: partitions at boot + batch-loss dead letter → role-config privilege check + required scope body → backup verifier/secrets → seed permission reset → user_role width + central signature bound → FL PUT serializer → visibility on attribute read + writes → public admin-request attribution → alarm double-clear + range coercion → reauth strip/lockout → SA password boxes, `/` and `/users` guards, chart axis format
 - [ ] Operator decisions needed: untrack the dangling `.claude/worktrees/ui-redesign-stage2` gitlink; whether instrument WRITE routes are meant to be unscoped; hard-delete default off in installer env
