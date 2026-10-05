@@ -162,6 +162,23 @@ describe('raising, and the limit alarm that must NOT fire with it', () => {
     expect(await openLimit()).toHaveLength(0);
   });
 
+  // Audit 2026-10-03, INGEST-3: the plant firmware sends quoted numbers, and the
+  // range pass judged the raw TYPE while the dashboard coerced — so a range
+  // fault on any gateway-fed instrument neither raised nor cleared.
+  it('raises for a QUOTED reading above the span, and clears on a quoted reading back in range', async () => {
+    await reading('temperature', '60');
+    await evaluateAlarms();
+    const range = await openRange();
+    expect(range).toHaveLength(1);
+    expect(Number(range[0].triggeredValue)).toBe(60);
+
+    await reading('temperature', '22.5');
+    await evaluateAlarms();
+    expect(await openRange()).toHaveLength(0);
+    const closed = await prisma.alarm.findFirst({ where: { instrumentId, source: 'SENSOR_RANGE', state: 'CLEARED' }, orderBy: { clearedAt: 'desc' } });
+    expect(Number(closed!.clearedValue)).toBe(22.5);
+  });
+
   it('still raises a LIMIT alarm for a genuine excursion inside the span', async () => {
     // 30 breaches the 25 spec but is well inside the 50 range: a real excursion
     // measured by a healthy probe. Suppression must not swallow it.

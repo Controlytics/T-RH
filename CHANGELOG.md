@@ -1,5 +1,42 @@
 # Changelog
 
+## [Unreleased] - Audit fixes, batch 8: one pass clears an alarm; the range pass reads quoted numbers; device timestamps and null readings (2026-10-05)
+
+Closes INGEST-3, INGEST-4, INGEST-5, INGEST-6, INGEST-8 and INGEST-16 of
+`docs/audit/2026-10-03-technical-audit.md`.
+
+- **`claimClear()` in `alarm-evaluation.worker.ts` is the ONE way an alarm
+  is cleared**: `updateMany … WHERE state = 'ACTIVE'`, exactly one caller
+  gets the row, the loser gets null and announces nothing. The on-ingest pass
+  and the cron pass run under different job keys on a worker with
+  concurrency 10, so both could clear one alarm — two emails, two hooter
+  "off" posts, two delivery rows. All five clear paths (limit disabled,
+  limit, inactivity, RS485, range) go through it.
+- **The sensor-range pass uses `coerceReading`**, the shared definition the
+  dashboard, the limit pass and the SQL summaries use, instead of a raw
+  `typeof === 'number'`. The plant firmware sends quoted numbers, so on every
+  gateway-fed instrument a range fault neither raised nor cleared while the
+  floor showed `OL`. The RS485 clear's `clearedValue` reads the same way
+  (it printed blank for a quoted recovery).
+- **`parseDeviceTs`**: a 10-digit epoch NUMBER is seconds (it was read as
+  1970-01-21 and the whole batch refused); a stamp more than ten minutes
+  ahead of the server, or before 2000, falls back to arrival time (a future
+  stamp pinned `instrument_telemetry_latest` for as long as it was ahead,
+  and every pass judged the stale value).
+- **A JSON `null` reading is recorded, not silently dropped**:
+  `nullReadingKeys()`; the flat path dead-letters the keys by name and the
+  gateway fan-out reports them beside the block's other readings, which
+  still land. `{"t":null,"h":45}` used to leave yesterday's temperature as
+  current with every alarm source seeing a healthy probe.
+- Tests: `device-ts.test.ts` 6 → **9**, `ingest-core.test.ts` 12 → **13**,
+  `alarm-sensor-range.e2e.test.ts` 15 → **16** (quoted raise and quoted
+  clear with the cleared value), new `e2e/alarm-claim-clear.e2e.test.ts`
+  (2, concurrent claims; mutation-checked — a plain update fails both).
+  `payload-parser`, `gateway-fanout`, `alarm-limit-hold`, `alarm-rs485`
+  (24), `alarm-inactivity` (14), `instrument-limit-alarms` (14),
+  `alarm-acknowledge` (9), `gateway-ingest` (12) and `mqtt-ingest` (11)
+  unchanged and green. No count moved.
+
 ## [Unreleased] - Audit fixes, batch 7: the public admin-request form writes a SYSTEM audit row, never a caller-typed actor (2026-10-03)
 
 Closes API-6 of `docs/audit/2026-10-03-technical-audit.md`.

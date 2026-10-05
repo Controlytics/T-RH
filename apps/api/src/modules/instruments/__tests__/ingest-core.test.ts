@@ -152,3 +152,15 @@ describe('ingestPayload — a refused write is recorded, never lost silently', (
   });
 });
 
+/** Audit 2026-10-03, INGEST-8: a null reading is recorded, the other keys still land. */
+describe('ingestPayload — a null reading is dead-lettered by key', () => {
+  it('flat path: stores the other keys and records the null one', async () => {
+    const r = await ingestPayload({ identity: plain, raw: buf({ t: null, h: 45.1 }), transport: 'mqtt' });
+    expect(r).toMatchObject({ ok: true, accepted: 1 });
+    const stored = writeBatch.mock.calls[0][0] as { key: string }[];
+    expect(stored.map((x) => x.key)).toEqual(['h']);
+    const row = writeDeadLetters.mock.calls[0][0][0];
+    expect(row.reason).toContain('Null reading for "t"');
+  });
+});
+

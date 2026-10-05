@@ -7,7 +7,7 @@
  * silently dropped, and never auto-created — a registry that grows itself from
  * payloads cannot be trusted as a §11 record.
  */
-import { toReadings, parseDeviceTs, type Reading } from './payload-parser.js';
+import { toReadings, parseDeviceTs, nullReadingKeys, type Reading } from './payload-parser.js';
 
 export interface ChildRef { id: string; isActive: boolean }
 /** code → child. The gateway's OWN code is deliberately absent. */
@@ -97,6 +97,12 @@ export function fanoutDevices(
 
     for (const r of toReadings(values, blockTs)) {
       readings.push({ ...r, instrumentId: child.id });
+    }
+    const nulls = nullReadingKeys(values);
+    if (nulls.length > 0) {
+      // Recorded beside the block's other readings, which still land (audit
+      // 2026-10-03, INGEST-8): a dead letter names the probe that sent nothing.
+      rejected.push({ code, reason: `Null reading for ${nulls.map((k) => `"${k}"`).join(', ')} — the key was not stored` });
     }
   }
 

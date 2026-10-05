@@ -75,19 +75,48 @@ export function classifyValue(v: unknown): ValueType {
  * strings are epochs: 13 digits milliseconds, 10 digits seconds (the two
  * widths firmware actually emits); anything else goes to `Date` as before.
  */
-export function parseDeviceTs(raw: unknown): Date | null {
+export function parseDeviceTs(raw: unknown, now = new Date()): Date | null {
+  let d: Date | null = null;
   if (typeof raw === 'string' && /^\d+$/.test(raw)) {
     // All digits is an epoch or nothing: `new Date("12345")` would happily
     // read year 12345, which is not a time any device measured.
     if (raw.length !== 10 && raw.length !== 13) return null;
     const n = Number(raw);
-    return new Date(raw.length === 10 ? n * 1000 : n);
+    d = new Date(raw.length === 10 ? n * 1000 : n);
+  } else if (typeof raw === 'number') {
+    // The same width rule for a NUMBER (audit 2026-10-03, INGEST-5): the
+    // firmware that sends `"ts":"1788599495"` sends `"ts":1788599495` when it
+    // does not quote, and `new Date(1788599495)` is 1970-01-21 — outside every
+    // partition, so the whole batch was refused.
+    d = new Date(raw < 1e11 ? raw * 1000 : raw);
+  } else if (typeof raw === 'string') {
+    d = new Date(raw);
   }
-  if (typeof raw === 'string' || typeof raw === 'number') {
-    const d = new Date(raw);
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
-  return null;
+  if (!d || Number.isNaN(d.getTime())) return null;
+  // A sane window (INGEST-6): a timestamp ahead of the server by more than
+  // DEVICE_TS_MAX_AHEAD_MS pinned `instrument_telemetry_latest` (every later
+  // correct reading is "older" and ignored) for as long as it was ahead; one
+  // before 2000 is a dead RTC. Both fall back to arrival time, which the
+  // callers apply for a null.
+  if (d.getTime() > now.getTime() + DEVICE_TS_MAX_AHEAD_MS) return null;
+  if (d.getTime() < DEVICE_TS_MIN.getTime()) return null;
+  return d;
+}
+
+/** How far ahead of the server a device clock may run before its stamp is replaced by arrival time. */
+export const DEVICE_TS_MAX_AHEAD_MS = 10 * 60 * 1000;
+/** No instrument here measured anything before this; an earlier stamp is a dead RTC. */
+export const DEVICE_TS_MIN = new Date('2000-01-01T00:00:00Z');
+
+/**
+ * The keys whose value is JSON `null` (audit 2026-10-03, INGEST-8).
+ * `toReadings` skips them — a null cannot be stored as a number and must not
+ * become a string — but silently: `{"t":null,"h":45}` left yesterday's
+ * temperature as the current reading with every alarm source seeing a healthy
+ * probe. The callers dead-letter these by name so the failure is on record.
+ */
+export function nullReadingKeys(values: Record<string, unknown>): string[] {
+  return Object.entries(values).filter(([, v]) => v === null).map(([k]) => k);
 }
 
 export function parsePayload(buf: Buffer): ParsedPayload {

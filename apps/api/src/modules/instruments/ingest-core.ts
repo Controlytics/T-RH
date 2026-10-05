@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { parsePayload, toReadings } from './payload-parser.js';
+import { parsePayload, toReadings, nullReadingKeys } from './payload-parser.js';
 import { writeBatch, writeDeadLetters } from './telemetry.repository.js';
 import { stampLastSeen } from './last-seen.js';
 import { enqueueAlarmEvaluation } from '../alarms/enqueue-evaluation.js';
@@ -243,6 +243,16 @@ export async function ingestPayload(args: {
   }
 
   const readings = toReadings(parsed.values, ts);
+  const nulls = nullReadingKeys(parsed.values);
+  if (nulls.length > 0) {
+    // A null is a probe that reported NOTHING for that key; recorded, not
+    // silently dropped (audit 2026-10-03, INGEST-8). The other keys still land.
+    await safeWriteDeadLetters([{
+      id: randomUUID(), instrumentId: identity.id, transport,
+      reason: `Null reading for ${nulls.map((k) => `"${k}"`).join(', ')} — the key was not stored`,
+      rawPayload: raw.toString('utf8').slice(0, 4000),
+    }]);
+  }
   // The instrument's sensor offset, applied BEFORE the write (2026-10-01): the
   // corrected value is what is stored, shown and alarmed on.
   const failure = await writeBatchOrDeadLetter(

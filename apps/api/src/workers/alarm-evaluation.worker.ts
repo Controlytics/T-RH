@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, type Alarm } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { buildTelemetryOverview } from '../modules/instruments/telemetry-overview.js';
 import { enqueueAlarmNotification } from '../modules/alarms/enqueue-notification.js';
@@ -26,7 +26,7 @@ import {
   describeRs485, renderRawValue, RS485_TYPE_LABEL,
   type Rs485Metric, type Rs485Snapshot,
   describeRangeFault, formatDecimals, SENSOR_RANGE_TYPE_LABEL,
-  alarmTypeKeyFor, alarmTypeName,
+  alarmTypeKeyFor, alarmTypeName, coerceReading,
   type RangeMetric, type SensorRangeSnapshot,
 } from '@digilog/shared';
 import type { LimitBound } from '@digilog/shared';
@@ -75,6 +75,26 @@ function snapshotDecimals(snapshot: unknown): number | null {
   if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return null;
   const d = (snapshot as Record<string, unknown>).decimals;
   return typeof d === 'number' && Number.isFinite(d) ? d : null;
+}
+
+/**
+ * Clears an alarm as an ATOMIC CLAIM (audit 2026-10-03, INGEST-4). The
+ * on-ingest pass (`jobKey alarm_evaluation:on-ingest`) and the cron pass
+ * (`id=alarm_evaluation`) are two graphile jobs on a worker that runs ten
+ * concurrently, so both can read the same alarm ACTIVE and both clear it —
+ * two emails, two hooter "off" posts, two delivery rows, `cleared` counted
+ * twice. The raise paths were already guarded by the partial unique indexes;
+ * the five clear paths were plain updates. `updateMany … WHERE state =
+ * 'ACTIVE'` lets exactly one pass win; the loser gets `null` and announces
+ * nothing. The same shape as the acknowledge route's claim.
+ */
+export async function claimClear(
+  id: string,
+  data: Prisma.AlarmUpdateManyMutationInput,
+): Promise<Alarm | null> {
+  const { count } = await prisma.alarm.updateMany({ where: { id, state: 'ACTIVE' }, data });
+  if (count === 0) return null;
+  return prisma.alarm.findUniqueOrThrow({ where: { id } });
 }
 
 export interface AlarmEvaluationResult {
@@ -206,12 +226,11 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
         if (!boundEnabled[bound]) {
           if (!existingId) continue;
           const raw = check.metric === 'TEMPERATURE' ? reading.temperature : reading.humidity;
-          const closed = await prisma.alarm.update({
-            where: { id: existingId },
+          const closed = await claimClear(existingId, { state: 'CLEARED', clearedAt: now, clearedValue: finiteOrNull(raw) });
             // Acknowledgement untouched, as on every other clear path: an
             // excursion that ended without a signature is still owed an answer.
-            data: { state: 'CLEARED', clearedAt: now, clearedValue: finiteOrNull(raw) },
-          });
+          // Another pass cleared it first (see claimClear): nothing to announce.
+          if (!closed) continue;
           cleared += 1;
           // Says WHY, rather than reusing the frozen "returned to spec" wording —
           // this alarm did not end because the condition ended.
@@ -356,10 +375,9 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
           // excursion, which is worse than a stale row an operator can acknowledge.
           // Acknowledgement fields untouched: a cleared-but-unacknowledged alarm
           // is the overnight excursion someone must still answer for.
-          const closed = await prisma.alarm.update({
-            where: { id: existingId },
-            data: { state: 'CLEARED', clearedAt: now, clearedValue: value },
-          });
+          const closed = await claimClear(existingId, { state: 'CLEARED', clearedAt: now, clearedValue: value });
+          // Another pass cleared it first (see claimClear): nothing to announce.
+          if (!closed) continue;
           cleared += 1;
           // Named off the FROZEN snapshot, not the live limit: if a limit change is
           // what put the reading back in spec, `describeLimit(check)` here would
@@ -565,15 +583,14 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
 
         // Acknowledgement fields untouched: an outage that ended without a
         // signature is still owed an answer.
-        const closed = await prisma.alarm.update({
-          where: { id: open.id },
-          data: {
+        const closed = await claimClear(open.id, {
             state: 'CLEARED',
             clearedAt: now,
             clearedValue: resume ? resume.value : null,
             ruleSnapshot: clearSnapshot as unknown as Prisma.InputJsonObject,
-          },
-        });
+          });
+        // Another pass cleared it first (see claimClear): nothing to announce.
+        if (!closed) continue;
         cleared += 1;
 
         // From the FROZEN snapshot, not the live config. If someone lengthened the
@@ -738,13 +755,14 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
           // a silent skip cannot be tested — it makes an e2e for the clear rule
           // pass even when the rule is inverted, which is exactly how it was
           // found.
-          const clearedValue = slot ? finiteOrNull(slot.value) : null;
-          const closed = await prisma.alarm.update({
-            where: { id: open.id },
+          // `coerceReading`, not the type-strict `finiteOrNull`: the clear was
+          // decided on a quoted number, so the Cleared Value column must show it.
+          const clearedValue = slot ? coerceReading(slot.value) : null;
+          const closed = await claimClear(open.id, { state: 'CLEARED', clearedAt: now, clearedValue });
             // Acknowledgement fields untouched: a fault that ended without a
             // signature is still owed an answer.
-            data: { state: 'CLEARED', clearedAt: now, clearedValue },
-          });
+          // Another pass cleared it first (see claimClear): nothing to announce.
+          if (!closed) continue;
           cleared += 1;
 
           // From the FROZEN snapshot, never rebuilt from today's reading: the
@@ -821,7 +839,13 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
         // A usable reading is a NUMBER that arrived. A non-numeric value is the
         // RS485 source's fault, and treating it as "no reading" here is what
         // stops one broken probe raising two different alarms.
-        const hasReading = raw !== null && typeof raw.value === 'number' && Number.isFinite(raw.value);
+        // ONE definition of a reading (audit 2026-10-03, INGEST-3): the
+        // dashboard, the limit pass and the SQL summaries use `coerceReading`,
+        // which reads the plant's quoted numbers ("20.3"); this pass tested the
+        // raw type and so never raised — or cleared — a range alarm on any
+        // gateway-fed instrument, while the floor showed OL beside it.
+        const rawNumber = raw ? coerceReading(raw.value) : null;
+        const hasReading = rawNumber !== null;
         const open = openByKey.get(`${row.instrumentId}:${metric}`);
 
         const action = decideRange({
@@ -835,15 +859,15 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
         const low = isTemp ? row.rangeBounds.temperatureLow : row.rangeBounds.humidityLow;
         const high = isTemp ? row.rangeBounds.temperatureHigh : row.rangeBounds.humidityHigh;
 
-        if (action === 'raise' && raw && typeof raw.value === 'number') {
-          const shown = formatDecimals(raw.value, decimals) ?? String(raw.value);
+        if (action === 'raise' && rawNumber !== null && raw) {
+          const shown = formatDecimals(rawNumber, decimals) ?? String(rawNumber);
           const condition = describeRangeFault(metric, shown, low, high);
           const { attributeKeys, texts } = rangeFor(rangeCfg.keys, attrsByInstrument.get(row.instrumentId) ?? []);
           const snapshot: SensorRangeSnapshot = {
             kind: 'SENSOR_RANGE',
             metric,
             key: raw.key,
-            reading: raw.value,
+            reading: rawNumber,
             // FROZEN: editing the range attribute tomorrow must not rewrite what
             // this fault says it exceeded.
             rangeLow: low,
@@ -868,7 +892,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
                 metric,
                 // The reading IS a number, so it is recorded here as well as on
                 // the snapshot — unlike an RS485 failure, which has none.
-                triggeredValue: raw.value,
+                triggeredValue: rawNumber,
                 ruleSnapshot: snapshot as unknown as Prisma.InputJsonObject,
                 instrumentId: row.instrumentId,
                 severity: ALARM_SEVERITY_FALLBACK,
@@ -895,7 +919,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
             metric,
             ruleName: typeName('SENSOR_RANGE', metric, null, SENSOR_RANGE_TYPE_LABEL[metric]),
             condition,
-            triggeredValue: raw.value,
+            triggeredValue: rawNumber,
             // The value FIELD shows the operator's word, not the unusable
             // number. The condition beside it still quotes the reading and the
             // span, so nothing is hidden.
@@ -909,11 +933,10 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
           // An in-range number arrived. `raw` is non-null whenever decideRange
           // says 'clear' — the conditional below is a type guard, not a second
           // opinion (see the same note on the RS485 pass).
-          const clearedValue = raw && typeof raw.value === 'number' ? raw.value : null;
-          const closed = await prisma.alarm.update({
-            where: { id: open.id },
-            data: { state: 'CLEARED', clearedAt: now, clearedValue },
-          });
+          const clearedValue = rawNumber;
+          const closed = await claimClear(open.id, { state: 'CLEARED', clearedAt: now, clearedValue });
+          // Another pass cleared it first (see claimClear): nothing to announce.
+          if (!closed) continue;
           cleared += 1;
 
           const snapshotDescription = closed.ruleSnapshot
