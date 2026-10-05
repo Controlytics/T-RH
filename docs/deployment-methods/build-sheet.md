@@ -100,7 +100,7 @@ Registered by `scripts/register-services.ps1`.
 | Log retention | default 32 files × 10 MB ≈ 320 MB |
 
 ⁴ With `NODE_ENV=production`: `ALLOWED_ORIGINS` becomes mandatory (throws
-without it), `JWT_SECRET` / `VERIFICATION_TOKEN_SECRET` must be ≥32 chars
+without it), `JWT_SECRET` must be ≥32 chars (`VERIFICATION_TOKEN_SECRET` was removed 2026-10-05, audit SEC-5)
 (throws otherwise, instead of generating a random per-boot secret that
 invalidates every session on restart), Swagger stops being public, and error
 responses stop including messages.
@@ -135,7 +135,7 @@ forge the IP recorded in the audit trail and used for rate limiting.
 | `DATABASE_URL` | | |
 | `DATABASE_URL_QUEUE` | | |
 | `JWT_SECRET` | | ≥32 chars |
-| `VERIFICATION_TOKEN_SECRET` | | ≥32 chars |
+| `AUDIT_HARD_DELETE_ENABLED` | `false` | both installers write it (audit DATA-8) |
 | `ALLOWED_ORIGINS` | | mandatory in production |
 | `AUDIT_CHAIN_KEY` | | enables keyed (V3) audit checksums |
 | `AUDIT_CHAIN_KEYED_FROM` | | the out-of-band anchor — **back it up separately from the database** |

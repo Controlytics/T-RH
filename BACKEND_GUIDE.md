@@ -18,10 +18,10 @@
 
 ## Overview
 
-Fastify 5 backend with TypeScript, **24 API modules** (verified `ls apps/api/src/modules/ | wc -l` 2026-08-27). Runs locally on Windows: `tsx watch` in dev, compiled JS for prod-style local builds. There is no live EC2/Linux production environment (`root CLAUDE.md` — "The app runs ONLY on local Windows for development"). `scripts/register-services.ps1` (WinSW-wrapped `DigiLogAPI`/`DigiLogDB` Windows services) and `docs/PHARMA_DEPLOYMENT_21CFR.md` still exist for a packaged-installer deployment path — verified present on disk — but that is a separate concern from the day-to-day dev loop described in root `CLAUDE.md`, which uses `start-app.bat` / `stop-app.bat`.
+Fastify 5 backend with TypeScript, **25 API modules** (verified `ls apps/api/src/modules/ | wc -l` 2026-10-05; 24 -> 25 on 2026-09-07 with `report-reviews`). Runs locally on Windows: `tsx watch` in dev, compiled JS for prod-style local builds. There is no live EC2/Linux production environment (`root CLAUDE.md` — "The app runs ONLY on local Windows for development"). `scripts/register-services.ps1` (WinSW-wrapped `DigiLogAPI`/`DigiLogDB` Windows services) and `docs/PHARMA_DEPLOYMENT_21CFR.md` still exist for a packaged-installer deployment path — verified present on disk — but that is a separate concern from the day-to-day dev loop described in root `CLAUDE.md`, which uses `start-app.bat` / `stop-app.bat`.
 
 **Entry point:** `apps/api/src/app.ts`
-**Dev:** `cd apps/api && npx tsx watch src/app.ts` (port 3000)
+**Dev:** `cd apps/api && npx tsx watch src/app.ts` (the code default is port 3000 — `app.ts` `PORT ?? '3000'` — but THIS checkout's `apps/api/.env` sets `PORT=3001` and `WEB_PORT=5176` so it cannot collide with the sibling DigiLog checkout on 3000 / 5175; see root `CLAUDE.md` Key Local URLs)
 **Build:** `npx tsc -p apps/api/tsconfig.json` → `apps/api/dist/`
 **Production smoke-test:** `cd api && node dist/app.js` (foreground — no auto-restart; for a manual deploy). Under the `DigiLog-Setup.exe` installer the API runs as the `DigiLogAPI` Windows service (WinSW, via `scripts/register-services.ps1`) for boot persistence + restart-on-crash; `scripts/verify-windows-deployment.ps1` smoke-checks a running deployment. PM2 was retired in Phase 4 (commits `127f25d..60d3c90` on `feature/phase4-tooling`).
 
@@ -172,7 +172,7 @@ filter domain):
 | `password-expiry.worker.ts` | `password_expiry_check` | Flags/expires aging passwords |
 | `session-sweep.worker.ts` | `session_sweep` | Expires stale sessions |
 | `telemetry-partition.worker.ts` | `telemetry_partition_maintenance` | Maintains partitioned instrument-telemetry history table |
-| `alarm-evaluation.worker.ts` | `alarm_evaluation` | Evaluates alarm rules against telemetry |
+| `alarm-evaluation.worker.ts` | `alarm_evaluation` | Every minute: raises / clears the four evaluator-driven alarm sources — instrument limits, inactivity, RS485 sensor failure, sensor range — from each instrument's own attributes and latest readings. There are NO alarm rules: `AlarmRule` and the rule pass were removed 2026-08-31 (row corrected 2026-10-05) |
 | `alarm-webhook.worker.ts` | `alarm_webhook` | Annunciates an alarm to matching webhook targets. Event-driven — **no crontab entry on purpose**; enqueued `maxAttempts: 1` with retry bounded inside the task (3 attempts, ~2s apart), so backoff cannot buzz a hooter long after the excursion cleared |
 
 ## Instruments module (`apps/api/src/modules/instruments/`)
@@ -224,7 +224,7 @@ Automated end-to-end test suites (`*.test.ts`) — Vitest-driven, hits a live te
 | `instruments.test.ts`, `instrument-attributes.test.ts`, `instrument-attribute-downlink.test.ts`, `instrument-child-roster.test.ts`, `instrument-limit-alarms.e2e.test.ts`, `instrument-profiles.e2e.test.ts`, `instrument-token.test.ts`, `instrument-ingest.test.ts`, `limit-attribute-retirement.e2e.test.ts` | Instrument CRUD, attributes/downlink, gateway children, limit alarms, ingest tokens |
 | `mqtt-ingest.test.ts`, `mqtt-auth.test.ts`, `tcp-ingest.test.ts`, `ws-ingest.test.ts`, `gateway-ingest.test.ts` | Telemetry ingest over MQTT/TCP/WS + device auth |
 | `floorplans.e2e.test.ts`, `room-history.e2e.test.ts`, `telemetry-overview.e2e.test.ts` | Floorplan/room CRUD, bucketed history, dashboard overview |
-| `alarm-rules.e2e.test.ts`, `alarm-acknowledge.e2e.test.ts` | Alarm rule CRUD, acknowledgment |
+| `alarm-acknowledge.e2e.test.ts`, `alarm-claim-clear.e2e.test.ts`, `alarm-list-filters.e2e.test.ts`, `alarm-inactivity.e2e.test.ts`, `alarm-rs485.e2e.test.ts`, `alarm-sensor-range.e2e.test.ts` | Acknowledgment, clear, the server-side list filters, and the inactivity / RS485 / sensor-range sources (`ls apps/api/src/e2e/` filtered on `alarm`, 2026-10-05 — there is no `alarm-rules.e2e.test.ts`; rules went 2026-08-31) |
 | `alarm-webhooks.test.ts` | Webhook target CRUD, reauth enforcement, audit rows, response-schema completeness, delete refused while deliveries exist, `POST /:id/test` writing a `TEST` delivery row |
 | `ldap-directory.e2e.test.ts` | LDAP sync |
 | `super-admin-data-delete.test.ts` | Super-admin data management |
@@ -236,9 +236,9 @@ they covered the removed filter/checklist domain. Its "gap" note about
 "filter operations, RFID, offline replay, reports, block-change, PM My Tasks"
 having no e2e tests is moot — none of those features exist to test.)
 
-## Database Schema (36 models, 13 enums)
+## Database Schema (37 models, 13 enums)
 
-> `apps/api/prisma/schema.prisma` is authoritative (verified `grep -cE "^model "` / `"^enum "` 2026-08-27; 34 → 36 that day, `AlarmWebhookTarget` + `AlarmWebhookDelivery`, with no new enum — their `method`/`event`/`status` are validated strings). The
+> `apps/api/prisma/schema.prisma` is authoritative (verified `grep -cE "^model "` / `"^enum "` 2026-10-05; 36 → 37 on 2026-09-22 with `FloorplanRoomLink`; earlier 34 → 36 on 2026-08-27, `AlarmWebhookTarget` + `AlarmWebhookDelivery`, with no new enum — their `method`/`event`/`status` are validated strings). The
 > previous "61 models, 23 enums" figure predates the Phase 0 filter-domain
 > strip; every model below in the old "Asset / Filter Operation / Scheduling /
 > Report" groups (`AssetTemplate`, `AssetInstance`, `FilterCleaningProfile`,
@@ -271,13 +271,15 @@ DATABASE_URL=postgresql://digilog:CHANGE_ME@localhost:5432/digilog_db?schema=pub
 
 # JWT
 JWT_SECRET=change-this-to-a-secure-random-string
-VERIFICATION_TOKEN_SECRET=change-this-to-another-secure-random-string
+# VERIFICATION_TOKEN_SECRET — removed 2026-10-05 (audit SEC-5); nothing reads it
 JWT_EXPIRES_IN=1h
 
 # Audit chain integrity (21 CFR §11.10(e)) — AUDIT_CHAIN_KEY + AUDIT_CHAIN_KEYED_FROM,
 # see apps/api/.env.example for the full pairing rationale
 
-# Server
+# Server — these are apps/api/.env.example's DEFAULTS. This checkout's apps/api/.env
+# overrides PORT=3001 / WEB_PORT=5176 (root CLAUDE.md Key Local URLs) and ALLOWED_ORIGINS
+# must then name the port the SPA is actually served from.
 NODE_ENV=production
 API_PORT=3000
 WEB_PORT=5175

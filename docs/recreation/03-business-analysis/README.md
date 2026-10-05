@@ -1,5 +1,7 @@
 # Phase 3 — Business Analysis
 
+> **Snapshot notice (added 2026-10-05).** Verified 2026-07-25 at `cbcb913`; superseded by root `CLAUDE.md` System Stats for every count; re-derive before quoting.
+
 Feature-by-feature analysis: purpose, workflow, rules, edge cases. Only features
 that **exist** are documented; absent subsystems are listed in
 [`../02-inventory/absent-subsystems.md`](../02-inventory/absent-subsystems.md).

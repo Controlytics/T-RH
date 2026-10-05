@@ -27,27 +27,20 @@ apps/*/.env.backup-*
 .DS_Store
 nul
 
-# NSSM service runtime artifacts (per-machine; install-services-phase5.ps1
-# pins the NSSM exe path here so subsequent runs find the same one).
-nssm-path.txt
 logs/
 
 
 # Sensitive files - NEVER track
 .env.production
 # apps/web/.env.production is intentionally tracked: it holds ONLY VITE_API_URL,
-# a PUBLIC build-time value baked into client JS (never a secret). Blank = the
-# APK prompts for the server address at runtime (M8). Other .env.production stay ignored.
+# a PUBLIC build-time value baked into client JS (never a secret). Tracked blank;
+# the SPA is served same-origin by the API. Other .env.production stay ignored.
 !apps/web/.env.production
 .env.staging
 .env.*.local
 CREDENTIALS.md
 *.pem
 *.key
-# Android signing keystores — never commit (untracked 2026-07-04 audit;
-# rfid_scan_app/app/build.gradle.kts reads ../rfid-key.jks locally for release signing).
-*.jks
-*.keystore
 # Backup snapshots of any file (audit-relevant: schema.prisma.bak
 # would let `prisma db push` overwrite live schema from a stale snapshot).
 *.bak
@@ -65,32 +58,14 @@ CREDENTIALS.md
 .codegraph/
 
 # Root-level test/QA screenshot droppings (bug-fix-*.png, bug-sweep-*.png,
-# mt-removal-*.png, step1-*.png, step6-e2e-*.png, tour-*.png, etc.).
-# Anchored to repo root with leading "/" — tracked PNGs in
-# PROJECT_HANDOVER/diagrams/, apps/, RFID/, old/screenshots/ are unaffected.
+# step1-*.png, tour-*.png, etc.). Anchored to repo root with leading "/" —
+# tracked PNGs under Layouts/, PROJECT_HANDOVER/diagrams/, apps/ are unaffected.
+# The 2026-08-31 QC mockup that sat here as "QC Layout.png" was moved to
+# Layouts/CWH/mockups/ and tracked on 2026-10-05 (audit DOCS-18).
 /*.png
 
 # Old/local backup snapshots (pg_dump outputs, etc.)
 /backups/
-
-# Mosquitto dynamic-security: contains bcrypt hashes after first
-# /refresh-acl call, never commit. Use mosquitto/dynamic-security.json.example
-# as the bootstrap (the installer copies it on first run).
-mosquitto/dynamic-security.json
-mosquitto/dynamic-security.json.tmp
-
-# Android Gradle build outputs (RFID scanner standalone app).
-# Tracked-by-mistake before 2026-05-16 cleanup; ~558 files untracked then.
-# Each build regenerates these — never commit.
-RFID/app/build/
-RFID/.gradle/
-
-# Compiled Android packages. The intentional archive under old/apks/ is
-# whitelisted below so it stays tracked.
-*.apk
-*.aab
-!old/apks/*.apk
-!DigiLog-FilterOps.apk
 
 # Temporary test/debug artifacts (.tmp_* convention used by maintenance
 # scripts that dump user state, wipe SQL, password-history snapshots, etc.)
@@ -101,8 +76,8 @@ RFID/.gradle/
 # from the certs/ folder — duplicate of the parent. Never commit.
 certs/certs/
 
-# Per-machine MCP config (ANDROID_HOME path is user-specific). Each dev
-# generates their own; see reference_mobile_mcp_install memory.
+
+# Per-machine MCP config — each dev generates their own.
 /.mcp.json
 
 # Local DB dumps must never be committed — they hold bcrypt password hashes,
@@ -110,7 +85,6 @@ certs/certs/
 old/db-backups/*
 
 # DigiLog-era debug artifacts (compliance-core strip)
-/*.png
 /*.log
 
 # Uploaded content — profile photos, branding, floorplan images. Written at
@@ -123,3 +97,7 @@ apps/api/uploads/
 # dangling submodule gitlink, and vitest writes PDFs into apps/web/ that were tracked.
 .claude/worktrees/
 apps/web/*.pdf
+
+# Pruned 2026-10-05 (audit DOCS-18): rules for mosquitto/, RFID/, *.apk, *.aab,
+# *.jks, *.keystore and nssm-path.txt — none of those paths or build chains
+# exist in this fork (`ls -d mosquitto RFID` -> neither).

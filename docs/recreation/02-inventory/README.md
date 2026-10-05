@@ -1,5 +1,7 @@
 # Phase 2 — Project Inventory
 
+> **Snapshot notice (added 2026-10-05).** Verified 2026-07-25 at `cbcb913`; superseded by root `CLAUDE.md` System Stats for every count; re-derive before quoting.
+
 *Every count below is followed by the command that produced it, run 2026-07-25.*
 
 ---

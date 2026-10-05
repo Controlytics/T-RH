@@ -41,7 +41,7 @@ that assumes any of those is describing upstream DigiLog, not this repository.
  ┌──────────────┐        HTTPS      ┌──────────────────────────────────┐
  │ React 19 SPA │ ───────────────►  │  Fastify 5  (apps/api/src/app.ts)│
  │  SWR cache   │  JWT Bearer +     │  onRequest → authPlugin          │
- │  51 routes   │  x-reauth-password│            → rbacPlugin          │
+ │  53 routes   │  x-reauth-password│            → rbacPlugin          │
  └──────────────┘                   │  26 route prefixes               │
         ▲                           └───────────┬──────────────────────┘
         │                           ┌───────────▼──────────────────────┐
@@ -51,7 +51,7 @@ that assumes any of those is describing upstream DigiLog, not this repository.
         │                           │      logger · errors             │
         │                           └───────────┬──────────────────────┘
         │                           ┌───────────▼──────────────────────┐
-        │                           │ Prisma 6 (36 models)             │
+        │                           │ Prisma 6 (37 models)             │
         │                           │  + raw SQL for both telemetry    │
         │                           │    tables and the backup engine  │
         │                           └───────────┬──────────────────────┘
@@ -92,15 +92,15 @@ that assumes any of those is describing upstream DigiLog, not this repository.
 | Permissions / reauth actions | **42 / 48** |
 | Audit actions | **97** |
 | Sidebar items | **12** |
-| Config defs / config pages | **25 / 24**² |
+| Config defs / config pages | **35 / 22**² (re-derived 2026-10-05) |
 | Frontend `<Route>`s | **51** (31 lazy) |
-| Web hooks / lib modules | **20 / 19** |
+| Web hooks / lib modules | **26 / 22** (re-derived 2026-10-05: `use-row-keys.ts`, `safe-storage.ts` landed that day) |
 | graphile-worker tasks | **6** |
 | Test files | **~220** |
 
 ¹ A static grep undercounts: `config/routes.ts` and `config/dynamic-routes.ts`
 register routes in a LOOP (a `configEndpoint` factory called 6 times, and
-GET/PUT over the 25 auto-discovered defs), so ~62 routes come from 4 call
+GET/PUT over the 35 auto-discovered defs — `ls apps/api/src/modules/config/defs/*.def.ts | wc -l`, 2026-10-05, after `telemetry-retention.def.ts` landed that day), so 6 + 2 × 35 routes come from 4 call
 sites. Expand the config registry before trusting any route census.
 
 ² These are not meant to be equal. Some defs render through the dynamic config
@@ -151,7 +151,7 @@ ls apps/api/prisma/migrations | wc -l                              # 24
 grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts    # 42
 grep -cE "^\s+[A-Z_]+:"     packages/shared/src/types/reauth-actions.ts # 48
 grep -cE "^\s+[A-Z_]+:"     packages/shared/src/types/audit-actions.ts  # 97
-ls apps/api/src/modules/config/defs/*.def.ts | wc -l               # 25
+ls apps/api/src/modules/config/defs/*.def.ts | wc -l               # 35 (2026-10-05)
 ls apps/web/src/routes/config/*.tsx | wc -l                        # 24
 grep -cE "<Route" apps/web/src/main.tsx                            # 51
 ls apps/web/src/hooks/ | wc -l                                     # 20

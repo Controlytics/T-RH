@@ -1,5 +1,70 @@
 # Changelog
 
+## [Unreleased] - Audit fixes, batch 18: the documentation describes this fork — counts re-derived, the APK / RFID / tablet remnants gone, the dossier dated, the API reference a pointer, Node pinned, one-shot scripts marked (2026-10-05)
+
+Closes DOCS-1, DOCS-4, DOCS-5, DOCS-6, DOCS-7, DOCS-8, DOCS-9, DOCS-10,
+DOCS-11, DOCS-12, DOCS-13, DOCS-15, DOCS-16, DOCS-18, DOCS-19, DOCS-20,
+DOCS-21, DOCS-22 and DOCS-23 of `docs/audit/2026-10-03-technical-audit.md`,
+plus the stale references the earlier batches left behind.
+
+- **Every count in the active doc set was re-derived from the tree at the
+  end of the day** — 37 models / 13 enums, 44 permissions, **55** reauth
+  actions in 8 categories, 25 modules, **35** config defs, **22** config
+  pages, **26** hooks, **22** lib modules, 53 routes, 14 sidebar items,
+  **89** audit actions / **102** templates in 7 categories, 33 shared type
+  files, **8** shared schema files — and written into root `CLAUDE.md`,
+  `README`, `AGENTS`, `PROJECT_SUMMARY`, `PROJECT_ARCHITECTURE`,
+  `BACKEND_GUIDE`, `apps/api/CLAUDE.md`, `apps/web/CLAUDE.md` and
+  `packages/shared/CLAUDE.md` (whose "historic" table is now a live one).
+- **`docs/recreation/` is dated**: every README carries "verified 2026-07-25
+  at `cbcb913`; superseded by root `CLAUDE.md` System Stats for every
+  count"; root `CLAUDE.md` says the same where it called the dossier "the
+  verified inventory".
+- **`API_REFERENCE.md` is a 20-line pointer** to the live Swagger UI and
+  `docs/recreation/06-api/endpoints.md`; the hand-written 2026-08-24 file is
+  `docs/archive/API_REFERENCE-2026-08-24.md` (nothing extracted — read
+  first).
+- **The APK / Capacitor / RFID / tablet / offline remnants are gone or
+  marked as removed-feature history** in root `CLAUDE.md` (two TLS bullets
+  and the "Capacitor APK uses HTTPS" line deleted), `DEPLOY-WINDOWS`,
+  `PHARMA_DEPLOYMENT_21CFR`, `windowsIssues`, `docs/CONTRIBUTING.md`,
+  `docs/deployment-methods/README.md` (EMQX 5.3.2 is BUNDLED, not removed;
+  a current diagram above the historical one) and `.gitignore` (mosquitto,
+  RFID, `*.apk`, `*.jks`, `nssm-path.txt` rules pruned). The root
+  `QC Layout.png` MOCKUP is tracked as `Layouts/CWH/mockups/QC Layout.png`.
+- **`LOCAL_SETUP_WINDOWS.md` is rewritten for this fork** (Node 24.x,
+  `compliance_core_db` + `_test`, both databases migrated,
+  `INITIAL_ADMIN_PASSWORD`, `start-app.bat`, 3001 / 5176); §9A–§9D are
+  byte-identical. `BACKEND_GUIDE.md` lists the six real `alarm-*.e2e` files
+  and describes `alarm_evaluation` without rules.
+- **`draw-cwh-floorplan.ts` grades rooms through the administered limit
+  aliases** (`loadLimitConfig` + `limitsFor` + `enabledBoundsFor`, the
+  dashboard's own resolution) instead of literal attribute keys — probed over
+  the 100 local instruments: the new path grades `{A: 100}`, the old
+  `{D: 100}`. Dry run only; nothing applied.
+- **Node is pinned**: root `package.json` `engines.node = "24.x"` and
+  `.nvmrc`; the `.deb` workflow comment states `ubuntu-22.04` is the proven
+  floor (20.04 is untested) and method-c says 22.04+. Not done:
+  `scripts/linux/debian/control.template` still claims `libc6 (>= 2.31)`;
+  `build-installer.ps1` does not assert the Node zip's version.
+- The two NSSM phase-5 install scripts (0 callers) are in
+  `docs/archive/scripts-nssm/`; `drop-legacy-dashboard-cards.ts`,
+  `verify-panel-migration.ts`, `publish-demo-telemetry.ts` and
+  `retire-limit-attributes.ts` carry a `// ONE-SHOT (date)` header;
+  `vitest.workspace.ts` lists `packages/queue`; `vitest.env.ts`'s header
+  names the real actions and databases; `apps/api/CLAUDE.md`'s "33 API
+  modules — ENTIRELY STALE" section is the live list of 25.
+- **The removed `/api/auth/verify` route and `VERIFICATION_TOKEN_SECRET`
+  (batch 12) are gone from every live doc and code comment** — `README`,
+  `BACKEND_GUIDE`, `LOCAL_SETUP_WINDOWS`, `DEPLOY-AWS-EC2`, the build sheet,
+  `EXE_PACKAGING_FEASIBILITY`, the recreation endpoint tables,
+  `vitest.env.ts`, `ldap-identity.ts` and `reauth-check.ts`. The build sheet
+  and the AWS runbook now carry `AUDIT_HARD_DELETE_ENABLED=false`.
+- Found, not fixed: `tests/e2e-scripts/*.sh` still script upstream
+  DigiLog's surface (`/api/auth/verify`, `/api/assets/*`, `/api/rule-chains`,
+  `/api/qr`) and belong in `docs/archive/`; `future/*` and `tasks/*` still
+  name the removed secret (forward-looking notes and history, left).
+
 ## [Unreleased] - Audit fixes, batch 16: one door to web storage, a failed fetch says so, dead web code out, client-side form schemas, the product's own name as the shipped default (2026-10-05)
 
 Closes WEB-3, WEB-6, WEB-7, WEB-8, WEB-9, WEB-10, WEB-11, WEB-12, WEB-13,

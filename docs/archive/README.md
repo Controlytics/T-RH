@@ -41,3 +41,31 @@ live code first:
 round-trips `password_hash`. That reversed on 2026-05-16 — `password_hash` is
 stripped on export. A rescued claim is trusted *because* someone bothered to
 save it, which makes rescuing a stale one worse than losing it.
+
+### `API_REFERENCE-2026-08-24.md` (archived 2026-10-05)
+
+The root `API_REFERENCE.md`, last edited 2026-08-24. Documented ten lines of
+the removed filters module and none of the six instrument-era modules
+(`alarms`, `floorplans`, `functional-locations`, `alarm-webhooks`,
+`report-reviews`, ingest); its own drift banner quoted 23 modules, 42
+permissions and 47 reauth actions against 25 / 44 / 50 on the day it was
+archived (`ls apps/api/src/modules/ | wc -l`, the two `grep -cE` commands in
+root `CLAUDE.md`). Read for unique knowledge first: the authentication,
+users, roles, audit and config sections are prose restatements of the route
+files, and the instrument section is a subset of root `CLAUDE.md` "Key API
+Endpoints". Nothing was extracted. The root file is now a pointer to the live
+Swagger UI and `docs/recreation/06-api/endpoints.md`.
+
+### `scripts-nssm/` (archived 2026-10-05)
+
+`install-services-phase5.ps1` and `uninstall-services-phase5.ps1` — the Phase 5
+(2026-04) NSSM service registration for a worktree-scoped verification
+deployment on `:3000` / `:5175`. The live installer path is
+`scripts/register-services.ps1` (WinSW); nothing executes these two. Before
+the move, `grep -rl install-services-phase5` found them named only in
+`CHANGELOG.md`, `docs/archive/PHASE_5_RECENT_WORK.md`,
+`docs/EXE_PACKAGING_FEASIBILITY.md`, `docs/recreation/02-inventory/README.md`,
+`future/architectural-refactor-9-steps.md`, `tasks/DEAD-CODE-AUDIT-2026-07-04.md`,
+`windowsIssues.md` and `.gitignore` — prose, no caller. Kept because they are
+the only record of the NSSM-era service layout.
+

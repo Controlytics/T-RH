@@ -5,15 +5,13 @@
 > Capacitor tablet app (offline queue, RFID bridge) — none of it exists in this
 > fork; see root `CLAUDE.md` "Filter domain — REMOVED" and the equally stale
 > `docs/archive/OFFLINE_SYNC_ARCHITECTURE.md`. Rewritten below from `apps/web/src/main.tsx`,
-> `routes/`, `hooks/`, and `lib/` directly. Note for whoever next touches root
-> `CLAUDE.md`: its System Stats line ("26 custom hooks, 30 lib modules") is
-> also stale — live counts are **17 hooks, 17 lib modules** (`ls
-> apps/web/src/hooks/*.ts` / `apps/web/src/lib/*.ts`), and its route count of
-> 48 is off by one — live was **49** at that date (**50** as of 2026-08-27,
-> `grep -cE "<Route" apps/web/src/main.tsx`).
-> Not fixed here since `CLAUDE.md` wasn't one of that pass's four files; root
-> `CLAUDE.md`'s hook/lib and route counts were both corrected on 2026-08-24 and
-> 2026-08-27 respectively.
+> `routes/`, `hooks/`, and `lib/` directly. Root `CLAUDE.md` System Stats is
+> the live inventory and is re-derived whenever a count moves; as of
+> 2026-10-05 it reads **26** hooks, **22** lib modules and **53** routes
+> (`ls apps/web/src/hooks/ | wc -l`, `ls apps/web/src/lib/ | wc -l`,
+> `grep -cE "<Route" apps/web/src/main.tsx`). The paragraph that stood here
+> until then quoted three earlier generations of those numbers as "stale" and
+> was itself the stale one.
 
 ## Overview
 

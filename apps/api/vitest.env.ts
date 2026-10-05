@@ -9,12 +9,15 @@ import { dirname, join } from 'node:path';
 // construction time.
 //
 // Why this exists: the API test suite performs real, audited actions (logins,
-// filter cycles, RFID identifier assign/delete, config edits). audit_trail is
-// immutable + hash-chained (21 CFR §11), so every e2e write against the dev
-// database (digilog_db) permanently pollutes the real audit trail — e.g. the
-// phase3 RFID e2e leaves orphaned ASSET_IDENTIFIER_* rows on filters it then
-// deletes. Redirecting the whole suite onto digilog_test_db isolates all test
-// writes from the real trail.
+// instrument and attribute edits, alarm acknowledgements, report requests,
+// config edits). audit_trail is immutable + hash-chained (21 CFR §11), so every
+// e2e write against the dev database (compliance_core_db on this checkout;
+// digilog_db under .env.example naming) would permanently pollute the real
+// audit trail. Redirecting the whole suite onto the `<db>_test` twin
+// (compliance_core_db_test) isolates all test writes from the real trail — and
+// the 2026-07-25 incident narrated below is what happens when that fails.
+// (Comment rewritten 2026-10-05; it used to cite filter cycles and RFID
+// identifiers, which do not exist here. The code is unchanged.)
 const here = dirname(fileURLToPath(import.meta.url));
 loadDotenv({ path: join(here, '.env'), override: false });
 
@@ -82,5 +85,5 @@ if (!/_test(\?|$)|test_db(\?|$)|digilog_test_db/.test(finalUrl)) {
 // Ensure JWT secrets exist for tests that import lib/jwt.ts before the prisma
 // client (some service tests construct tokens during fixture setup).
 process.env.JWT_SECRET ??= 'TEST_JWT_SECRET_AT_LEAST_32_CHARACTERS_LONG_FOR_HS256_SUITE';
-process.env.VERIFICATION_TOKEN_SECRET ??=
-  'TEST_VERIFICATION_SECRET_AT_LEAST_32_CHARACTERS_LONG_FOR_HS256_SUITE';
+// (VERIFICATION_TOKEN_SECRET used to be set here too; nothing reads it since
+// POST /api/auth/verify was removed — audit 2026-10-03, SEC-5.)

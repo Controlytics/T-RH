@@ -60,8 +60,8 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 
 > **The per-file counts in the table below are inherited from upstream DigiLog and were
 > NEVER true in this fork.** Verified by `grep` 2026-08-27, the real numbers are
-> **44** permission constants, **45** feature privileges, **50** reauth actions in
-> **8** categories, **106** audit actions, **100** audit templates in **7**
+> **44** permission constants, **45** feature privileges, **55** reauth actions in
+> **8** categories, **89** audit actions, **102** audit templates in **7**
 > categories (103 → 106 / 97 → 100 on 2026-09-22: `FLOORPLAN_LINK_CREATED` /
 > `UPDATED` / `DELETED`, the Layout Designer's room links; `{room}` carries
 > "A ↔ B", no new placeholder). Earlier **103** / **97** in **7**
@@ -115,28 +115,37 @@ bit when the `12h` preset was added 2026-08-27. It now resolves by VALUE against
 `15m` is kept even though the operator's list starts at `1h` — removing a preset
 someone may be using was not part of that change.
 
-### (historic) verified 2026-06-30 post-Phase-1-RBAC-catalog
+### Type files (live, re-derived 2026-10-05)
 
-`packages/shared/src/types/` contains **11 type files** (verified `ls packages/shared/src/types/*.ts | grep -v test` 2026-06-30):
+`packages/shared/src/types/` contains **33 type files** (`ls packages/shared/src/types/*.ts | grep -v test | wc -l`, 2026-10-05). The ones that carry a count:
 
-| File | Purpose |
+| File | Live count (command, 2026-10-05) |
 |---|---|
-| `permissions.ts` | **102** permission constants (PERMISSIONS enum) — **2026-07-04 removed 7** with the reports generate/sign tear-out (`REPORT_TEMPLATE_{READ,CREATE,UPDATE,DELETE}`, `REPORT_VIEW`, `REPORT_SIGN`, `REPORT_DELETE`; 109→102; `REPORT_EXPORT`/`REPORT_GENERATE` KEPT — now gate the cleaning-record/lifecycle PDF export; `REPORT_REVIEW_SUBMIT/REVIEW/APPROVE` KEPT — ad-hoc review workflow). 2026-07-01 added `AUDIT_DELETE` (108→109; grantable via the `audit.delete` "Delete Audit Record (permanent)" picker toggle — re-adds physical audit hard-delete torn out 2026-05; **breaks the hash chain**, see apps/api audit/routes.ts); 2026-07-01 added `FILTER_LIST_EXPORT` (gates the Filters-page Export PDF/Excel menu via the new `filters.export` toggle; `filters.rfid_manage` made enforced-only same day); removed vestigial `ASSET_RELATIONSHIP_CREATE`/`ASSET_RELATIONSHIP_DELETE` (109→107; never used as a route gate — relationships gated by the edit perms; nodes + default-role grants + live-DB rows also stripped); `UNS_VIEW`/`UNS_MANAGE` removed 2026-06-17; 2026-06-30 Admin Requests split: `ADMIN_REQUEST_REVIEW` REMOVED, `ADMIN_REQUEST_APPROVE`/`ADMIN_REQUEST_REJECT` added (net +1; page visible to approve/reject holders, no view-only level) |
-| `feature-privileges.ts` | **83** feature privileges + `FEATURE_TO_PERMISSION_MAP`. **2026-07-04: removed 9 tree nodes** with the reports generate/sign tear-out (90→83); the ACTIVE cleaning-record + lifecycle PDF export re-gated by making `cleaning_record.export`/`lifecycle.export` configurable (kept `REPORT_EXPORT` + `REPORT_GENERATE`). **2026-07-02: `filters.rfid_manage` re-added to the picker (configurable again; 89→90)** — reverses the 2026-07-01 enforced-only removal that left non-SUPER_ADMIN roles unable to be granted RFID assign (403 on tablet). Re-added to `CONFIGURABLE_PRIVILEGE_ORDER` + frozen snapshot. 2026-07-01: added `audit.delete` picker toggle (physical audit hard-delete; grant-set `[AUDIT_DELETE, AUDIT_READ]`; 88→89). 2026-07-01: `notifications.manage` made enforced-only (removed from picker); `notifications.delete` gate `[]`→`['NOTIFICATION_DELETE']` (now a real grantable perm; backend delete routes use requirePermission instead of requireSuperAdmin). 2026-07-01 redundancy audit: `checklists.toggle`/`cleaning_profiles.toggle` (dup their `.edit` gate) + `checklists.submit` (same `FILTER_OPERATE` gate as `filters.operate`) made enforced-only (92→89); `notifications.view/manage` re-tagged `enforce:'c'` (gate enforced by no route — visibility-only). **Phase 5E (2026-06-30): both now DERIVED from `PERMISSION_TREE`** (over the `configurable:true` nodes); hand-maintained arrays retired; frozen-snapshot test locks zero drift. `uns.*` removed 2026-06-17; 2026-06-30 admin_requests: `.view` removed, `.approve`/`.reject` added; 2026-06-30 `assets.create/edit/delete` made enforced-only (99→96); **2026-07-01 `assets.identifiers.create/delete` (RFID) + `assets.relationships.create/delete` made enforced-only (96→92; RFID covered by `filters.rfid_manage`, relationships gated by edit perms); `assets.view` label→"View Filters"**. Perm constants kept throughout. |
-| `reauth-actions.ts` | ~~**92**~~ **48** reauth actions (the "92" is stale — see the Live Type Inventory correction above; `grep -cE "^\s+[A-Z_]+:" packages/shared/src/types/reauth-actions.ts` = 48, 2026-08-27). **2026-07-04 removed 7** with the reports generate/sign tear-out (`{CREATE,UPDATE,DELETE}_REPORT_TEMPLATE`, `GENERATE_REPORT`, `SIGN_REPORT`, `REJECT_REPORT`, `DELETE_REPORT`; 99→92; `REVIEW_REPORT`/`APPROVE_REPORT` KEPT — ad-hoc review workflow). **2026-07-04 removed 3 dead/theater actions** (`CREATE_TEMPLATE_KIND`, `UPDATE_TEMPLATE_KIND`, `DELETE_TEMPLATE_KIND` — rendered in the action-reauth config UI but never enforced by any endpoint; template kinds are seed-only, no runtime CRUD route; 102→99). **2026-07-01 added 2** (`DELETE_AUDIT_RECORD`, `BULK_DELETE_AUDIT_RECORDS` — physical audit hard-delete, category `Configuration`; 100→102). **2026-06-17 removed 6 actions** (`MANAGE_DEVICE_CREDENTIAL`, `OVERRIDE_UNS_PATH`, `DELETE_UNS_MAPPING`, `UPDATE_UNS_CONFIG`, `UPDATE_RETENTION_POLICY`, `EXECUTE_RETENTION`) and 2 categories (`UNS`, `Retention`) with data-ingestion tear-out |
-| `roles.ts` | Role constants + hierarchy + display labels; `defaultRoles` extracted to `apps/api/prisma/default-roles.ts` (Phase 1 reconciliation) |
+| `permissions.ts` | **44** permission constants (`grep -cE "^\s+[A-Z_]+:\s*'"`) |
+| `feature-privileges.ts` | **45** feature privileges + `FEATURE_TO_PERMISSION_MAP`, DERIVED from `PERMISSION_TREE` (`legacy-maps-derived.test.ts` pins 45) |
+| `reauth-actions.ts` | **55** reauth actions in **8** categories (`grep -cE "^\s+[A-Z_]+:"`; `grep -oE "category: '[^']+'" \| sort -u \| wc -l`) |
+| `roles.ts` | Role constants + hierarchy + display labels; `defaultRoles` lives in `apps/api/prisma/default-roles.ts` |
 | `permission-categories.ts` | Permission grouping for the role-access UI |
-| `permission-tree.ts` | **Single sidebar-anchored permission catalog (Sidebar→Page→Action); derives `FEATURE_PRIVILEGES` / `FEATURE_TO_PERMISSION_MAP` / `SIDEBAR_PRIVILEGE_MAP`; source of truth from Phase 1 onward** — added 2026-06-30. **Phase 5A (2026-06-30):** `PermissionNode` gained `gate: Permission[]` (discriminating backend perm, NOT grant-expansion) + optional `gateRoles?: string[]`. Helpers: `resolveNodeGate(nodeId)` / `resolveNodeGateRoles(nodeId)` — both return `[]` for unknown ids. `useCan()` hook in `apps/web/src/hooks/use-can.ts` consumes these. |
-| `sidebar-items.ts` | ~~**27**~~ **14** sidebar items (15 → 14 on 2026-09-19: `home` removed) — the "27" here is stale (covered by the Live Type Inventory correction above; verified `grep -c "id: '" packages/shared/src/types/sidebar-items.ts` minus the interface's own `id: string;` line = 12, 2026-08-24; **13** since 2026-09-07). Current list (before 2026-09-19; `home` is gone since): `home, dashboard, functional-locations, alarms, users, admin-requests, configuration, notifications, audit, system-health, instruments, debug-traces, data-report` (`data-report` added 2026-09-07 — the Instrument History widget's own page; `reports` added the same day — the report review workflow; **14** since then). Everything else in this row's prose (Organizations removed, `version-history`/`rfid-track-record`/`quality-notifications`/`reports-group` additions) describes items that were later removed with the domains they belonged to; `version-history` and the Reports-group items are NOT in the live list above. `home` (2026-07-13, first entry) is the one addition from this row's history that survives. |
-| `sidebar-privilege-map.ts` | Sidebar item → privilege binding. **Phase 5E: now DERIVED** from `PERMISSION_TREE` group `visibilityPrivilegeIds` (`deriveSidebarPrivilegeMap()`); hand-maintained array retired. `getPrivilegesForSection` kept. |
-| `audit-actions.ts` | **98** audit action constants for `AuditTrail.action` (`grep -cE "^\s+[A-Z_]+:\s*'"`, 2026-09-05; 97 → 98 with `INSTRUMENT_ATTRIBUTE_REPORTED`, the device → platform attribute write; earlier 93 → 97 with the alarm webhook annunciator) |
-| `audit-templates.ts` | **92** templates in **7** categories (`AUDIT_TEMPLATE_DEFAULTS`, 2026-09-05; 91 → 92 with the same action — its template deliberately carries NO `{actor}`, there is none; earlier 87 → 91 with the alarm webhook annunciator) — they hide UUIDs in the audit UI (e.g. `"<RequestType> — <Name> (<EmployeeID>)"`). A template using a NEW placeholder is **two** edits: the template here AND the substitution in `apps/web/src/routes/audit/audit-helpers.ts`, or it renders literally in the exported §11 record; `{targetName}` and `{actor}` are substituted generically, so a template using only those needs no second edit. `template-placeholders.test.ts` is the check. |
-| ~~`action-tape.ts`~~ | **File does not exist** (verified `ls packages/shared/src/types/` 2026-08-24, no matches anywhere in the codebase). It described the filter-operations action tape, gone with the domain. Remove this row next time this table is touched. |
+| `permission-tree.ts` | The single Sidebar→Page→Action catalog; derives `FEATURE_PRIVILEGES` / `FEATURE_TO_PERMISSION_MAP` / `SIDEBAR_PRIVILEGE_MAP`; `resolveNodeGate(nodeId)` feeds `useCan()` |
+| `sidebar-items.ts` | **14** sidebar items (`grep -c "id: '"`) |
+| `sidebar-privilege-map.ts` | Sidebar item → privilege binding, DERIVED from the tree's `visibilityPrivilegeIds` (**14** sections) |
+| `audit-actions.ts` | **89** audit action constants (`grep -cE "^\s+[A-Z_]+:\s*'"`) |
+| `audit-templates.ts` | **102** templates in **7** categories (`grep -cE "^\s+[A-Z_]+:\s*\{"`, 2026-10-05 after that day's sweeps). A template using a NEW placeholder is **two** edits: the template here AND the substitution in `apps/web/src/routes/audit/audit-helpers.ts`, or it renders literally in the exported §11 record; `{targetName}` and `{actor}` are substituted generically. `template-placeholders.test.ts` is the check. |
+
+A "(historic) verified 2026-06-30" table stood here until 2026-10-05 with the upstream DigiLog
+numbers (102 / 83 / 92 / 27) struck through and every removal narrated in the cells (audit
+finding DOCS-5). That history is in `CHANGELOG.md`; the Live Type Inventory block above keeps
+the per-change deltas since 2026-08-24. `action-tape.ts`, which that table still listed, does
+not exist.
 
 Plus `index.ts` (barrel).
 
-`packages/shared/src/schemas/` contains **7 Zod validation schemas** (+ `.test.ts` siblings, verified
-`ls packages/shared/src/schemas/*.ts | grep -v test | wc -l` 2026-08-24 — the table below is stale;
+`packages/shared/src/schemas/` contains **8 Zod validation schema files** (+ `.test.ts` siblings,
+re-derived `ls packages/shared/src/schemas/*.ts | grep -v test | wc -l` 2026-10-05 — 7 → 8 that day:
+`admin-forms.ts`, the CLIENT-side schemas for the LDAP, notification rule / template, help article and
+New Instrument forms (audit 2026-10-03, WEB-15) plus `formFieldErrors()`, the `{ field: [messages] }`
+reader the pages render from; they live here so `apps/web` grows no direct `zod` dependency. The
+server stays authoritative. Earlier verified 2026-08-24 — the table below is stale;
 `assets.ts`, `templates.ts`, `hierarchy.ts` don't exist any more (asset/entity domain removed), and
 `instrument-profiles.ts` + `instruments.ts` were added since and are missing from this table):
 
@@ -185,7 +194,7 @@ See `CHANGELOG.md` for full details.
 
 **Permissions & Privileges (snapshot at release; current totals are higher — see Live Type Inventory):**
 - Each FEATURE_TO_PERMISSION_MAP mapping includes both frontend visibility permission + backend route permission
-- 16 reauth categories
+- 16 reauth categories at that release (**8** on 2026-10-05 — `grep -oE "category: '[^']+'" packages/shared/src/types/reauth-actions.ts | sort -u | wc -l`)
 - `colorTheme` field added to `brandingConfigSchema` in `schemas/config.ts`
 - Sidebar privilege map updated with new toggle IDs for Filters/Checklist/Cleaning Profile/Equipment Group/PM page controls
 

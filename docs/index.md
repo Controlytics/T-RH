@@ -25,7 +25,7 @@ Counts above re-derived 2026-08-27 with the command block below.
 For a top-down view, prefer the docs at the repo root (verify any count against live code first):
 - [`PROJECT_SUMMARY.md`](../PROJECT_SUMMARY.md) — overview
 - [`PROJECT_ARCHITECTURE.md`](../PROJECT_ARCHITECTURE.md) — system architecture
-- [`API_REFERENCE.md`](../API_REFERENCE.md) — API reference
+- [`API_REFERENCE.md`](../API_REFERENCE.md) — pointer to the live Swagger UI (`/docs`) and `docs/recreation/06-api/endpoints.md`; the hand-written reference was archived 2026-10-05
 - [`BACKEND_GUIDE.md`](../BACKEND_GUIDE.md) — backend dev guide
 - [`FRONTEND_GUIDE.md`](../FRONTEND_GUIDE.md) — frontend dev guide
 - [`CHANGELOG.md`](../CHANGELOG.md) — chronological history

@@ -1,123 +1,107 @@
-# DigiLog — Local Windows Setup Guide
+# compliance-core — Local Windows Setup Guide
 
-**Purpose:** This file contains everything Claude (or a developer) needs to clone, set up, and run the DigiLog application locally on a Windows machine. Follow every step exactly.
+**Purpose:** everything a developer (or Claude) needs to clone, set up and run
+**this fork** on a Windows machine. §9A–§9D (instrument ingest: HTTP / TCP /
+MQTT via EMQX, MQTTS, downlinks, the child roster, RTC sync) are the part root
+`CLAUDE.md` cites and are unchanged.
 
-> ⚠️ **Correction (2026-08-24) — MQTT ingest is BACK; this banner and §1.4's "no broker" note below are stale for TimescaleDB but WRONG for MQTT.** Phase 7 (2026-06-17) did remove the old TimescaleDB/Mosquitto data-ingestion pipeline, and that part of this banner still holds — no TimescaleDB extension, no `TSDB_*` keys. But `apps/api/package.json` now depends on `"mqtt": "^5.15.2"` again, `apps/api/src/app.ts` registers `/api/ingest/v1` + `mqtt-auth-routes.ts` + a raw-TCP ingest listener + an MQTT bridge (`modules/instruments/listeners/mqtt-bridge.ts`), and `MQTT_BROKER_URL` / `INGEST_TCP_PORT` are live `.env` keys — verified by `grep -n mqtt apps/api/src/app.ts` and `grep '"mqtt"' apps/api/package.json` 2026-08-24. This is the **new** instrument-ingest MQTT bridge (via EMQX — see §9A/§9B below), unrelated to the old telemetry pipeline. Follow §9 if you need instrument ingest; skip it if you don't. See `CHANGELOG.md` Phase 7 entry + root `CLAUDE.md` System Stats for what's current, and don't trust this paragraph's "no MQTT broker" framing below without re-checking §9.
+> **Rewritten 2026-10-05 (audit DOCS-8).** Until then §1–§9 and §10–§15 walked a
+> new developer through *upstream DigiLog*: a `digilog_db` on `:3000` / `:5175`,
+> "61 model tables including the Phase 2 filter management tables", a sidebar of
+> Filter Operations / Cleaning Cycles / PM Schedules, an `apps/android/` tree and
+> `start-digilog.bat`. None of that exists here; following it produced the
+> sibling-checkout mix-up root `CLAUDE.md` warns about (a bare `npx vite` on 5175
+> proxied to the DigiLog backend on 3000). Every number below came from a
+> command run that day; re-derive before quoting.
 
 ---
 
-## 1. Prerequisites — Install These First
+## 1. Prerequisites
 
-### 1.1 Node.js v20 (LTS)
-- Download: https://nodejs.org/en/download — select **v20.x LTS** (NOT v22)
-- Verify: `node -v` should show `v20.x.x`
-- npm comes bundled: `npm -v` should show `10.x.x`
+### 1.1 Node.js 24.x
+- The version is pinned in ONE place: root `package.json` `engines.node`
+  (`"24.x"`) and the matching `.nvmrc`. The Linux `.deb` build refuses any other
+  major (`scripts/linux/build-deb.sh`) and the Windows installer's Node zip must
+  match the ABI of the native modules compiled on the build machine.
+- Verify: `node -v` → `v24.x.x`. This machine: v24.14.1, npm 11.11.0.
 
 ### 1.2 PostgreSQL 18
-- Download PostgreSQL 18: https://www.postgresql.org/download/windows/
-- During install: remember the superuser password (e.g. `postgres`)
-- Port: **5432** (default)
-- No TimescaleDB extension is needed — the time-series subsystem was removed in Phase 7 (2026-06-17). Vanilla PostgreSQL 18 is all DigiLog requires.
+- https://www.postgresql.org/download/windows/ — remember the superuser password;
+  port **5432**.
+- **No TimescaleDB, no Redis / Memurai.** Vanilla PostgreSQL 18 is all the app
+  needs: the job queue (graphile-worker) and every table live in it.
 
-### 1.3 Redis — RETIRED (Phase 4, 2026-05-01)
-DigiLog no longer uses Redis. **Do not install Memurai or Redis.** Phase 2
-moved the job queue to Postgres (graphile-worker); Phase 4 moved pub/sub
-and RPC correlation in-process (EventEmitter bus + Map TTL cache). Skip
-this section entirely — there is nothing to install for the pub/sub layer.
+### 1.3 Git
+- https://git-scm.com/download/win — `git --version`.
 
-### 1.4 Git
-- Download: https://git-scm.com/download/win
-- Verify: `git --version`
-
-> **⚠️ Stale as of 2026-08-24 — see the correction banner at the top of this file.**
-> The OLD data-ingestion subsystem (Mosquitto/MQTT, TimescaleDB) was removed
-> wholesale in Phase 7 (2026-06), but a NEW MQTT ingest bridge (EMQX-based,
-> for instrument telemetry) was added back afterward — see §9A/§9B below for
-> the broker you now DO need if you're working on instrument ingest.
+### 1.4 EMQX 5.3.2 — only if you work on instrument ingest
+- Not needed to run the app, log in, or use anything but device telemetry over
+  MQTT. When you do need it, §9A.3 below is the setup (the same 5.3.2 the
+  customer installers bundle; the dev box runs it from an unzipped folder,
+  started by `scripts/start-app.ps1`).
 
 ---
 
 ## 2. Clone the Repository
 
 ```bash
-git clone https://github.com/pankajexa/21cfrlogbook.git
-cd 21cfrlogbook
-git checkout DigitalFMS
+git clone https://github.com/sivamunnangi1211/TRH_GGP.git compliance-core
+cd compliance-core
+git checkout data-layer
 ```
+
+Work and push on `data-layer`. `final-user-management` is a FROZEN backup — never
+commit to it. There is no `main`.
 
 ---
 
-## 3. Create Databases
+## 3. Create the Databases
 
-Open **pgAdmin** or **psql** and run:
+Two databases, same user. The test database is NOT optional: the vitest suite
+refuses to run against anything but a `*_test` name (`apps/api/vitest.env.ts`),
+and a migration applied to only one of them makes every instrument-touching e2e
+500.
 
 ```sql
--- Create the application user
 CREATE USER digilog WITH PASSWORD 'digilog123';
-
--- Create the main database (Prisma)
-CREATE DATABASE digilog_db OWNER digilog;
-
--- Grant privileges
-GRANT ALL PRIVILEGES ON DATABASE digilog_db TO digilog;
-
--- Connect to digilog_db and enable pgcrypto (used for UUID / hashing)
-\c digilog_db
+CREATE DATABASE compliance_core_db OWNER digilog;
+CREATE DATABASE compliance_core_db_test OWNER digilog;
+GRANT ALL PRIVILEGES ON DATABASE compliance_core_db TO digilog;
+GRANT ALL PRIVILEGES ON DATABASE compliance_core_db_test TO digilog;
+\c compliance_core_db
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+GRANT ALL ON SCHEMA public TO digilog;
+\c compliance_core_db_test
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 GRANT ALL ON SCHEMA public TO digilog;
 ```
 
-> **Note:** There is only one application database now — `digilog_db` (Prisma).
-> The former `digilog_tsdb` TimescaleDB database was dropped in Phase 7
-> (2026-06-17) along with the data-ingestion subsystem.
+> `apps/api/.env.example` and the customer installer (`scripts/provision-db.ps1`)
+> name the database `digilog_db`. This checkout uses `compliance_core_db` so it
+> cannot collide with the sibling DigiLog checkout on the same Postgres. Either
+> name works — what matters is that `DATABASE_URL` names the one you created.
 
 ---
 
-## 4. Create Environment Files
+## 4. Create the Environment File
 
-### 4.1 Root `.env` (copy to project root AND `apps/api/.env`)
+The API reads **`apps/api/.env`** (nothing reads a root `.env`). Start from the
+example and change the keys below:
 
-Create the file `21cfrlogbook/.env` with this content:
-
-```env
-# --- PostgreSQL (Prisma) ---
-DATABASE_URL=postgresql://digilog:digilog123@localhost:5432/digilog_db?schema=public
-
-# --- Redis — RETIRED (Phase 4, 2026-05-01) ---
-# Pub/sub moved in-process via EventEmitter bus. RPC correlation moved to
-# Map TTL cache. REDIS_* env vars are no longer read by anything.
-# (TimescaleDB env keys were removed in Phase 7 — none are read anymore. MQTT
-#  keys came back on 2026-08-06 for the instrument ingest bridge — a different
-#  subsystem entirely. They are OPTIONAL; see section 9A.)
-
-# --- SMTP (optional) ---
-SMTP_HOST=smtp.example.com
-SMTP_PORT=587
-SMTP_USER=
-SMTP_PASSWORD=
-
-# --- JWT Configuration ---
-JWT_SECRET=LOCAL_DEV_SECRET_CHANGE_IN_PRODUCTION_1234567890abcdefghijklmnopqrstuvwxyz
-VERIFICATION_TOKEN_SECRET=LOCAL_DEV_VERIFY_SECRET_CHANGE_IN_PRODUCTION_1234567890abcdefghijklmn
-JWT_EXPIRES_IN=8h
-
-# --- Server Configuration ---
-NODE_ENV=development
-API_PORT=3000
-
-# --- CORS Configuration ---
-CORS_ORIGIN=http://localhost:5175
-ALLOWED_ORIGINS=http://localhost:5175,http://localhost:3000
-
-# --- Upload Configuration ---
-UPLOAD_DIR=./uploads
-MAX_FILE_SIZE=5242880
-```
-
-**IMPORTANT:** Copy the same file to `apps/api/.env`:
 ```bash
-cp .env apps/api/.env
+cp apps/api/.env.example apps/api/.env
 ```
+
+| Key | This checkout | Why |
+|---|---|---|
+| `DATABASE_URL` | `postgresql://digilog:digilog123@localhost:5432/compliance_core_db?schema=public` | the database from §3 |
+| `PORT` / `API_PORT` | `3001` | the example says 3000, which is the sibling checkout's API |
+| `WEB_PORT` | `5176` | `start-app.ps1` reads it; a bare `npx vite` defaults to 5175 and proxies to :3000 |
+| `API_HTTPS` | `true` | mkcert certs in `certs/server.{key,crt}`, signed by `%LOCALAPPDATA%\mkcert\rootCA.pem` (NOT `certs/rootCA.pem`) |
+| `ALLOWED_ORIGINS` | add `https://localhost:5176` | CORS for the dev SPA origin |
+| `JWT_SECRET` | any long random string (≥32 chars) | dev only; `VERIFICATION_TOKEN_SECRET` is no longer read (removed 2026-10-05, audit SEC-5) |
+| `INITIAL_ADMIN_PASSWORD` | set it **before seeding** | the seed THROWS without it; there is no hardcoded default and no forced change on first login |
+| `MQTT_BROKER_URL`, `MQTT_USERNAME`, `MQTT_PASSWORD`, `INGEST_TCP_PORT` | optional | §9A–§9D |
 
 ---
 
@@ -127,119 +111,98 @@ cp .env apps/api/.env
 npm install
 ```
 
-This installs all dependencies for the monorepo (root + apps/api + apps/web + packages/*).
+Installs the whole workspace (root + `apps/api` + `apps/web` + `packages/shared`
++ `packages/queue`).
 
 ---
 
 ## 6. Set Up the Database
 
-### 6.1 Generate Prisma Client
+Run every step against BOTH databases — pass `DATABASE_URL` explicitly rather
+than trusting whichever `.env` was loaded.
+
 ```bash
 cd apps/api
-npx prisma generate
-```
-
-### 6.2 Run Migrations
-```bash
-npx prisma migrate deploy
-```
-
-> This creates all 61 model tables including the Phase 2 filter management tables, equipment groups, and checklist profiles.
-
-### 6.3 Seed the Database
-```bash
-npx prisma db seed
-```
-
-> This creates: 6 default roles (SUPER_ADMIN through VIEWER), superadmin user (username: `superadmin`, password: `Admin@123`), system config entries (auto-discovered), permission constants, and the system template kinds (DigiLog is single-tenant, no organizations created).
-
-```bash
+npx prisma generate            # stop `tsx watch` first — it EPERMs on Windows while the API runs
+DATABASE_URL=postgresql://digilog:digilog123@localhost:5432/compliance_core_db?schema=public      npx prisma migrate deploy
+DATABASE_URL=postgresql://digilog:digilog123@localhost:5432/compliance_core_db_test?schema=public npx prisma migrate deploy
+INITIAL_ADMIN_PASSWORD='<choose one>' npx prisma db seed     # seeds the dev DB; repeat with the test URL
 cd ../..
 ```
 
+The migrations build **37 models and 13 enums** (`grep -cE "^model "` /
+`"^enum "` on `apps/api/prisma/schema.prisma`, 2026-10-05), including the
+partitioned `instrument_telemetry_history` table that `prisma migrate diff`
+wants to DROP — never run `db push`; `npm run db:migrate` runs
+`scripts/check-migration-safety.mjs` first for that reason.
+
+The seed creates the default roles, the `superadmin` user with the password you
+passed, and the auto-discovered config rows. It is single-tenant: no
+organisations.
+
 ---
 
-## 7. Build the Project
+## 7. Build
+
+```bash
+npm run build          # turbo: @digilog/shared -> @digilog/queue -> @digilog/api -> @digilog/web
+```
+
+After ANY change under `packages/shared/`, rebuild it before testing either app:
+`npm run build -w @digilog/shared`.
+
+---
+
+## 8. Run
+
+### 8.1 The launcher (recommended)
+
+```bat
+start-app.bat    REM wraps scripts/start-app.ps1: verifies Postgres (and EMQX if configured),
+                 REM starts the API on :3001 and Vite on :5176 with API_PROXY_TARGET set; idempotent
+stop-app.bat
+```
+
+### 8.2 By hand (two terminals)
+
+```bash
+# Terminal 1 — API, auto-reload
+cd apps/api && npx tsx watch src/app.ts            # https://localhost:3001
+
+# Terminal 2 — SPA. BOTH variables are required: vite.config.ts defaults to
+# port 5175 and proxies /api to https://localhost:3000, the sibling checkout.
+cd apps/web && WEB_PORT=5176 API_PROXY_TARGET=https://localhost:3001 npx vite --host
+```
+
+### 8.3 Production-style
 
 ```bash
 npm run build
-```
-
-This runs `turbo build` which builds all packages in dependency order:
-1. `@digilog/shared` (shared types)
-2. `@digilog/queue` (graphile-worker wrapper)
-3. `@digilog/api` (Fastify backend — TypeScript -> JavaScript)
-4. `@digilog/web` (React frontend — Vite build)
-
----
-
-## 8. Run the Application
-
-### 8.1 Development Mode (with hot reload)
-
-Open **two terminals**:
-
-**Terminal 1 — Backend API:**
-```bash
-cd apps/api
-npx tsx watch src/app.ts
-```
-API runs on http://localhost:3000
-
-**Terminal 2 — Frontend:**
-```bash
-cd apps/web
-npx vite --host
-```
-Frontend runs on http://localhost:5175
-
-### 8.2 Using Batch Scripts
-```bash
-start-app.bat    # Starts API and Frontend (wraps scripts/start-app.ps1)
-stop-app.bat     # Stops all services
-```
-
-> **Corrected 2026-08-24.** This block named `start-digilog.bat` /
-> `stop-digilog.bat`, which **do not exist** — following it literally fails at
-> once. The live launchers are `start-app.bat` / `stop-app.bat`, wrapping
-> `scripts/start-app.ps1`, which verifies each dependency and is safe to re-run.
-
-### 8.3 Production Mode
-
-```bash
-# Build first
-npm run build
-
-# Start API
-cd apps/api
-node dist/app.js
-
-# Serve frontend (use any static server)
-cd ../web
-npx vite preview
+cd apps/api && node dist/app.js       # serves the built SPA and /api/* from one process
 ```
 
 ---
 
-## 9. Verify It Works
+## 9. Verify
 
-1. Open http://localhost:5175 in your browser
-2. Login: **superadmin** / **Admin@123**
-3. You should see the dashboard
-4. Check the sidebar for:
-   - Filter Operations
-   - Cleaning Cycles
-   - Checklists
-   - Cleaning Profiles
-   - Filter Profiles
-   - PM Schedules
-   - Equipment Groups
+1. Open **https://localhost:5176** and log in as `superadmin` with the
+   `INITIAL_ADMIN_PASSWORD` you seeded (on this machine it is the one recorded
+   in root `CLAUDE.md` "Default Login").
+2. The sidebar a SUPER_ADMIN sees is the **14** items in
+   `packages/shared/src/types/sidebar-items.ts` (`grep -c "id: '"`, 2026-10-05):
+   Dashboard, Functional Locations, Alarms, Users, Admin Requests, Configuration,
+   Notifications, Audit Trail, System Health, Instruments, Debug Traces, Data
+   Report, Reports, Settings. Other roles see what Roles & Access grants.
+3. API liveness (401 is NOT a pass here — `/api/health` is public and returns 200):
 
-### API Health Check
 ```bash
-curl http://localhost:3000/api/health
-# or in browser: http://localhost:3000/docs (Swagger UI)
+curl -sk --ssl-revoke-best-effort -o /dev/null -w "%{http_code}" https://localhost:3001/api/health
+# Swagger UI: https://localhost:3001/docs
 ```
+
+`curl` on Windows uses Schannel and fails with exit 60 on a valid local chain
+unless given `--ssl-revoke-best-effort`; an exit 60 is not evidence of a bad
+certificate.
 
 ---
 
@@ -1143,112 +1106,117 @@ under fake timers) and `e2e/mqtt-rtc-sync.test.ts` (over the real bridge).
 ## 10. Project Structure
 
 ```
-21cfrlogbook/
+compliance-core/
 ├── apps/
-│   ├── api/                    # Fastify backend (TypeScript)
+│   ├── api/                    # Fastify backend (TypeScript, ESM) — port 3001 here
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma   # Database schema (61 models, 23 enums)
-│   │   │   ├── seed.ts         # Database seeder
-│   │   │   └── migrations/     # SQL migrations
+│   │   │   ├── schema.prisma   # 37 models, 13 enums (2026-10-05)
+│   │   │   ├── seed.ts         # seeder — needs INITIAL_ADMIN_PASSWORD
+│   │   │   └── migrations/     # hand-checked SQL migrations (partitioned telemetry table)
+│   │   ├── scripts/            # operational + one-shot scripts (one-shots carry a `// ONE-SHOT` header)
 │   │   └── src/
-│   │       ├── app.ts          # Entry point
-│   │       ├── modules/        # 33 API modules
-│   │       ├── plugins/        # Auth, CORS, etc.
-│   │       └── lib/            # Shared utilities
-│   ├── web/                    # React frontend (Vite + Tailwind)
-│   │   └── src/
-│   │       ├── main.tsx        # Router + routes
-│   │       ├── routes/         # 20+ route groups
-│   │       ├── components/     # Shared components
-│   │       └── lib/            # API client, hooks
-│   └── android/                # Capacitor Android app
+│   │       ├── app.ts          # entry point; registers the 25 modules, ingest listeners, job runner
+│   │       ├── modules/        # 25 API modules (`ls | wc -l`, 2026-10-05); config/defs/ holds 35 config defs
+│   │       ├── plugins/        # auth, rbac, cors, …
+│   │       ├── workers/        # the 6 graphile-worker tasks
+│   │       └── lib/            # audit hash chain, config discovery/registry, sanitize, …
+│   └── web/                    # React 19 SPA (Vite 6, Tailwind v4) — port 5176 here
+│       └── src/
+│           ├── main.tsx        # 53 <Route> definitions (2026-10-05)
+│           ├── routes/         # pages; routes/config/ holds 22 config pages
+│           ├── components/     # shared components
+│           ├── hooks/          # 25 entries incl. __tests__ (2026-10-05)
+│           └── lib/            # 22 entries incl. __tests__ (2026-10-05)
 ├── packages/
-│   ├── shared/                 # Shared types & Zod schemas
-│   └── queue/                  # graphile-worker wrapper (Postgres-backed)
-├── turbo.json                  # Turborepo build config
-├── start-digilog.bat           # Windows start script
-├── stop-digilog.bat            # Windows stop script
-└── package.json                # Root workspace config
+│   ├── shared/                 # permissions (44), reauth actions (50), sidebar items (14), PERMISSION_TREE, zod schemas
+│   └── queue/                  # graphile-worker wrapper + crontab.txt
+├── scripts/                    # start-app / stop-app, installer build + provisioning, linux/ (.deb), emqx/ templates
+├── docs/                       # docs/recreation/ is a 2026-07-25 snapshot; docs/archive/ is history
+├── Layouts/                    # the client's floor drawings (CWH/) the traced plans are measured from
+├── start-app.bat / stop-app.bat
+├── turbo.json
+└── package.json                # workspaces; engines.node = 24.x
 ```
+
+There is **no** `apps/android/`, `rfid_scan_app/` or `packages/db` — verified
+`ls apps/ packages/` 2026-10-05.
 
 ---
 
 ## 11. Key Configuration
 
-| Config | Value | Notes |
-|--------|-------|-------|
-| API Port | 3000 | Fastify backend |
-| Web Dev Port | 5175 | Vite dev server |
-| PostgreSQL | localhost:5432 | User: digilog, DB: digilog_db (PG 18) |
-| ~~Redis~~ | ~~localhost:6379~~ | RETIRED (Phase 4) — pub/sub now in-process |
-| Default Login | superadmin / Admin@123 | Created by seed |
+| Config | This checkout | Code default | Notes |
+|---|---|---|---|
+| API port | **3001** (HTTPS) | 3000 | `apps/api/.env` `PORT` / `API_PORT` |
+| Web dev port | **5176** | 5175 | `WEB_PORT`; `start-app.ps1` sets it |
+| Vite `/api` proxy | https://localhost:3001 | https://localhost:3000 | `API_PROXY_TARGET` — the default is the SIBLING checkout |
+| PostgreSQL | `localhost:5432`, user `digilog`, `compliance_core_db` + `compliance_core_db_test` | `digilog_db` | PG 18, no extensions beyond pgcrypto |
+| EMQX (optional) | 1883 / 8883, dashboard 18083 loopback | — | §9A.3 / §9B |
+| Default login | `superadmin` / the seeded `INITIAL_ADMIN_PASSWORD` | none — the seed throws without one | no forced change on first login |
 
 ---
 
 ## 12. Common Commands
 
 ```bash
-# Install dependencies
-npm install
+npm install                      # all workspaces
+npm run build                    # everything, in dependency order
+npm run build -w @digilog/shared # after any packages/shared change
+npm run dev                      # turbo dev (API + web) — prefer start-app.bat, which sets the ports
 
-# Build everything
-npm run build
-
-# Run dev mode (both API + Web)
-npm run dev
-
-# Database commands
+# Database (pass DATABASE_URL explicitly; there are several .env files on this machine)
 cd apps/api
-npx prisma generate          # Regenerate Prisma client
-npx prisma migrate dev       # Create + apply new migration
-npx prisma migrate deploy    # Apply pending migrations
-npx prisma db seed           # Seed default data
-npx prisma studio            # Visual DB browser on localhost:5555
+npx prisma generate              # stop tsx watch first on Windows (EPERM otherwise)
+npx prisma migrate dev           # create + apply a migration — then READ it: strip any DROP of the partitioned table
+npx prisma migrate deploy        # apply pending migrations — run against BOTH databases
+npx prisma db seed               # needs INITIAL_ADMIN_PASSWORD
+npx prisma studio
 
-# Run tests
+# Tests — run web test files ONE AT A TIME and gate on the exit code
 npx turbo run test
+cd apps/web && npx vitest run src/routes/<page>/<file>.test.tsx
 
-# Build only API
-npx turbo build --filter=@digilog/api
-
-# Build only Web
-npx turbo build --filter=@digilog/web
+# Live counts (root CLAUDE.md "Live-count verification") — run before quoting any number
+grep -cE "^model " apps/api/prisma/schema.prisma
+ls apps/api/src/modules/ | wc -l
+grep -cE "<Route" apps/web/src/main.tsx
 ```
 
 ---
 
 ## 13. Troubleshooting
 
-### "Module not found" errors
-```bash
-npm install
-npx turbo build --force
-```
+### The app "works" but shows the wrong data
+You ran a bare `npx vite`: it serves on 5175 and proxies `/api` to
+https://localhost:3000 — the sibling DigiLog checkout's backend. Use
+`start-app.bat`, or set `WEB_PORT=5176 API_PROXY_TARGET=https://localhost:3001`.
 
-### Prisma client errors
+### Every instrument e2e returns 500
+A migration was applied to `compliance_core_db` but not `compliance_core_db_test`
+(or the reverse). Run `prisma migrate deploy` against both (§6).
+
+### `prisma generate` → EPERM
+`tsx watch` holds the generated client open on Windows. Stop the API first.
+
+### "Module not found" / stale shared types
 ```bash
-cd apps/api
-npx prisma generate
-cd ../..
-npm run build
+npm install && npm run build -w @digilog/shared && npx turbo build --force
 ```
 
 ### Database connection errors
-- Check PostgreSQL is running: `pg_isready`
-- (Phase 4: Redis is no longer used; this step is no longer needed.)
-- Verify .env DATABASE_URL matches your PostgreSQL credentials
-- Ensure the `digilog_db` database exists (there is no longer a separate TimescaleDB database)
+- `pg_isready`; check `DATABASE_URL` in `apps/api/.env` names a database that exists (§3).
 
 ### Port conflicts
-- API (3000): `netstat -ano | findstr :3000`
-- Web (5175): `netstat -ano | findstr :5175`
-- PostgreSQL (5432): `netstat -ano | findstr :5432`
-- (Phase 4: Redis port 6379 is no longer used by DigiLog.)
+- API (3001): `netstat -ano | findstr :3001` — Web (5176): `findstr :5176` —
+  Postgres (5432): `findstr :5432` — EMQX (1883/8883/18083) if running.
 
-### Windows-specific issues
-- Use **Git Bash** or **WSL2** for running commands (not CMD)
-- If `bcrypt` fails to install, run: `npm install --build-from-source bcrypt`
-- If `sharp` errors occur: `npm install --platform=win32 --arch=x64 sharp`
+### Windows-specific
+- Use Git Bash or PowerShell; there is no WSL2 or Docker on the dev laptop, and
+  virtualization is off — Linux native modules are built by the GitHub runner
+  (`.github/workflows/build-deb.yml`), never here.
+- If `bcrypt` fails to install: `npm install --build-from-source bcrypt`.
+- `curl` exit 60 against https://localhost:3001 is Schannel revocation checking,
+  not a broken chain — add `--ssl-revoke-best-effort`.
 
 ---
 
@@ -1256,40 +1224,24 @@ npm run build
 
 | Field | Value |
 |-------|-------|
-| Repository | https://github.com/pankajexa/21cfrlogbook.git |
-| Branch | DigitalFMS |
+| Repository | https://github.com/sivamunnangi1211/TRH_GGP.git |
+| Working branch | `data-layer` |
+| Frozen backup | `final-user-management` — do not commit to it |
 
 ---
 
 ## 15. Architecture Summary
 
-- **Backend:** Fastify 5 + TypeScript + Prisma ORM + graphile-worker job queue
-- **Frontend:** React 19 + Vite 6 + Tailwind CSS 4 + SWR + React Router 7
-- **Database:** PostgreSQL 18 + Prisma migrations (single `digilog_db` database)
-- **Queue:** PostgreSQL + graphile-worker (notification, PM-overdue, session-sweep tasks + cron)
-- **Auth:** JWT tokens with bcrypt password hashing, session management
-
-### Phase 2: Digital Filter Management System
-- 6 backend modules: cleaning-profiles, filter-profiles, filter-operations, pm-schedules, checklist-profiles, equipment-groups
-- 14+ frontend pages: operations, profiles, cycles, checklists, PM, AHU dashboard, traceability, equipment, bulk-upload, retirement
-- 11+ database tables: filter_cleaning_profiles, filter_pipeline_stages, filter_pipeline_connections, filter_profiles, cleaning_cycles, filter_events, pm_schedules, pm_schedule_entries, pm_executions, equipment_groups, equipment_group_instruments, checklist_profiles, checklist_questions
-- Visual pipeline editor with STAGE, CHECKLIST, START, END nodes
-- Server-side checklist enforcement, race condition protection, input sanitization
-
----
-
-## Phase 3 Update (2026-04-07)
-
-**RFID & Offline Operations:**
-- RFID Scanner Android app (`rfid_scan_app/`) for KC-series UHF readers
-- RFID keyboard guard prevents UKB tag input leaking into random fields
-- Offline cleaning operations via IndexedDB queue + sync engine
-- Cached identifier→filter map for offline RFID lookup
-- "Data Synced" indicator in mobile header
-- One identifier per entity (backend-enforced)
-- Responsive layout with collapsible sidebar
-- Error popups replace inline banners
-- User creation auto-assigns org for admins
-- `/api/roles/active` public endpoint for contact-admin page
-
-See `CHANGELOG.md` for full details.
+- **Backend:** Fastify 5 + TypeScript (ESM) + Prisma 6 on PostgreSQL 18; graphile-worker
+  job queue in the same database (**6** tasks: `notification`,
+  `password_expiry_check`, `session_sweep`, `telemetry_partition_maintenance`,
+  `alarm_evaluation`, `alarm_webhook` — the `taskList` in `apps/api/src/app.ts`,
+  2026-10-05). Instrument ingest over HTTP, WebSocket, raw TCP and MQTT (EMQX 5.3.2).
+- **Frontend:** React 19 + Vite 6 + Tailwind v4 + SWR + React Router 7, served
+  same-origin by the API in production.
+- **Domain:** 21 CFR Part 11 administration — users, roles, hash-chained audit trail,
+  e-signature re-auth, notifications — plus instrument monitoring: telemetry,
+  five alarm sources, functional locations, floor plans, report review workflow.
+- **Not here:** the DigiLog filter / cleanroom domain, RFID, tablets, offline sync,
+  multi-tenancy, TimescaleDB, Redis. See root `CLAUDE.md` "Filter domain — REMOVED"
+  and `docs/recreation/02-inventory/absent-subsystems.md`.

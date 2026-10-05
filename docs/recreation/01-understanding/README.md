@@ -1,5 +1,7 @@
 # Phase 1 — Complete System Understanding
 
+> **Snapshot notice (added 2026-10-05).** Verified 2026-07-25 at `cbcb913`; superseded by root `CLAUDE.md` System Stats for every count; re-derive before quoting.
+
 *All statements below are derived from the source tree, the live OpenAPI dump, and
 the live database on 2026-07-25. See the root README §4 for method.*
 

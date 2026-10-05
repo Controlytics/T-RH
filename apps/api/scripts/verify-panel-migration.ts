@@ -1,3 +1,4 @@
+// ONE-SHOT (ran 2026-08-28): verified the `20260828070000_panel_access` carry-over against `system_config['dashboard-cards']`, which was then deleted — nothing left to verify.
 /**
  * Prove the `20260828070000_panel_access` carry-over against the row it came from.
  *

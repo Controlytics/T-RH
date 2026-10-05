@@ -1,3 +1,4 @@
+// ONE-SHOT (dev-only demo, 2026-08): NOT wired into the app, never imported; registers demo instruments and publishes readings through the ingest endpoint.
 /**
  * Dev-only. Registers a handful of instruments named after real CWH 3rd-floor
  * rooms and publishes plausible temperature/humidity through the NORMAL ingest

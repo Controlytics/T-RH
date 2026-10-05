@@ -147,7 +147,7 @@ applied **per route** on the auth surface:
 | `POST /api/auth/login` | 10 / minute |
 | `POST /api/auth/refresh` | 30 / minute |
 | `POST /api/auth/change-password` | 5 / minute |
-| `POST /api/auth/verify` (re-auth) | 5 / minute |
+| ~~`POST /api/auth/verify`~~ | removed 2026-10-05 (audit SEC-5) |
 | `POST /api/auth/forgot-password` | 3 / **15 minutes** |
 
 A rebuild must keep this shape: loose global, tight on credentials. A single

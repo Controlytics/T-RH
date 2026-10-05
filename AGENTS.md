@@ -10,9 +10,9 @@
 > `stage-approvals` and `sync`. **`admin-requests`, `debug-traces`, `system-health`
 > and `user-groups` are LIVE** — this banner listed all four as removed until
 > 2026-08-27, which was wrong; verified against `ls apps/api/src/modules/`),
-> **52** frontend
-> routes (not 76), **36 models / 13 enums** (not 61/23), **42 permissions / 48 reauth
-> actions** (not 102/92), **103 audit actions / 97 audit templates** (102/96 → 103/97 on 2026-09-21: `ALARMS_PURGED`), **14** sidebar items (15 → 14 on 2026-09-19, `home` removed),
+> **53** frontend
+> routes (not 76), **37 models / 13 enums** (not 61/23), **44 permissions / 55 reauth
+> actions** (not 102/92), **89 audit actions / 102 audit templates** (re-derived 2026-10-05, audit DATA-10), **14** sidebar items (15 → 14 on 2026-09-19, `home` removed),
 > **6** graphile-worker tasks. There is
 > no `orgId` review note needed either way (still true: single-tenant). See `CLAUDE.md` for
 > the accurate module/count inventory before using this file for review guidance.

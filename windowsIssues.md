@@ -2,7 +2,7 @@
 
 Authoritative inventory of features and dependencies in the codebase that are **difficult or impossible to run cleanly on Windows Server**, with mitigations. Pair this with `docs/PHARMA_DEPLOYMENT_21CFR.md` (the canonical deployment runbook — root `DEPLOY-WINDOWS.md` is now a pointer to it) and `LOCAL_SETUP_WINDOWS.md` (local dev).
 
-**Last verified:** 2026-04-29 against commit `5f56cec` on branch `RFID`.
+**Last verified:** 2026-04-29 against commit `5f56cec` on branch `RFID`. **Retired items marked 2026-10-05** (audit DOCS-9): the APK / Android chain, `start-digilog.bat`, `pm_overdue_check`, `internal-bus.ts` / `rpc-cache.ts` and the `digilog_db` naming below are each annotated where they appear; nothing else was re-verified that day.
 
 **Severity legend:**
 - 🔴 Hard blocker — won't work without significant work
@@ -89,7 +89,7 @@ This Windows-hostility problem was resolved for the *old* pipeline: there was no
 **Why hard:** Windows Server doesn't ship `bash`. Need WSL, Git Bash, Cygwin, or a PowerShell rewrite.
 
 **Mitigation:**
-- `.bat` and `.ps1` equivalents already exist for `start-digilog`/`stop-digilog`
+- `.bat` and `.ps1` equivalents already exist — `start-app.bat` / `stop-app.bat` wrapping `scripts/start-app.ps1` / `stop-app.ps1` (**`start-digilog`/`stop-digilog` do not exist** — renamed; marked 2026-10-05)
 - E2E shell scripts need PowerShell rewrites
 - WSL2 install adds Hyper-V dependency — heavy
 
@@ -135,13 +135,13 @@ Why this kills the issue entirely:
 - `addJob()` runs in the caller's PG transaction, so jobs don't fire if the business txn rolls back (a feature BullMQ never offered).
 - Single Postgres backup covers the queue too; no separate Memurai persistence story.
 
-Live-verified: graphile-worker schema auto-bootstraps on first connect. The original verification path (`dlq_check`/`connectivity_check`/`ingestion` tasks against MQTT) is gone with the Phase 7 tear-out — surviving graphile-worker tasks are `notification`, `pm_overdue_check`, `session_sweep`.
+Live-verified: graphile-worker schema auto-bootstraps on first connect. The original verification path (`dlq_check`/`connectivity_check`/`ingestion` tasks against MQTT) is gone with the Phase 7 tear-out — surviving graphile-worker tasks were `notification`, `pm_overdue_check`, `session_sweep` at the time. **Retired (marked 2026-10-05):** `pm_overdue_check` went with the filter domain; the live `taskList` in `apps/api/src/app.ts` has **6** tasks — `notification`, `password_expiry_check`, `session_sweep`, `telemetry_partition_maintenance`, `alarm_evaluation`, `alarm_webhook`.
 
-**Phase 4 (2026-05-01) update — RESOLUTION COMPLETE:** non-queue pub/sub (WebSocket events, RPC correlation, pipeline tracer, debug recorder) moved in-process via `apps/api/src/lib/internal-bus.ts` (EventEmitter wrapper) and `apps/api/src/lib/rpc-cache.ts` (Map TTL cache). `ioredis` dependency removed from `apps/api/package.json`. **No Redis-protocol service of any kind is needed.** Memurai install instructions struck from this doc + setup docs. Why in-process beats PG `LISTEN/NOTIFY` here: single-Node-process deployment + 10ns vs 5-20ms latency + zero new infra. Same `bus.emit / bus.on` interface can be backed by a PG LISTEN/NOTIFY adapter the day multi-process scale-out becomes a real requirement; until then, the simpler implementation is correct.
+**Phase 4 (2026-05-01) update — RESOLUTION COMPLETE:** non-queue pub/sub (WebSocket events, RPC correlation, pipeline tracer, debug recorder) moved in-process via `apps/api/src/lib/internal-bus.ts` (EventEmitter wrapper) and `apps/api/src/lib/rpc-cache.ts` (Map TTL cache). **Both files were later removed as dead code — `rpc-cache.ts` 2026-07-01, `internal-bus.ts` 2026-07-03 (marked 2026-10-05); there is no pub/sub layer at all now.** `ioredis` dependency removed from `apps/api/package.json`. **No Redis-protocol service of any kind is needed.** Memurai install instructions struck from this doc + setup docs. Why in-process beats PG `LISTEN/NOTIFY` here: single-Node-process deployment + 10ns vs 5-20ms latency + zero new infra. Same `bus.emit / bus.on` interface can be backed by a PG LISTEN/NOTIFY adapter the day multi-process scale-out becomes a real requirement; until then, the simpler implementation is correct.
 
 ### 8. PostgreSQL 18 + ~~TimescaleDB extension~~ (TSDB removed 2026-06-11)
 
-**TimescaleDB no longer used.** `digilog_tsdb` database dropped 2026-06-11 with the data-ingestion tear-out. Only `digilog_db` (Prisma) + `digilog_test_db` (vitest) remain. The Windows-hostility concerns below applied to TimescaleDB and are now moot — vanilla PG 18 is sufficient.
+**TimescaleDB no longer used.** `digilog_tsdb` database dropped 2026-06-11 with the data-ingestion tear-out. Only the Prisma database + its vitest twin remain — `digilog_db` / `digilog_test_db` under `.env.example` naming, `compliance_core_db` / `compliance_core_db_test` on this checkout (marked 2026-10-05). The Windows-hostility concerns below applied to TimescaleDB and are now moot — vanilla PG 18 is sufficient.
 
 #### Historical caveats (TimescaleDB era — kept for context)
 
@@ -174,7 +174,7 @@ Live-verified: graphile-worker schema auto-bootstraps on first connect. The orig
 
 ---
 
-## 🟡 APK / Android build chain (only if building APK on the server)
+## ~~🟡 APK / Android build chain~~ — RETIRED (no APK exists; see the note below)
 
 > **⚠️ Obsolete as of the 2026-07-18 Phase 0 strip (marked 2026-08-24).** Neither
 > `apps/android/` nor `rfid_scan_app/` exists in this fork any more — verified
@@ -298,7 +298,7 @@ New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' `
 - PostgreSQL 18 itself (now also hosts the graphile-worker queue schema)
 - `mqtt` npm package — uninstalled 2026-06-17 with data-ingestion tear-out, **but reinstalled since** (`"mqtt": "^5.15.2"` in `apps/api/package.json`, verified 2026-08-24) for the new instrument-ingest MQTT bridge; see the correction on entry #3 above
 - HTTPS via mkcert (after the cert-import step in §6)
-- Windows Service registration — the `DigiLog-Setup.exe` installer registers `DigiLogDB` + `DigiLogAPI` as WinSW services (`scripts/register-services.ps1`); NSSM (`install-services-phase5.ps1`) remains for manual deploys
+- Windows Service registration — the `DigiLog-Setup.exe` installer registers `DigiLogDB` + `DigiLogAPI` as WinSW services (`scripts/register-services.ps1`); NSSM (`install-services-phase5.ps1`) was the Phase 5 path — **archived to `docs/archive/scripts-nssm/` on 2026-10-05**, nothing calls it
 - ~~Memurai (Redis substitute, paid)~~ — RETIRED in Phase 4 (2026-05-01); pub/sub now in-process
 - The config defs + config pages + permission constants — all pure JS (**stale counts removed 2026-08-24**: this line said "35 config defs + 34 config pages + 102 permissions", none of which were ever true in this fork per root `CLAUDE.md`; live counts there are **25 / 24 / 42** — re-derive via the grep/ls commands in root `CLAUDE.md`'s "Live-count verification" block rather than trusting a number here)
 

@@ -103,7 +103,7 @@ curl -sk https://localhost:3001/docs/json
 | GET | `/api/auth/me` | Get current user |
 | PUT | `/api/auth/profile` | Update profile |
 | POST | `/api/auth/refresh` | Refresh JWT token |
-| POST | `/api/auth/verify` | Re-authenticate |
+| ~~POST~~ | ~~`/api/auth/verify`~~ | Removed 2026-10-05 (audit SEC-5): re-auth is proven inline per gated request (`_currentPassword` / `x-reauth-password`) |
 
 ## /dashboards  — 9 paths
 

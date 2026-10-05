@@ -1,5 +1,7 @@
 # Application Recreation Dossier — compliance-core
 
+> **Snapshot notice (added 2026-10-05).** Verified 2026-07-25 at `cbcb913`; superseded by root `CLAUDE.md` System Stats for every count; re-derive before quoting.
+
 **Generated:** 2026-07-25 · **Branch:** `master` · **Commit at analysis:** `cbcb913`
 
 This folder is a reverse-engineering dossier of **compliance-core**: what the

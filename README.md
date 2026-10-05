@@ -25,7 +25,7 @@ PostgreSQL database, Turborepo for task running. Windows-first local dev.
 |---|---|
 | `apps/api/` | Fastify backend. Auth, RBAC, audit chain, notifications, instruments, ingest, alarm webhooks. **25** modules (`ls apps/api/src/modules/ \| wc -l`). Prisma schema + migrations live here. |
 | `apps/web/` | React SPA (Vite, Tailwind 4, SWR, react-router). **53** `<Route>` elements (`grep -cE "<Route" apps/web/src/main.tsx`). |
-| `packages/shared/` | Contracts both sides import: **44** permissions, **50** reauth actions, **14** sidebar items, the permission tree, Zod schemas. |
+| `packages/shared/` | Contracts both sides import: **44** permissions, **55** reauth actions, **14** sidebar items, the permission tree, Zod schemas. |
 | `packages/queue/` | graphile-worker producer + runner. Postgres-backed — no Redis. |
 | `docs/` | Project docs. `docs/recreation/` is the verified inventory. |
 | `scripts/` | PowerShell scripts for start/stop, DB provisioning, migration verification, packaging. |
@@ -36,7 +36,7 @@ Counts came from: `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permiss
 `grep -cE "^\s+[A-Z_]+:" packages/shared/src/types/reauth-actions.ts`,
 `grep -cE "id: '" packages/shared/src/types/sidebar-items.ts`.
 
-The database has **36 models and 13 enums**
+The database has **37 models and 13 enums** (re-derived 2026-10-05; 36 → 37 on 2026-09-22 with `FloorplanRoomLink`)
 (`grep -cE "^model " apps/api/prisma/schema.prisma`, and `grep -cE "^enum "` on
 the same file).
 
@@ -44,12 +44,15 @@ the same file).
 
 ### Prerequisites
 
-- Node.js and npm. **Nothing in the repo pins a Node version** — there is no
-  `engines` field in any workspace `package.json` (`grep -rn '"engines"'`). The
-  root `package.json` pins `npm@11.6.2` via `packageManager`, which is only
+- Node.js **24.x** and npm. The version is pinned in ONE place — the root
+  `package.json` `engines.node` field (`"24.x"`, added 2026-10-05) with a
+  matching `.nvmrc` — because the Linux `.deb` build (`scripts/linux/build-deb.sh`)
+  refuses any other major and the Windows installer bundles a Node zip whose
+  ABI must match the native modules compiled on the build machine. Every other
+  doc that states a Node version cites that field; change it there first. The
+  root `package.json` also pins `npm@11.6.2` via `packageManager`, which is only
   enforced if you have Corepack on. This machine runs Node v24.14.1 and npm
-  11.11.0, and the app builds and runs on them; Node 20+ is the floor the
-  dependencies imply, not one the repo checks.
+  11.11.0.
 - PostgreSQL. `psql --version` here reports 18.3, reachable on `localhost:5432`.
   No minimum is enforced anywhere in the repo.
 - Windows. The launcher and provisioning scripts are PowerShell; the app itself
@@ -83,8 +86,9 @@ copy it: the example's `DATABASE_URL` names `digilog_db`, but this checkout
 uses **`compliance_core_db`**; and this checkout is configured for ports
 **3001 and 5176** rather than the code defaults of 3000 and 5175, which a
 sibling DigiLog checkout owns on the machine this was set up on. At minimum
-you need `DATABASE_URL`, `JWT_SECRET`,
-`VERIFICATION_TOKEN_SECRET`, `PORT=3001` and `WEB_PORT=5176`.
+you need `DATABASE_URL`, `JWT_SECRET`, `PORT=3001` and `WEB_PORT=5176`
+(`VERIFICATION_TOKEN_SECRET` is no longer read — removed 2026-10-05 with
+`POST /api/auth/verify`, audit SEC-5).
 
 Create and migrate the database:
 

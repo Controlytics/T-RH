@@ -240,7 +240,6 @@ function New-Secret([int]$bytes) {
   -join ($b | ForEach-Object { $_.ToString('x2') })
 }
 New-Secret 48    # JWT_SECRET
-New-Secret 48    # VERIFICATION_TOKEN_SECRET
 New-Secret 48    # AUDIT_CHAIN_KEY
 ```
 
@@ -255,7 +254,8 @@ SERVE_WEB=true
 WEB_DIST_DIR=C:\Program Files\DigiLog\web
 UPLOAD_DIR=C:\ProgramData\DigiLog\uploads
 JWT_SECRET=<GENERATED>
-VERIFICATION_TOKEN_SECRET=<GENERATED>
+# VERIFICATION_TOKEN_SECRET — no longer read (removed 2026-10-05, audit SEC-5)
+AUDIT_HARD_DELETE_ENABLED=false
 JWT_EXPIRES_IN=1h
 ALLOWED_ORIGINS=https://<PRIVATE_IP_OR_INTERNAL_NAME>
 AUDIT_CHAIN_KEY=<GENERATED>

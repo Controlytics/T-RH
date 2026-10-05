@@ -6,7 +6,7 @@ Detailed guidance on which docs to touch when changing code. CLAUDE.md holds the
 
 ## Why this file exists
 
-Across nine documentation-audit passes (2026-04-29) we found numerical drift, EC2/PM2 references long after EC2 was removed, undocumented code surfaces (`lib/idempotency.ts`, `lib/connectivity.ts`, `lib/rfid-bridge.ts`, 5 of 26 config pages, etc.), and stale folder references (`tests/manual-test-cases/` after deletion, `routes/checklist/` after rename to `checklist-form/`). Each pass found more. The receipts live in `tasks/todo.md`.
+Across nine documentation-audit passes (2026-04-29) we found numerical drift, EC2/PM2 references long after EC2 was removed, undocumented code surfaces (`lib/idempotency.ts`, `lib/connectivity.ts`, `lib/rfid-bridge.ts` — all three since removed with the offline/RFID domain — 5 of 26 config pages, etc.), and stale folder references (`tests/manual-test-cases/` after deletion, `routes/checklist/` after rename to `checklist-form/`). Each pass found more. The receipts live in `tasks/todo.md`.
 
 The fix wasn't a one-time cleanup — it was a contract. This file is that contract.
 
@@ -49,7 +49,6 @@ For every kind of code change, update every doc in the right column **in the sam
 | **New hook** in `apps/web/src/hooks/` | `FRONTEND_GUIDE.md` Hooks tables, `future/frontend/README.md`, `future/frontend/KEY_FILES.md`, `CLAUDE.md` System Stats |
 | **New lib helper** in `apps/web/src/lib/` | `FRONTEND_GUIDE.md` libs table, `future/frontend/README.md`, `future/frontend/KEY_FILES.md` |
 | **New component** in `apps/web/src/components/` | `FRONTEND_GUIDE.md` Components tables, `future/frontend/README.md` directory map |
-| **New mobile route** in `routes/mobile/` | `FRONTEND_GUIDE.md` Mobile section, `future/frontend/README.md`, `future/frontend/KEY_FILES.md` |
 | **Folder rename** in `routes/` | `FRONTEND_GUIDE.md`, `future/frontend/README.md`, `future/frontend/KEY_FILES.md`, `future/frontend/PATTERNS.md` |
 | **New PWA asset** in `apps/web/public/` | `PROJECT_ARCHITECTURE.md` "Frontend public assets" |
 | **New theme preset** in `lib/themes.ts` | `README.md` themes line, `CLAUDE.md` System Stats, `FRONTEND_GUIDE.md` theming, `future/frontend/README.md` Theme model |
@@ -71,7 +70,7 @@ For every kind of code change, update every doc in the right column **in the sam
 When adding a new config def, you must update **all twelve** of these in the same commit (memory: `feedback_config_sync.md`):
 
 1. `apps/api/src/modules/config/defs/<name>.def.ts` — the def itself
-2. `apps/api/src/modules/config/config-discovery.ts` — import + register
+2. `apps/api/src/lib/config-discovery.ts` — import + register (path corrected 2026-10-05; `find apps/api/src -name "config-discovery*"` finds only this one)
 3. `apps/web/src/routes/config/<name>.tsx` — the page
 4. `apps/web/src/routes/config/index.tsx` — registry-card entry
 5. `packages/shared/src/types/sidebar-items.ts` — sidebar entry if applicable
@@ -85,15 +84,13 @@ When adding a new config def, you must update **all twelve** of these in the sam
 
 Plus: write an e2e test, append to `CHANGELOG.md`, and update count claims in CLAUDE.md System Stats.
 
-### Native Android / RFID / offline
+### ~~Native Android / RFID / offline~~ (rows removed 2026-10-05)
+
+*The table that stood here mapped changes to `apps/android/`, `Reader_Usb.jar`, Capacitor plugins, `offline-store`, `sync-engine`, `offline-sync-service`, `connectivity.ts` and `idempotency.ts`. None of those paths exist in this fork (`ls apps/` -> `api`, `web`; `docs/recreation/02-inventory/absent-subsystems.md`). The only surviving row is below.*
 
 | Code change | Docs to update |
 |---|---|
-| **New native Java plugin** in `apps/android/.../java/` | `PROJECT_ARCHITECTURE.md` Android tree, `docs/archive/OFFLINE_SYNC_ARCHITECTURE.md` if it touches sync, `docs/archive/PHASE_5_RECENT_WORK.md` § 3 |
-| **`Reader_Usb.jar` SDK update** | `PROJECT_ARCHITECTURE.md`, `docs/archive/PHASE_5_RECENT_WORK.md`, `README.md` Phase 3/5 RFID line |
-| **Capacitor plugin add** in `apps/android/package.json` | `future/overview/CODEBASE_SUMMARY.md` Android section, `docs/archive/OFFLINE_SYNC_ARCHITECTURE.md` if it changes connectivity |
-| **Change to `offline-store`, `sync-engine`, `offline-sync-service`, `connectivity.ts`, `idempotency.ts`** | `docs/archive/OFFLINE_SYNC_ARCHITECTURE.md`, `future/frontend/README.md` Offline section, `FRONTEND_GUIDE.md` libs, `docs/archive/PHASE_5_RECENT_WORK.md` § 2 + § 9 |
-| **New `x-*` header convention** | `docs/archive/OFFLINE_SYNC_ARCHITECTURE.md`, `future/backend/API_ENDPOINTS.md` "Header conventions" |
+| **New `x-*` header convention** | `future/backend/API_ENDPOINTS.md` "Header conventions" |
 
 ### Tests / infra / deployment
 

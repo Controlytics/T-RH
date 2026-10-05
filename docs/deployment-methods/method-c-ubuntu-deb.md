@@ -4,7 +4,7 @@
 One file, `digilog_<version>_amd64.deb`, installs the whole system on an intranet
 server with **no internet access and no reverse proxy**. Built by
 `.github/workflows/build-deb.yml` (or `scripts/linux/build-deb.sh` on any Ubuntu
-20.04+ box) — the build host is the only place the internet is needed.
+22.04+ box) — the build host is the only place the internet is needed.
 
 ## What the package contains
 
@@ -28,9 +28,12 @@ Created at install, survive upgrade **and** `apt remove` (destroyed only by `apt
 | `/etc/digilog/initial-admin-password.txt` | Only when no `DIGILOG_ADMIN_PASSWORD` was given at install; root-only; delete after first login |
 | `/var/log/digilog/` | Provisioning and backup logs (services log to the journal) |
 
-"Any Ubuntu version": every binary is self-contained and built against an old
-glibc (the package is built on the oldest supported runner), so nothing links
-against the host's `libssl`/`libicu`. Declared dependencies are only
+"Any Ubuntu version from 22.04": the vendored Node, PostgreSQL and EMQX are
+self-contained downloads, but `bcrypt` and the Prisma engines are built on the
+workflow's `ubuntu-22.04` runner (glibc 2.35) — the oldest hosted runner GitHub
+still offers (20.04 retired 2025). **20.04 is untested** (corrected 2026-10-05;
+this paragraph used to say "oldest supported runner" and "20.04+"). Nothing
+links against the host's `libssl`/`libicu`. Declared dependencies are only
 `libc6 (>= 2.31)`, `openssl`, `adduser`, `procps`, `ca-certificates` — all in
 `ubuntu-minimal`. Tested by the workflow's smoke install on the runner; the
 site's IQ should repeat it on the target release.
@@ -103,7 +106,7 @@ own credential), `no_match = deny`, and the rendered `acl.conf`.
 ```bash
 # GitHub Actions: push a tag  v1.0.0  -> Release with the .deb attached;
 # any push to data-layer touching the packaging inputs -> workflow artifact.
-# Locally on Ubuntu 20.04+ (Node 24, dpkg-deb, curl, unzip, xz):
+# Locally on Ubuntu 22.04+ (Node 24 — root package.json `engines`; dpkg-deb, curl, unzip, xz):
 scripts/linux/build-deb.sh --version 1.0.0
 ```
 

@@ -1,5 +1,7 @@
 # Phase 4 — Roles, Permissions & Access Control
 
+> **Snapshot notice (added 2026-10-05).** Verified 2026-07-25 at `cbcb913`; superseded by root `CLAUDE.md` System Stats for every count; re-derive before quoting.
+
 *Counts verified by executing the built `PERMISSION_TREE` module and querying the
 live `roles` table, 2026-07-25; re-verified 2026-08-05 after the instruments
 registry added a 9th group.*

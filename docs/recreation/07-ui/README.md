@@ -1,5 +1,7 @@
 # Phase 7 — UI Analysis
 
+> **Snapshot notice (added 2026-10-05).** Verified 2026-07-25 at `cbcb913`; superseded by root `CLAUDE.md` System Stats for every count; re-derive before quoting.
+
 ```bash
 grep -cE '<Route' apps/web/src/main.tsx   # → 38
 ls apps/web/src/routes/                   # → 11 groups

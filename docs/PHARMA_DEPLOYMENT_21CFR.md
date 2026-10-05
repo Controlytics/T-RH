@@ -23,7 +23,7 @@ A reverse proxy (Nginx/IIS) is normally used to (a) terminate TLS, (b) serve the
 
 ```
                          ┌──────────────────────────────────────────────┐
-   Browser / APK ──HTTPS──►  Fastify service on :3000 (Windows service)  │
+   Browser       ──HTTPS──►  Fastify service on :3000 (Windows service)  │
    https://digilog.   │      • TLS terminated here (server.key/crt)      │
    pharma.local       │      • serves the React SPA  (apps/web/dist)     │  ──► PostgreSQL 18
                       │      • serves /api/*  (REST)                      │      (local service)
@@ -93,13 +93,14 @@ Place the issued `server.key` / `server.crt` where `API_HTTPS` reads them (`cert
 |---|---|---|
 | `NODE_ENV` | `development` | **`production`** |
 | `JWT_SECRET` | `LOCAL_DEV_SECRET_CHANGE_IN_PRODUCTION…` | **strong random** — `node -e "console.log(require('crypto').randomBytes(64).toString('base64'))"` |
-| `VERIFICATION_TOKEN_SECRET` | dev placeholder | strong random (different value) |
-| `OFFLINE_REPLAY_SECRET` | already random — keep stable | stable 32+ char random |
+| ~~`OFFLINE_REPLAY_SECRET`~~ | — | *(removed 2026-10-05 from this table: nothing reads it — `grep -rn OFFLINE_REPLAY_SECRET apps/api/src` is empty; the offline queue it signed went 2026-07-18)* |
+| `AUDIT_HARD_DELETE_ENABLED` | unset (= enabled) | **`false`** — both installers write it (audit 2026-10-03, DATA-8); physical deletion of audit rows then answers 403 and `bulk-redact` is the only removal path. Add the line by hand on an install whose `.env` predates it |
+| `PUBLIC_BASE_URL` | unset | the address registered with Azure AD / Google for the OAuth2 mail redirect, e.g. `https://digilog.pharma.local` (audit 2026-10-03, SEC-6); unset = derived from each request |
 | `DATABASE_URL` | `digilog:…@localhost/digilog_db` | same DB, **strong DB password** |
 | `CORS_ORIGIN` / `ALLOWED_ORIGINS` | localhost dev ports | the production hostname only |
 | `UPLOAD_DIR` | `./uploads` | a **writable** path, e.g. `%ProgramData%\DigiLog\uploads` (not read-only `Program Files`) |
 
-Frontend build: set `apps/web/.env.production` → `VITE_API_URL=https://digilog.pharma.local:3000` **before** `vite build`, so the APK and any absolute calls target the production hostname. (For the same-origin browser case, relative `/api` also works.)
+Frontend build: the SPA is served same-origin by the API, so relative `/api` is what it uses and `apps/web/.env.production` stays **blank** (it is tracked blank on purpose). Set `VITE_API_URL` only if the SPA is ever hosted on a different origin. *(This paragraph said "so the APK … target the production hostname" until 2026-10-05; there is no APK in this fork.)*
 
 ### 3.4 Host / OS
 
@@ -200,7 +201,7 @@ The application already provides the Part 11 *technical* controls; production de
 8. Installer initialises Postgres, runs `migrate deploy`, writes `.env` with strong secrets, registers services, configures backups.
 9. Verify HTTPS loads on domain machines with **no cert warning** (enterprise root CA trusted).
 10. Execute IQ/OQ/PQ protocols; capture evidence; sign off.
-11. Enrol tablets (APK) via MDM with the internal root CA trusted; point them at the hostname.
+11. ~~Enrol tablets (APK) via MDM with the internal root CA trusted; point them at the hostname.~~ *Removed 2026-10-05 — no tablet or APK exists in this fork (`ls apps/` is `api`, `web`). Domain browsers already trust the enterprise root CA (step 9).*
 
 ---
 

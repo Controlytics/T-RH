@@ -59,7 +59,7 @@ These are the things a packager must account for. Each is real in this repo.
 
 ### ✅ Option A — Windows Installer `.exe` (RECOMMENDED)
 
-Produce one `DigiLog-Setup.exe` (built with **Inno Setup** or **NSIS**) that, when run, installs and wires everything up. This is the natural extension of the existing `DEPLOY-WINDOWS.md` + `scripts/install-services-phase5.ps1` (NSSM) work.
+Produce one `DigiLog-Setup.exe` (built with **Inno Setup** or **NSIS**) that, when run, installs and wires everything up. This is the natural extension of the existing `DEPLOY-WINDOWS.md` + `scripts/install-services-phase5.ps1` (NSSM) work *(archived to `docs/archive/scripts-nssm/` 2026-10-05; the installer registers WinSW services via `scripts/register-services.ps1`)*.
 
 **What the installer bundles & does:**
 1. Lays down a **portable Node.js runtime** (e.g. `node.exe` v18/20 LTS — *not* a global install).
@@ -123,7 +123,7 @@ Because of the baseline migration we just created, **strategy A's "create + migr
 **Small code/config changes (low risk):**
 6. **Writable paths** — ensure `UPLOAD_DIR` and any log/temp paths resolve to a writable location (e.g. `%ProgramData%\DigiLog\uploads`), not read-only `Program Files`.
 7. **(Optional) Swap `bcrypt` → `bcryptjs`** — pure-JS, removes one native-addon headache. Drop-in API-compatible; re-hashing is *not* needed (bcryptjs verifies existing bcrypt hashes). Only do this if you also pursue Option C; for Option A it's unnecessary since `node` loads the native addon fine.
-8. **Secrets generation** — installer must generate `JWT_SECRET`, `VERIFICATION_TOKEN_SECRET`, `OFFLINE_REPLAY_SECRET` (today's `.env` uses dev placeholders that literally say `CHANGE_IN_PRODUCTION`).
+8. **Secrets generation** — installer must generate `JWT_SECRET` (and, as of this writing, `VERIFICATION_TOKEN_SECRET` and `OFFLINE_REPLAY_SECRET` — both since found to have NO reader; the first was removed 2026-10-05, audit SEC-5) (today's `.env` uses dev placeholders that literally say `CHANGE_IN_PRODUCTION`).
 9. **`NODE_ENV=production`** in the generated `.env`.
 10. **PDF engine** — verify `detectEdgePath()` finds Edge on the target machine; document Edge as a requirement (it ships with Windows 10/11).
 

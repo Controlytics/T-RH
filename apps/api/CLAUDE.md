@@ -719,26 +719,24 @@ node apps/api/dist/app.js
   equipment-groups/checklist-profiles/PM/filter-ops permission-family fallbacks that
   no longer exist — but the decorator and its rationale are unchanged and current.)
 
-## ⚠️ 33 API Modules — ENTIRELY STALE, kept as history only (re-verified 2026-08-24)
+## API modules (live)
 
-The list below (`verified ls 2026-07-04`) predates the 2026-07-18 Phase 0 strip and the 2026-08-20
-filter-domain vocabulary removal. **None of the filter/asset/checklist/PM/equipment modules named in
-it exist any more.** The live module list is the **25 modules** in the section above ("Route modules"):
+**25** modules under `apps/api/src/modules/` (`ls apps/api/src/modules/ | wc -l`, 2026-10-05):
 `admin-requests, alarm-webhooks, alarms, audit, auth, backup, config, dashboards, debug-traces,
 floorplans, functional-locations, help, instrument-profiles, instruments, ldap,
 notification-delivery, notification-rules, notifications, report-reviews, roles, super-admin,
-system-health, uploads, user-groups, users`
-(verified `ls apps/api/src/modules/` 2026-09-07; `report-reviews` is BACK as of that day — a new module, not the removed one restored). Do not use the list below as a reference for what
-exists — it documents what was removed and when, nothing more.
+system-health, uploads, user-groups, users`.
 
-admin-requests, assets, audit, auth, backup, block-change-requests, checklist-profiles, cleaning-profiles, config (36 auto-discovered definitions), dashboards, debug-traces, deployment-check, equipment-groups, filter-operations, filter-profiles, guest, help, hierarchy, ldap, notification-delivery, notification-rules, notifications, pm-schedules, replacement-schedule, report-reviews, roles, stage-approvals, super-admin, sync, system-health, uploads, user-groups, users.
-
-**Removed in 2026 cleanups**: `org-admin` + `tenant-admin` (MT removal, 2026-04-30), `rule-chain` (alarm tear-out, 2026-05-17), `qr-code` (placeholder, 2026-06-06), **`data-ingestion` + `uns` + `connectivity` + `queries` (ingestion tear-out, 2026-06-11..2026-06-17)**, **`reports` + `report-templates` (reports generate/sign tear-out, 2026-07-04 — `report-reviews` survives)**, and (2026-07-18 Phase 0 strip) `assets`, `block-change-requests`, `checklist-profiles`, `cleaning-profiles`, `equipment-groups`, `filter-operations`, `filter-profiles`, `guest`, `hierarchy`, `pm-schedules`, `replacement-schedule`, `stage-approvals`, `sync`, `deployment-check` — the entire filter/cleanroom domain and several support modules. `report-reviews` also gone by 2026-08-24 (not in the live 23 — verify before citing).
+A "33 API Modules" list from 2026-07-04 stood here until 2026-10-05 beside this live one, with a
+paragraph saying not to use it (audit finding DOCS-23 — two inventories for one number). It is
+gone; which module was removed when (MT removal 2026-04-30, rule-chain 2026-05-17, the ingestion
+tear-out 2026-06-11..17, the reports tear-out 2026-07-04, the Phase 0 filter-domain strip
+2026-07-18) is in `CHANGELOG.md`.
 
 ## Databases
 - **digilog_db** per `.env.example` (this checkout's actual `.env` uses `compliance_core_db` — see
-  Environment note above) (PostgreSQL 18 via Prisma) — application data (**36 models, 13 enums**,
-  verified `grep -cE "^model "` / `"^enum "` 2026-08-27 — see root `CLAUDE.md` System Stats for the
+  Environment note above) (PostgreSQL 18 via Prisma) — application data (**37 models, 13 enums**,
+  verified `grep -cE "^model "` / `"^enum "` 2026-10-05; 36 → 37 on 2026-09-22 with `FloorplanRoomLink` — see root `CLAUDE.md` System Stats for the
   live number, the "29 models, 6 enums" here is a 2026-08-08 snapshot, not current)
 - ~~`digilog_tsdb`~~ — **DROPPED 2026-06-11** with the data-ingestion tear-out, still gone. All 6 hypertables removed (`ts_telemetry`, `ts_attributes`, `ts_checklist_responses`, `ts_device_events`, `ts_binary_data`, `ts_pipeline_traces`).
 - `digilog_test_db` per `.env.example` naming (this checkout's actual test DB is `compliance_core_db_test`) — **the vitest suite runs entirely against this DB** (since 2026-07-02). `vitest.env.ts` forces `DATABASE_URL` onto it before Prisma connects, so e2e/integration writes never pollute the dev DB's immutable, hash-chained `audit_trail` (21 CFR §11). Same schema as the dev DB (migration-driven); seed it once with `DATABASE_URL=…/<test-db> INITIAL_ADMIN_PASSWORD=Admin@123 npx tsx prisma/seed.ts`.
@@ -781,7 +779,8 @@ admin-requests, assets, audit, auth, backup, block-change-requests, checklist-pr
   keep the unkeyed fallback. See `lib/hash-chain.ts`.
 - `ldap-identity.ts` — the single definition of "is this credential ours?".
   `isLdapUser()` + `verifyCredential()`, shared by `auth.service.login`,
-  `authService.verify`, and `lib/reauth-check.ts` so a directory user's password
+  `authService.verify` (removed 2026-10-05 with POST /api/auth/verify, audit
+  SEC-5), and `lib/reauth-check.ts` so a directory user's password
   is checked by an LDAP bind rather than bcrypt-compared against the
   `LDAP_EXTERNAL_AUTH` sentinel (which always fails). Added 2026-08-08 after
   that defect was found to make re-authentication — every 21 CFR §11.200
@@ -1076,8 +1075,8 @@ See `CHANGELOG.md` for full details.
 - Public endpoint: `GET /api/config/password-policy/current`
 
 **Permissions Updates (snapshot at release; current totals are higher — see live counts in root `CLAUDE.md`):**
-- ~95 permission constants at release (now 102 — verify with `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts`)
-- 87 reauth actions at that point (now 92 — verify with `grep -cE "^\s+[A-Z_]+:" packages/shared/src/types/reauth-actions.ts`); the 2026-05-04 audit-linkage fixes added `UPDATE_PROFILE` (H1) + `RETIRE_FILTER` / `REPLACE_FILTER` / `BULK_UPLOAD_FILTERS` (C2) + `APPROVE_ADMIN_REQUEST` (M1) + `UPDATE_FILTER_LIFECYCLE` (M2) (`tasks/AUDIT-2026-05-04-linkage-review.md`); later net-changed by the UNS + reports tear-outs
+- ~95 permission constants at release (**44** on 2026-10-05 — verify with `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts`)
+- 87 reauth actions at that point (**55** on 2026-10-05 — verify with `grep -cE "^\s+[A-Z_]+:" packages/shared/src/types/reauth-actions.ts`); the 2026-05-04 audit-linkage fixes added `UPDATE_PROFILE` (H1) + `RETIRE_FILTER` / `REPLACE_FILTER` / `BULK_UPLOAD_FILTERS` (C2) + `APPROVE_ADMIN_REQUEST` (M1) + `UPDATE_FILTER_LIFECYCLE` (M2) (`tasks/AUDIT-2026-05-04-linkage-review.md`); later net-changed by the UNS + reports tear-outs
 - FEATURE_TO_PERMISSION_MAP entries include both frontend + backend permissions
 - Block change requests GET endpoint accepts BLOCK_CHANGE_REQUEST OR BLOCK_CHANGE_APPROVE
 - Backup export uses CONFIG_UPDATE (removed hardcoded SUPER_ADMIN check)

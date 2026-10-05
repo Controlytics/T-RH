@@ -36,6 +36,8 @@
  */
 import { prisma } from '../src/lib/prisma.js';
 import { auditLog } from '../src/lib/audit.js';
+import { loadLimitConfig, limitsFor, enabledBoundsFor } from '../src/modules/alarms/load-limits.js';
+import type { InstrumentLimits } from '../src/modules/alarms/limit-decide.js';
 import { Prisma } from '@prisma/client';
 
 /**
@@ -232,11 +234,17 @@ function guillotine(rect: Rect, n: number, seed: string): Rect[] {
  * bands 20-25, 18-27, 0-25, 0-27; humidity 0-30, 0-60, 0-70, and 16 rooms with
  * no humidity control at all), so hue now says how tightly a room is specified.
  * That is honest: a tighter spec IS a higher classification.
+ *
+ * The bounds are the ones the DASHBOARD resolves (2026-10-05): the administered
+ * `alarm-limits` alias lists through `limitsFor` (`parseLimitKeys` / `resolveLimit`
+ * in `@digilog/shared`), with a bound switched off by its Enable_* attribute
+ * withheld, exactly as `telemetry-overview.ts` does. Until then this read four
+ * literal keys (`High Temperature Limit`, ...) that were retired from every
+ * profile on 2026-09-16, so a redraw would have graded every room 'D'.
  */
-function gradeFromLimits(attrs: Map<string, string>): Grade {
-  const num = (k: string) => { const v = Number(attrs.get(k)); return Number.isFinite(v) ? v : null; };
-  const tLo = num('Low Temperature Limit'), tHi = num('High Temperature Limit');
-  const hLo = num('Low Humidity Limit'), hHi = num('High Humidity Limit');
+function gradeFromLimits(limits: InstrumentLimits): Grade {
+  const tLo = limits.temperatureLow, tHi = limits.temperatureHigh;
+  const hHi = limits.humidityHigh;
 
   // Both temperature bounds actually set — the tightest control on this floor.
   if (tLo !== null && tLo > 0 && tHi !== null && tHi > 0) return 'A';
@@ -426,17 +434,31 @@ async function main() {
     if (list) list.push(i.id); else locs.set(loc, [i.id]);
   }
 
+  // Every attribute of every instrument on the plan: the administered alias lists
+  // decide which keys are the bounds, so the keys cannot be filtered here.
+  const limitCfg = await loadLimitConfig();
   const attrRows = await prisma.instrumentAttribute.findMany({
-    where: { key: { in: ['Low Temperature Limit', 'High Temperature Limit', 'Low Humidity Limit', 'High Humidity Limit'] } },
+    where: { instrumentId: { in: instruments.map((i) => i.id) } },
     select: { instrumentId: true, key: true, value: true },
   });
   const codeById = new Map<string, string>(instruments.map((i) => [i.id, i.code]));
-  const attrsByInstrument = new Map<string, Map<string, string>>();
+  const attrsByInstrument = new Map<string, { key: string; value: string }[]>();
   for (const a of attrRows) {
-    let m = attrsByInstrument.get(a.instrumentId);
-    if (!m) { m = new Map(); attrsByInstrument.set(a.instrumentId, m); }
-    m.set(a.key, a.value);
+    let list = attrsByInstrument.get(a.instrumentId);
+    if (!list) { list = []; attrsByInstrument.set(a.instrumentId, list); }
+    list.push({ key: a.key, value: a.value });
   }
+  /** The four bounds as the dashboard sees them: resolved by alias, disabled = absent. */
+  const resolvedLimits = (attrs: { key: string; value: string }[]): InstrumentLimits => {
+    const { limits } = limitsFor(limitCfg.keys, attrs);
+    const on = enabledBoundsFor(limitCfg.enableKeys, attrs);
+    return {
+      temperatureHigh: on.temperatureHigh ? limits.temperatureHigh : null,
+      temperatureLow: on.temperatureLow ? limits.temperatureLow : null,
+      humidityHigh: on.humidityHigh ? limits.humidityHigh : null,
+      humidityLow: on.humidityLow ? limits.humidityLow : null,
+    };
+  };
 
   const areaList = [...areas.entries()]
     .map(([name, locs]) => ({ name, locs: [...locs.entries()] }))
@@ -503,7 +525,7 @@ async function main() {
     const used = new Set<string>();
     const gradeOfInstrument = (id: string): Grade => {
       const attrs = attrsByInstrument.get(id);
-      return attrs ? gradeFromLimits(attrs) : grade;
+      return attrs ? gradeFromLimits(resolvedLimits(attrs)) : grade;
     };
     // Grade per ROOM from its instrument's own limits, so a floor carries
     // variety that means something rather than one flat hue.

@@ -1,3 +1,4 @@
+// ONE-SHOT (ran 2026-08-28): deleted `system_config['dashboard-cards']` after the panel-access migration; the row no longer exists — do not re-run.
 /**
  * Delete the retired `system_config['dashboard-cards']` row.
  *

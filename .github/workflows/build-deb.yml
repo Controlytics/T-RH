@@ -5,11 +5,17 @@
 # host exists on the project. The runner is the ONLY place the internet is
 # needed; the resulting .deb installs on an intranet machine with none.
 #
-# Runs on the OLDEST supported Ubuntu runner so every native artifact links
-# against the oldest glibc and the package installs on 20.04 through the
-# current release. Triggers: a push of a tag `v*` (publishes a GitHub Release
-# with the .deb attached), any push touching the packaging inputs (artifact
-# only), or a manual run from the Actions tab.
+# Runs on ubuntu-22.04 — the OLDEST hosted Ubuntu runner GitHub still offers
+# (the 20.04 runner was retired in 2025). The vendored Node, PostgreSQL and
+# EMQX are self-contained downloads (EMQX's is the ubuntu20.04 build), but
+# bcrypt and the Prisma engines are built or fetched HERE, against this
+# runner's glibc 2.35. So the proven floor is Ubuntu 22.04: the smoke install
+# below runs on 22.04 and says nothing about 20.04, and the control file's
+# `libc6 (>= 2.31)` is not evidence either way (comment corrected 2026-10-05,
+# audit DOCS-15; it used to claim 20.04 through current).
+# Triggers: a push of a tag `v*` (publishes a GitHub Release with the .deb
+# attached), any push touching the packaging inputs (artifact only), or a
+# manual run from the Actions tab.
 name: build-deb
 
 on:

@@ -1,3 +1,4 @@
+// ONE-SHOT (ran 2026-08-11): moved the four `... Limit` attribute values onto rooms and deleted the rows; those keys are gone from every profile since 2026-09-16 — do not re-run.
 /**
  * Move recorded temperature/humidity LIMIT values off instruments and onto the
  * rooms they sit in, then delete the migrated attribute rows — each with an

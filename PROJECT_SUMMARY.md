@@ -21,8 +21,8 @@ live instrument monitoring with alarms.
 
 | Layer | Choice |
 |---|---|
-| Backend | Fastify 5, TypeScript (ESM), Node 20+ |
-| Database | PostgreSQL 18 via Prisma 6 — **36 models, 13 enums** |
+| Backend | Fastify 5, TypeScript (ESM), Node 24.x (root `package.json` `engines`) |
+| Database | PostgreSQL 18 via Prisma 6 — **37 models, 13 enums** (re-derived 2026-10-05) |
 | Frontend | React 19, Vite 6, React Router 7, SWR, Tailwind v4 |
 | Auth | JWT (`jose`, HS256, 1h default) + bcrypt; session table; single-tab enforcement |
 | Jobs | graphile-worker on Postgres — **6 tasks**. No Redis. |
@@ -33,9 +33,9 @@ live instrument monitoring with alarms.
 ## Layout
 
 ```
-apps/api/        Fastify backend — 24 modules, 249 route registrations
-apps/web/        React SPA — 52 routes, 23 config pages
-packages/shared/ permissions (42), reauth actions (48), sidebar items (13),
+apps/api/        Fastify backend — 25 modules (`ls apps/api/src/modules/ | wc -l`, 2026-10-05), 249 route registrations
+apps/web/        React SPA — 53 routes, 22 config pages (2026-10-05, after `alarm-rule-dialog.tsx` was deleted that day)
+packages/shared/ permissions (44), reauth actions (55), sidebar items (14) — 2026-10-05,
                  PERMISSION_TREE, zod schemas, telemetry maths
 packages/queue/  graphile-worker wrapper + crontab.txt
 docs/            active docs; docs/recreation/ is the verified inventory;
@@ -71,7 +71,7 @@ exactly this direction:
   entirely. **The default is enabled — whether it should be is a QA/RA
   decision, not an engineering one.** See
   `docs/audit/2026-08-29-technical-audit.md` finding H3.
-- Governed actions require re-auth (48 actions, 8 categories) and, for
+- Governed actions require re-auth (55 actions, 8 categories — re-derived 2026-10-05) and, for
   attribute changes and report downloads, a mandatory reason.
 
 ## Health

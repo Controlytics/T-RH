@@ -6,7 +6,8 @@ trail, e-signature re-auth, notifications, and instrument monitoring
 (MQTT ingest, telemetry, alarms, functional locations, floorplans).
 
 **⚠ Much of THIS FILE is inherited from upstream DigiLog and still describes
-things this fork does not have.** `docs/recreation/` is the verified inventory;
+things this fork does not have.** `docs/recreation/` was verified on 2026-07-25
+at `cbcb913` and is superseded by the System Stats below for every count;
 re-derive any count from live code before repeating it.
 
 ## Repository
@@ -19,10 +20,10 @@ re-derive any count from live code before repeating it.
 ```
 apps/api/         — Fastify backend (TypeScript, port 3001)
 apps/web/         — React SPA (Vite, port 5176 dev)
-packages/shared/  — Permissions (44), reauth actions (50), sidebar items (14),
+packages/shared/  — Permissions (44), reauth actions (55), sidebar items (14),
                     permission tree, zod schemas
 packages/queue/   — graphile-worker job queue (Postgres-backed)
-docs/             — Project docs; `docs/recreation/` is the verified inventory
+docs/             — Project docs; `docs/recreation/` is a 2026-07-25 snapshot (see above)
 future/           — Forward-looking design notes
 ```
 There is **no** `apps/android`, `rfid_scan_app` or `packages/db` in this fork —
@@ -40,12 +41,15 @@ render the broker config from the ONE template set in `scripts/emqx/`. The .deb
 is smoke-installed on the runner by the workflow; the `Setup.exe` has never had
 a CI install. `docs/deployment-methods/method-c-ubuntu-deb.md` is the runbook.
 
-- Node.js 20+, PostgreSQL 18
+- Node.js **24.x** (pinned in root `package.json` `engines` + `.nvmrc` since 2026-10-05 — the `.deb` build refuses any other major and the Windows installer's Node zip must match the native-module ABI), PostgreSQL 18
 - **No Redis dependency.** Phase 2 of windows-friendly-rewrite moved the job
   queue to graphile-worker on Postgres. Phase 4 (2026-05-01) retired Redis
   for pub/sub too (in-process EventEmitter bus); `ioredis` is no longer in
   package.json. Those pub/sub consumers (WebSocket events, pipeline tracing,
-  debug recorder) were all torn out in Phase 6/7, and the now-orphaned bus
+  debug recorder) were all torn out in Phase 6/7 — **but the `debug-traces`
+  MODULE survives** (`apps/api/src/app.ts` imports `modules/debug-traces/routes.js`;
+  `debug-traces` is a sidebar item): re-added 2026-06-12, it reads from
+  `audit_trail`, not from a recorder — and the now-orphaned bus
   (`lib/internal-bus.ts`) was removed 2026-07-03 as dead code — there is no
   pub/sub layer anymore.
   **`@fastify/websocket` was NOT removed, or came back — this file said it was
@@ -143,10 +147,9 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
 - Swagger: https://localhost:3001/docs
 
 ### TLS notes
-- **APK requires HTTPS** — plain HTTP causes a Capacitor TLS parse error on login. Tablet must trust `rootCA.pem` (Settings → Security → Install certificate). `apps/web/.env.production` is **`skip-worktree` and tracked blank** on purpose (no dev's IP in the repo); it is set locally only (currently `https://192.168.1.53:3000`, = this PC's static IP). **The baked value only affects a FRESH install** — `getApiBase()` (`apps/web/src/lib/api-base.ts`) reads `localStorage['digilog.serverUrl']` FIRST, so a tablet with an existing Server Address keeps using it across APK updates; change it on-device. See the network IP-change runbook in memory.
+- *(An "APK requires HTTPS" bullet stood here until 2026-10-05. There is no Capacitor build, APK or tablet in this fork — `ls apps/` is `api`, `web` — so it was deleted as a self-contradiction; `apps/web/.env.production` is still tracked blank and still only matters to a build that bakes `VITE_API_URL`.)*
 - **Browser dev** — `http://localhost:5176 → https://localhost:3001` is fine (browser allows it; no mixed-content issue for fetch).
 - **Verify TLS up** — `curl -sk --ssl-revoke-best-effort -o /dev/null -w "%{http_code}" https://localhost:3001/api/system-health` should return a code (401 is a pass — TLS terminated and the route rejected an unauthenticated call). **CORRECTED 2026-08-29: `/api/health` DOES exist and is load-bearing.** This file said "There is no `/health` route" on the evidence of `grep "get('/health'"` → 0 hits. That pattern could never have matched: the route is registered at `app.ts:297` as `app.get('/api/health', ...)`, top level, with no prefix. It is the tablet's liveness probe — `apps/web/src/lib/connectivity.ts probeServer` treats any non-2xx as "server unreachable", and `app.ts` deliberately returns 200 even when the job runner is down so a background-job fault cannot flip every tablet offline — and its `PUBLIC_PATHS` entry is REQUIRED. The 2026-08-29 audit repeated this claim as finding L1 and an agent began removing the allowlist entry before catching it. **A 0-hit grep is evidence only if the pattern could have matched.**
-- **Don't use HTTPS with self-signed in Capacitor *dev* mode** — WebView's `fetch()` rejects self-signed certs (Capacitor's `BridgeActivity` overrides the WebViewClient after `onCreate`). Keep dev cleartext if testing in-WebView, or install root CA on the device.
 
 ## System Stats (re-derived 2026-08-27 — every number below came from the command beside it)
 - **Backend:** **25** API modules under `apps/api/src/modules/` (`ls | wc -l`).
@@ -168,9 +171,13 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   Only `compliance_core_db` + `compliance_core_db_test` exist — **no TimescaleDB,
   no `digilog_tsdb`**. The test database is migrated **separately**; a migration
   applied to only one of them makes every instrument-touching e2e 500.
-- **Permissions:** **44** constants, **50** reauth actions in **8** categories,
+- **Permissions:** **44** constants, **55** reauth actions in **8** categories,
   **14** sidebar items (`grep -cE` against `permissions.ts` / `reauth-actions.ts`
-  / `sidebar-items.ts`). 15 → 14 sidebar items (2026-09-19): `home`, the Module
+  / `sidebar-items.ts`). 50 → 55 reauth actions (2026-10-05, audit SEC-7):
+  `CREATE_INSTRUMENT` / `UPDATE_INSTRUMENT` / `DELETE_INSTRUMENT` /
+  `UPDATE_INSTRUMENT_PROFILE` / `DELETE_INSTRUMENT_PROFILE` under the EXISTING
+  `Configuration` category, gating the five registry mutations; ships OFF like
+  every entry. 15 → 14 sidebar items (2026-09-19): `home`, the Module
   Guide, removed with its page and its API route — see the Home removal note.
   Earlier 14 → 15 sidebar items (2026-09-08): `settings`, every
   instrument's details and attributes in one table — see the Settings note; no
@@ -188,7 +195,21 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   downloads; no permission or sidebar item was added for it.
   The "102 / 83 / 92 / 26" this file carried for months was upstream DigiLog's and
   was never true here.
-- **Audit registries:** **106** audit actions, **100** audit templates in **7**
+- **Audit registries:** **89** audit actions, **102** audit templates in **7**
+  categories (106 → 89 / 100 → 102 on 2026-10-05, audit DATA-10: the 11 actions
+  written but never registered — `AUDIT_RECORD_REDACTED`,
+  `AUDIT_RECORDS_BULK_REDACTED`, `ROLE_CREATED/UPDATED/DELETED`,
+  `ADMIN_REQUEST_SUBMITTED`, `LDAP_CONFIG_UPDATED`,
+  `SUPER_ADMIN_API_ACCESS_CHANGED`, `UPDATE_EMAIL_CONFIG`, `UPDATE_SMS_CONFIG`,
+  `DASHBOARD_CREATED` — were added and the 28 registered but never written by
+  any code in the tree were removed, `RETENTION_EXECUTED` kept because the
+  retention task now writes it; templates lost the two of those 28 that had
+  one (`ALARM_CLEARED`, `DATA_EXPORTED`) and gained the three
+  `INSTRUMENT_PROFILE_*` plus `RETENTION_EXECUTED`; a unit test in
+  `apps/api/src/lib/__tests__/audit-actions-registry.test.ts` now pins every
+  `action: '…'` literal under `apps/api/src` to the registry, and
+  `packages/shared/src/types/audit-actions.test.ts` pins every registry key to
+  a template; categories unchanged). Earlier: **106** / **100** in **7**
   categories (103 → 106 / 97 → 100 on 2026-09-22: `FLOORPLAN_LINK_CREATED` /
   `UPDATED` / `DELETED`, the Layout Designer's room links; categories
   unchanged). Earlier: **103** / **97** in **7**
@@ -201,7 +222,10 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   re-derived by the two greps in the verification block). Earlier: **97** / **91** in **7**
   categories. 93 → 97 / 87 → 91 (2026-08-27): create / update / delete / test
   for alarm webhook targets; categories unchanged.
-- **Config:** **34** definitions (`config/defs/*.def.ts`) + auto-discovery (33 → 34 on
+- **Config:** **35** definitions (`config/defs/*.def.ts`) + auto-discovery (34 → 35 on
+  2026-10-05: `telemetry-retention.def.ts` — the partition schedule the worker
+  had read for months with NO def behind it (audit DATA-9); SUPER_ADMIN card,
+  dynamic page, page count unchanged. 33 → 34 on
   2026-10-01: `sensor-offsets.def.ts` — the per-instrument reading correction;
   SUPER_ADMIN card, dynamic page. 32 → 33 on
   2026-10-01: `report-downloads.def.ts` — per report type Direct / Request, remarks
@@ -220,7 +244,7 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   2026-08-31: `sensor-range-alarms.def.ts`, the fifth alarm source; 26 → 27 on
   2026-08-31: `rs485-alarms.def.ts`, the fourth alarm source; 25 → 26 the same day:
   `inactivity-alarms.def.ts`),
-  **23** pages under `apps/web/src/routes/config/` (22 → 23 on 2026-10-01: `report-settings.tsx`, Report Approvers + Report Downloads on one page; 23 → 22 on 2026-09-22: `floorplans.tsx`
+  **22** pages under `apps/web/src/routes/config/` (23 → 22 on 2026-10-05: `alarm-rule-dialog.tsx` DELETED — dead since the 2026-08-31 alarm-rules removal and never a page, but `ls *.tsx` counted it; audit WEB-8; 22 → 23 on 2026-10-01: `report-settings.tsx`, Report Approvers + Report Downloads on one page; 23 → 22 on 2026-09-22: `floorplans.tsx`
   DELETED, replaced by the `layout-designer/` FOLDER at the same route — `ls *.tsx`
   counts files, so the count moved while the `<Route` count did not; an `attribute-labels.tsx` existed
   for a few hours on 2026-09-16 and was folded into `instrument-attributes.tsx` at
@@ -394,7 +418,7 @@ history; `docs/recreation/` holds the inventory.
   bounds it. **Keep every `signatureMeaning` under 255 characters.** No
   count moved.
 - **Instrument grouping — THREE concepts, one job each (2026-08-13).** Do not confuse them: **`FunctionalLocation`** (Block > Area tree, `Instrument.functionalLocationId`) is the AUTHORITATIVE logical grouping; **`roomId`** → `FloorplanRoom` is geometry on a drawn plan and drives the graphical view; **`profileId`** is device type. The free-text `Instrument.block` / `.area` columns are SUPERSEDED — no longer read for grouping, kept only so the migration stays comparable. A Block's instruments are its own PLUS its Areas', resolved by `functional-locations/tree.ts:resolveLocationIds()`; querying `functionalLocationId = :id` directly silently omits the Areas.
-- **Config:** **34 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery (33 → 34 on 2026-10-01: `sensor-offsets.def.ts`, no page), **23** corresponding pages (pages 22 → 23 on 2026-10-01: `report-settings.tsx`; defs 32 → 33 on 2026-10-01: `report-downloads.def.ts`, no page; pages 23 → 22 on 2026-09-22: `floorplans.tsx` → the `layout-designer/` folder; both re-derived `ls | wc -l` 2026-09-16: defs 31 → 32 with `attribute-labels.def.ts`, which adds NO page — its Display name column lives on `instrument-attributes.tsx`; earlier defs re-derived 2026-09-07, 30 → 31 with `report-approvers.def.ts`; both re-derived 2026-09-01; defs 29 → 30 that day with `trend-widgets.def.ts`, which adds no page — it renders through the dynamic config page; the page count read 24 here and in System Stats above until then and was **stale, not moved** — `alarm-rules.tsx` went with the 2026-08-31 rule removal and neither line was re-synced. This is the THIRD time this bullet has drifted from the one above it; the duplication itself is the defect it keeps warning about). **This bullet's def count went stale TWICE while the System Stats section above was current — 25 here against 26 then 27 there.** It is the same self-contradiction the 2026-08-29 audit raised as finding M8 for the page count, in the same bullet, and re-syncing only the half that was wrong that day is why it came back. Two live inventory lines for one number is the actual defect; re-derive both from `ls` whenever either moves. Defs 25 → 26 → 27 on 2026-08-31 (`inactivity-alarms.def.ts`, then `rs485-alarms.def.ts` — both render through the dynamic config page, so the page count did not move). Earlier note, still true: the 25 predated `dashboard-cards.tsx` being deleted on 2026-08-28. Defs verified `ls` 2026-08-27, unchanged at 25 — the def and page counts are NOT equal and should not be expected to be: `alarm-webhooks.tsx` is a page with no def (a CRUD module, not a `system_config` row), and several defs render through the dynamic config page with no file of their own. Earlier: pages 25 → 24 the same day — `routes/config/role-assignments.tsx` deleted as dead code: its 7 config defs went in the Phase 0 strip and `system_config` held 0 rows for them, so every section read an unregistered `/api/config/dynamic/<key>` route. Earlier counts VERIFIED by `ls` 2026-08-17 — `alarm-limits.def.ts` added 2026-08-17: super-admin config for the instrument-limit alarm work — an ordered alias list of attribute keys per bound (High/Low Temperature/Humidity Limit), since this install's keys have already drifted; plus a master switch and four status wordings. (It also carried a `severity`
+- **Config:** **35 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery (34 → 35 on 2026-10-05: `telemetry-retention.def.ts`, no page — audit DATA-9; 33 → 34 on 2026-10-01: `sensor-offsets.def.ts`, no page), **22** corresponding pages (pages 23 → 22 on 2026-10-05: `alarm-rule-dialog.tsx` deleted, audit WEB-8 — see System Stats; pages 22 → 23 on 2026-10-01: `report-settings.tsx`; defs 32 → 33 on 2026-10-01: `report-downloads.def.ts`, no page; pages 23 → 22 on 2026-09-22: `floorplans.tsx` → the `layout-designer/` folder; both re-derived `ls | wc -l` 2026-09-16: defs 31 → 32 with `attribute-labels.def.ts`, which adds NO page — its Display name column lives on `instrument-attributes.tsx`; earlier defs re-derived 2026-09-07, 30 → 31 with `report-approvers.def.ts`; both re-derived 2026-09-01; defs 29 → 30 that day with `trend-widgets.def.ts`, which adds no page — it renders through the dynamic config page; the page count read 24 here and in System Stats above until then and was **stale, not moved** — `alarm-rules.tsx` went with the 2026-08-31 rule removal and neither line was re-synced. This is the THIRD time this bullet has drifted from the one above it; the duplication itself is the defect it keeps warning about). **This bullet's def count went stale TWICE while the System Stats section above was current — 25 here against 26 then 27 there.** It is the same self-contradiction the 2026-08-29 audit raised as finding M8 for the page count, in the same bullet, and re-syncing only the half that was wrong that day is why it came back. Two live inventory lines for one number is the actual defect; re-derive both from `ls` whenever either moves. Defs 25 → 26 → 27 on 2026-08-31 (`inactivity-alarms.def.ts`, then `rs485-alarms.def.ts` — both render through the dynamic config page, so the page count did not move). Earlier note, still true: the 25 predated `dashboard-cards.tsx` being deleted on 2026-08-28. Defs verified `ls` 2026-08-27, unchanged at 25 — the def and page counts are NOT equal and should not be expected to be: `alarm-webhooks.tsx` is a page with no def (a CRUD module, not a `system_config` row), and several defs render through the dynamic config page with no file of their own. Earlier: pages 25 → 24 the same day — `routes/config/role-assignments.tsx` deleted as dead code: its 7 config defs went in the Phase 0 strip and `system_config` held 0 rows for them, so every section read an unregistered `/api/config/dynamic/<key>` route. Earlier counts VERIFIED by `ls` 2026-08-17 — `alarm-limits.def.ts` added 2026-08-17: super-admin config for the instrument-limit alarm work — an ordered alias list of attribute keys per bound (High/Low Temperature/Humidity Limit), since this install's keys have already drifted; plus a master switch and four status wordings. (It also carried a `severity`
   select until 2026-09-01, when severity stopped being administered anywhere; the
   def count did not move — a setting was removed, not a def.) Renders through the dynamic config page, so no `routes/config/*.tsx` of its own — the page count stays 25. The "23 corresponding pages" recorded here 2026-08-11 was already stale before this change (the live page count was 25, per `apps/web/CLAUDE.md`'s 2026-08-14 verification); it was never re-synced here until now. Earlier: `telemetry-slots.def.ts` added 2026-08-11: which telemetry keys the dashboard reads as temperature and humidity, since ingest stores whatever key a device sends. Renders through the dynamic config page, so no `routes/config/*.tsx` of its own; the Floorplans placement editor IS a page. Earlier counts VERIFIED by `ls` 2026-08-07 — the previous "36 / 34" was inherited from DigiLog and was never true in this fork; `instrument-attributes.def.ts` added 2026-08-07 — the attribute keys the New Instrument form asks for, renders via the dynamic config page so no new `routes/config/*.tsx`)
 - **Display precision (2026-08-19):** decimal places for temperature/humidity come from each
@@ -416,7 +440,7 @@ history; `docs/recreation/` holds the inventory.
   `reason` column; a first fill does not). Admin surface: Config → Roles & Access → Attribute Access.
   Migration `20260819120000_role_attribute_access`, drift guard PASS, applied to both databases.
 - **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)
-- **Frontend:** **53** Routes in `main.tsx` (52 → 53 on 2026-10-01: `/config/report-settings`; 53 → 52 on 2026-09-19: `/home` removed with the Home sidebar item — re-derived `grep -cE "<Route"`; unchanged on 2026-09-16 — a `/config/attribute-labels` route lived for a few hours and went the same day; 52 → 53 on 2026-09-08: `/settings`, the Settings page; 51 → 52 on 2026-09-07: `/reports`, the report review workflow; 50 → 51 the same day: `/data-report`, the Instrument History widget's own page; re-derived `grep -cE "<Route"` that day. Earlier, re-derived 2026-09-03 — this line read **51** and was ALREADY STALE: the 2026-08-31 alarm-rules removal took it 51 → 50 and re-synced only the System Stats copy above, which is the same duplicate-inventory defect this file keeps warning about. Earlier verified 2026-08-29 — 50 → 51: `/config/export-options` registered, having never been reachable. Earlier verified 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page; earlier 48 → 49 on 2026-08-24: the `/instruments/:id/trend` page; the "77" was inherited from upstream DigiLog and was never true in this fork; `/config/role-assignments` removed 2026-08-19 as dead code, 49 → 48), **25** custom hooks (24 → 25 on 2026-10-01: `use-offset-keys.ts`, which keys get the + / - offset input; 23 → 24 the same day: `use-report-downloads.ts`, the ONE reader of the per-type download policy; 22 → 23 on 2026-09-16: `use-attribute-labels.ts`, the ONE browser reader of the attribute display names; earlier 20 → 22, re-derived `ls apps/web/src/hooks/ | wc -l` 2026-09-03 — ALREADY STALE, nothing on 2026-09-03 added a hook; earlier 18 → 20 on 2026-08-29, audit finding M8), **21** lib modules (20 → 21 on 2026-10-01: `lib/report-delivery.ts`, the ONE place a built report is downloaded or requested; 19 → 20 on 2026-09-03: `lib/document-identity.ts`, the browser-tab applier) (`ls apps/web/src/hooks/ | wc -l` / `ls apps/web/src/lib/ | wc -l`, each including its own `__tests__` subfolder as one entry — lib 18 → 19 corrected 2026-08-27: `lib/background-style.ts` landed with the wallpaper work (`764fff5`) and this line was never re-synced; the 2026-08-27 trend-sampling work added NO lib module — the "26 / 30" this file carried for months was never true against the live tree and was never re-verified until now)
+- **Frontend:** **53** Routes in `main.tsx` (52 → 53 on 2026-10-01: `/config/report-settings`; 53 → 52 on 2026-09-19: `/home` removed with the Home sidebar item — re-derived `grep -cE "<Route"`; unchanged on 2026-09-16 — a `/config/attribute-labels` route lived for a few hours and went the same day; 52 → 53 on 2026-09-08: `/settings`, the Settings page; 51 → 52 on 2026-09-07: `/reports`, the report review workflow; 50 → 51 the same day: `/data-report`, the Instrument History widget's own page; re-derived `grep -cE "<Route"` that day. Earlier, re-derived 2026-09-03 — this line read **51** and was ALREADY STALE: the 2026-08-31 alarm-rules removal took it 51 → 50 and re-synced only the System Stats copy above, which is the same duplicate-inventory defect this file keeps warning about. Earlier verified 2026-08-29 — 50 → 51: `/config/export-options` registered, having never been reachable. Earlier verified 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page; earlier 48 → 49 on 2026-08-24: the `/instruments/:id/trend` page; the "77" was inherited from upstream DigiLog and was never true in this fork; `/config/role-assignments` removed 2026-08-19 as dead code, 49 → 48), **26** custom hooks (25 → 26 on 2026-10-05: `use-row-keys.ts`, stable React keys for editable rows with no id of their own — audit WEB-14; re-derived `ls apps/web/src/hooks/ | wc -l`; 24 → 25 on 2026-10-01: `use-offset-keys.ts`, which keys get the + / - offset input; 23 → 24 the same day: `use-report-downloads.ts`, the ONE reader of the per-type download policy; 22 → 23 on 2026-09-16: `use-attribute-labels.ts`, the ONE browser reader of the attribute display names; earlier 20 → 22, re-derived `ls apps/web/src/hooks/ | wc -l` 2026-09-03 — ALREADY STALE, nothing on 2026-09-03 added a hook; earlier 18 → 20 on 2026-08-29, audit finding M8), **22** lib modules (21 → 22 on 2026-10-05: `lib/safe-storage.ts`, the ONE door to `localStorage` / `sessionStorage` — every access goes through it and none can throw, audit WEB-3; re-derived `ls apps/web/src/lib/ | wc -l`; 20 → 21 on 2026-10-01: `lib/report-delivery.ts`, the ONE place a built report is downloaded or requested; 19 → 20 on 2026-09-03: `lib/document-identity.ts`, the browser-tab applier) (`ls apps/web/src/hooks/ | wc -l` / `ls apps/web/src/lib/ | wc -l`, each including its own `__tests__` subfolder as one entry — lib 18 → 19 corrected 2026-08-27: `lib/background-style.ts` landed with the wallpaper work (`764fff5`) and this line was never re-synced; the 2026-08-27 trend-sampling work added NO lib module — the "26 / 30" this file carried for months was never true against the live tree and was never re-verified until now)
 - **Queue backend:** graphile-worker (Postgres-backed); **6** worker tasks —
   `notification`, `password_expiry_check`, `session_sweep`,
   `telemetry_partition_maintenance`, `alarm_evaluation`, `alarm_webhook`
@@ -433,9 +457,8 @@ history; `docs/recreation/` holds the inventory.
 - **Tenancy:** **single-tenant, single-site, single-company.** Multi-tenancy was removed 2026-04-30 (`Organization` model + `organizationId` columns + `org-admin`/`tenant-admin` modules dropped). JWT `scope` always stamps `GLOBAL`. The `RoleScope` enum and `AssigneeType` enum are retained but trimmed to one/two values respectively.
 
 ## Important Notes
-- Only one database now: `digilog_db` (Prisma). TimescaleDB (`digilog_tsdb`) was dropped 2026-06-11 with the data-ingestion tear-out.
+- One Prisma database per install, and no TimescaleDB (`digilog_tsdb` was dropped 2026-06-11 with the data-ingestion tear-out). On THIS checkout it is `compliance_core_db` (+ `compliance_core_db_test` for vitest) — see Key Local URLs; the customer installer provisions it as `digilog_db` (`scripts/provision-db.ps1` `$AppDb` default), which is the name the deployment docs use. This line said "Only one database now: `digilog_db`" until 2026-10-05 and contradicted the Key Local URLs section.
 - Input sanitization strips HTML on all text fields (`apps/api/src/lib/sanitize.ts`)
-- Capacitor APK uses **HTTPS** baked at build via `VITE_API_URL` (cert install required on tablet)
 - Light theme only — `bg-white`, `bg-slate-50`, `border-slate-200`, gradient dialog headers OK
 - **Sidebar RBAC redesign (2026-06-30):** `packages/shared/src/types/permission-tree.ts`
   (`PERMISSION_TREE`) is the **single source of truth** — a Sidebar→Page→Action catalog. Each node
@@ -1417,7 +1440,9 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
   - **RE-TRACED FROM THE ARCHITECTURAL DRAWING on 2026-09-21** (operator: "in
     layouts folder, in cwh subfolder there is qc layout image check that image
     once" … "and instrument ids should be remain those areas only"). **The
-    2026-08-31 trace was taken from `QC Layout.png` at the repo ROOT, which is
+    2026-08-31 trace was taken from `QC Layout.png` at the repo ROOT — tracked
+    as `Layouts/CWH/mockups/QC Layout.png` since 2026-10-05, it was ignored by
+    `/*.png` until then — which is
     a MOCKUP made from the drawing** (tinted rooms, live readings, a legend,
     landscape 1204x1046, building 1.11 wide-to-tall); **the drawing is
     `Layouts/CWH/QC Layout.png`** (portrait 599x802, building 0.74), and the
@@ -1910,7 +1935,7 @@ points: tags `pre-domain-strip` and `pre-filter-domain-strip`.
 **Hard rule:** every numerical claim in any doc must be backed by a `grep`/`ls` against live code at the moment the doc is touched. Don't trust prior docs — verify.
 
 **Active doc set** (kept current together):
-- Root: `README`, `CLAUDE`, `AGENTS`, `CHANGELOG`, `PROJECT_SUMMARY`, `PROJECT_ARCHITECTURE`, `API_REFERENCE`, `BACKEND_GUIDE`, `FRONTEND_GUIDE`, `DEPLOY-WINDOWS`, `LOCAL_SETUP_WINDOWS`, `windowsIssues`
+- Root: `README`, `CLAUDE`, `AGENTS`, `CHANGELOG`, `PROJECT_SUMMARY`, `PROJECT_ARCHITECTURE`, `BACKEND_GUIDE`, `FRONTEND_GUIDE`, `DEPLOY-WINDOWS`, `LOCAL_SETUP_WINDOWS`, `windowsIssues` (`API_REFERENCE.md` is a POINTER since 2026-10-05 — the live Swagger UI and `docs/recreation/06-api/endpoints.md` are the reference; the old hand-written file is `docs/archive/API_REFERENCE-2026-08-24.md`)
   (**`PROJECT_ARCHITECTURE.md` and `PROJECT_SUMMARY.md` were REWRITTEN 2026-08-29** — audit finding M6. The previous versions are `docs/archive/PROJECT_{ARCHITECTURE,SUMMARY}-2026-07-04.md`. Between them they documented an `apps/android/` Capacitor wrapper, an `rfid_scan_app/` Kotlin scanner and a committed `rfid-key.jks` signing keystore, none of which exist here — the keystore line in particular manufactured a security incident for anyone who read it. Both carried drift-warning banners, and `PROJECT_SUMMARY.md` contradicted its own banner forty lines later by listing `rfid_scan_app/` in its directory tree. A banner over false content is not a fix. `bloat.md` was archived the same day for the same reason: an optimisation audit of `routes/mobile/`, a folder that does not exist, sitting at the repository root.)
   (`OFFLINE_SYNC_ARCHITECTURE.md` moved to `docs/archive/` the same day — it described an
   IndexedDB offline queue, a Capacitor APK and `cleaning_cycles`/`filter_events`, none of

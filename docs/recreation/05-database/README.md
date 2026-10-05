@@ -1,5 +1,7 @@
 # Phase 5 — Database Reverse Engineering
 
+> **Snapshot notice (added 2026-10-05).** Verified 2026-07-25 at `cbcb913`; superseded by root `CLAUDE.md` System Stats for every count; re-derive before quoting.
+
 *Verified against the live `compliance_core_db` and `schema.prisma`, 2026-07-25;
 model count re-verified 2026-08-06 after the Instruments + instrument-gateway
 work (never previously synced into this doc — see §1a).*

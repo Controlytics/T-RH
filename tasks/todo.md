@@ -82,14 +82,14 @@ HIGH (runtime), in the report's §3 order — one commit each:
 - [x] F9  INGEST-4 double clear; INGEST-3 range coercion; INGEST-5/6/8/16 timestamps, null, clearedValue
 - [x] F10 SEC-1 _currentPassword strip before early return; SEC-2 config PUT via verifyReauthPassword
 - [x] F11 WEB-1 SA password boxes; WEB-4 `/` guard; WEB-5 `/users` guard; WEB-2 chart axis format
-- [ ] F12 DOCS-2 untrack gitlink; DOCS-3 stale scripts + scripts tsconfig in lint; DOCS-14 phantom deps; DOCS-17 tracked pdfs
+- [x] F12 DOCS-2 untrack gitlink; DOCS-3 stale scripts + scripts tsconfig in lint; DOCS-14 phantom deps; DOCS-17 tracked pdfs
 MEDIUM/LOW sweeps (per module, after the HIGHs):
-- [ ] S1 ingest mediums/lows (7, 9, 10, 11, 12, 13, 14, 15, 17)
-- [ ] S2 API mediums/lows (7, 12, 13, 14, 15, 16, 17, 18, 19, 20)
-- [ ] S3 data mediums/lows (6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18)
-- [ ] S4 security mediums/lows (3, 4, 5, 6, 7)
-- [ ] S5 web mediums/lows (3, 6, 7, 8–17)
-- [ ] S6 docs (1, 4, 5–13, 15, 16, 18–23)
+- [x] S1 ingest mediums/lows (7, 9–15, 17, 18) — commit `b9dff2b` (dead-letter prune rides the retention batch)
+- [x] S2 API mediums/lows — api-b half (SEC-3, SEC-7, API-17, API-19, API-20 subset, DATA-11 + Layout Designer reason) commit `22dd58a`; api-a half (7, 12–16, 18, 20 rest, DATA-13 + the session-cache eviction and the Permissions-tab reason gate) commit `4d1e936`. `e2e/instruments.test.ts` re-run alone: 39/39 (the 6 reds were cross-process contention)
+- [x] S3 data mediums/lows (6, 7, 9, 10, 14, 15, 16, 18 + API-19 report-reviews) — commit `7015818`; DATA-8 in S4, DATA-11 in S2b, DATA-13 in S6, DATA-17 in F12
+- [x] S4 security mediums/lows 4, 5, 6 + DATA-8 — commit `c0faa0e` (SEC-3 / SEC-7 are in the api-b sweep)
+- [~] S5 web mediums/lows (3, 6–17; 18 closed as non-defect) + System Health flags + SEC-7 prompts + bulk-create gate — verified per file; full web run in progress; COMMIT PENDING
+- [~] S6 docs (1, 4–13, 15, 16, 18–23) + counts re-derived + stale verify-route refs — COMMIT PENDING after S5
 - [ ] Final: full web + api + shared test runs, tsc, CHANGELOG, memory
 
 - [x] Fix order in §3 of the report: partitions at boot + batch-loss dead letter → role-config privilege check + required scope body → backup verifier/secrets → seed permission reset → user_role width + central signature bound → FL PUT serializer → visibility on attribute read + writes → public admin-request attribution → alarm double-clear + range coercion → reauth strip/lockout → SA password boxes, `/` and `/users` guards, chart axis format
