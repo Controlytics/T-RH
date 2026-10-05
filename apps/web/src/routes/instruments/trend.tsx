@@ -29,7 +29,7 @@ import {
   type InactivityTextsResponse, type AlarmDisplayTexts,
 } from '@/routes/alarms/alarm-display';
 import { useTrendPeriod, useInstrumentTrend, TREND_PRESETS, TABLE_PAGE_SIZE, type TelemetryLongRow } from './use-trend-data';
-import { toChartSeries, toTableRows, toTableRowsWithErrors, rawCountForKey, type TableRow as PivotRow } from './trend-series';
+import { toChartSeries, toTableRowsWithErrors, rawCountForKey, type TableRow as PivotRow } from './trend-series';
 import type { ServerSlotSummary } from './data-report-fetch';
 import { intervalLabel } from './chart-interval-note';
 import {
@@ -580,20 +580,14 @@ export function InstrumentTrend() {
         const wantHumid = which.slot === 'humidity';
         const fetched = await fetchTelemetryForPeriod(reportPeriod.from, reportPeriod.to);
         const rows = numericRows(fetched.history);
-        const keysMeta = [
-          wantTemp && tempKey ? { key: tempKey, label: 'Temperature (°C)', decimals: tempDecimals } : null,
-          wantHumid && humidKey ? { key: humidKey, label: 'Humidity (%RH)', decimals: humidDecimals } : null,
-        ].filter((k): k is { key: string; label: string; decimals: number } => k !== null);
         // The DIALOG's period, not the page's — the operator may have widened it
         // before confirming, and the chart's x-axis must cover what it printed.
         const reportSpanMs = Math.max(1, new Date(reportPeriod.to).getTime() - new Date(reportPeriod.from).getTime());
 
         const charts: TrendChartSection[] = [];
-        // Long rows rebuilt from the points each chart ACTUALLY plotted, so the
-        // table under an averaged chart holds those same averaged points. Two
-        // blocks of one report quoting different values for one instant, with
-        // nothing saying why, is the defect this report was rewritten to remove.
-        const plottedLong: { key: string; value: number; ts: string }[] = [];
+        // How many points the charts plotted — the request's record count now
+        // that the report carries no readings table (2026-10-05).
+        let plottedCount = 0;
         if (wantTemp) {
           const r = await chartSectionFor(
             'Temperature', '°C', tempKey, tempDecimals,
@@ -601,7 +595,7 @@ export function InstrumentTrend() {
             { min: trend.overview?.limitText?.tempMin, max: trend.overview?.limitText?.tempMax },
           );
           charts.push(r.section);
-          if (tempKey) plottedLong.push(...r.plotted.map((pt) => ({ key: tempKey, value: pt.value, ts: pt.ts })));
+          plottedCount += r.plotted.length;
         }
         if (wantHumid) {
           const r = await chartSectionFor(
@@ -610,25 +604,20 @@ export function InstrumentTrend() {
             { min: trend.overview?.limitText?.rhMin, max: trend.overview?.limitText?.rhMax },
           );
           charts.push(r.section);
-          if (humidKey) plottedLong.push(...r.plotted.map((pt) => ({ key: humidKey, value: pt.value, ts: pt.ts })));
+          plottedCount += r.plotted.length;
         }
-        // Through the same tested pivot the screen uses, rather than a second
-        // merge written for this one caller.
-        const pivoted = toTableRows(plottedLong, keysMeta.map((k) => k.key));
-
         const slotLabel = TREND_SLOT_LABEL[which.slot];
         // The header's scope is the Data Report's: Block / Area from the
         // functional location, the Location ATTRIBUTE, the instrument's code.
         const trendPlacement = resolveBlockArea(locationTree?.data ?? [], inst?.functionalLocationId ?? null);
         const report = await renderTrendReport({
-          slotLabel, charts, rows: pivoted, keys: keysMeta, instrument,
+          slotLabel, charts, instrument,
           period: reportPeriod, formatDateTime,
           header: {
             scope: { ...trendPlacement, locationName: trend.overview?.locationAttribute ?? '', instrumentLabel: instrument.code },
             fmt: { formatDate, formatTime },
           },
           averagedLabel: intervalLabel(period.intervalMs),
-          tableIsAveraged: period.intervalMs !== null,
           // `fetched.history.length`, NOT `rows.length`. `rows` has already had
           // non-numeric readings dropped, while `historyTotal` counts every
           // stored value in the period — comparing the two would report
@@ -645,7 +634,7 @@ export function InstrumentTrend() {
         const snapshot = report.getSnapshot();
         outcome = await deliverReport({
           kind: reportKindOf(which), req, report, reportType: `Instrument Trend — ${slotLabel}`, title: snapshot.title, subtitle: snapshot.subtitle,
-          requestMeta: { period: reportPeriod, recordCount: pivoted.length, instrumentCodes: [instrument.code] },
+          requestMeta: { period: reportPeriod, recordCount: plottedCount, instrumentCodes: [instrument.code] },
           instrumentIds: [id],
         });
       } else if (which.kind === 'timeseries') {

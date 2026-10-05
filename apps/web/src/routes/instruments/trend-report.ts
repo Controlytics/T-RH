@@ -1,11 +1,9 @@
-import { formatDecimals } from '@digilog/shared';
 import { boundInForce } from '@/routes/dashboard/set-point';
 import { createReport, type ReportDoc, type NoteColor } from '@/lib/pdf-report';
 import {
   alarmTypeText, triggeredText, limitText, clearedText, statusText,
   type AlarmRow, type AlarmStatusTexts, type AlarmDisplayTexts,
 } from '@/routes/alarms/alarm-display';
-import type { TableRow } from './trend-series';
 import type { ChartImage } from './chart-image';
 import {
   scopeColumnStyles, scopeTableRows, instrumentAlarmsHeaderPairs, CONTENT_WIDTH_MM,
@@ -131,8 +129,9 @@ export interface TrendReportInput {
    *  report covers, and is what distinguishes the three reports in the audit trail. */
   slotLabel: string;
   charts: TrendChartSection[];
-  rows: TableRow[];
-  keys: { key: string; label: string; decimals: number }[];
+  // `rows` / `keys` (the readings table under the chart) and `tableIsAveraged`
+  // left on 2026-10-05 (operator: "remove the readings table from trend") —
+  // the stored readings are the Instrument Time Series report's job.
   instrument: ReportInstrument;
   period: ReportPeriod;
   formatDateTime: (d: string) => string;
@@ -155,16 +154,6 @@ export interface TrendReportInput {
    * outlives the screen.
    */
   averagedLabel: string | null;
-  /**
-   * Whether the TABLE holds averaged points rather than stored readings.
-   *
-   * The table under an averaged chart shows the SAME points the chart plots —
-   * two blocks of one report disagreeing about the value at an instant, with
-   * nothing saying why, is the defect this whole report was rewritten to
-   * remove. The raw record then lives in the Time Series report, and this one
-   * says so rather than leaving the reader to wonder where it went.
-   */
-  tableIsAveraged: boolean;
   coverage: ReportCoverage;
 }
 
@@ -197,19 +186,19 @@ function addChart(report: ReportDoc, section: TrendChartSection): void {
 }
 
 /**
- * The trend widget as a report: the CHART the operator saw, with its in-spec
- * band, and the readings table beneath it.
+ * The trend widget as a report: the ruled header block and the CHART the
+ * operator saw, with its in-spec band.
  *
- * The chart is the picture and the table is the record — both, never one. A
- * trend report carrying only a table is not a trend report (it is the time
- * series report with a different title), and a chart with no table underneath
- * cannot be read back value by value.
+ * Until 2026-10-05 it also carried a per-slot period summary and the readings
+ * table under the chart; the operator removed both ("in trend repots remove
+ * period summary table", then "remove the readings table from trend"). The
+ * stored readings, value by value, are the Instrument Time Series report's
+ * job, and this report says so in its subtitle and notes.
  *
  * Company name, logo, Printed By + User ID, printed date/time and the signature
  * block all come from `createReport()`; none of it is rebuilt here.
  */
 export async function renderTrendReport(input: TrendReportInput): Promise<ReportDoc> {
-  const { shown, capped, total } = capRows(input.rows);
   const report = await createReport({
     title: `Instrument Trend — ${input.slotLabel}`,
     // Says what this report IS, so a reader months later does not have to infer
@@ -221,7 +210,7 @@ export async function renderTrendReport(input: TrendReportInput): Promise<Report
     // wide period it is not the complete record either — and no report from
     // this page prints more than MAX_REPORT_ROWS rows regardless. What is
     // actually true of it is that it is UNAVERAGED.
-    subtitle: `${input.instrument.code} — ${input.slotLabel}. Chart and readings. `
+    subtitle: `${input.instrument.code} — ${input.slotLabel}. The chart as seen on screen. `
       + `The Instrument Time Series report covers the same readings unaveraged.`,
     reportKey: 'instrument-trend',
     formatDateTime: input.formatDateTime,
@@ -252,9 +241,9 @@ export async function renderTrendReport(input: TrendReportInput): Promise<Report
       // MAX_REPORT_ROWS, which no report from this page exceeds.
       `REPRESENTATIVE SAMPLE: this report was built from ${input.coverage.returned.toLocaleString()} of the `
       + `${input.coverage.total.toLocaleString()} stored values across all keys that ${input.period.label} holds. `
-      + `They are selected ACROSS THE WHOLE PERIOD — this is not a recent portion of it — so the chart and the `
-      + `readings table below preserve the shape of the record without printing every stored reading. To print every `
-      + `stored reading, NARROW THE PERIOD — no report from this page prints more than `
+      + `They are selected ACROSS THE WHOLE PERIOD — this is not a recent portion of it — so the chart below preserves `
+      + `the shape of the record without plotting every stored reading. For the readings themselves, NARROW THE PERIOD `
+      + `and use the Instrument Time Series report — no report from this page prints more than `
       + `${MAX_REPORT_ROWS.toLocaleString()} rows, and the Instrument Time Series report is built from the same `
       + `sample as this one.`,
       'red',
@@ -268,7 +257,7 @@ export async function renderTrendReport(input: TrendReportInput): Promise<Report
   if (input.averagedLabel) {
     addNote(
       report,
-      `Note: the chart AND the table below are AVERAGED over ${input.averagedLabel}. Each point and each row is `
+      `Note: the chart is AVERAGED over ${input.averagedLabel}. Each point is `
       + `the mean of the readings in its bucket, not a stored reading. `
       + `For the same period UNAVERAGED, use the Instrument Time Series report — it prints stored readings rather `
       + `than bucket means. It is built from the same sample as this report, and states its own coverage.`,
@@ -277,27 +266,6 @@ export async function renderTrendReport(input: TrendReportInput): Promise<Report
   }
 
   for (const section of input.charts) addChart(report, section);
-
-  addCapNotice(report, capped, shown.length, total, input.period);
-  report.addSectionTitle(
-    input.tableIsAveraged
-      ? `Averaged readings — the same points plotted above, not stored readings`
-      : `Readings — every stored reading in this period`,
-  );
-  report.addTable({
-    head: ['Timestamp', ...input.keys.map((k) => k.label)],
-    body: shown.map((r) => [
-      input.formatDateTime(r.ts),
-      ...input.keys.map((k) => (r.values[k.key] == null ? '—' : formatDecimals(r.values[k.key], k.decimals) ?? '—')),
-    ]),
-  });
-  // CAVEAT: `report.getSnapshot()` records tables and key/value blocks only, so
-  // a snapshot of this report would carry the table WITHOUT the chart or the
-  // averaging note. Nothing re-renders a trend report from a snapshot today
-  // (that path is "Send for Review", which this page does not offer). If it is
-  // ever wired up here, the snapshot format has to learn about images first —
-  // silently re-rendering a trend report as a bare table is the exact defect
-  // this renderer was written to fix.
   return report;
 }
 

@@ -59,13 +59,10 @@ function baseInput(overrides: Partial<Input> = {}): Input {
   return {
     slotLabel: 'Temperature',
     charts: [drawnChart],
-    rows,
-    keys,
     instrument,
     period,
     formatDateTime,
     averagedLabel: null,
-    tableIsAveraged: false,
     coverage: { returned: 3, total: 3 },
     header: {
       scope: { blockName: 'CWH Block', areaName: 'QC 3', locationName: 'GC Room', instrumentLabel: 'CWH/RDU/046-00' },
@@ -156,18 +153,15 @@ describe('the trend report shows the trend', () => {
     expect(t.text).toMatch(/Instrument Trend/);
   });
 
-  it('keeps the readings table beneath the chart — the chart is the picture, the table is the record', async () => {
-    const { report } = await capture(baseInput());
+  it('prints NO readings table and NO truncation notice — the report is the header block and the chart (operator, 2026-10-05)', async () => {
+    const { report, text } = await capture(baseInput());
     const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x);
-    // The ruled header block and the readings (operator, 2026-10-05: "in trend
-    // repots remove period summary table" — no summary between them).
-    expect(tables).toHaveLength(2);
-    const readingsTable = tables.find((t: any) => t.head[0] === 'Timestamp')!;
-    expect(readingsTable.head).toEqual(['Timestamp', 'Temperature (°C)']);
-    expect(readingsTable.body).toEqual([
-      ['2026-08-24T00:10:00.000Z', '22.4'],
-      ['2026-08-24T00:20:00.000Z', '22.5'],
-    ]);
+    // The ruled header block only: no period summary, no readings table.
+    expect(tables).toHaveLength(1);
+    expect(tables[0].head).toEqual([]);
+    expect(text).not.toMatch(/Timestamp/);
+    expect(text).not.toMatch(/Truncated/);
+    expect(text).not.toMatch(/every stored reading in this period/);
   });
 
   it('opens with the alarm report\'s ruled header table — Block / Area / Location / Inst ID against the period (operator, 2026-10-05)', async () => {
@@ -188,8 +182,8 @@ describe('the trend report shows the trend', () => {
   it('prints NO period summary table (operator, 2026-10-05: "in trend repots remove period summary table")', async () => {
     const { report, text } = await capture(baseInput());
     const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x);
-    // The only HEADED table is the readings; the header block is headless.
-    expect(tables.filter((t: any) => t.head.length).map((t: any) => t.head[0])).toEqual(['Timestamp']);
+    // No headed table at all: the header block is headless and there is nothing else.
+    expect(tables.filter((t: any) => t.head.length)).toHaveLength(0);
     expect(text).not.toMatch(/period summary/i);
     expect(text).not.toMatch(/Out of limit/);
   });
@@ -213,8 +207,9 @@ describe('the trend report shows the trend', () => {
     const { text } = await capture(baseInput({ coverage: { returned: 500, total: 7646 } }));
     expect(text).toMatch(/REPRESENTATIVE SAMPLE/);
     expect(text).toMatch(/500 of the 7,646 stored values/);
-    // Scoped to the two blocks that ARE sampled...
-    expect(text).toMatch(/the chart and the readings table below/);
+    // Scoped to the one block that IS sampled...
+    expect(text).toMatch(/the chart below preserves the shape of the record/);
+    expect(text).not.toMatch(/readings table/);
     // ...and no longer naming a period summary — there is none (2026-10-05).
     expect(text).not.toMatch(/period summary/i);
   });
@@ -259,25 +254,9 @@ describe('the trend report shows the trend', () => {
   // reports and show max and min values". The server sends the attribute's
   // text beside the bound it counted against; the line quotes the text, the
   // extremes still print.
-  it('labels the table as averaged when it holds averaged points, and points at the raw record', async () => {
-    const { report, text } = await capture(baseInput({ tableIsAveraged: true, averagedLabel: '5 minutes' }));
-    const titles = report.getSnapshot().sections.map((x: any) => x.title).filter(Boolean);
-    expect(titles).toContain('Averaged readings — the same points plotted above, not stored readings');
-    expect(text).toMatch(/the chart AND the table below are AVERAGED over 5 minutes/);
-    // No period summary to exempt any more (2026-10-05); the note must not name one.
-    expect(text).not.toMatch(/period summary/i);
-    expect(text).toMatch(/Instrument Time Series report/);
-  });
-
-  it('labels the table as stored readings when it is not averaged', async () => {
-    const { report } = await capture(baseInput({ tableIsAveraged: false }));
-    const titles = report.getSnapshot().sections.map((x: any) => x.title).filter(Boolean);
-    expect(titles).toContain('Readings — every stored reading in this period');
-  });
-
   it('says in the subtitle what this report is, and where the raw record lives', async () => {
     const { report } = await capture(baseInput());
-    expect(report.getSnapshot().subtitle).toMatch(/Chart and readings/);
+    expect(report.getSnapshot().subtitle).toMatch(/The chart as seen on screen/);
     expect(report.getSnapshot().subtitle).toMatch(/Instrument Time Series report/);
   });
 
@@ -294,11 +273,11 @@ describe('the trend report shows the trend', () => {
     const last = tokens[tokens.length - 1];
     expect(last[1]).toBe('1');
     expect(Number(last[2])).toBe(DEFAULT_TYPOGRAPHY.companyPt);
-    const heads = Object.values(report.doc.lastAutoTable.head[0].cells) as any[];
-    for (const c of heads) {
-      expect(c.styles.halign).toBe('left');
-      expect(c.styles.fontSize).toBe(DEFAULT_TYPOGRAPHY.tableHeadPt);
-    }
+    // The only table left is the headless header block: its cells print at the
+    // default table size (the Data Report's are larger); its label column is
+    // bold by `scopeColumnStyles`, as on every header block.
+    const cells = Object.values(report.doc.lastAutoTable.body[0].cells) as any[];
+    for (const c of cells) expect(c.styles.fontSize).toBe(DEFAULT_TYPOGRAPHY.tablePt);
   });
 
   /** The Data Report's inputs for the two-row fixture above, at Raw. */
@@ -544,19 +523,6 @@ describe('the trend report shows the trend', () => {
       ['2026-08-24', '00:20', '22.5', 'NA'],
       ['2026-08-24', '00:10', '22.4', 'NA'],
     ]);
-  });
-
-  it('states the row cap in the report when it truncates', async () => {
-    const many = Array.from({ length: 2500 }, (_, i) => ({
-      ts: new Date(Date.UTC(2026, 7, 24, 0, 0, i)).toISOString(),
-      values: { t: 22 + (i % 10) / 10 },
-    }));
-    const { text, report } = await capture(baseInput({ rows: many }));
-    expect(text).toMatch(/Truncated/);
-    expect(text).toMatch(/2,500/);
-    const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x);
-    const readingsTable = tables.find((t: any) => t.head[0] === 'Timestamp')!;
-    expect(readingsTable.body).toHaveLength(2000);
   });
 
   // The REPRESENTATIVE SAMPLE disclosure names only the extremes that print

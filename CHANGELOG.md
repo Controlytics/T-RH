@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased] - Trend report: the readings table is gone (2026-10-05)
+
+Operator, pasting the report's own "Truncated: showing the first 2,000 of
+2,058 rows for Last 30 days…" and "Readings — every stored reading in this
+period": "remove the readings table from trend".
+
+- **The Instrument Trend report (Temperature / Humidity) is now the ruled
+  header block and the chart.** The readings table under the chart, its
+  "Readings — every stored reading…" / "Averaged readings…" heading and the
+  row-cap "Truncated:" notice are gone with it. The subtitle reads "The
+  chart as seen on screen"; the sample and averaging notes speak of the
+  chart alone and point at the Instrument Time Series report for the
+  readings themselves. `TrendReportInput` lost `rows`, `keys` and
+  `tableIsAveraged`; the page no longer pivots the plotted points into
+  rows, and the review request's `recordCount` is the number of points
+  plotted. The Data Report and the alarms reports keep their tables and
+  their row cap. No count moved.
+
 ## [Unreleased] - Trend report: the header is the alarm report's ruled table (2026-10-05)
 
 Operator: "make trend report header into table properly as like alarm report
