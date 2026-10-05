@@ -259,7 +259,10 @@ export const configService = {
     }
     // AFTER the privilege check: a caller who may not make the change at all
     // is told so (403) before being asked why they are making it (400).
-    const permissionSetChanged = plan !== null && (
+    // Only a PERMISSIONS save (the Permissions tab) is asked: a Sidebar-tab
+    // save also moves a primary permission when an item is switched on, but
+    // that is the menu being arranged, and the Sidebar tab collects no reason.
+    const permissionSetChanged = plan !== null && data.permissions !== undefined && (
       plan.added.length > 0 || plan.currentPerms.some((p) => !plan.permissionsArray.includes(p))
     );
     const reason = permissionSetChanged ? requireReason(data.reason, "Changing a role's permissions") : undefined;

@@ -4,7 +4,7 @@ const { mockPrisma } = vi.hoisted(() => ({
   mockPrisma: {
     user: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn(), deleteMany: vi.fn(), count: vi.fn() },
     userConfig: { deleteMany: vi.fn() },
-    session: { updateMany: vi.fn() },
+    session: { updateMany: vi.fn(), findMany: vi.fn() },
     role: { findUnique: vi.fn() },
     systemConfig: { findUnique: vi.fn() },
     passwordHistory: { findMany: vi.fn(), create: vi.fn() },
@@ -99,9 +99,13 @@ describe('user.repository', () => {
 
   describe('terminateSessions', () => {
     it('terminates all active sessions', async () => {
+      // The ids are read first so each ended session can be evicted from the
+      // auth plugin's session cache (2026-10-05).
+      mockPrisma.session.findMany.mockResolvedValue([{ id: 's1' }, { id: 's2' }, { id: 's3' }]);
       mockPrisma.session.updateMany.mockResolvedValue({ count: 3 });
       const result = await userRepository.terminateSessions('u1', 'admin_action');
       expect(result.count).toBe(3);
+      expect(mockPrisma.session.findMany).toHaveBeenCalledWith({ where: { userId: 'u1', isActive: true }, select: { id: true } });
     });
   });
 });

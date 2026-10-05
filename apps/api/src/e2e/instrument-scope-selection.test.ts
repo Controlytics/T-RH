@@ -314,7 +314,7 @@ describe('the admin surface', () => {
     const scope = { locationIds: [areaId], instrumentIds: [unplacedId] };
     const put = await app.inject({
       method: 'PUT', url: '/api/roles/instrument-scope/role/OPERATOR',
-      headers: { ...auth, ...reauth }, payload: { scope },
+      headers: { ...auth, ...reauth }, payload: { scope, reason: 'e2e: scope selection' },
     });
     expect(put.statusCode).toBe(200);
 
@@ -335,7 +335,7 @@ describe('the admin surface', () => {
     // values in the column and the distinction is this feature's whole contract.
     const put = await app.inject({
       method: 'PUT', url: '/api/roles/instrument-scope/role/OPERATOR',
-      headers: { ...auth, ...reauth }, payload: { scope: null },
+      headers: { ...auth, ...reauth }, payload: { scope: null, reason: 'e2e: scope selection' },
     });
     expect(put.statusCode).toBe(200);
     const [row] = await prisma.$queryRaw<{ isNull: boolean }[]>`
@@ -346,7 +346,7 @@ describe('the admin surface', () => {
   it('refuses a malformed scope rather than storing half of one', async () => {
     const put = await app.inject({
       method: 'PUT', url: '/api/roles/instrument-scope/role/OPERATOR',
-      headers: { ...auth, ...reauth }, payload: { scope: { locationIds: [blockId] } },
+      headers: { ...auth, ...reauth }, payload: { scope: { locationIds: [blockId] }, reason: 'e2e: scope selection' },
     });
     expect(put.statusCode).toBe(400);
   });
@@ -402,7 +402,7 @@ describe('the admin surface', () => {
     await app.inject({
       method: 'PUT', url: '/api/roles/instrument-scope/role/OPERATOR',
       headers: { ...auth, ...reauth },
-      payload: { scope: { locationIds: [blockId], instrumentIds: [unplacedId] } },
+      payload: { scope: { locationIds: [blockId], instrumentIds: [unplacedId] }, reason: 'e2e: scope selection' },
     });
     const row = await prisma.auditTrail.findFirst({
       where: { targetType: 'role_config', targetId: 'OPERATOR' },
@@ -525,7 +525,7 @@ describe('a per-user override, in the new shape', () => {
     const put = await app.inject({
       method: 'PUT', url: `/api/roles/instrument-scope/user/${user.id}`,
       headers: { ...auth, ...reauth },
-      payload: { scope: { locationIds: [], instrumentIds: [unplacedId] } },
+      payload: { scope: { locationIds: [], instrumentIds: [unplacedId] }, reason: 'e2e: scope selection' },
     });
     expect(put.statusCode).toBe(200);
 

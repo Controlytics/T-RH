@@ -203,7 +203,15 @@ describe('GET /api/floorplans/:id/rooms/:roomId/history', () => {
   // instruments drew an empty chart. `NUMERIC_READING` is now the ONE SQL
   // definition of a reading, in both the raw and the bucketed path.
   it('a QUOTED number is a reading, raw and bucketed alike', async () => {
-    const ts = new Date(Date.now() - 4 * 60_000);
+    // Placed in the SAME epoch-aligned 180 s bucket as B's seeded 20.0 reading
+    // (one second beside it, whichever side stays inside the bucket). A fixed
+    // "4 minutes ago" shared that bucket only a third of the time — the case
+    // went red by the clock (2026-10-05).
+    const seeded = await prisma.$queryRaw<{ ts: Date }[]>`
+      SELECT ts FROM instrument_telemetry_history WHERE instrument_id = ${instB} AND key = 'temperature' ORDER BY ts DESC LIMIT 1`;
+    const base = seeded[0].ts.getTime();
+    const bucketOf = (ms: number) => Math.floor(ms / 180_000);
+    const ts = new Date(bucketOf(base - 1000) === bucketOf(base) ? base - 1000 : base + 1000);
     await prisma.$executeRaw`
       INSERT INTO instrument_telemetry_history (instrument_id, key, value, value_type, ts)
       VALUES (${instB}, 'temperature', '"19.25"'::jsonb, 'string', ${ts})

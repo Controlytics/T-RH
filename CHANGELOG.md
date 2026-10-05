@@ -217,6 +217,15 @@ scopes, the Permissions tab) and DATA-13 of
   kept the OLD token with the NEW role's grants for up to 30 s. Pinned by a
   users e2e (the old token is 401 on the very next request), mutation-
   checked.
+- **The Permissions-tab reason is asked only on a PERMISSIONS save**: a
+  Sidebar-tab save also moves an item's primary permission when the item is
+  switched on, but that is the menu being arranged and the Sidebar tab
+  collects no reason — the first cut gated it too and the sidebar-link unit
+  test caught it. The API-wide run (208 files, one at a time) also found the
+  instrument-scope-selection e2e still sending the pre-DATA-11 payloads and
+  a room-history case whose "4 minutes ago" reading shared the seeded
+  reading's epoch-aligned 180 s bucket only a third of the time; both tests
+  fixed, no product code.
 - Also: `config.service.test.ts` could not load at HEAD (its partial shared
   mock lacked `PERMISSIONS` since batch 2) — fixed. Found, not fixed: role
   delete is one transaction but not serialised against a concurrent
