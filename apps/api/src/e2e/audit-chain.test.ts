@@ -21,6 +21,18 @@ import { verifyAuditChain } from '../lib/audit-verify.js';
 const TEST_USERNAME = 'audit_chain_admin';
 const TEST_PASSWORD = 'AuditChain@Test1';
 
+/**
+ * The DB actor these tests model can disable triggers; `audit_trail_no_update`
+ * (DATA-6) would otherwise refuse every forged UPDATE below before the chain
+ * ever saw it. Disabled for exactly one statement, re-enabled in `finally`.
+ */
+async function withUpdateTriggerDisabled<T>(fn: () => Promise<T>): Promise<T> {
+  await prisma.$executeRawUnsafe('ALTER TABLE audit_trail DISABLE TRIGGER audit_trail_no_update');
+  try { return await fn(); } finally {
+    await prisma.$executeRawUnsafe('ALTER TABLE audit_trail ENABLE TRIGGER audit_trail_no_update');
+  }
+}
+
 async function ensureUser() {
   const { hashPassword } = await import('../lib/password.js');
   const passwordHash = await hashPassword(TEST_PASSWORD);
@@ -142,12 +154,15 @@ describe('Audit hash chain — C3', () => {
     expect(tampered[0]).toBeDefined();
 
     // Tamper: rewrite after_value WITHOUT recomputing checksum. This is the
-    // class of attack the chain detects — silent in-place mutation.
-    await prisma.$executeRaw`
+    // class of attack the chain detects — silent in-place mutation. Since
+    // 2026-10-05 the `audit_trail_no_update` trigger refuses this UPDATE
+    // outright (DATA-6; its own e2e proves that), so the actor modelled here
+    // is one who can disable triggers — the chain is the detection for them.
+    await withUpdateTriggerDisabled(() => prisma.$executeRaw`
       UPDATE audit_trail
       SET after_value = ${JSON.stringify({ honest: false, attacker: true })}::jsonb
       WHERE id = ${tampered[0].id}::uuid
-    `;
+    `);
 
     const result = await verifyAuditChain({ fromPosition: beforeMax + 1 });
     expect(result.intact).toBe(false);
@@ -172,6 +187,39 @@ describe('Audit hash chain — C3', () => {
       // Trigger not installed — fall through; rows remain but are scoped
       // to this test's chain segment via fromPosition.
     }
+  });
+
+  /**
+   * A RANGED walk seeds its link from row N-1 (audit 2026-10-03, DATA-18).
+   * Until then `?fromPosition=N` accepted row N's previous_checksum unchecked
+   * — "genesis" — so a break between N-1 and N was invisible to any window
+   * that started at N, and an auditor verifying in windows got a false
+   * "intact" across the cut.
+   */
+  it('a ranged verify starting at N detects a broken link between N-1 and N', async () => {
+    await auditLog({ userId: TEST_USERNAME, action: 'RANGE_SEED_A', targetType: 'test', targetId: 'ra' });
+    await auditLog({ userId: TEST_USERNAME, action: 'RANGE_SEED_B', targetType: 'test', targetId: 'rb' });
+    const [b] = await prisma.$queryRaw<Array<{ id: string; chain_position: bigint; previous_checksum: string }>>`
+      SELECT id, chain_position, previous_checksum FROM audit_trail WHERE action = 'RANGE_SEED_B' ORDER BY chain_position DESC LIMIT 1`;
+    const position = Number(b.chain_position);
+
+    // Intact first: the seeded prior IS row N-1's checksum, so no anomaly.
+    const clean = await verifyAuditChain({ fromPosition: position, toPosition: position });
+    expect(clean.anomalies.filter((a) => a.kind === 'CHAIN_LINK_MISMATCH')).toEqual([]);
+
+    // Break the link of row N to N-1 and verify the window [N, N] alone.
+    await withUpdateTriggerDisabled(() => prisma.$executeRaw`
+      UPDATE audit_trail SET previous_checksum = repeat('f', 64) WHERE id = ${b.id}::uuid`);
+    const broken = await verifyAuditChain({ fromPosition: position, toPosition: position });
+    expect(broken.intact).toBe(false);
+    const link = broken.anomalies.find((a) => a.kind === 'CHAIN_LINK_MISMATCH');
+    expect(link?.id).toBe(b.id);
+    expect(link?.actual).toBe('f'.repeat(64));
+    // (The per-row checksum covers previousChecksum too, so that fails as well.)
+
+    // Restore the true link so later windows and the full walk read clean.
+    await withUpdateTriggerDisabled(() => prisma.$executeRaw`
+      UPDATE audit_trail SET previous_checksum = ${b.previous_checksum} WHERE id = ${b.id}::uuid`);
   });
 
   it('GET /api/audit/verify-chain returns the verifier result', async () => {
@@ -250,10 +298,10 @@ describe('Audit hash chain — keyed-era downgrade', () => {
       targetId: r.target_id ?? undefined,
       afterValue: r.after_value ?? undefined,
     }, r.previous_checksum);
-    await prisma.$executeRaw`
+    await withUpdateTriggerDisabled(() => prisma.$executeRaw`
       UPDATE audit_trail SET checksum_version = NULL, checksum = ${forged}
       WHERE id = ${id}::uuid
-    `;
+    `);
   }
 
   afterAll(async () => {

@@ -29,10 +29,12 @@
  * this replaces (removed 2026-07-18, on tag `pre-domain-strip`); its second
  * review stage is not.
  */
+import { createHash } from 'node:crypto';
 import { Prisma, type NotificationType } from '@prisma/client';
 import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
+import { canonicalize } from '../../lib/hash-chain.js';
 import { AppError } from '../../lib/errors.js';
 import { createNotification } from '../notifications/notification.service.js';
 import { clampSignature } from '../alarms/validation.js';
@@ -44,6 +46,24 @@ import { roleHasPermission } from '../../plugins/rbac.js';
 
 export type ReviewList = 'queue' | 'mine' | 'approved';
 export type ReviewDecision = 'APPROVED' | 'REJECTED';
+
+/**
+ * The tamper-evidence digest of a frozen document (audit 2026-10-03, DATA-7):
+ * sha256 over the SAME recursive canonical JSON the audit checksum uses, so
+ * the bytes hashed at the request are the bytes hashed again when the row is
+ * read back from JSONB (key order normalised, `undefined` never present —
+ * the value is JSON round-tripped first, exactly as the audit writer does).
+ * Stored on `report_reviews.snapshot_hash`, written into the REQUESTED and
+ * APPROVED audit rows (hash-chained, so it cannot be edited to agree with an
+ * edited snapshot), and recomputed before every download.
+ */
+export function snapshotDigest(snapshot: unknown): string {
+  return createHash('sha256').update(canonicalize(JSON.parse(JSON.stringify(snapshot ?? null)))).digest('hex');
+}
+
+/** HTTP error code a download gets when the stored document no longer hashes
+ *  to what was signed. */
+export const SNAPSHOT_MISMATCH = 'SNAPSHOT_MISMATCH';
 
 /**
  * Who a request belongs to (2026-10-01). The approver SET and the instruments
@@ -226,6 +246,7 @@ const SUMMARY_SELECT = {
   requestedBy: true, requestedByName: true, requestedByRole: true, requestedAt: true, requestRemarks: true,
   assigneeUserId: true, assigneeRole: true, approverRoles: true, approverUserIds: true, instrumentIds: true,
   decidedBy: true, decidedByName: true, decidedByRole: true, decidedAt: true, decisionRemarks: true,
+  snapshotHash: true,
   createdAt: true,
 } satisfies Prisma.ReportReviewSelect;
 
@@ -248,7 +269,7 @@ function titleLabel(title: string): string {
  * with nobody here, rather than accepting one only a super admin could ever
  * decide while telling the requester "the approvers have been notified".
  */
-async function eligibleApprovers(
+export async function eligibleApprovers(
   row: Pick<ReviewParties, 'requestedBy' | 'approverRoles' | 'approverUserIds' | 'instrumentIds' | 'reportType'>,
 ): Promise<string[]> {
   const users = await prisma.user.findMany({
@@ -258,16 +279,44 @@ async function eligibleApprovers(
       role: { not: 'SUPER_ADMIN' },
       OR: [{ role: { in: row.approverRoles } }, { id: { in: row.approverUserIds } }],
     },
-    select: { username: true, role: true },
+    select: { id: true, username: true, role: true },
   });
+  if (users.length === 0) return [];
+
+  // Permissions resolve ONCE PER DISTINCT ROLE and the instrument scope ONCE
+  // PER DISTINCT (role, user-config) PAIR (audit 2026-10-03, API-19). This ran
+  // two permission reads and a full scope resolution — itself three or four
+  // queries plus an instrument list — for EVERY candidate, on every PDF
+  // request; a plant with thirty approvers in one role paid for the same
+  // answer thirty times. Nothing is re-derived: `roleHasPermission` and
+  // `visibleInstrumentsFor` (over `resolveVisibility`, the ONE resolver) are
+  // still the deciders, each asked once per answer that can differ.
+  //
+  // READ as well as APPROVE: the queue, the detail and the decision routes are
+  // all behind REPORT_REVIEW_READ, and APPROVE does not imply it.
+  const roleOk = new Map<string, boolean>();
+  for (const role of new Set(users.map((u) => u.role))) {
+    roleOk.set(role, (await roleHasPermission(role, 'REPORT_REVIEW_APPROVE')) && (await roleHasPermission(role, 'REPORT_REVIEW_READ')));
+  }
+  const candidates = users.filter((u) => roleOk.get(u.role) === true);
+  if (candidates.length === 0) return [];
+
+  // The effective scope is user_configs over role_configs (visibility.ts), so
+  // two users of one role share a scope iff their own user_config rows agree —
+  // which for most users means "neither has one". The stored JSON is the key.
+  const configs = await prisma.userConfig.findMany({
+    where: { userId: { in: candidates.map((u) => u.id) } },
+    select: { userId: true, instrumentScope: true },
+  });
+  const scopeRowByUser = new Map(configs.map((c) => [c.userId, c.instrumentScope]));
+  const visibleByKey = new Map<string, VisibleInstruments>();
   const out: string[] = [];
-  for (const u of users) {
-    // READ as well as APPROVE: the queue, the detail and the decision routes
-    // are all behind REPORT_REVIEW_READ, and APPROVE does not imply it.
-    if (!(await roleHasPermission(u.role, 'REPORT_REVIEW_APPROVE'))) continue;
-    if (!(await roleHasPermission(u.role, 'REPORT_REVIEW_READ'))) continue;
-    if (!inScope(row, await visibleInstrumentsFor({ userId: u.username, userRole: u.role }))) continue;
-    out.push(u.username);
+  for (const u of candidates) {
+    const key = `${u.role}\u0000${JSON.stringify(scopeRowByUser.get(u.id) ?? null)}`;
+    if (!visibleByKey.has(key)) {
+      visibleByKey.set(key, await visibleInstrumentsFor({ userId: u.username, userRole: u.role }));
+    }
+    if (inScope(row, visibleByKey.get(key) ?? null)) out.push(u.username);
   }
   return out;
 }
@@ -300,6 +349,20 @@ async function notifyRequester(row: ReviewSummary, type: NotificationType, title
   } catch (e) {
     console.error('[report-reviews] notify requester failed:', (e as Error).message);
   }
+}
+
+/** The digest the REQUESTED audit row recorded for this request, or null for a
+ *  request raised before that field existed (or whose row was redacted). */
+async function attestedSnapshotHash(reviewId: string): Promise<string | null> {
+  const rows = await prisma.$queryRaw<Array<{ h: string | null }>>`
+    SELECT after_value->>'snapshotHash' AS h
+    FROM audit_trail
+    WHERE action = 'REPORT_REVIEW_REQUESTED' AND target_id = ${reviewId} AND redacted_at IS NULL
+    ORDER BY chain_position ASC
+    LIMIT 1
+  `;
+  const h = rows[0]?.h;
+  return typeof h === 'string' && h.length > 0 ? h : null;
 }
 
 function auditBase(ctx: RequestContext) {
@@ -362,6 +425,9 @@ export const reportReviewService = {
         'Nobody can approve this report: no configured approver other than you holds the approve permission and has these instruments assigned. Ask a super admin to check Configuration → Report Settings and Roles & Access.');
     }
 
+    // The digest of the document being signed, frozen beside it and into the
+    // chained audit row below — what every later download is checked against.
+    const snapshotHash = snapshotDigest(input.dataSnapshot);
     const row = await prisma.reportReview.create({
       data: {
         reportType: input.reportType.slice(0, 100),
@@ -369,6 +435,7 @@ export const reportReviewService = {
         subtitle: input.subtitle?.slice(0, 1000) ?? null,
         requestMeta: input.requestMeta as Prisma.InputJsonValue,
         dataSnapshot: input.dataSnapshot as Prisma.InputJsonValue,
+        snapshotHash,
         requestedBy: ctx.userSub,
         requestedByName: ctx.userId,
         // FROZEN at the request: the signature block prints it (2026-09-25),
@@ -392,6 +459,7 @@ export const reportReviewService = {
         title: row.title, requestMeta: row.requestMeta, reportKind: input.reportKind,
         approvers: { roles: approverRoles, userIds: approverUserIds }, instrumentIds,
         remarks: input.remarks || null, passwordSigned: input.policy.passwordRequired, status: row.status,
+        snapshotHash,
       },
       reason: input.remarks || undefined,
       signatureMeaning: clampSignature(`${ctx.userId} requested approval of the ${row.reportType} report "${titleLabel(row.title)}" from ${to}`),
@@ -462,7 +530,10 @@ export const reportReviewService = {
       action: approved ? 'REPORT_REVIEW_APPROVED' : 'REPORT_REVIEW_REJECTED',
       targetType: after.reportType, targetId: after.id,
       beforeValue: { status: 'PENDING' },
-      afterValue: { status: after.status, decidedBy: after.decidedByName, decidedAt: after.decidedAt, remarks, requestedBy: after.requestedByName, title: after.title },
+      // `snapshotHash` names WHICH document was decided on — the one the
+      // requester signed, by digest, so the two signatures are bound to the
+      // same bytes (DATA-7).
+      afterValue: { status: after.status, decidedBy: after.decidedByName, decidedAt: after.decidedAt, remarks, requestedBy: after.requestedByName, title: after.title, snapshotHash: after.snapshotHash },
       reason: remarks,
       signatureMeaning: clampSignature(`${ctx.userId} ${approved ? 'approved' : 'rejected'} the ${after.reportType} report "${titleLabel(after.title)}" requested by ${after.requestedByName}`),
     });
@@ -476,9 +547,24 @@ export const reportReviewService = {
    *  the file. Not a signature event — no re-auth — but a §11 record of who
    *  took a signed copy and when. */
   async logDownload(ctx: RequestContext, id: string): Promise<void> {
-    const row = await prisma.reportReview.findUnique({ where: { id }, select: SUMMARY_SELECT });
+    const row = await prisma.reportReview.findUnique({ where: { id }, select: { ...SUMMARY_SELECT, dataSnapshot: true } });
     if (!row || !isParty(ctx, row, await visibleInstrumentsFor(ctx))) throw new AppError(404, 'NOT_FOUND', 'Report request not found.');
     if (row.status !== 'APPROVED') throw new AppError(409, 'NOT_APPROVED', 'Only an approved report can be downloaded.');
+    // The document must still hash to what was signed (DATA-7). The expected
+    // digest is the one the REQUESTED audit row carries — hash-chained, so an
+    // actor who edits the snapshot cannot also edit it to agree — falling back
+    // to the row's own column for a request older than the audit field, and
+    // to "unattested" for a row older than both (never refused: those reports
+    // were approved before any digest existed, and that is recorded below).
+    const actual = snapshotDigest(row.dataSnapshot);
+    const attested = await attestedSnapshotHash(row.id);
+    const expected = attested ?? row.snapshotHash;
+    const mismatch = expected !== null && (expected !== actual || (attested !== null && row.snapshotHash !== attested));
+    if (mismatch) {
+      console.error(`[report-reviews] snapshot of ${row.id} does not hash to what was signed (expected ${expected}, stored column ${row.snapshotHash}, actual ${actual}) — download refused`);
+      throw new AppError(409, SNAPSHOT_MISMATCH,
+        'This report\'s stored document no longer matches the one that was signed. The download is refused; ask a super admin to investigate the audit trail.');
+    }
     await auditLog({
       ...auditBase(ctx),
       action: 'REPORT_DOWNLOADED',
@@ -489,6 +575,8 @@ export const reportReviewService = {
           { label: 'Requested By', name: row.requestedByName, at: row.requestedAt },
           { label: 'Approved By', name: row.decidedByName, at: row.decidedAt },
         ],
+        snapshotHash: actual,
+        snapshotAttested: expected !== null,
       },
       signatureMeaning: clampSignature(`${ctx.userId} downloaded the approved ${row.reportType} report "${titleLabel(row.title)}" (requested by ${row.requestedByName}, approved by ${row.decidedByName})`),
     });

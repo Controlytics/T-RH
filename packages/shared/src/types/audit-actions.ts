@@ -1,28 +1,37 @@
 /**
  * 21 CFR Part 11 inspector contracts — audit action enum.
  *
- * **Deprecation policy:** entries are NEVER deleted, even if no production
- * code currently emits them. The audit-template editor at
- * `/config/audit-templates` renders one row per entry so operators can
- * customise the human-readable description for each action. Inspectors
- * reference the enum by name as the controlled vocabulary of audit-able
- * events; removing an entry would orphan any operator-customised template
- * tied to it and would force a regulatory documentation update.
+ * THE controlled vocabulary of audit-able events: every `action` the API
+ * writes into `audit_trail` is a key here, and every key here has a default
+ * template in `audit-templates.ts` (the editor at `/config/audit-templates`
+ * renders one row per template). Two tests hold that:
  *
- * **Currently unemitted entries (audit 2026-05-16):** the following 16
- * entries have zero `audit.log({ action: 'X' })` call-sites in apps/api/src
- * but are retained per the policy above. If you wire one up, no annotation
- * change is needed — emitting it just makes the contract truthful again.
+ *   - `apps/api/src/lib/__tests__/audit-actions-registry.test.ts` — every
+ *     `action: '…'` literal under `apps/api/src` (non-test) is a key here;
+ *   - `packages/shared/src/types/audit-actions.test.ts` — every key here has
+ *     a template, and the registry carries no name nothing writes.
  *
- *   ROLE_ASSIGNED, APPROVAL_REQUESTED, APPROVAL_GRANTED, APPROVAL_REJECTED,
- *   DATA_VIEWED, DATA_EXPORTED, ALARM_ESCALATED,
- *   SEPARATION_OF_DUTIES_DISABLED, RULE_CHAIN_SET_ROOT, RULE_CHAIN_IMPORTED,
- *   DEVICE_CREDENTIAL_REGENERATED, RETENTION_POLICY_UPDATED, DATA_ARCHIVED,
- *   RETENTION_EXECUTED, SYSTEM_CONFIG_UPDATED, SERVER_RESTART_TRIGGERED
+ * **Re-synced 2026-10-05 (audit 2026-10-03, DATA-10).** The registry and the
+ * writers had drifted BOTH ways: eleven actions were written in production
+ * code and absent here (the redactions, the three ROLE_*, the admin request,
+ * LDAP, the two notification-config writes, the super-admin API-access switch,
+ * the dashboard), and twenty-eight entries had no writer anywhere in the tree
+ * — the removed filter / rule-chain / UNS / data-ingestion domains and a
+ * handful that were never wired (`SESSION_TIMEOUT`, `ROLE_ASSIGNED`,
+ * `APPROVAL_*`, `STAGE_APPROVAL_*`, `DATA_*`, `ALARM_CREATED` / `_CLEARED` /
+ * `_ESCALATED`, `RULE_CHAIN_*`, `UNS_*`, `DEVICE_CREDENTIAL_REGENERATED`,
+ * `SEPARATION_OF_DUTIES_DISABLED`, `RETENTION_POLICY_UPDATED`,
+ * `DATA_ARCHIVED`, `SYSTEM_CONFIG_UPDATED`, `SERVER_RESTART_TRIGGERED`,
+ * `UNAUTHORIZED_ACTION_ATTEMPT`). The earlier header's "never delete an
+ * unemitted entry" policy was written for a vocabulary inspectors had seen;
+ * it was measured against both local databases before the prune — ZERO
+ * `audit_trail` rows carry any of the removed names — so no stored record
+ * loses its template, and a registry three-quarters true is not a controlled
+ * vocabulary. If one of these actions is ever written again, add it back
+ * WITH its template in the same commit; the two tests above fail otherwise.
  *
- * Future code reviewers: do NOT delete unemitted entries on dead-code
- * cleanup grounds. See tasks/CLEANUP-ANALYSIS-2026-05-16.md §3.7 + Tier 3
- * "Deliberate Keep" items.
+ * `RETENTION_EXECUTED` was on the never-written list and is kept: the
+ * telemetry retention task writes it since the same day (DATA-9).
  */
 export const AUDIT_ACTIONS = {
   USER_CREATED: 'USER_CREATED',
@@ -32,40 +41,25 @@ export const AUDIT_ACTIONS = {
   USER_DISABLED: 'USER_DISABLED',
   PASSWORD_RESET: 'PASSWORD_RESET',
   PASSWORD_CHANGED: 'PASSWORD_CHANGED',
-  ROLE_ASSIGNED: 'ROLE_ASSIGNED',
   LOGIN_SUCCESS: 'LOGIN_SUCCESS',
   LOGIN_FAILED: 'LOGIN_FAILED',
   LOGOUT: 'LOGOUT',
-  SESSION_TIMEOUT: 'SESSION_TIMEOUT',
   ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',
   ACCOUNT_UNLOCKED: 'ACCOUNT_UNLOCKED',
   PASSWORD_EXPIRED: 'PASSWORD_EXPIRED',
   CONFIG_CHANGED: 'CONFIG_CHANGED',
-  APPROVAL_REQUESTED: 'APPROVAL_REQUESTED',
-  APPROVAL_GRANTED: 'APPROVAL_GRANTED',
-  APPROVAL_REJECTED: 'APPROVAL_REJECTED',
-  STAGE_APPROVAL_APPROVED: 'STAGE_APPROVAL_APPROVED',
-  STAGE_APPROVAL_REJECTED: 'STAGE_APPROVAL_REJECTED',
-  // Closed WITHOUT a decision — the filter left the gate before the approver acted,
-  // so no e-signature was ever given. Not a decision; the inspector's record of WHY
-  // a §11 approval request ended undecided (2026-07-15).
-  STAGE_APPROVAL_SUPERSEDED: 'STAGE_APPROVAL_SUPERSEDED',
-  DATA_VIEWED: 'DATA_VIEWED',
-  DATA_EXPORTED: 'DATA_EXPORTED',
-  UNAUTHORIZED_ACTION_ATTEMPT: 'UNAUTHORIZED_ACTION_ATTEMPT',
   BULK_USER_DELETED: 'BULK_USER_DELETED',
   BACKUP_CREATED: 'BACKUP_CREATED',
   BACKUP_RESTORED: 'BACKUP_RESTORED',
 
+  // Roles (written by roles/role.service.ts since the fork; registered
+  // 2026-10-05).
+  ROLE_CREATED: 'ROLE_CREATED',
+  ROLE_UPDATED: 'ROLE_UPDATED',
+  ROLE_DELETED: 'ROLE_DELETED',
 
-  // Data Ingestion & Integration (Phase A)
-  DATA_ATTRIBUTES_UPDATED: 'DATA_ATTRIBUTES_UPDATED',
-
-  // Alarms — retained per 21 CFR §11 — no longer emitted as of 2026-05-17
-  ALARM_CREATED: 'ALARM_CREATED',
+  // Alarms
   ALARM_ACKNOWLEDGED: 'ALARM_ACKNOWLEDGED',
-  ALARM_CLEARED: 'ALARM_CLEARED',
-  ALARM_ESCALATED: 'ALARM_ESCALATED',
   /**
    * Every alarm record and every webhook delivery receipt deleted at once
    * (2026-09-21, operator: "once remove all the alarms data"). Written by
@@ -78,16 +72,6 @@ export const AUDIT_ACTIONS = {
   ALARM_WEBHOOK_DELETED: 'ALARM_WEBHOOK_DELETED',
   ALARM_WEBHOOK_TESTED: 'ALARM_WEBHOOK_TESTED',
 
-  // Segregation-of-duties control
-  SEPARATION_OF_DUTIES_DISABLED: 'SEPARATION_OF_DUTIES_DISABLED',
-
-  // Rule chain — retained per 21 CFR §11 — no longer emitted as of 2026-05-17
-  RULE_CHAIN_CREATED: 'RULE_CHAIN_CREATED',
-  RULE_CHAIN_UPDATED: 'RULE_CHAIN_UPDATED',
-  RULE_CHAIN_DELETED: 'RULE_CHAIN_DELETED',
-  RULE_CHAIN_SET_ROOT: 'RULE_CHAIN_SET_ROOT',
-  RULE_CHAIN_IMPORTED: 'RULE_CHAIN_IMPORTED',
-
   // Auth (additional)
   FORCED_LOGOUT: 'FORCED_LOGOUT',
   PROFILE_UPDATED: 'PROFILE_UPDATED',
@@ -96,16 +80,28 @@ export const AUDIT_ACTIONS = {
   PASSWORD_RESET_REQUEST_APPROVED: 'PASSWORD_RESET_REQUEST_APPROVED',
   PASSWORD_RESET_REQUEST_REJECTED: 'PASSWORD_RESET_REQUEST_REJECTED',
 
-  // Audit Record Management
+  // Admin requests — the PUBLIC "contact an administrator" form; a SYSTEM
+  // action (no authenticated caller), see SYSTEM_AUDIT_ACTIONS in lib/audit.ts.
+  ADMIN_REQUEST_SUBMITTED: 'ADMIN_REQUEST_SUBMITTED',
+
+  // Audit Record Management. REDACT clears a row's payloads and keeps the
+  // chain; DELETE is the physical removal behind AUDIT_DELETE. Each writes a
+  // meta row naming what it touched — the verifier cross-checks every redacted
+  // row against one (lib/audit-verify.ts).
+  AUDIT_RECORD_REDACTED: 'AUDIT_RECORD_REDACTED',
+  AUDIT_RECORDS_BULK_REDACTED: 'AUDIT_RECORDS_BULK_REDACTED',
   AUDIT_RECORD_DELETED: 'AUDIT_RECORD_DELETED',
   AUDIT_RECORDS_BULK_DELETED: 'AUDIT_RECORDS_BULK_DELETED',
 
-  // Credentials
-  DEVICE_CREDENTIAL_REGENERATED: 'DEVICE_CREDENTIAL_REGENERATED',
+  // Directory and super-admin configuration
+  LDAP_CONFIG_UPDATED: 'LDAP_CONFIG_UPDATED',
+  SUPER_ADMIN_API_ACCESS_CHANGED: 'SUPER_ADMIN_API_ACCESS_CHANGED',
 
-  // UNS
-  UNS_PATH_OVERRIDDEN: 'UNS_PATH_OVERRIDDEN',
-  UNS_CONFIG_UPDATED: 'UNS_CONFIG_UPDATED',
+  // Notification delivery configuration (SMTP / SMS). The names are the
+  // route's own since 2026-05; kept as written so historic rows keep their
+  // template.
+  UPDATE_EMAIL_CONFIG: 'UPDATE_EMAIL_CONFIG',
+  UPDATE_SMS_CONFIG: 'UPDATE_SMS_CONFIG',
 
   // User Groups — membership drives notification recipient resolution
   // (notification-dispatcher.ts), so every mutation is a record change.
@@ -127,20 +123,18 @@ export const AUDIT_ACTIONS = {
   // the evidence of the dispatch it recorded.
   NOTIFICATION_LOG_DELETED: 'NOTIFICATION_LOG_DELETED',
 
+  // Dashboards (a saved dashboard layout row)
+  DASHBOARD_CREATED: 'DASHBOARD_CREATED',
+
   // Help
   HELP_ARTICLE_CREATED: 'HELP_ARTICLE_CREATED',
   HELP_ARTICLE_UPDATED: 'HELP_ARTICLE_UPDATED',
   HELP_ARTICLE_DELETED: 'HELP_ARTICLE_DELETED',
 
-  // Retention
-  RETENTION_POLICY_UPDATED: 'RETENTION_POLICY_UPDATED',
-  DATA_ARCHIVED: 'DATA_ARCHIVED',
+  // Retention — a month of telemetry dropped by the scheduled task
+  // (telemetry-partition.worker.ts, 2026-10-05). A SYSTEM action; one row per
+  // partition, the row count it held in the before-value.
   RETENTION_EXECUTED: 'RETENTION_EXECUTED',
-
-  // System Config
-  SYSTEM_CONFIG_UPDATED: 'SYSTEM_CONFIG_UPDATED',
-  SERVER_RESTART_TRIGGERED: 'SERVER_RESTART_TRIGGERED',
-
 
   // Report generation / export — emitted when a user downloads a report
   // (audit trail, instrument activity, etc.) as PDF/Excel.
@@ -151,7 +145,6 @@ export const AUDIT_ACTIONS = {
   REPORT_REVIEW_APPROVED: 'REPORT_REVIEW_APPROVED',
   REPORT_REVIEW_REJECTED: 'REPORT_REVIEW_REJECTED',
   REPORT_DOWNLOADED: 'REPORT_DOWNLOADED',
-
 
   // Instruments — the device registry (2026-08-05). Bulk creation emits one
   // INSTRUMENT_CREATED per instrument rather than one row per batch, so the

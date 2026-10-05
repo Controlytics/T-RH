@@ -37,21 +37,20 @@ export interface AuditEntry {
  *
  * If a new system-emitted action needs to skip the userId check, add it
  * here AND document why. Default is "userId required."
+ *
+ * Pruned to the LIVE entries on 2026-10-05 (audit 2026-10-03, DATA-10): nine
+ * names here had no writer anywhere in the tree (`SYSTEM_BOOT`,
+ * `SYSTEM_HEALTH_CHECK`, `SYSTEM_SHUTDOWN`, `MOSQUITTO_ACL_REFRESH`,
+ * `PIPELINE_TRACE`, `NOTIFICATION_DISPATCH`, `BACKUP_RETENTION_PRUNE`,
+ * `DLQ_OVERFLOW`, the three `DEVIATION_*`) — subsystems removed in the
+ * 2026-06/07 tear-outs. An allow-list entry for an action nobody writes is a
+ * standing permission to write an unattributed row under that name; the set
+ * must be exactly what the system emits.
  */
 const SYSTEM_AUDIT_ACTIONS = new Set<string>([
-  'SYSTEM_BOOT',
-  'SYSTEM_HEALTH_CHECK',
-  'SYSTEM_SHUTDOWN',
-  'MOSQUITTO_ACL_REFRESH',     // internal route fired by mqtt service refresh
-  'PIPELINE_TRACE',             // ingestion stage traces
-  'NOTIFICATION_DISPATCH',      // worker-emitted delivery audit
-  'BACKUP_RETENTION_PRUNE',     // retention sweep
-  'DLQ_OVERFLOW',               // dead-letter overflow
   'INSTRUMENT_ATTRIBUTE_REPORTED', // an attribute written by the DEVICE over MQTT (2026-09-05) — the device's code is in the row, there is no user
   'ADMIN_REQUEST_SUBMITTED',    // the PUBLIC admin-request form (2026-10-03): the caller is unauthenticated, the typed employee id is data in afterValue
-  'DEVIATION_OPENED',           // PM overdue sweep — auto-opens a deviation (no user when cron-fired)
-  'DEVIATION_CLOSED',           // PM overdue sweep — auto-closes when filters cleaned (no user when cron-fired)
-  'DEVIATION_OPEN_BLOCKED',     // PM overdue sweep — re-overdue task whose deviation row is already CLOSED (no user when cron-fired)
+  'RETENTION_EXECUTED',         // a telemetry partition dropped by the retention cron (2026-10-05, DATA-9): no user, the partition and its row count are in the row
 ]);
 
 /**

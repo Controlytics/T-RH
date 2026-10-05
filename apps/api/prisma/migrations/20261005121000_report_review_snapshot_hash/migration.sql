@@ -1,0 +1,21 @@
+-- report_reviews.snapshot_hash — tamper evidence for the frozen document
+-- (audit 2026-10-03, DATA-7).
+--
+-- "The snapshot is the record": the draft and the approved download both replay
+-- data_snapshot. Until now nothing bound that JSONB to the two signatures — a
+-- DB edit after approval changed what the requester, the approver and
+-- SUPER_ADMIN downloaded as "the signed document", and neither the row nor the
+-- hash chain could show it.
+--
+-- The API now stores sha256(canonical JSON of data_snapshot) here at the
+-- request, writes the same digest into the REPORT_REVIEW_REQUESTED and
+-- REPORT_REVIEW_APPROVED audit rows (hash-chained, so it cannot be edited to
+-- match), and recomputes it before every download — a mismatch is refused.
+--
+-- Nullable: rows written before this column carry no digest and no audit
+-- attestation; the API treats them as unattested (download allowed, recorded
+-- as such) rather than refusing every report approved before 2026-10-05. It is
+-- NOT backfilled in SQL on purpose — the canonical form is the application's
+-- (`canonicalize` in lib/hash-chain.ts, recursive key sort), and a digest
+-- computed a second way here would never match the one the API checks.
+ALTER TABLE "report_reviews" ADD COLUMN "snapshot_hash" VARCHAR(64);

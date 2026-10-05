@@ -845,6 +845,11 @@ model ReportReview {
   /// The frozen document (ReportSnapshot v2). THE record: draft and approved
   /// downloads both replay it, so what was reviewed is what is downloaded.
   dataSnapshot    Json               @map("data_snapshot") @db.JsonB
+  /// sha256 of the canonical JSON of dataSnapshot, written at the request and
+  /// into the REQUESTED / APPROVED audit rows; recomputed and compared before
+  /// every download (audit 2026-10-03, DATA-7). NULL = a row older than the
+  /// column: unattested, not refused.
+  snapshotHash    String?            @map("snapshot_hash") @db.VarChar(64)
   status          ReportReviewStatus @default(PENDING)
 
   requestedBy     String             @map("requested_by") @db.Uuid

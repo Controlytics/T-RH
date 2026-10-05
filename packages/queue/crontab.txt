@@ -33,7 +33,12 @@
 # Password-expiry notifications — daily 00:00. Warns each user daily for the
 # configured window before their password expires + a one-time expiry notice.
 # Idempotent (one warning per user per day; expiry notice once per event).
-0 0 * * * password_expiry_check ?id=password_expiry_check&max=1&fill=0s
+# fill=1d (audit 2026-10-03, DATA-16): a machine that was off at midnight runs
+# the missed day's check at the next start instead of skipping that day's
+# warnings outright. Bounded to ONE day because the handler is idempotent per
+# user per day — replaying a week would still write at most one warning per
+# user, but it is the most recent day that carries the expiry notices.
+0 0 * * * password_expiry_check ?id=password_expiry_check&max=1&fill=1d
 # Telemetry partitions — 1st and 15th at 00:05. Creates next month's partition
 # ahead of time. This is a CORRECTNESS entry, not cleanup: Postgres REJECTS an
 # insert whose ts falls outside every partition, so if this never runs, device

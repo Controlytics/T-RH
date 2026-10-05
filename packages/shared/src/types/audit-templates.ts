@@ -187,12 +187,6 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
   },
 
   // Data & Approvals
-  DATA_EXPORTED: {
-    label: 'Data Exported',
-    category: 'Data & Approvals',
-    template: '{targetType} exported by {actor}',
-    placeholders: ['actor', 'targetType'],
-  },
   REPORT_GENERATED: {
     label: 'Report Generation',
     category: 'Data & Approvals',
@@ -231,12 +225,6 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     label: 'Alarm Acknowledged',
     category: 'Instruments',
     template: 'Alarm "{targetName}" acknowledged by {actor}',
-    placeholders: ['actor', 'targetName'],
-  },
-  ALARM_CLEARED: {
-    label: 'Alarm Cleared',
-    category: 'Instruments',
-    template: 'Alarm "{targetName}" cleared by {actor}',
     placeholders: ['actor', 'targetName'],
   },
   ALARMS_PURGED: {
@@ -581,6 +569,36 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     category: 'Instruments',
     template: 'Attribute "{attribute}" removed from instrument "{instrument}" by {actor}',
     placeholders: ['actor', 'instrument', 'attribute'],
+  },
+  // Instrument profiles (written since 2026-08-07; templates added 2026-10-05,
+  // audit DATA-10 — the three actions rendered as their raw names until then).
+  // The rows carry the profile's `name`, which {targetName} reads.
+  INSTRUMENT_PROFILE_CREATED: {
+    label: 'Instrument Profile Created',
+    category: 'Instruments',
+    template: 'Instrument profile "{targetName}" created by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  INSTRUMENT_PROFILE_UPDATED: {
+    label: 'Instrument Profile Updated',
+    category: 'Instruments',
+    template: 'Instrument profile "{targetName}" updated by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  INSTRUMENT_PROFILE_DELETED: {
+    label: 'Instrument Profile Deleted',
+    category: 'Instruments',
+    template: 'Instrument profile "{targetName}" deleted by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  // A month of readings dropped by the telemetry retention task (2026-10-05,
+  // audit DATA-9). A SYSTEM action — no {actor}; the partition name is the
+  // targetId and {targetName} reads it, the row count is in the before-value.
+  RETENTION_EXECUTED: {
+    label: 'Telemetry Retention Executed',
+    category: 'Instruments',
+    template: 'Telemetry partition "{targetName}" dropped by the retention schedule',
+    placeholders: ['targetName'],
   },
   FUNCTIONAL_LOCATION_CREATED: {
     label: 'Functional Location Created',

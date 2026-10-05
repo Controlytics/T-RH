@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
 import { prisma } from '../../lib/prisma.js';
 import {
   ensurePartitions, dropExpiredPartitions, partitionName, retentionSettings, ensurePartitionsAtBoot, partitionDdl,
+  pruneDeadLetters,
 } from '../telemetry-partition.worker.js';
 
 /**
@@ -163,6 +164,31 @@ describe('dropExpiredPartitions', () => {
     await dropExpiredPartitions(1, new Date(Date.UTC(2026, 2, 10)), SCRATCH);
     expect(await partitions('instrument_telemetry_history')).toEqual(realBefore);
   });
+
+  // Audit 2026-10-03, DATA-9: a dropped month used to leave only a log line.
+  it('writes ONE RETENTION_EXECUTED audit row per dropped partition, naming it and the readings it held', async () => {
+    await ensurePartitions(2, AT, SCRATCH);           // 2026_01, _02, _03
+    for (const ts of ['2026-01-05T00:00:00Z', '2026-01-06T00:00:00Z', '2026-01-07T00:00:00Z']) {
+      await prisma.$executeRawUnsafe(`
+        INSERT INTO "${SCRATCH}" (instrument_id, key, value, value_type, ts, received_at)
+        VALUES ('p', 'k', '1'::jsonb, 'int', '${ts}', now())`);
+    }
+    const before = await prisma.auditTrail.count({ where: { action: 'RETENTION_EXECUTED', targetId: `${SCRATCH}_2026_01` } });
+    const dropped = await dropExpiredPartitions(1, new Date(Date.UTC(2026, 2, 10)), SCRATCH);
+    expect(dropped).toEqual([`${SCRATCH}_2026_01`]);
+    const rows = await prisma.auditTrail.findMany({ where: { action: 'RETENTION_EXECUTED', targetId: `${SCRATCH}_2026_01` }, orderBy: { timestamp: 'desc' } });
+    expect(rows).toHaveLength(before + 1);
+    expect(rows[0].userId).toBeNull();                 // a SYSTEM action
+    expect(rows[0].targetType).toBe('telemetry_partition');
+    expect(rows[0].beforeValue).toMatchObject({ name: `${SCRATCH}_2026_01`, parent: SCRATCH, rowCount: 3, retentionMonths: 1, from: '2026-01-01T00:00:00.000Z', to: '2026-02-01T00:00:00.000Z' });
+  });
+
+  it('writes no RETENTION_EXECUTED row when nothing is dropped', async () => {
+    await ensurePartitions(2, AT, SCRATCH);
+    const before = await prisma.auditTrail.count({ where: { action: 'RETENTION_EXECUTED' } });
+    expect(await dropExpiredPartitions(12, new Date(Date.UTC(2026, 2, 10)), SCRATCH)).toEqual([]);
+    expect(await prisma.auditTrail.count({ where: { action: 'RETENTION_EXECUTED' } })).toBe(before);
+  });
 });
 
 describe('retentionSettings', () => {
@@ -210,6 +236,61 @@ describe('ensurePartitionsAtBoot', () => {
     } finally {
       delete client.$executeRawUnsafe;
     }
+  });
+});
+
+/**
+ * Audit 2026-10-03, INGEST-10: nothing ever deleted a dead letter. The sweep is
+ * SCOPED to this file's synthetic instruments — the table is shared with every
+ * other suite's dead letters, and a count bound of 2 run over the whole table
+ * would prune rows another file is asserting on.
+ */
+describe('pruneDeadLetters', () => {
+  const RUN = Date.now();
+  const A = `test-dl-a-${RUN}`;
+  const B = `test-dl-b-${RUN}`;
+  const NOW = new Date('2026-10-05T12:00:00Z');
+  const daysAgo = (d: number, minute = 0) => new Date(NOW.getTime() - d * 86_400_000 - minute * 60_000);
+
+  beforeEach(async () => {
+    await prisma.deadLetter.deleteMany({ where: { instrumentId: { in: [A, B] } } });
+    await prisma.deadLetter.createMany({
+      data: [
+        // A: five rows past the 30-day window, three inside it.
+        ...[40, 41, 42, 43, 44].map((d) => ({ instrumentId: A, transport: 'tcp', reason: `old ${d}`, receivedAt: daysAgo(d) })),
+        { instrumentId: A, transport: 'tcp', reason: 'newest', receivedAt: daysAgo(0, 1) },
+        { instrumentId: A, transport: 'tcp', reason: 'middle', receivedAt: daysAgo(1) },
+        { instrumentId: A, transport: 'tcp', reason: 'oldest kept', receivedAt: daysAgo(2) },
+        // B: one recent row, untouched by either bound.
+        { instrumentId: B, transport: 'ws', reason: 'fine', receivedAt: daysAgo(3) },
+      ],
+    });
+  });
+
+  afterAll(async () => {
+    await prisma.deadLetter.deleteMany({ where: { instrumentId: { in: [A, B] } } });
+  });
+
+  it('drops rows older than the retention window and everything past the per-instrument cap, newest kept', async () => {
+    const r = await pruneDeadLetters({ now: NOW, retentionDays: 30, maxPerInstrument: 2, scope: [A, B] });
+    expect(r).toEqual({ expired: 5, overflow: 1 });
+    const left = await prisma.deadLetter.findMany({ where: { instrumentId: A }, orderBy: { receivedAt: 'desc' } });
+    expect(left.map((x) => x.reason)).toEqual(['newest', 'middle']);
+    expect(await prisma.deadLetter.count({ where: { instrumentId: B } })).toBe(1);
+  });
+
+  it('is a no-op when everything is inside both bounds', async () => {
+    const r = await pruneDeadLetters({ now: daysAgo(-1), retentionDays: 60, maxPerInstrument: 10, scope: [A, B] });
+    expect(r).toEqual({ expired: 0, overflow: 0 });
+    expect(await prisma.deadLetter.count({ where: { instrumentId: { in: [A, B] } } })).toBe(9);
+  });
+
+  it('the cap is per instrument, not across the table', async () => {
+    // Cap of 3: A keeps its three newest of eight; B's single row is unaffected.
+    const r = await pruneDeadLetters({ now: NOW, retentionDays: 365, maxPerInstrument: 3, scope: [A, B] });
+    expect(r).toEqual({ expired: 0, overflow: 5 });
+    expect(await prisma.deadLetter.count({ where: { instrumentId: A } })).toBe(3);
+    expect(await prisma.deadLetter.count({ where: { instrumentId: B } })).toBe(1);
   });
 });
 

@@ -46,39 +46,59 @@ export async function sweepExpiredSessions(): Promise<{ swept: number }> {
     take: SWEEP_BATCH,
   });
 
-  // The per-session audit row is NOT the N+1 — §11 needs one record per
-  // terminated session and the hash chain forces those writes to be serial.
-  // The session UPDATE is the batchable half, so it is hoisted into a single
-  // updateMany AFTER the audit writes: if the process dies mid-sweep the
-  // sessions stay active and are swept again next tick, which is recoverable.
-  // Marking them inactive first and then failing to audit would not be — it
-  // would lose the §11 record of a termination that had already happened.
+  // ONE TRANSACTION PER SESSION: the LOGOUT audit row and the session's
+  // termination commit together or not at all (audit 2026-10-03, DATA-15).
+  // Until then every audit row was written standalone and the sessions were
+  // flipped in one updateMany afterwards — so a crash between the two left
+  // the sessions active with their termination already recorded, and the
+  // next tick wrote a SECOND LOGOUT for each: duplicate §11 terminations.
+  //
+  // The update is conditional on `isActive` still being true. If another
+  // sweep (or the user's own logout) closed the session between the read
+  // above and this write, the update matches nothing and the transaction is
+  // rolled back — taking the audit row with it — because a termination that
+  // did not happen here must not be recorded here. The per-session rows stay
+  // serial (the hash chain forces that) and the batchable half was never the
+  // bottleneck.
   let swept = 0;
-  const sweptIds: string[] = [];
   for (const s of stale) {
-    await auditLog({
-      userId: s.user?.username ?? s.userId,
-      userRole: s.user?.role ?? 'UNKNOWN',
-      action: 'LOGOUT',
-      targetType: 'session',
-      targetId: s.id,
-      afterValue: { username: s.user?.username, reason: 'session_timeout' },
-      reason: 'Session ended by server (idle/expiry) — app closed, timed out, or connection lost',
-      signatureMeaning: `Session for "${s.user?.username ?? s.userId}" terminated by server timeout`,
-      ipAddress: s.ipAddress ?? '127.0.0.1',
-      userAgent: s.userAgent ?? undefined,
-      sessionId: s.id,
-    });
-    sweptIds.push(s.id);
-    swept++;
-  }
-
-  if (sweptIds.length > 0) {
-    await prisma.session.updateMany({
-      where: { id: { in: sweptIds } },
-      data: { isActive: false, terminationReason: 'session_timeout' },
-    });
+    try {
+      await prisma.$transaction(async (tx) => {
+        await auditLog({
+          userId: s.user?.username ?? s.userId,
+          userRole: s.user?.role ?? 'UNKNOWN',
+          action: 'LOGOUT',
+          targetType: 'session',
+          targetId: s.id,
+          afterValue: { username: s.user?.username, reason: 'session_timeout' },
+          reason: 'Session ended by server (idle/expiry) — app closed, timed out, or connection lost',
+          signatureMeaning: `Session for "${s.user?.username ?? s.userId}" terminated by server timeout`,
+          ipAddress: s.ipAddress ?? '127.0.0.1',
+          userAgent: s.userAgent ?? undefined,
+          sessionId: s.id,
+        }, tx);
+        const { count } = await tx.session.updateMany({
+          where: { id: s.id, isActive: true },
+          data: { isActive: false, terminationReason: 'session_timeout' },
+        });
+        if (count !== 1) throw new SessionAlreadyClosed(s.id);
+      });
+      swept++;
+    } catch (err) {
+      if (err instanceof SessionAlreadyClosed) continue;   // closed by someone else first — nothing to record
+      // One bad session must not stop the rest being reaped; the cron retries
+      // it on the next tick, and the rollback means nothing half-recorded.
+      console.error(`[session-sweep] session ${s.id} not swept: ${(err as Error).message}`);
+    }
   }
 
   return { swept };
+}
+
+/** Rollback sentinel: the session was no longer active when the sweep reached it. */
+class SessionAlreadyClosed extends Error {
+  constructor(id: string) {
+    super(`session ${id} already inactive`);
+    this.name = 'SessionAlreadyClosed';
+  }
 }

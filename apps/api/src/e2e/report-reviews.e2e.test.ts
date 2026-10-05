@@ -473,3 +473,103 @@ describe('approved list and download-log', () => {
     expect(res.statusCode).toBe(404);
   });
 });
+
+/**
+ * Snapshot tamper evidence (audit 2026-10-03, DATA-7). The digest of the
+ * frozen document is stored on the row, written into the REQUESTED and
+ * APPROVED audit rows, and recomputed before every download.
+ */
+describe('snapshot hash', () => {
+  it('the request carries sha256(canonical snapshot) on the row, in the response and in both signed audit rows', async () => {
+    const { snapshotDigest } = await import('../modules/report-reviews/service.js');
+    const expected = snapshotDigest(snapshot);
+    expect(expected).toMatch(/^[0-9a-f]{64}$/);
+    const row = await prisma.reportReview.findUnique({ where: { id: created[0] } });
+    expect(row?.snapshotHash).toBe(expected);
+    expect((await get(`/api/report-reviews/${created[0]}`, tok.REQ)).json().snapshotHash).toBe(expected);
+    const requested = await prisma.auditTrail.findFirst({ where: { action: 'REPORT_REVIEW_REQUESTED', targetId: created[0] } });
+    expect((requested?.afterValue as { snapshotHash?: string }).snapshotHash).toBe(expected);
+    const approvedRow = await prisma.auditTrail.findFirst({ where: { action: 'REPORT_REVIEW_APPROVED', targetId: created[0] } });
+    expect((approvedRow?.afterValue as { snapshotHash?: string }).snapshotHash).toBe(expected);
+    const downloaded = await prisma.auditTrail.findFirst({ where: { action: 'REPORT_DOWNLOADED', targetId: created[0] } });
+    expect(downloaded?.afterValue).toMatchObject({ snapshotHash: expected, snapshotAttested: true });
+  });
+
+  it('a download is REFUSED once the stored document no longer hashes to what was signed — mutation of the snapshot', async () => {
+    const id = created[0];
+    const original = (await prisma.reportReview.findUnique({ where: { id }, select: { dataSnapshot: true } }))!.dataSnapshot;
+    const edited = JSON.parse(JSON.stringify(original));
+    edited.sections[0].body[0][1] = '00:21';
+    await prisma.$executeRaw`UPDATE report_reviews SET data_snapshot = ${JSON.stringify(edited)}::jsonb WHERE id = ${id}::uuid`;
+    try {
+      const res = await app.inject({ method: 'POST', url: `/api/report-reviews/${id}/download-log`, headers: bearer(tok.REQ), payload: {} });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error).toBe('SNAPSHOT_MISMATCH');
+    } finally {
+      await prisma.$executeRaw`UPDATE report_reviews SET data_snapshot = ${JSON.stringify(original)}::jsonb WHERE id = ${id}::uuid`;
+    }
+    expect((await app.inject({ method: 'POST', url: `/api/report-reviews/${id}/download-log`, headers: bearer(tok.REQ), payload: {} })).statusCode).toBe(200);
+  });
+
+  it('editing the stored column to agree with an edited snapshot is still refused — the audit row is the anchor', async () => {
+    const id = created[0];
+    const { snapshotDigest } = await import('../modules/report-reviews/service.js');
+    const original = (await prisma.reportReview.findUnique({ where: { id }, select: { dataSnapshot: true, snapshotHash: true } }))!;
+    const edited = JSON.parse(JSON.stringify(original.dataSnapshot));
+    edited.sections[0].body[0][1] = '00:22';
+    await prisma.$executeRaw`UPDATE report_reviews SET data_snapshot = ${JSON.stringify(edited)}::jsonb, snapshot_hash = ${snapshotDigest(edited)} WHERE id = ${id}::uuid`;
+    try {
+      const res = await app.inject({ method: 'POST', url: `/api/report-reviews/${id}/download-log`, headers: bearer(tok.REQ), payload: {} });
+      expect(res.statusCode).toBe(409);
+    } finally {
+      await prisma.$executeRaw`UPDATE report_reviews SET data_snapshot = ${JSON.stringify(original.dataSnapshot)}::jsonb, snapshot_hash = ${original.snapshotHash} WHERE id = ${id}::uuid`;
+    }
+  });
+
+  it('a request older than the digest (no column, no audit field) downloads and is recorded as unattested', async () => {
+    // A row raised before 2026-10-05: NULL snapshot_hash and a REQUESTED audit
+    // row with no snapshotHash. Simulated by a row created directly.
+    const legacy = await prisma.reportReview.create({
+      data: {
+        reportType: 'Audit Trail', title: 'LEGACY', requestMeta, dataSnapshot: snapshot, status: 'APPROVED',
+        requestedBy: ids.REQ!, requestedByName: U.REQ, requestedByRole: ROLE_REQ, requestRemarks: 'old',
+        approverRoles: [ROLE_APPR], approverUserIds: [], instrumentIds: [],
+        decidedBy: ids.APPR!, decidedByName: U.APPR, decidedByRole: ROLE_APPR, decidedAt: new Date(), decisionRemarks: 'old',
+      },
+      select: { id: true, snapshotHash: true },
+    });
+    created.push(legacy.id);
+    expect(legacy.snapshotHash).toBeNull();
+    const res = await app.inject({ method: 'POST', url: `/api/report-reviews/${legacy.id}/download-log`, headers: bearer(tok.REQ), payload: {} });
+    expect(res.statusCode).toBe(200);
+    const audit = await prisma.auditTrail.findFirst({ where: { action: 'REPORT_DOWNLOADED', targetId: legacy.id } });
+    expect(audit?.afterValue).toMatchObject({ snapshotAttested: false });
+  });
+});
+
+/**
+ * `eligibleApprovers` resolves permissions once per role and the scope once per
+ * (role, user-config) pair (audit 2026-10-03, API-19). The answer must be the
+ * one the per-user version gave: the approver by role in scope and the named
+ * approver, never the out-of-scope approver, the stranger of the named
+ * approver's role, or the requester's role-mates.
+ */
+describe('eligibleApprovers', () => {
+  it('names exactly the approvers who hold both permissions and see an instrument of the request', async () => {
+    const { eligibleApprovers } = await import('../modules/report-reviews/service.js');
+    const names = await eligibleApprovers({
+      requestedBy: ids.REQ!, approverRoles: [ROLE_APPR], approverUserIds: [ids.NAMED!],
+      instrumentIds: [instA], reportType: 'Instrument Time Series',
+    });
+    expect([...names].sort()).toEqual([U.APPR, U.NAMED].sort());
+    // About the other instrument: the approver scoped to B now qualifies, and
+    // so does the UNSCOPED approver (no user config, no role config = sees
+    // everything) — two users of one role with different scopes, resolved
+    // from two different cache keys. The named approver's role is not listed.
+    const forB = await eligibleApprovers({
+      requestedBy: ids.REQ!, approverRoles: [ROLE_APPR], approverUserIds: [],
+      instrumentIds: [instB], reportType: 'Instrument Time Series',
+    });
+    expect([...forB].sort()).toEqual([U.APPR, U.APPR_OUT].sort());
+  });
+});

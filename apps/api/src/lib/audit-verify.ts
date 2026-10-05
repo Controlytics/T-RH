@@ -53,7 +53,7 @@ export interface ChainAnomaly {
   position: number;
   id: string;
   kind: 'PER_ROW_CHECKSUM_MISMATCH' | 'CHAIN_LINK_MISMATCH' | 'CHAIN_POSITION_GAP'
-      | 'KEYED_ERA_DOWNGRADE';
+      | 'KEYED_ERA_DOWNGRADE' | 'REDACTION_UNATTESTED';
   message: string;
   expected?: string | null;
   actual?: string | null;
@@ -124,6 +124,30 @@ export async function verifyAuditChain(opts: VerifyChainOptions = {}): Promise<V
   let priorChecksum: string | null = null;
   let priorPosition: number | null = null;
   let highestPosition: number | null = null;
+
+  // A RANGED walk seeds its link from the row just before the window (audit
+  // 2026-10-03, DATA-18). Until then the first row in [fromPosition, ...] was
+  // treated as genesis — its previous_checksum accepted unchecked — so a break
+  // between N-1 and N was invisible to `?fromPosition=N`, and an auditor
+  // verifying in windows could be told "intact" across a cut. Seeding the
+  // position too lets the gap check see a row deleted at the boundary.
+  if (fromPos > 0) {
+    const [prior] = await prisma.$queryRaw<Array<{ checksum: string; chain_position: bigint | number }>>`
+      SELECT checksum, chain_position
+      FROM audit_trail
+      WHERE chain_position < ${fromPos}
+      ORDER BY chain_position DESC
+      LIMIT 1
+    `;
+    if (prior) {
+      priorChecksum = prior.checksum;
+      priorPosition = typeof prior.chain_position === 'bigint' ? Number(prior.chain_position) : prior.chain_position;
+    }
+  }
+
+  // Redacted rows in the window, cross-checked below against the meta row
+  // that records who redacted them.
+  const redacted: Array<{ id: string; position: number }> = [];
 
   // Out-of-band keyed-era boundary. NOTE: 0 is a LEGITIMATE value (a fresh
   // install keys from the very first row), so this must be compared with
@@ -235,8 +259,59 @@ export async function verifyAuditChain(opts: VerifyChainOptions = {}): Promise<V
       if (anomalies.length >= maxAnomalies) break;
     }
 
+    if (row.redacted_at != null) redacted.push({ id: row.id, position });
+
     priorChecksum = row.checksum;
     priorPosition = position;
+  }
+
+  // Every redacted row must be named by a LATER meta row — AUDIT_RECORD_REDACTED
+  // (target_id) or AUDIT_RECORDS_BULK_REDACTED (before_value.records[].id) —
+  // written in the same transaction as the redaction by audit/routes.ts (audit
+  // 2026-10-03, DATA-6). The per-row check cannot recompute a redacted row's
+  // checksum, so without this a DB actor who NULLed the payloads and stamped
+  // redacted_at passed as a legitimate redaction; the trigger
+  // `audit_trail_no_update` refuses that UPDATE, and this is the detection for
+  // a redaction made with the trigger disabled. The meta rows are looked up
+  // over the WHOLE table, not the window, since they follow the redaction.
+  //
+  // Known limit: a BULK meta row that is itself later redacted loses its
+  // record list, so the rows it attested report here. The evidence of who
+  // redacted them was removed; that is the right thing to show.
+  if (redacted.length > 0 && anomalies.length < maxAnomalies) {
+    const ids = redacted.map((r) => r.id);
+    const meta = await prisma.$queryRaw<Array<{ id: string; chain_position: bigint | number | null }>>`
+      SELECT target_id AS id, chain_position
+      FROM audit_trail
+      WHERE action = 'AUDIT_RECORD_REDACTED' AND target_id = ANY(${ids}::text[])
+      UNION ALL
+      SELECT r->>'id' AS id, a.chain_position
+      FROM audit_trail a, jsonb_array_elements(a.before_value->'records') r
+      WHERE a.action = 'AUDIT_RECORDS_BULK_REDACTED'
+        AND jsonb_typeof(a.before_value->'records') = 'array'
+        AND (r->>'id') = ANY(${ids}::text[])
+    `;
+    const attestedAt = new Map<string, number>();
+    for (const m of meta) {
+      const pos = m.chain_position == null ? -1
+        : (typeof m.chain_position === 'bigint' ? Number(m.chain_position) : m.chain_position);
+      attestedAt.set(m.id, Math.max(pos, attestedAt.get(m.id) ?? -1));
+    }
+    for (const r of redacted) {
+      const at = attestedAt.get(r.id);
+      // The meta row is written AFTER the UPDATE in the same transaction, so a
+      // genuine attestation always sits later in the chain than the row it names.
+      if (at !== undefined && at > r.position) continue;
+      anomalies.push({
+        position: r.position,
+        id: r.id,
+        kind: 'REDACTION_UNATTESTED',
+        message: at === undefined
+          ? `Row ${r.id} is redacted but no AUDIT_RECORD_REDACTED / AUDIT_RECORDS_BULK_REDACTED row names it — the payload was cleared outside the redact endpoints.`
+          : `Row ${r.id} is redacted but the only meta row naming it sits at chain_position ${at}, before the row itself — not a record of this redaction.`,
+      });
+      if (anomalies.length >= maxAnomalies) break;
+    }
   }
 
   return {

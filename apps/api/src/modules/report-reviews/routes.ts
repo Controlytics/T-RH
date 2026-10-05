@@ -40,6 +40,9 @@ const summaryProps = {
   decidedByRole: { type: 'string', nullable: true },
   decidedAt: { type: 'string', nullable: true },
   decisionRemarks: { type: 'string', nullable: true },
+  // sha256 of the frozen document (DATA-7) — declared, or stripped. NULL on a
+  // request older than the column.
+  snapshotHash: { type: 'string', nullable: true },
   createdAt: { type: 'string' },
 } as const;
 

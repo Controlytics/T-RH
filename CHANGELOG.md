@@ -1,5 +1,77 @@
 # Changelog
 
+## [Unreleased] - Audit fixes, batch 15: the audit trail refuses an UPDATE that is not a redaction, a report snapshot is hashed and verified on download, retention drops are audited and administered, the audit registry matches the code (2026-10-05)
+
+Closes DATA-6, DATA-7, DATA-9, DATA-10, DATA-14, DATA-15, DATA-16, DATA-18
+and the report-reviews half of API-19 of
+`docs/audit/2026-10-03-technical-audit.md`.
+
+- **`audit_trail` has a `BEFORE UPDATE` trigger** (migration
+  `20261005120000_audit_trail_no_update`, also in `prisma/sql/invariants.sql`)
+  that permits exactly one shape of change: `redacted_at` / `redacted_by` /
+  `redaction_reason` going NULL → value with `before_value` and `after_value`
+  cleared, and every other column byte-identical (compared over `to_jsonb`
+  minus those five, so a column added later is guarded by default). Any
+  other UPDATE — a checksum, an action, a user, an un-redaction, a second
+  redaction — is refused by the database, not by the application.
+  `audit-verify.ts` also cross-checks every redacted row against a LATER
+  `AUDIT_RECORD_REDACTED` / `AUDIT_RECORDS_BULK_REDACTED` row (new anomaly
+  `REDACTION_UNATTESTED`). Nine mutation cases over HTTP.
+- **A report request's frozen snapshot is HASHED** — `snapshotDigest()` over
+  the exported `canonicalize` (one canonical form, `hash-chain.ts`) — stored
+  on `report_reviews.snapshot_hash` (migration
+  `20261005121000_report_review_snapshot_hash`; nullable, models stay 37)
+  and written into the `REPORT_REVIEW_REQUESTED` and `_APPROVED` audit rows.
+  **The download recomputes it against the hash-chained audit row** and
+  refuses a mismatch with 409 `SNAPSHOT_MISMATCH` — a snapshot edited in the
+  table, even with the column edited to agree, no longer downloads as an
+  approved document. Rows older than the column (13 locally) download as
+  `snapshotAttested: false`, recorded on the download-log row.
+- **Dropping an expired telemetry partition writes ONE `RETENTION_EXECUTED`
+  SYSTEM audit row in the same transaction** (partition name, parent, row
+  count, range, retention, cutoff). The schedule the worker had read for
+  months with no def behind it is now **config def `telemetry-retention`**
+  (34 → **35** defs; `monthsAhead`, `dropEnabled` — ships OFF —
+  `retentionMonths`; SUPER_ADMIN; dynamic page; a Configuration card lands
+  with the web batch). `TELEMETRY_RETENTION_DEFAULTS` is the one definition
+  and the worker imports it. The dead-letter prune from batch 13 rides the
+  same task.
+- **The audit-action registry now matches what the code writes.** Measured
+  first: zero rows in either local database under any removed name. Eleven
+  actions written but never registered were ADDED (`AUDIT_RECORD_REDACTED`,
+  `AUDIT_RECORDS_BULK_REDACTED`, `ROLE_CREATED/UPDATED/DELETED`,
+  `ADMIN_REQUEST_SUBMITTED`, `LDAP_CONFIG_UPDATED`,
+  `SUPER_ADMIN_API_ACCESS_CHANGED`, `UPDATE_EMAIL_CONFIG`,
+  `UPDATE_SMS_CONFIG`, `DASHBOARD_CREATED`); 28 registered but written by
+  nothing were REMOVED (`RETENTION_EXECUTED` kept — it is written now):
+  actions 106 → **89**. Templates −2 (`ALARM_CLEARED`, `DATA_EXPORTED`, the
+  only pruned names that had one) +4 (`INSTRUMENT_PROFILE_CREATED/UPDATED/
+  DELETED`, `RETENTION_EXECUTED`): 100 → **102**. Two tests now LOCK this:
+  every `action: '…'` literal under `apps/api/src` must be registered
+  (`lib/__tests__/audit-actions-registry.test.ts`) and every registry key
+  must have a template (`packages/shared/.../audit-actions.test.ts`).
+  `SYSTEM_AUDIT_ACTIONS` is the three live names — the audit's claim that
+  `NOTIFICATION_DISPATCH` is a live system action was wrong; nothing writes
+  it.
+- **The session sweep terminates each session in its own transaction** with
+  the LOGOUT audit row inside it and a conditional update that rolls back
+  when the session was already closed — no LOGOUT for a termination that did
+  not happen here, and one failing session no longer stops the rest.
+- **Ranged chain verification seeds from row N−1**, so a link break or a
+  deletion at the window boundary is detected (`verifyAuditChain` with
+  `fromPosition > 0`). `password_expiry_check` carries `fill=1d` (was `0s`,
+  which replays every missed hour after an outage). Four stale "new writes
+  use V1" comment blocks in `hash-chain.ts` rewritten — writes have been V2 /
+  V3 since 2026-05-29 / 07-25.
+- **`eligibleApprovers` resolves permissions once per role and scope once
+  per (role, user-config) pair**, through the same resolvers as before.
+- Both migrations applied to `compliance_core_db` and
+  `compliance_core_db_test`; drift guard PASS. **AWS needs both at the next
+  deploy.** Found, not fixed: the web `FAIL_ACTIONS` list names
+  `UNAUTHORIZED_ACTION_ATTEMPT`, which nothing writes; `prisma generate`
+  EPERMs on the engine DLL while ANY vitest process runs (not only `tsx
+  watch`), leaving `.tmp*` copies under `node_modules/.prisma/client/`.
+
 ## [Unreleased] - Audit fixes, batch 14: uploads refuse an unsigned type, disk usage is read or reported absent, one-transaction deletes, five instrument re-auth actions, a reason for a room limit change (2026-10-05)
 
 Closes SEC-3, SEC-7, API-17, API-19, DATA-11 and the uploads / backup /

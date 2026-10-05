@@ -92,11 +92,16 @@ export function computeChainedChecksumV3(
  * V1 canonical form: sorts only top-level keys, then JSON.stringify.
  *
  * This is the ORIGINAL formula used by `computeChecksum` / `computeChainedChecksum`
- * since audit fix C3 (2026-05-04). It is preserved as the WRITE-PATH formula
- * so that all historical rows stored in audit_trail remain verifiable via V1.
+ * since audit fix C3 (2026-05-04). It is VERIFY-ONLY now: rows written before
+ * 2026-05-29 carry V1 checksums and are verified through the fallback in
+ * `matchesStoredChecksum`. NEW ROWS ARE NOT WRITTEN WITH IT — `audit.ts` writes
+ * V2 (`computeChainedChecksumV2`), or V3 (`computeChainedChecksumV3`, keyed)
+ * when AUDIT_CHAIN_KEY is set. This comment said the opposite until the
+ * 2026-10-03 audit (DATA-14); a maintainer "restoring the documented write
+ * formula" would have forked the chain.
  *
- * DO NOT change this function — it is the contract for all existing stored checksums.
- * New writes continue to use V1 so the hash chain remains self-consistent over time.
+ * DO NOT change this function — it is the contract for every V1 checksum still
+ * stored in audit_trail.
  */
 export function computeChecksum(data: Record<string, unknown>): string {
   // Sort keys for deterministic ordering, then stringify fully
@@ -123,8 +128,9 @@ export function computeChecksum(data: Record<string, unknown>): string {
  * Compatible with the legacy single-row `computeChecksum(data)` — pass
  * the same per-row fields, plus `previousChecksum` for chain rows.
  *
- * NOTE: This function uses the V1 canonical form (top-level key sort only).
- * New writes continue to use V1 so all stored checksums remain self-consistent.
+ * NOTE: This function uses the V1 canonical form (top-level key sort only) and
+ * is VERIFY-ONLY — the fallback for rows written before 2026-05-29. New writes
+ * use `computeChainedChecksumV2` / `computeChainedChecksumV3` (see audit.ts).
  */
 export function computeChainedChecksum(
   data: Record<string, unknown>,
@@ -148,34 +154,41 @@ export function computeChainedChecksum(
 // nested object field) was stored by PostgreSQL in a different key order than
 // the write-time in-memory object.
 //
-// DESIGN DECISION: we do NOT change the write-path formula (computeChecksum /
-// computeChainedChecksum). Changing it would:
-//   a) produce different hashes for every new write, breaking chain continuity
-//      from the last V1 row to the first V2 row (previous_checksum mismatch), and
-//   b) make all historical per-row checksums (which were computed with V1)
-//      permanently unverifiable if we only kept V2 in the verifier.
+// WHAT WAS DONE (2026-05-29, and corrected in this comment 2026-10-03, DATA-14):
+// the WRITE PATH MOVED TO V2 — `audit.ts` calls `computeChainedChecksumV2` (or
+// the keyed V3 since 2026-07-25). Chain continuity across the cutover is not
+// affected, because `previous_checksum` stores the predecessor's STORED
+// checksum verbatim, whichever formula produced it; only the per-row formula
+// changed. Historical V1 rows were never rewritten.
 //
-// Instead the verifier uses BOTH:
-//   1. Try V2 (recursive sort) — the correct form for detecting real tampering.
-//   2. Fall back to V1 (top-level sort) — accepts rows where JSONB happened
-//      to return keys in the same order as the write-time object (most rows).
+// The VERIFIER therefore accepts BOTH per-row formulas:
+//   1. V2 (recursive sort) — what every row since the cutover was written with,
+//      and the correct form for detecting real tampering.
+//   2. V1 (top-level sort) — the fallback for rows written before the cutover,
+//      which verify wherever JSONB returned nested keys in the write-time
+//      order (in practice all of them — brute-force permutation in the bug
+//      report confirmed the stored hashes are self-consistent).
 //
-// Limitation accepted: a historical row where JSONB key order happened to
-// differ AND V2 also doesn't match (because it was written with a truly
-// different value) will still show as a false-positive mismatch. Brute-force
-// permutation in the bug report confirmed stored hashes ARE self-consistent —
-// so the V1 fallback will cover all historical rows in practice.
+// Limitation accepted: a pre-cutover row where JSONB key order happened to
+// differ AND V2 also doesn't match will still show as a false-positive
+// mismatch. No such row has been observed.
 //
-// Future new writes: if/when all pre-V2 rows age off or a DB reset is
-// performed, the write path can be migrated to computeChainedChecksumV2.
+// An earlier version of this note said the write path had deliberately NOT
+// been changed and that V1 remained the write formula. That was stale; the
+// three comments that repeated it were rewritten together.
 // ---------------------------------------------------------------------------
 
 /**
  * Recursively canonicalize any JSON-serialisable value.
  * Object keys are sorted at every nesting depth; arrays preserve element order.
  * Undefined / function / symbol values emit "null" (mirrors JSON.stringify).
+ *
+ * Exported (audit 2026-10-03, DATA-7) so the report-review snapshot digest
+ * uses the SAME canonical form as the audit checksum — one definition of
+ * "the bytes of this JSON", or a digest computed at the request could fail to
+ * match the same document read back from JSONB.
  */
-function canonicalize(value: unknown): string {
+export function canonicalize(value: unknown): string {
   if (value === null) return 'null';
   if (typeof value === 'number' || typeof value === 'boolean') return JSON.stringify(value);
   if (typeof value === 'string') return JSON.stringify(value);
@@ -195,9 +208,9 @@ function canonicalize(value: unknown): string {
  * Matches what PostgreSQL JSONB returns on read-back, eliminating false-positive
  * "tampering" alerts caused by JSONB key-order normalisation (audit finding V-1).
  *
- * Used in the verify path as the primary attempt (V1 is the fallback for old rows).
- * Also the intended NEW WRITE formula — switch audit.ts to call
- * computeChainedChecksumV2 to make future rows fully JSONB-safe on verify.
+ * Used in the verify path as the primary attempt (V1 is the fallback for old
+ * rows), and the formula `audit.ts` WRITES unkeyed rows with (keyed rows use
+ * V3, which HMACs this same canonical form).
  */
 export function computeChecksumV2(data: Record<string, unknown>): string {
   return createHash('sha256').update(canonicalize(data)).digest('hex');
@@ -206,14 +219,13 @@ export function computeChecksumV2(data: Record<string, unknown>): string {
 /**
  * V2 chained checksum: like computeChainedChecksum but uses recursive canonicalization.
  *
- * Exported so callers (audit.ts, tests) can opt-in to V2 for new writes.
- * New rows written with this function will verify correctly even after JSONB
- * normalises nested key order on read-back, because the verifier tries V2 first.
- *
- * Migration path: update audit.ts to call computeChainedChecksumV2 (instead of
- * computeChainedChecksum). Old rows will continue to verify via the V1 fallback.
- * Chain link verification is unaffected (previous_checksum stores the raw stored
- * value, not a recomputed hash).
+ * THE unkeyed write formula: `audit.ts` has called this for every new row
+ * since 2026-05-29 (V3 when a chain key is configured). Rows written with it
+ * verify correctly even after JSONB normalises nested key order on read-back,
+ * because the verifier tries V2 first; rows older than the cutover verify via
+ * the V1 fallback. Chain link verification is unaffected by the cutover
+ * (previous_checksum stores the predecessor's raw stored checksum, not a
+ * recomputed hash).
  */
 export function computeChainedChecksumV2(
   data: Record<string, unknown>,

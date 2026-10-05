@@ -11,19 +11,21 @@
  * at 00:00 on the 1st, and every reading is refused. Running ahead by several
  * months means one missed maintenance run cannot cause that.
  */
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
+import { auditLog } from '../lib/audit.js';
 import { configRepository } from '../modules/config/config.repository.js';
+import { TELEMETRY_RETENTION_DEFAULTS, type TelemetryRetentionSettings } from '../modules/config/defs/telemetry-retention.def.js';
 
 const PARENT = 'instrument_telemetry_history';
 
-export interface RetentionSettings {
-  monthsAhead: number;
-  dropEnabled: boolean;
-  retentionMonths: number;
-}
+export type RetentionSettings = TelemetryRetentionSettings;
 
-/** Must match telemetry-retention.def.ts's declared defaults. */
-const DEFAULTS: RetentionSettings = { monthsAhead: 3, dropEnabled: false, retentionMonths: 12 };
+/** The def's declared defaults — ONE definition (audit 2026-10-03, DATA-9:
+ *  this comment used to say "must match telemetry-retention.def.ts", and that
+ *  def did not exist, so the switch could only be flipped by editing
+ *  system_config by hand). */
+const DEFAULTS: RetentionSettings = TELEMETRY_RETENTION_DEFAULTS;
 
 export async function retentionSettings(): Promise<RetentionSettings> {
   const stored = await configRepository.getSystemConfig('telemetry-retention');
@@ -150,11 +152,91 @@ export async function dropExpiredPartitions(
     const start = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, 1));
     const end = new Date(Date.UTC(Number(m[1]), Number(m[2]), 1));
     if (end.getTime() > cutoff.getTime()) continue;   // still (partly) in window
-    await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS "${name}"`);
+    // ONE `RETENTION_EXECUTED` audit row per partition, in the SAME transaction
+    // as the DROP (audit 2026-10-03, DATA-9). Until then a month of readings
+    // left with only a log line, and the action was registered but never
+    // written. The row count is taken inside the transaction so the number
+    // recorded is the number destroyed; a SYSTEM action (no user — see
+    // SYSTEM_AUDIT_ACTIONS in lib/audit.ts), the partition and its bounds in
+    // the before-value, as a deletion's record should be.
+    await prisma.$transaction(async (tx) => {
+      const [{ n }] = await tx.$queryRawUnsafe<{ n: bigint }[]>(`SELECT count(*)::bigint AS n FROM "${name}"`);
+      const rowCount = Number(n);
+      await tx.$executeRawUnsafe(`DROP TABLE IF EXISTS "${name}"`);
+      await auditLog({
+        action: 'RETENTION_EXECUTED',
+        targetType: 'telemetry_partition',
+        targetId: name,
+        beforeValue: {
+          name, parent, rowCount,
+          from: start.toISOString(), to: end.toISOString(),
+          retentionMonths, cutoff: cutoff.toISOString(),
+        },
+        reason: `Telemetry retention: partition entirely older than ${retentionMonths} month(s) dropped by the scheduled maintenance task`,
+        signatureMeaning: `Telemetry partition ${name} (${rowCount} readings) dropped by retention`,
+      }, tx);
+    });
     dropped.push(name);
-    void start;
   }
   return dropped;
+}
+
+/**
+ * Dead-letter retention (audit 2026-10-03, INGEST-10). Nothing ever deleted a
+ * `dead_letters` row: the only reader is `GET /:id/dead-letters`, capped at
+ * 200, and every unparseable payload writes up to 4 KB. Two bounds, both
+ * applied by this task and neither a setting — a dead letter is a diagnostic
+ * about a failure, not a §11 record, and a retention knob here would invite
+ * the comparison with `telemetry-retention`, whose dropping ships OFF because
+ * readings ARE the record:
+ *
+ *  - AGE: rows older than DEAD_LETTER_RETENTION_DAYS go. Thirty days is long
+ *    past any investigation of a device that is still misbehaving — it will
+ *    have written a fresher row by then.
+ *  - COUNT: no instrument keeps more than DEAD_LETTER_MAX_PER_INSTRUMENT, the
+ *    NEWEST kept. One broken device must not hold the table hostage for the
+ *    rest of the fleet; the listeners' rate caps bound what it can write per
+ *    minute, this bounds what survives.
+ *
+ * Runs on this task's cron (the 1st and 15th), so a flood is bounded between
+ * runs only by the rate caps — the TCP cap added with this is what closed the
+ * unbounded case. `scope` is a TEST seam: the suite shares its database with
+ * every other suite's dead letters, and the count bound would otherwise prune
+ * rows another file is asserting on.
+ */
+export const DEAD_LETTER_RETENTION_DAYS = 30;
+export const DEAD_LETTER_MAX_PER_INSTRUMENT = 2_000;
+
+export async function pruneDeadLetters(opts: {
+  now?: Date; retentionDays?: number; maxPerInstrument?: number;
+  /** Test seam — limit the sweep to these instruments. Omitted = the whole table. */
+  scope?: string[];
+} = {}): Promise<{ expired: number; overflow: number }> {
+  const now = opts.now ?? new Date();
+  const retentionDays = opts.retentionDays ?? DEAD_LETTER_RETENTION_DAYS;
+  const maxPerInstrument = opts.maxPerInstrument ?? DEAD_LETTER_MAX_PER_INSTRUMENT;
+  const cutoff = new Date(now.getTime() - retentionDays * 86_400_000);
+  const scopeSql = opts.scope
+    ? Prisma.sql`WHERE instrument_id IN (${Prisma.join(opts.scope)})`
+    : Prisma.empty;
+
+  const expired = await prisma.$executeRaw`
+    DELETE FROM dead_letters
+    WHERE received_at < ${cutoff}
+      ${opts.scope ? Prisma.sql`AND instrument_id IN (${Prisma.join(opts.scope)})` : Prisma.empty}`;
+
+  // Newest first within each instrument; everything past the cap goes. A NULL
+  // instrument_id (a row filed against no instrument) forms its own group and
+  // is capped like any other.
+  const overflow = await prisma.$executeRaw`
+    DELETE FROM dead_letters WHERE id IN (
+      SELECT id FROM (
+        SELECT id, row_number() OVER (PARTITION BY instrument_id ORDER BY received_at DESC, id DESC) AS rn
+        FROM dead_letters ${scopeSql}
+      ) ranked
+      WHERE rn > ${maxPerInstrument})`;
+
+  return { expired, overflow };
 }
 
 /** graphile-worker task. Registered as `telemetry_partition_maintenance`. */
@@ -176,6 +258,16 @@ export const telemetryPartitionTask = async (
       + `existing partition is passed: ${(err as Error).message}`,
     );
     throw err;
+  }
+
+  // Dead letters are swept on every run, whatever the partition settings say:
+  // this is housekeeping of a diagnostic table, not retention of readings.
+  // Non-fatal, like the partition drop below, and for the same reason.
+  try {
+    const { expired, overflow } = await pruneDeadLetters();
+    if (expired > 0 || overflow > 0) log?.info(`pruned dead letters: ${expired} expired, ${overflow} over the per-instrument cap`);
+  } catch (err) {
+    log?.error(`failed to prune dead letters: ${(err as Error).message}`);
   }
 
   if (!settings.dropEnabled) return;
