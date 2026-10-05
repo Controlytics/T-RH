@@ -34,6 +34,25 @@ export interface TargetDraft {
 /** Every variable any event can provide — the union the template may draw from. */
 const KNOWN_VARIABLES = new Set(Object.values(ALARM_WEBHOOK_VARIABLES).flatMap((v) => [...v]));
 
+/**
+ * Why the stored headers could not be sent, or null. Judged by the SAME
+ * `Headers` constructor `fetch` applies at delivery, so the two cannot drift;
+ * each pair is tried alone so the message names the offending header.
+ */
+export function invalidHeader(headers: unknown): string | null {
+  if (headers === undefined || headers === null) return null;
+  if (typeof headers !== 'object' || Array.isArray(headers)) return 'Headers must be a map of header name to value.';
+  for (const [name, value] of Object.entries(headers as Record<string, unknown>)) {
+    if (typeof value !== 'string') return `Header "${name}" must have a string value.`;
+    try {
+      new Headers({ [name]: value });
+    } catch {
+      return `Header "${name}" cannot be sent: the name or its value is not a valid HTTP header (check for spaces in the name or line breaks in the value).`;
+    }
+  }
+  return null;
+}
+
 export function validateTargetDraft(d: TargetDraft): TargetFieldError | null {
   if (!d.name?.trim()) return { field: 'name', message: 'Name is required.' };
 
@@ -49,6 +68,14 @@ export function validateTargetDraft(d: TargetDraft): TargetFieldError | null {
   if (!ALARM_WEBHOOK_METHODS.includes(d.method as AlarmWebhookMethod)) {
     return { field: 'method', message: `Method must be one of ${ALARM_WEBHOOK_METHODS.join(', ')}.` };
   }
+
+  // Headers are handed to `fetch` as-is at send time (deliver.ts). A name with
+  // a space or a value carrying CR/LF is refused by `Headers` with a TypeError
+  // — inside the worker, on EVERY delivery, during an excursion, with the log
+  // row saying only that fetch threw. The same constructor is the judge here,
+  // so what is stored is exactly what will send (audit 2026-10-03, API-20).
+  const headerProblem = invalidHeader(d.headers);
+  if (headerProblem) return { field: 'headers', message: headerProblem };
 
   if (!d.bodyTemplate?.trim()) return { field: 'bodyTemplate', message: 'Body template is required.' };
 

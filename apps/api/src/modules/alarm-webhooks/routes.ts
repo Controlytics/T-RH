@@ -482,27 +482,43 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
     const current = await prisma.alarmWebhookTarget.findUnique({ where: { id } });
     if (!current) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Alarm webhook target not found.' });
 
-    // The FK is RESTRICT because a delivery row is evidence about a regulated event.
-    // Counted first so the refusal names the number and points at deactivation — a raw
-    // FK violation would surface as a 500 naming nothing.
-    const used = await prisma.alarmWebhookDelivery.count({ where: { targetId: id } });
-    if (used > 0) {
-      return reply.code(409).send({
-        error: 'TARGET_HAS_DELIVERIES',
-        message: `"${current.name}" has ${used} delivery record(s) and cannot be deleted. Deactivate it instead.`,
-      });
-    }
-
-    await prisma.alarmWebhookTarget.delete({ where: { id } });
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'ALARM_WEBHOOK_DELETED',
-      targetType: 'AlarmWebhookTarget', targetId: id,
-      beforeValue: { name: current.name, url: current.url, method: current.method, isActive: current.isActive },
-      reason,
-      signatureMeaning: clampSignature(`Deleted alarm webhook "${current.name}" — ${reason}`),
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    const hasDeliveries = (used: number) => ({
+      error: 'TARGET_HAS_DELIVERIES',
+      message: `"${current.name}" has ${used} delivery record(s) and cannot be deleted. Deactivate it instead.`,
     });
+
+    // The FK is RESTRICT because a delivery row is evidence about a regulated event.
+    // Counted first so the refusal names the number and points at deactivation. The
+    // count, the delete and its audit row are ONE transaction (audit 2026-10-03,
+    // API-20): a delivery written between a separate count and delete reached the
+    // database's own refusal, which surfaced as a 500 naming nothing — and a delete
+    // that committed with its audit row still to be written could leave a signed act
+    // with no record. The FK's refusal (P2003) is caught below and answered the
+    // same way as the count, because it is the same fact.
+    try {
+      const refusal = await prisma.$transaction(async (tx) => {
+        const used = await tx.alarmWebhookDelivery.count({ where: { targetId: id } });
+        if (used > 0) return hasDeliveries(used);
+        await tx.alarmWebhookTarget.delete({ where: { id } });
+        await auditLog({
+          userId: ctx.userId, userRole: ctx.userRole,
+          action: 'ALARM_WEBHOOK_DELETED',
+          targetType: 'AlarmWebhookTarget', targetId: id,
+          beforeValue: { name: current.name, url: current.url, method: current.method, isActive: current.isActive },
+          reason,
+          signatureMeaning: clampSignature(`Deleted alarm webhook "${current.name}" — ${reason}`),
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, tx);
+        return null;
+      });
+      if (refusal) return reply.code(409).send(refusal);
+    } catch (err) {
+      if ((err as { code?: string }).code === 'P2003') {
+        const used = await prisma.alarmWebhookDelivery.count({ where: { targetId: id } });
+        return reply.code(409).send(hasDeliveries(Math.max(used, 1)));
+      }
+      throw err;
+    }
     return reply.code(204).send();
   });
 

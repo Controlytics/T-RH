@@ -428,15 +428,31 @@ export default async function alarmRoutes(app: FastifyInstance) {
     // more alarms than the page will show. The instrument lookup for the no-limits
     // count uses that same visibility filter directly (it targets Instrument, not
     // Alarm, so it doesn't go through scoped()/scopedToVisible's nested form).
-    const [active, unacknowledged, cfg, visibleInstruments] = await Promise.all([
+    const [active, unacknowledged, cfg] = await Promise.all([
       prisma.alarm.count({ where: scoped({ state: 'ACTIVE' }) }),
       prisma.alarm.count({ where: scoped({ acknowledgedAt: null }) }),
       loadLimitConfig(),
-      prisma.instrument.findMany({
-        where: visibility ?? {},
-        select: { code: true, attributes: { select: { key: true, value: true } } },
-      }),
     ]);
+    // Only the attributes that CAN be a limit are read (audit 2026-10-03,
+    // API-19): this used to load every attribute of every visible instrument —
+    // a dozen rows each — to count the ones with no usable limit. The alias
+    // lists are lower-cased by `parseLimitKeys`, and `resolveLimit` matches an
+    // attribute key case-insensitively, so the SQL match must fold case too or
+    // an instrument whose key is `T_HL` would be counted as unwatched here while
+    // the evaluator watches it. (`resolveLimit` also trims the key; a key stored
+    // with surrounding whitespace would miss here — attribute keys are trimmed
+    // on write, so none is.)
+    const limitKeys = [...new Set(Object.values(cfg.keys).flat())];
+    const visibleInstruments = await prisma.instrument.findMany({
+      where: visibility ?? {},
+      select: {
+        code: true,
+        attributes: {
+          where: { key: { in: limitKeys, mode: 'insensitive' } },
+          select: { key: true, value: true },
+        },
+      },
+    });
     const without = countWithoutLimits(
       visibleInstruments.map((i) => ({ code: i.code, attributes: i.attributes })),
       cfg.keys,

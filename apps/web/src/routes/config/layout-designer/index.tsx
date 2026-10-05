@@ -16,6 +16,8 @@ import { DesignerCanvas, roomPolygon } from './canvas';
 import { RoomPropertiesPanel, LinkPropertiesPanel, EMPTY_FORM, type RoomForm, type InstrumentRow } from './properties-panel';
 import { reduce, initialState, closedPolygon, type Tool } from './tools';
 import { CANVAS_PRESETS, type DesignerPlan, type DesignerRoom } from './types';
+import { limitChanges, numOrNull } from './room-limits';
+import { RemarkDialog, type RemarkChange } from '@/routes/instruments/remark-dialog';
 
 /**
  * LAYOUT DESIGNER (2026-09-22). Replaces the Floorplans editor at the same
@@ -36,12 +38,6 @@ import { CANVAS_PRESETS, type DesignerPlan, type DesignerRoom } from './types';
 
 interface PlanList { data: DesignerPlan[] }
 
-const numOrNull = (v: string): number | null => {
-  const t = v.trim();
-  if (!t) return null;
-  const n = Number(t);
-  return Number.isFinite(n) ? n : null;
-};
 
 const TOOLS: { id: Tool; label: string; hint: string }[] = [
   { id: 'select', label: 'Select', hint: 'Click a room to select it; drag to move; drag a corner to reshape; double-click a wall to add a corner' },
@@ -76,6 +72,8 @@ export function LayoutDesignerPage() {
   const [pending, setPending] = useState<{ points: Polygon; corridor: boolean } | null>(null);
   const [form, setForm] = useState<RoomForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  // A limit change waits here for its reason (DATA-11); null = no dialog open.
+  const [limitReason, setLimitReason] = useState<{ changes: RemarkChange[] } | null>(null);
   const [guideOpacity, setGuideOpacity] = useState(0.35);
   const [showGrid, setShowGrid] = useState(true);
   const [newPlan, setNewPlan] = useState<{ name: string; preset: (typeof CANVAS_PRESETS)[number]['key'] } | null>(null);
@@ -236,11 +234,20 @@ export function LayoutDesignerPage() {
     }, { title: 'Room created', message: `"${body.code}" added to ${plan.name}.` }, () => setPending(null));
   };
 
-  const saveRoomProps = () => {
+  // A change to the room's LIMITS needs the operator's stated reason — the
+  // server refuses it without one (400 REASON_REQUIRED, audit 2026-10-03
+  // DATA-11). The reason is asked for BEFORE the request, through the same
+  // dialog an instrument attribute change uses, so the operator sees the
+  // before and after of what one remark will be recorded against. Label,
+  // grade, doors, membership and geometry saves never ask: `limitChanges`
+  // compares against the STORED row, as the server does.
+  const saveRoomProps = (reason?: string) => {
     if (!plan || !selectedRoom) return;
     if (!form.code.trim()) { toast.error('Room code required', 'A room needs a code.'); return; }
     const room = selectedRoom;
-    const body = roomBody(room, form, null);
+    const changes = limitChanges(room, form);
+    if (changes.length > 0 && !reason) { setLimitReason({ changes }); return; }
+    const body = { ...roomBody(room, form, null), ...(reason ? { reason } : {}) };
     run('UPDATE_FLOORPLAN_ROOM', async (pw) => {
       await put(`/api/floorplans/${plan.id}/rooms/${room.id}`, body, pw);
       await saveMembership(room.id, form.instrumentIds, pw);
@@ -502,7 +509,7 @@ export function LayoutDesignerPage() {
       {plan && !pending && selectedRoom && (
         <RoomPropertiesPanel
           mode="edit" form={form} setForm={setForm} instruments={instruments} roomOfInstrument={roomOfInstrument}
-          roomId={selectedRoom.id} saving={saving} onSave={saveRoomProps} onDelete={deleteRoom}
+          roomId={selectedRoom.id} saving={saving} onSave={() => saveRoomProps()} onDelete={deleteRoom}
           onCancel={() => dispatch({ type: 'select', selection: null })}
           onMerge={mergeCandidate ? mergePieces : null}
           mergeLabel={mergeCandidate ? `Merge with ${mergeCandidate.other.code}` : null}
@@ -515,6 +522,16 @@ export function LayoutDesignerPage() {
         />
       )}
 
+      <RemarkDialog
+        open={limitReason !== null}
+        title={`Change ${limitReason?.changes.length === 1 ? 'a room limit' : 'room limits'} — ${selectedRoom?.code ?? ''}`}
+        attributeKey=""
+        from=""
+        changes={limitReason?.changes ?? []}
+        busy={saving}
+        onSubmit={(reason) => { setLimitReason(null); saveRoomProps(reason); }}
+        onClose={() => setLimitReason(null)}
+      />
       <ReauthDialog
         open={reauth.isOpen}
         password={reauth.password}

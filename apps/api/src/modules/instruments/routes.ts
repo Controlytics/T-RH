@@ -20,7 +20,7 @@ import { getTelemetryAggregate } from './telemetry-aggregate.js';
 import { HISTORY_WINDOWS, type HistoryWindow } from '../floorplans/room-history.js';
 import { auditLog } from '../../lib/audit.js';
 import { buildContext } from '../../lib/build-context.js';
-import { enforceReauthAlways } from '../../lib/reauth-check.js';
+import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { generateToken, hashToken, tokenPrefix, tokenMatches } from './token.js';
@@ -1497,6 +1497,13 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    // Configurable e-signature (audit 2026-10-03, SEC-7): registering an
+    // instrument mints a device credential. Its sibling, functional-location
+    // create, has carried one since 2026-08-13; this one carried none and no
+    // action existed to configure it. FIRST, so `_currentPassword` is stripped
+    // before anything reads the body.
+    const { ok: reauthOk } = await enforceReauth('CREATE_INSTRUMENT', req, reply);
+    if (!reauthOk) return;
     const parsed = createInstrumentSchema.safeParse(
       sanitizeStrings((req.body ?? {}) as Record<string, unknown>, IDENTITY_FIELDS),
     );
@@ -1665,6 +1672,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', properties: instrumentProps }, ...errorResponses },
     },
   }, async (req, reply) => {
+    // Configurable e-signature (audit 2026-10-03, SEC-7): a `code` change here
+    // moves the device's MQTT identity. FIRST, before sanitizeStrings sees the body.
+    const { ok: reauthOk } = await enforceReauth('UPDATE_INSTRUMENT', req, reply);
+    if (!reauthOk) return;
     const { id } = req.params as { id: string };
     const parsed = updateInstrumentSchema.safeParse(sanitizeStrings((req.body ?? {}) as Record<string, unknown>));
     if (!parsed.success) {
@@ -1922,6 +1933,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } }, ...errorResponses },
     },
   }, async (req, reply) => {
+    // Configurable e-signature (audit 2026-10-03, SEC-7): this revokes the
+    // device's credential in the same request.
+    const { ok: reauthOk } = await enforceReauth('DELETE_INSTRUMENT', req, reply);
+    if (!reauthOk) return;
     const { id } = req.params as { id: string };
     const existing = await prisma.instrument.findFirst({ where: await visibleInstrumentWhere(req, id) });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });

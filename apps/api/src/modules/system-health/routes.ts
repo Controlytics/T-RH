@@ -1,11 +1,8 @@
 import { type FastifyPluginAsync } from 'fastify';
 import os from 'node:os';
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
 import { prisma } from '../../lib/prisma.js';
 import { errorResponses } from '../../lib/error-schemas.js';
-
-const execAsync = promisify(exec);
+import { getDiskUsage } from './disk.js';
 
 // ── In-memory request counter ──────────────────────────────────────────
 let totalRequests = 0;
@@ -31,37 +28,8 @@ function getRequestsPerMinute(): number {
   return recentCount;
 }
 
-// ── Disk usage helper ──────────────────────────────────────────────────
-async function getDiskUsage(): Promise<{
-  total: number;
-  used: number;
-  free: number;
-  usagePercent: number;
-}> {
-  try {
-    if (process.platform === 'win32') {
-      const { stdout } = await execAsync(
-        'wmic logicaldisk where "DeviceID=\'C:\'" get Size,FreeSpace /format:csv',
-      );
-      const lines = stdout.trim().split('\n').filter(Boolean);
-      const last = lines[lines.length - 1];
-      const parts = last.split(',');
-      const free = parseInt(parts[1], 10);
-      const total = parseInt(parts[2], 10);
-      const used = total - free;
-      return { total, used, free, usagePercent: Math.round((used / total) * 100) };
-    }
-    // Linux/macOS
-    const { stdout } = await execAsync("df -B1 / | tail -1 | awk '{print $2,$3,$4}'");
-    const [totalStr, usedStr, freeStr] = stdout.trim().split(/\s+/);
-    const total = parseInt(totalStr, 10);
-    const used = parseInt(usedStr, 10);
-    const free = parseInt(freeStr, 10);
-    return { total, used, free, usagePercent: Math.round((used / total) * 100) };
-  } catch {
-    return { total: 0, used: 0, free: 0, usagePercent: 0 };
-  }
-}
+// Disk usage lives in ./disk.ts (audit 2026-10-03, API-17): `wmic` is gone
+// from current Windows and the old reader returned zeros silently.
 
 // ── CPU usage helper (1-second sample) ─────────────────────────────────
 async function getCpuUsage(): Promise<number> {
@@ -146,6 +114,10 @@ const systemHealthRoutes: FastifyPluginAsync = async (app) => {
                       '1m': { type: 'number' },
                       '5m': { type: 'number' },
                       '15m': { type: 'number' },
+                      // `os.loadavg()` is ALWAYS [0, 0, 0] on Windows (Node
+                      // documents it); printing 0.00 there reads as an idle
+                      // machine. Declared so the page can say "unavailable".
+                      available: { type: 'boolean' },
                     },
                   },
                 },
@@ -170,10 +142,15 @@ const systemHealthRoutes: FastifyPluginAsync = async (app) => {
               disk: {
                 type: 'object',
                 properties: {
+                  path: { type: 'string', description: 'The path the figures describe — the uploads root, the disk this process writes to.' },
                   totalBytes: { type: 'number' },
                   usedBytes: { type: 'number' },
                   freeBytes: { type: 'number' },
                   usagePercent: { type: 'number' },
+                  // Both DECLARED, or Fastify strips them and the page is back
+                  // to a silent zero (audit 2026-10-03, API-17).
+                  available: { type: 'boolean', description: 'False when no reader could measure the disk; the numbers are then 0 and `error` says why.' },
+                  error: { type: 'string', nullable: true },
                 },
               },
               process: {
@@ -236,6 +213,7 @@ const systemHealthRoutes: FastifyPluginAsync = async (app) => {
             '1m': Math.round(loadAvg[0] * 100) / 100,
             '5m': Math.round(loadAvg[1] * 100) / 100,
             '15m': Math.round(loadAvg[2] * 100) / 100,
+            available: process.platform !== 'win32',
           },
         },
         memory: {
@@ -250,10 +228,13 @@ const systemHealthRoutes: FastifyPluginAsync = async (app) => {
           usagePercent: cpuUsage,
         },
         disk: {
+          path: disk.path,
           totalBytes: disk.total,
           usedBytes: disk.used,
           freeBytes: disk.free,
           usagePercent: disk.usagePercent,
+          available: disk.available,
+          error: disk.error,
         },
         process: {
           nodeVersion: process.version,

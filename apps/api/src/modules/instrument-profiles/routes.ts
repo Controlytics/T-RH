@@ -13,7 +13,8 @@ import { buildContext } from '../../lib/build-context.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { logger } from '../../lib/logger.js';
-import { resolveVisibility, withVisibility } from '../instruments/visibility.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
+import { resolveVisibility, withVisibility, type ScopeWhere } from '../instruments/visibility.js';
 import { loadAttributeAccess, refuseAttributeWrite } from '../instruments/attribute-access.js';
 import { publishAttributeDownlink } from '../instruments/attribute-downlink.js';
 import { announceChildAttributeChange } from '../instruments/child-attributes-bundle.js';
@@ -76,10 +77,21 @@ const fold = (k: string) => k.trim().toLowerCase();
  * Which attribute keys the profile's instruments actually carry, folded by
  * case (the spelling shown is the PROFILE's own where the key is listed, else
  * the first recorded one), with the number of instruments carrying each.
+ *
+ * `visibility` narrows the count to the caller's instrument scope. The GET
+ * passes it (audit 2026-10-03, API-20): the counts it returns are shown to
+ * whoever opens the profile editor, and until then a restricted admin saw the
+ * whole plant's numbers from a route whose every sibling is scoped. The PUT's
+ * cascade deliberately does NOT pass it — it must see every instrument the
+ * removal would touch, including ones the caller cannot, in order to refuse.
  */
-async function attributeUsage(profileId: string, listed: string[]): Promise<{ key: string; instruments: number }[]> {
+async function attributeUsage(
+  profileId: string,
+  listed: string[],
+  visibility?: ScopeWhere,
+): Promise<{ key: string; instruments: number }[]> {
   const rows = await prisma.instrumentAttribute.findMany({
-    where: { instrument: { profileId } },
+    where: { instrument: withVisibility({ profileId }, visibility) as never },
     select: { key: true, instrumentId: true },
     orderBy: [{ key: 'asc' }],
   });
@@ -251,7 +263,9 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const profile = await prisma.instrumentProfile.findUnique({ where: { id }, select: { attributeKeys: true } });
     if (!profile) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Profile not found.' });
-    const usage = await attributeUsage(id, parseInstrumentAttributeKeys(profile.attributeKeys));
+    // Scoped like every other read on this module (audit 2026-10-03, API-20).
+    const { where: visibility } = await resolveVisibility(buildContext(req));
+    const usage = await attributeUsage(id, parseInstrumentAttributeKeys(profile.attributeKeys), visibility);
     if (req.user?.role === 'SUPER_ADMIN') return { keys: usage };
     const isOffset = await offsetKeyTest();
     return { keys: usage.filter((u) => !isOffset(u.key)) };
@@ -362,6 +376,12 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', properties: profileProps }, ...errorResponses },
     },
   }, async (req, reply) => {
+    // Configurable e-signature (audit 2026-10-03, SEC-7): this PUT can delete an
+    // attribute on every instrument of the profile, which is the same act the
+    // per-instrument attribute delete signs. FIRST, so `_currentPassword` is
+    // stripped before the body is parsed.
+    const { ok } = await enforceReauth('UPDATE_INSTRUMENT_PROFILE', req, reply);
+    if (!ok) return;
     const { id } = req.params as { id: string };
     const parsed = updateInstrumentProfileSchema.safeParse(
       // Exempt for the same reason as POST — see the comment there. `reason`
@@ -558,6 +578,10 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    // Configurable e-signature (audit 2026-10-03, SEC-7), the functional-location
+    // precedent.
+    const { ok } = await enforceReauth('DELETE_INSTRUMENT_PROFILE', req, reply);
+    if (!ok) return;
     const { id } = req.params as { id: string };
     // DELIBERATELY UNSCOPED, unlike the read routes above. The guard exists to
     // explain the foreign key's refusal, and the FK counts every instrument

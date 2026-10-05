@@ -175,3 +175,23 @@ describe('a profile key removal answers to the attribute gate and the scope', ()
     }
   });
 });
+
+/**
+ * Audit 2026-10-03, API-20: `GET /api/instrument-profiles/:id/attribute-usage`
+ * counted every instrument of the profile for every caller, while its sibling
+ * reads on the same module are scoped. Both fixture instruments carry
+ * `Location`; the operator sees ONE of them.
+ */
+describe('GET /api/instrument-profiles/:id/attribute-usage is instrument-visibility scoped', () => {
+  it('counts only the instruments in the caller\'s scope; SUPER_ADMIN still sees all', async () => {
+    const forOperator = await app.inject({ method: 'GET', url: `/api/instrument-profiles/${profileId}/attribute-usage`, headers: operator });
+    expect(forOperator.statusCode).toBe(200);
+    const opLocation = (forOperator.json().keys as { key: string; instruments: number }[]).find((k) => k.key.toLowerCase() === 'location');
+    expect(opLocation?.instruments).toBe(1);
+
+    const forAdmin = await app.inject({ method: 'GET', url: `/api/instrument-profiles/${profileId}/attribute-usage`, headers: admin });
+    expect(forAdmin.statusCode).toBe(200);
+    const adminLocation = (forAdmin.json().keys as { key: string; instruments: number }[]).find((k) => k.key.toLowerCase() === 'location');
+    expect(adminLocation?.instruments).toBe(2);
+  });
+});

@@ -33,6 +33,22 @@ import { resolveVisibility } from '../instruments/visibility.js';
  */
 const IDENTITY_FIELDS = ['code', 'name', 'label'];
 
+/** The four room limits, the quality specification for the space. */
+const LIMIT_FIELDS = ['tempMin', 'tempMax', 'rhMin', 'rhMax'] as const;
+
+/**
+ * Whether a PUT moves any of the four limits off what is stored. An omitted
+ * limit in the payload is `undefined` after validation and the update writes
+ * it as a clear (the schema's `.optional()` — the client sends the whole
+ * room), so `undefined` is compared as `null`. Exported for its unit tests.
+ */
+export function limitsChanged(
+  before: Record<(typeof LIMIT_FIELDS)[number], number | null>,
+  next: Partial<Record<(typeof LIMIT_FIELDS)[number], number | null | undefined>>,
+): boolean {
+  return LIMIT_FIELDS.some((f) => (before[f] ?? null) !== (next[f] ?? null));
+}
+
 /**
  * `doors` is a Json column, so a SQL NULL needs Prisma.DbNull —
  * Prisma.JsonNull would store the JSON literal `null`, which reads back as a
@@ -468,10 +484,28 @@ export default async function floorplanRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: 'NOT_FOUND', message: 'Room not found on this floorplan.' });
     }
 
-    const result = validateRoomPayload(
-      sanitizeStrings((req.body ?? {}) as Record<string, unknown>, IDENTITY_FIELDS),
-    );
+    // `reason` is read BEFORE validation (the zod schema strips keys it does
+    // not name) and is EXEMPT from sanitisation like every free-text remark:
+    // stripHtml would blank "NMT 25 <per SOP-114>" out of a regulated record.
+    const rawBody = sanitizeStrings((req.body ?? {}) as Record<string, unknown>, [...IDENTITY_FIELDS, 'reason']);
+    const reason = typeof rawBody.reason === 'string' ? rawBody.reason.trim() : '';
+    const result = validateRoomPayload(rawBody);
     if (!result.ok) return reply.code(400).send({ error: 'VALIDATION_ERROR', message: result.error });
+
+    // A change to the room's LIMITS is a change to the quality specification
+    // for a space, and it carries an e-signature already; since audit
+    // 2026-10-03 (DATA-11) it also carries the operator's stated reason, the
+    // way an instrument's attribute change does. Geometry, doors, label and
+    // grade are drawing edits and need none — a designer drag must not ask for
+    // a remark. Measured against the STORED row, so re-sending the same limits
+    // is not a limit change.
+    if (limitsChanged(before, result.data) && !reason) {
+      return reply.code(400).send({
+        error: 'REASON_REQUIRED',
+        message: "Changing a room's temperature or humidity limits requires a reason.",
+        field: 'reason',
+      });
+    }
 
     try {
       // An OMITTED `doors` key must leave the stored column UNCHANGED — a
@@ -519,6 +553,8 @@ export default async function floorplanRoutes(app: FastifyInstance) {
           doors: doorSummary(after.doors),
           grade: after.grade,
         },
+        // Stored whenever one was given, required when the limits moved.
+        reason: reason || undefined,
         signatureMeaning: `Room "${after.code}" updated`,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       });

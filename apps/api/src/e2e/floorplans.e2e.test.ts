@@ -142,19 +142,59 @@ describe('Room geometry and limits', () => {
     expect((await addRoom(b.id, { code: 'SAME' })).statusCode).toBe(201);
   });
 
-  it('records the limit change on update, both sides', async () => {
+  it('records the limit change on update, both sides, with the operator\'s reason', async () => {
     const plan = (await createPlan(`Plan LIM ${s}`)).json();
     const room = (await addRoom(plan.id, { code: 'LIM', tempMin: 18, tempMax: 25 })).json();
 
+    // Tag-shaped on purpose: `reason` is exempt from sanitisation, like every
+    // free-text remark, or "<per SOP-114>" would be blanked out of the record.
+    const reason = 'tightened to product spec <per SOP-114>';
     const res = await app.inject({
       method: 'PUT', url: `/api/floorplans/${plan.id}/rooms/${room.id}`, headers: auth,
-      payload: { code: 'LIM', x: 0.1, y: 0.1, w: 0.2, h: 0.2, tempMin: 20, tempMax: 24 },
+      payload: { code: 'LIM', x: 0.1, y: 0.1, w: 0.2, h: 0.2, tempMin: 20, tempMax: 24, reason },
     });
     expect(res.statusCode).toBe(200);
 
     const row = await lastAudit('FLOORPLAN_ROOM_UPDATED', room.id);
     expect((row!.beforeValue as Record<string, any>).limits).toMatchObject({ tempMin: 18, tempMax: 25 });
     expect((row!.afterValue as Record<string, any>).limits).toMatchObject({ tempMin: 20, tempMax: 24 });
+    expect(row!.reason).toBe(reason);
+  });
+
+  // Audit 2026-10-03, DATA-11: a room's limits are the quality specification
+  // for the space, and the signature on the change now carries a stated reason.
+  it('refuses a limit change with no reason, writing nothing', async () => {
+    const plan = (await createPlan(`Plan NOREASON ${s}`)).json();
+    const room = (await addRoom(plan.id, { code: 'NR', tempMin: 18, tempMax: 25 })).json();
+    const auditBefore = await prisma.auditTrail.count({ where: { action: 'FLOORPLAN_ROOM_UPDATED', targetId: room.id } });
+
+    const res = await app.inject({
+      method: 'PUT', url: `/api/floorplans/${plan.id}/rooms/${room.id}`, headers: auth,
+      payload: { code: 'NR', x: 0.1, y: 0.1, w: 0.2, h: 0.2, tempMin: 20, tempMax: 24 },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: 'REASON_REQUIRED', field: 'reason' });
+    expect(await prisma.floorplanRoom.findUnique({ where: { id: room.id }, select: { tempMin: true, tempMax: true } })).toMatchObject({ tempMin: 18, tempMax: 25 });
+    expect(await prisma.auditTrail.count({ where: { action: 'FLOORPLAN_ROOM_UPDATED', targetId: room.id } })).toBe(auditBefore);
+
+    // Clearing a bound is a limit change too.
+    const cleared = await app.inject({
+      method: 'PUT', url: `/api/floorplans/${plan.id}/rooms/${room.id}`, headers: auth,
+      payload: { code: 'NR', x: 0.1, y: 0.1, w: 0.2, h: 0.2, tempMin: 18 },
+    });
+    expect(cleared.statusCode).toBe(400);
+    expect(cleared.json().error).toBe('REASON_REQUIRED');
+  });
+
+  it('a drawing edit that leaves the limits as stored needs no reason', async () => {
+    const plan = (await createPlan(`Plan GEO ${s}`)).json();
+    const room = (await addRoom(plan.id, { code: 'GEO', tempMin: 18, tempMax: 25 })).json();
+    const res = await app.inject({
+      method: 'PUT', url: `/api/floorplans/${plan.id}/rooms/${room.id}`, headers: auth,
+      payload: { code: 'GEO', label: 'moved', x: 0.3, y: 0.3, w: 0.2, h: 0.2, tempMin: 18, tempMax: 25 },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ x: 0.3, label: 'moved', tempMin: 18, tempMax: 25 });
   });
 
   it('404s for a room on a different plan', async () => {

@@ -66,6 +66,16 @@ export class ForbiddenError extends AppError {
  *   Prisma to signal "no such record" rather than checking first — e.g.
  *   `GET /api/notification-rules/:id` — and every one of them was answering
  *   500 for an ordinary missing record.
+ *
+ * P2003 — foreign key violation (audit 2026-10-03, API-20). Every RESTRICT
+ *   foreign key here protects evidence — an alarm webhook's delivery rows, an
+ *   alarm's instrument — and the routes that delete the parent count first
+ *   and refuse with their own 409. The count and the delete are two
+ *   statements, so a row inserted between them reaches the database's own
+ *   refusal, which surfaced as a 500 plus a SYSTEM_ERROR notification for a
+ *   request the route would have answered 409 a millisecond earlier. The
+ *   database's answer is the same fact as the route's, so it gets the same
+ *   status.
  */
 export function prismaErrorToResponse(
   err: unknown,
@@ -95,6 +105,15 @@ export function prismaErrorToResponse(
       body: {
         error: 'NOT_FOUND',
         message: 'The requested record does not exist.',
+      },
+    };
+  }
+  if (code === 'P2003') {
+    return {
+      status: 409,
+      body: {
+        error: 'REFERENCED',
+        message: 'This record is referenced by other records and cannot be changed. Please reload and try again.',
       },
     };
   }

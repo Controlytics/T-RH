@@ -1,5 +1,64 @@
 # Changelog
 
+## [Unreleased] - Audit fixes, batch 14: uploads refuse an unsigned type, disk usage is read or reported absent, one-transaction deletes, five instrument re-auth actions, a reason for a room limit change (2026-10-05)
+
+Closes SEC-3, SEC-7, API-17, API-19, DATA-11 and the uploads / backup /
+webhook / functional-location / profile sub-items of API-20 of
+`docs/audit/2026-10-03-technical-audit.md`.
+
+- **The server refuses to START on an `UPLOAD_ALLOWED_TYPES` entry with no
+  magic-byte signature** (`uploadConfigProblems()` in `uploads/routes.ts`),
+  and `readValidatedImage` refuses a signature-less type before it reads the
+  stream — an operator adding `image/svg+xml` to the env used to switch the
+  magic check OFF for that type silently. `MAX_FILE_SIZE` is applied on every
+  `req.file()`; `/photo` goes through the one validator; an oversize upload is
+  413 on every route (it was 400 on `/photo`). 14 cases.
+- **Disk usage is measured, or reported as unavailable — never zeros.**
+  `system-health/disk.ts` tries `fs.statfs`, then `Get-CimInstance` on
+  Windows / `df` elsewhere, and a total failure is logged and sent as
+  `disk.available: false` + `disk.error`; `loadAvg.available` is false on
+  win32. Both DECLARED in the response schema. The web page renders the flags
+  in the web batch.
+- **A backup restore failure answers a fixed message in production**; the raw
+  error is logged, not returned.
+- **Webhook target delete is ONE transaction** (count, delete, audit row); a
+  foreign-key refusal (`P2003`) maps to 409 `REFERENCED` in `lib/errors.ts`
+  for every route. Header names and values are validated at save through the
+  platform's own `Headers` constructor — a bad pair used to fail only at
+  delivery time, in the delivery log.
+- **`PUT /api/functional-locations/:id/instruments` refuses an unknown
+  instrument id (400, naming it) and links nothing**; the audit row lists
+  codes only. **`GET /api/instrument-profiles/:id/attribute-usage` is
+  visibility-scoped**; the PUT cascade is deliberately unscoped (a
+  half-scoped profile would delete from half the plant and could not tell).
+- **The alarms summary selects only attributes whose key is in the limit
+  alias union, case-folded** (`resolveLimit` already folds case) instead of
+  every attribute of every instrument.
+- **Five configurable re-auth actions** under the existing Configuration
+  category (50 → **55**): `CREATE_INSTRUMENT`, `UPDATE_INSTRUMENT`,
+  `DELETE_INSTRUMENT`, `UPDATE_INSTRUMENT_PROFILE`,
+  `DELETE_INSTRUMENT_PROFILE`. `enforceReauth` runs FIRST on instruments
+  POST/PUT/DELETE and profiles PUT/DELETE. **They ship OFF** (the policy row
+  default), so nothing changes until an admin switches one on under
+  Configuration → Re-authentication; the web prompts land in the web batch.
+  The instrument tree nodes carry no `reauthAction` badge yet (cosmetic).
+- **A room's LIMIT change needs a stated reason** (`PUT
+  /api/floorplans/:id/rooms/:roomId`, 400 `REASON_REQUIRED` with `field:
+  'reason'`): a room's limits are a quality specification, and the change is
+  recorded with the operator's statement the way an instrument attribute's
+  is. `limitsChanged()` compares against the STORED row, so geometry drags,
+  doors, label, grade and membership never ask. **The Layout Designer asks
+  for the reason BEFORE the request** through the attributes `RemarkDialog`
+  (which gained a `title`), listing the bounds being moved with before and
+  after; `limitChanges()` in `routes/config/layout-designer/room-limits.ts`
+  is the browser's copy of the rule and is tested against the same cases.
+  Not covered, as scoped: POST `/:id/rooms` with limits and
+  `scripts/trim-room-to-rooms.ts` carry no reason.
+- Found, not fixed: `tests/e2e-scripts/*.sh` call `/api/auth/verify`,
+  `/api/assets/templates`, `/api/rule-chains` and `/api/qr` — upstream
+  DigiLog's surface, none of which exists here; they are dead smoke scripts
+  and belong in `docs/archive/`. No count moved except reauth actions.
+
 ## [Unreleased] - Audit fixes, batch 13: ingest and alarm mediums — the bridge's own echoes, one SQL reading, TCP rate cap and dead-letter retention, offsets fail closed, webhook cooldown and regex, same-instant readings (2026-10-05)
 
 Closes INGEST-7, 9, 10, 11, 12, 13, 14, 15, 17 and 18 of

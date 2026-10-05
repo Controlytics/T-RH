@@ -4,6 +4,23 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { buildContext } from '../../lib/build-context.js';
 import * as backupService from './backup.service.js';
 
+/**
+ * The 500 body for a restore that failed for a reason the route does not
+ * classify (audit 2026-10-03, API-20). The raw message is LOGGED by the caller
+ * and returned only outside production: in production it is whatever Postgres
+ * or the parser said — table names, constraint names, a path on the server —
+ * and the global error handler in app.ts already hides exactly that for every
+ * other route.
+ */
+export function restoreFailureBody(err: unknown, nodeEnv: string | undefined = process.env.NODE_ENV): { error: string; message: string } {
+  const raw = (err as { message?: unknown } | null)?.message;
+  const message = typeof raw === 'string' && raw ? raw : 'Database restore failed.';
+  return {
+    error: 'RESTORE_FAILED',
+    message: nodeEnv === 'production' ? 'Database restore failed. See the server log for the cause.' : message,
+  };
+}
+
 export default async function backupRoutes(app: FastifyInstance) {
 
   // GET /api/backup/export — Generate and download backup.
@@ -153,11 +170,10 @@ export default async function backupRoutes(app: FastifyInstance) {
       if (err.statusCode === 400 && typeof err.message === 'string' && err.message.startsWith('BACKUP_AUDIT_CHAIN_INVALID')) {
         return reply.code(400).send({ error: 'BACKUP_AUDIT_CHAIN_INVALID', message: err.message });
       }
-      app.log.error(err);
-      return reply.code(500).send({
-        error: 'RESTORE_FAILED',
-        message: err.message || 'Database restore failed.',
-      });
+      // The raw error goes to the LOG; the body carries it only outside
+      // production (audit 2026-10-03, API-20).
+      app.log.error({ err }, 'Database restore failed');
+      return reply.code(500).send(restoreFailureBody(err));
     }
   });
 

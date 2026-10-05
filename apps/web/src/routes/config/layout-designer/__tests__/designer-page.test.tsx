@@ -192,6 +192,47 @@ describe('LayoutDesignerPage', () => {
     confirm.mockRestore();
   });
 
+  it('Save room: a LIMIT change asks for a reason first and sends it on the PUT (DATA-11)', async () => {
+    const rooms = [{ ...rect('A', 'A', 0.1, 0.1, 0.2, 0.2), tempMax: 25 }];
+    PLANS.current = { data: [{ ...PLAN, rooms }] };
+    DETAIL.current = { ...PLAN, rooms };
+    renderPage();
+    stubCanvas();
+    clickAt(screen.getByTestId('room-A'), 200, 150);
+    fireEvent.pointerUp(screen.getByTestId('designer-canvas'));
+    fireEvent.change(screen.getByLabelText('Max temperature (°C)'), { target: { value: '27' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save room' }));
+    // Nothing is sent until the reason is given; the dialog shows the line being signed for.
+    expect(put).not.toHaveBeenCalled();
+    expect(screen.getByText('Change a room limit — A')).toBeTruthy();
+    expect(screen.getByText('27')).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText('Why is this changing?'), { target: { value: 'NMT raised per SOP-114 rev 3' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(put).toHaveBeenCalled());
+    const [url, body] = put.mock.calls[0] as [string, Record<string, unknown>];
+    expect(url).toBe('/api/floorplans/p1/rooms/A');
+    expect(body.tempMax).toBe(27);
+    expect(body.reason).toBe('NMT raised per SOP-114 rev 3');
+  });
+
+  it('Save room: a label change with the limits untouched asks for no reason', async () => {
+    const rooms = [{ ...rect('A', 'A', 0.1, 0.1, 0.2, 0.2), tempMax: 25 }];
+    PLANS.current = { data: [{ ...PLAN, rooms }] };
+    DETAIL.current = { ...PLAN, rooms };
+    renderPage();
+    stubCanvas();
+    clickAt(screen.getByTestId('room-A'), 200, 150);
+    fireEvent.pointerUp(screen.getByTestId('designer-canvas'));
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'HPLC' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save room' }));
+    await waitFor(() => expect(put).toHaveBeenCalled());
+    const [, body] = put.mock.calls[0] as [string, Record<string, unknown>];
+    expect(body.label).toBe('HPLC');
+    expect(body.tempMax).toBe(25);
+    expect('reason' in body).toBe(false);
+    expect(screen.queryByPlaceholderText('Why is this changing?')).toBeNull();
+  });
+
   it('selecting a room and pressing Delete removes it through the audited endpoint', async () => {
     const rooms = [rect('A', 'A', 0.1, 0.1, 0.2, 0.2)];
     PLANS.current = { data: [{ ...PLAN, rooms }] };

@@ -32,10 +32,19 @@ describe('prismaErrorToResponse', () => {
     expect(res?.body.error).toBe('NOT_FOUND');
   });
 
+  // Audit 2026-10-03, API-20: a RESTRICT foreign key refusing a delete that a
+  // route's own count had passed a moment earlier (a delivery row inserted
+  // between the two) is the same 409 the route would have given, not a 500.
+  it('maps P2003 (foreign key violation) to 409', () => {
+    const res = prismaErrorToResponse({ code: 'P2003' });
+    expect(res?.status).toBe(409);
+    expect(res?.body.error).toBe('REFERENCED');
+  });
+
   // Returning null is what lets the caller fall through to its generic 500 +
   // SYSTEM_ERROR notification. Mapping something we do not understand would
   // suppress that signal.
-  it.each(['P1001', 'P2003', 'P2034', 'P9999'])(
+  it.each(['P1001', 'P2034', 'P9999'])(
     'returns null for unmapped code %s',
     (code) => {
       expect(prismaErrorToResponse({ code })).toBeNull();

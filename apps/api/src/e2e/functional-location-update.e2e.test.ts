@@ -111,3 +111,43 @@ describe('PUT /api/functional-locations/:id', () => {
     expect((row!.afterValue as { location: string }).location).toContain('B'.repeat(20));
   });
 });
+
+/**
+ * Audit 2026-10-03, API-20: `PUT /:id/instruments` skipped an id that did not
+ * exist and wrote the raw uuid into the audit row's `linked` list, while its
+ * floorplan twin refuses. Now both refuse.
+ */
+describe('PUT /api/functional-locations/:id/instruments', () => {
+  it('refuses an unknown instrument id with 400, linking nothing and auditing nothing', async () => {
+    const b = await block(`FL-LINK-${stamp}`);
+    const real = await app.inject({
+      method: 'POST', url: '/api/instruments', headers: admin,
+      payload: { name: `FLL-${stamp}`, code: `FLL-${stamp}`, profileId: await fixtureProfileId('fixture:fl-update') },
+    });
+    expect(real.statusCode).toBe(201);
+    instrumentIds.push(real.json().id);
+    const ghost = '00000000-0000-4000-8000-000000000000';
+
+    const res = await app.inject({
+      method: 'PUT', url: `/api/functional-locations/${b}/instruments`, headers: admin,
+      payload: { instrumentIds: [real.json().id, ghost] },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('VALIDATION_ERROR');
+    expect(res.json().message).toContain(ghost);
+    // The real one was not linked either — the request is refused whole.
+    expect(await prisma.instrument.findUnique({ where: { id: real.json().id }, select: { functionalLocationId: true } })).toMatchObject({ functionalLocationId: null });
+    expect(await prisma.auditTrail.count({ where: { action: 'FUNCTIONAL_LOCATION_INSTRUMENTS_CHANGED', targetId: b } })).toBe(0);
+
+    // Positive control: the same call without the ghost links, and the audit
+    // row names the CODE, never a uuid.
+    const ok = await app.inject({
+      method: 'PUT', url: `/api/functional-locations/${b}/instruments`, headers: admin,
+      payload: { instrumentIds: [real.json().id] },
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toMatchObject({ linked: 1 });
+    const row = await prisma.auditTrail.findFirst({ where: { action: 'FUNCTIONAL_LOCATION_INSTRUMENTS_CHANGED', targetId: b }, orderBy: { timestamp: 'desc' } });
+    expect((row!.afterValue as { linked: string[] }).linked).toEqual([`FLL-${stamp}`]);
+  });
+});

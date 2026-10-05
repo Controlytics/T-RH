@@ -119,21 +119,32 @@ export const REAUTH_ACTIONS = {
   APPROVE_REPORT: { label: 'Approve a Report Request', category: 'Reports' },
   REJECT_REPORT: { label: 'Reject a Report Request', category: 'Reports' },
 
-  // Instruments — DELIBERATELY EMPTY. All THREE token actions
-  // (`REVEAL_INSTRUMENT_TOKEN`, `SET_INSTRUMENT_TOKEN`,
-  // `REGENERATE_INSTRUMENT_TOKEN`) were listed here on 2026-08-06 and all three
-  // were removed the same day. Everything in this registry is an admin-managed
-  // POLICY — the config page renders one per-role toggle per entry — and all
-  // three endpoints now use `enforceReauthAlways`, so their password proof is
-  // intrinsic and no toggle can switch it off. Listing them would render a
-  // control that does nothing, which is exactly the "reauth theater" the three
-  // `*_TEMPLATE_KIND` entries were deleted for.
+  // Instrument registry (audit 2026-10-03, SEC-7). Until then creating, editing
+  // and deleting an instrument "carried no reauth at all — ordinary registry
+  // edits", while their sibling, the functional-location routes, had been
+  // configurable since 2026-08-13. They are not ordinary: create mints a device
+  // credential, update can move the device's MQTT identity (`code`), delete
+  // revokes the credential, and a profile update can delete an attribute on
+  // every instrument of the profile. Under `Configuration` with the
+  // functional-location trio — the same shelf, the same per-role toggle.
+  // Ships OFF like every entry here (the seeded policy is `{}`).
+  CREATE_INSTRUMENT: { label: 'Create Instrument', category: 'Configuration' },
+  UPDATE_INSTRUMENT: { label: 'Update Instrument (details, code, gateway link)', category: 'Configuration' },
+  DELETE_INSTRUMENT: { label: 'Delete Instrument', category: 'Configuration' },
+  UPDATE_INSTRUMENT_PROFILE: { label: 'Update Instrument Profile (attribute keys cascade)', category: 'Configuration' },
+  DELETE_INSTRUMENT_PROFILE: { label: 'Delete Instrument Profile', category: 'Configuration' },
+
+  // The THREE token actions (`REVEAL_INSTRUMENT_TOKEN`, `SET_INSTRUMENT_TOKEN`,
+  // `REGENERATE_INSTRUMENT_TOKEN`) are DELIBERATELY ABSENT. They were listed
+  // here on 2026-08-06 and removed the same day. Everything in this registry
+  // is an admin-managed POLICY — the config page renders one per-role toggle
+  // per entry — and all three endpoints use `enforceReauthAlways`, so their
+  // password proof is intrinsic and no toggle can switch it off. Listing them
+  // would render a control that does nothing, which is exactly the "reauth
+  // theater" the three `*_TEMPLATE_KIND` entries were deleted for.
   // `TOGGLE_SUPER_ADMIN_API_ACCESS` — the other always-on gate — is absent for
   // the same reason. The action strings still travel in the 401 bodies. See
   // `apps/api/src/modules/instruments/routes.ts`.
-  //
-  // Creating / editing / deleting an instrument carries no reauth at all —
-  // those are ordinary registry edits.
 } as const;
 
 export type ReauthAction = keyof typeof REAUTH_ACTIONS;

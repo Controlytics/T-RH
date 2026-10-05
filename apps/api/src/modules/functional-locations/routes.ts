@@ -714,6 +714,19 @@ export default async function functionalLocationRoutes(app: FastifyInstance) {
       select: { id: true, code: true, functionalLocationId: true },
     });
 
+    // Every id named must exist, as the floorplan twin
+    // (PUT /api/floorplans/:id/rooms/:roomId/instruments) already requires
+    // (audit 2026-10-03, API-20). This route used to skip an unknown id
+    // silently AND write the raw uuid into the audit row's `linked` list, so a
+    // typo read as a linked instrument in the §11 record and nothing else.
+    const unknown = wanted.filter((w) => !existing.some((i) => i.id === w));
+    if (unknown.length) {
+      return reply.code(400).send({
+        error: 'VALIDATION_ERROR',
+        message: `One or more instrument ids do not exist: ${unknown.join(', ')}.`,
+      });
+    }
+
     const toLink = existing.filter((i) => wanted.includes(i.id) && i.functionalLocationId !== id);
     const toUnlink = existing.filter((i) => i.functionalLocationId === id && !wanted.includes(i.id));
     const moved = toLink.filter((i) => i.functionalLocationId !== null);
@@ -737,7 +750,8 @@ export default async function functionalLocationRoutes(app: FastifyInstance) {
         },
         afterValue: {
           location: path,
-          linked: wanted.map((w) => existing.find((i) => i.id === w)?.code ?? w),
+          // Every id resolved above, so this is a list of CODES, never a raw uuid.
+          linked: wanted.map((w) => existing.find((i) => i.id === w)!.code),
           movedFromElsewhere: moved.map((i) => i.code),
         },
         signatureMeaning: `Instruments linked to functional location "${path}" changed`,

@@ -43,10 +43,20 @@ describe('System Health endpoints', () => {
       expect(body.cpu.model).toBeTruthy();
       expect(typeof body.cpu.usagePercent).toBe('number');
 
-      // Disk
+      // Disk — a MEASUREMENT, not the silent zeros of audit 2026-10-03, API-17.
+      // `statfs` works on every platform the suite runs on, so `available` is
+      // true here; the fields are asserted individually because Fastify strips
+      // an undeclared response property without a word.
       expect(body.disk).toBeDefined();
-      expect(typeof body.disk.totalBytes).toBe('number');
-      expect(typeof body.disk.usagePercent).toBe('number');
+      expect(body.disk.available).toBe(true);
+      expect(body.disk.error).toBeNull();
+      expect(typeof body.disk.path).toBe('string');
+      expect(body.disk.totalBytes).toBeGreaterThan(0);
+      expect(body.disk.freeBytes).toBeGreaterThan(0);
+      expect(body.disk.usagePercent).toBeGreaterThan(0);
+      expect(body.disk.usagePercent).toBeLessThanOrEqual(100);
+      // Load average is a Unix figure; Windows reports [0,0,0] and must say so.
+      expect(body.os.loadAvg.available).toBe(process.platform !== 'win32');
 
       // Process
       expect(body.process).toBeDefined();

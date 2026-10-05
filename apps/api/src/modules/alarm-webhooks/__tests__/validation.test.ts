@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateTargetDraft } from '../validation.js';
+import { validateTargetDraft, invalidHeader } from '../validation.js';
 
 const draft = (over: Record<string, unknown> = {}) => ({
   name: 'QC-3 hooter',
@@ -67,5 +67,46 @@ describe('validateTargetDraft', () => {
 
   it('accepts variables only some events provide — the template may draw from the union', () => {
     expect(validateTargetDraft(draft({ bodyTemplate: '{"d":"${duration}","who":"${acknowledgedBy}"}' }) as never)).toBeNull();
+  });
+});
+
+/**
+ * Audit 2026-10-03, API-20: headers were stored unvalidated, and a name with a
+ * space or a value with CR/LF made `fetch` throw on EVERY delivery — inside the
+ * worker, during an excursion, with the delivery row saying only that fetch
+ * threw. The same `Headers` constructor is the judge at save time.
+ */
+describe('invalidHeader', () => {
+  it('accepts a well-formed map and an absent one', () => {
+    expect(invalidHeader({ Authorization: 'Bearer x', 'X-Site': 'QC-3' })).toBeNull();
+    expect(invalidHeader({})).toBeNull();
+    expect(invalidHeader(undefined)).toBeNull();
+  });
+
+  it('names a header whose value carries a line break', () => {
+    expect(invalidHeader({ 'X-Note': 'line one\r\nline two' })).toMatch(/"X-Note"/);
+  });
+
+  it('names a header whose name has a space', () => {
+    expect(invalidHeader({ 'X Site': 'QC-3' })).toMatch(/"X Site"/);
+  });
+
+  it('refuses an empty name and a non-string value', () => {
+    expect(invalidHeader({ '': 'x' })).not.toBeNull();
+    expect(invalidHeader({ 'X-N': 7 })).toMatch(/string value/);
+  });
+
+  it('refuses a non-map', () => {
+    expect(invalidHeader(['X-N: 1'])).not.toBeNull();
+  });
+});
+
+describe('validateTargetDraft — headers', () => {
+  it('refuses a draft whose headers could not be sent, naming the field', () => {
+    expect(validateTargetDraft(draft({ headers: { 'X-Note': 'a\r\nb' } }) as never)?.field).toBe('headers');
+  });
+
+  it('accepts sendable headers', () => {
+    expect(validateTargetDraft(draft({ headers: { Authorization: 'Bearer x' } }) as never)).toBeNull();
   });
 });

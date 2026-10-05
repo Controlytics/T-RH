@@ -37,6 +37,12 @@ export interface RemarkDialogProps {
    * one reason will be recorded against.
    */
   changes?: RemarkChange[];
+  /**
+   * Overrides the attribute wording of the title. The Layout Designer signs a
+   * ROOM's limit change through this same dialog (2026-10-05, DATA-11) and
+   * "Change 2 attributes" would misname what is being recorded.
+   */
+  title?: string;
   destructive?: boolean;
   busy?: boolean;
   onSubmit: (remark: string) => void;
@@ -44,7 +50,7 @@ export interface RemarkDialogProps {
 }
 
 export function RemarkDialog({
-  open, attributeKey, from, to, changes, destructive = false, busy = false, onSubmit, onClose,
+  open, attributeKey, from, to, changes, title, destructive = false, busy = false, onSubmit, onClose,
 }: RemarkDialogProps) {
   const [remark, setRemark] = useState('');
   const [touched, setTouched] = useState(false);
@@ -69,9 +75,9 @@ export function RemarkDialog({
     <Dialog open={open} onClose={() => { if (!busy) onClose(); }} className="max-w-lg">
       <DialogHeader>
         <DialogTitle>
-          {changes
+          {title ?? (changes
             ? `${destructive ? 'Remove' : 'Change'} ${changes.length} attribute${changes.length === 1 ? '' : 's'}${destructive ? ' from instruments' : ''}`
-            : `${destructive ? 'Remove' : 'Change'} “${attributeKey}”`}
+            : `${destructive ? 'Remove' : 'Change'} “${attributeKey}”`)}
         </DialogTitle>
       </DialogHeader>
 

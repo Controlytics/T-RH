@@ -1,4 +1,4 @@
-import { type FastifyInstance } from 'fastify';
+import { type FastifyInstance, type FastifyReply } from 'fastify';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -21,9 +21,17 @@ async function ensureDirectories() {
   await mkdir(brandingDir, { recursive: true });
 }
 
-// Allowed image types — configurable via environment
-const ALLOWED_TYPES = (process.env.UPLOAD_ALLOWED_TYPES ?? 'image/jpeg,image/png,image/gif,image/webp').split(',');
+// Allowed image types — configurable via environment. Every entry MUST have a
+// MAGIC_BYTES row; `assertUploadConfig()` below refuses to start otherwise.
+const ALLOWED_TYPES = (process.env.UPLOAD_ALLOWED_TYPES ?? 'image/jpeg,image/png,image/gif,image/webp')
+  .split(',').map((t) => t.trim()).filter(Boolean);
 const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE ?? `${5 * 1024 * 1024}`, 10); // default 5MB
+const MAX_MB = MAX_FILE_SIZE / 1024 / 1024;
+// Passed to EVERY `req.file()` call (audit 2026-10-03, API-20). The global
+// `@fastify/multipart` registration in app.ts hard-codes 5 MB; a per-request
+// `limits` is what makes MAX_FILE_SIZE the number actually applied, and it is
+// also what sets `data.file.truncated` at the bound readValidatedImage reports.
+const FILE_LIMITS = { limits: { fileSize: MAX_FILE_SIZE } } as const;
 
 // Extension comes from the VALIDATED mime type, never the user-supplied
 // filename — the filename is attacker-controlled and `evil.png.exe` is a real
@@ -60,19 +68,63 @@ const MAGIC_BYTES: Record<string, number[]> = {
 const FAVICON_TYPES = [...ALLOWED_TYPES, 'image/x-icon', 'image/vnd.microsoft.icon'];
 
 /**
+ * The allowed types that have NO magic-byte signature (and so could never be
+ * content-checked), plus a bad MAX_FILE_SIZE — the two ways the environment
+ * can turn this module into a weaker one than the code reads as.
+ *
+ * Audit 2026-10-03, SEC-3: `UPLOAD_ALLOWED_TYPES=…,image/svg+xml` used to be
+ * accepted as configured. SVG has no row in MAGIC_BYTES, the content check was
+ * `if (expectedMagic && …)`, so the file was written UNCHECKED as `<uuid>.jpg`
+ * into `/uploads/photos/` — a PUBLIC path served from the API's own origin.
+ * That is stored script execution for every user who opens the link, reachable
+ * by any authenticated account through `POST /api/uploads/photo`. The
+ * invariant the comment above FAVICON_TYPES states ("SVG must stay absent") was
+ * written down and enforced nowhere; this is where it is enforced.
+ *
+ * Pure, so the rule is unit-testable without the environment; `uploadRoutes`
+ * applies it at registration, which fails the server's startup rather than
+ * admitting the type.
+ */
+export function uploadConfigProblems(
+  allowed: string[],
+  magic: Record<string, number[]> = MAGIC_BYTES,
+  maxFileSize: number = MAX_FILE_SIZE,
+): string[] {
+  const problems: string[] = [];
+  const unsigned = allowed.filter((t) => !magic[t]);
+  if (unsigned.length) {
+    problems.push(
+      `UPLOAD_ALLOWED_TYPES names type(s) with no magic-byte signature and therefore no content check: `
+      + `${unsigned.join(', ')}. Only ${Object.keys(magic).join(', ')} can be allowed.`,
+    );
+  }
+  if (!Number.isInteger(maxFileSize) || maxFileSize <= 0) {
+    problems.push(`MAX_FILE_SIZE must be a positive integer number of bytes; got "${process.env.MAX_FILE_SIZE}".`);
+  }
+  return problems;
+}
+
+/**
  * Buffer an uploaded image and validate it, or return the reply code + body to
  * send back.
  *
- * Shared by both upload routes so neither can drift into being the weaker one.
- * Two subtleties worth keeping in one place:
+ * Shared by ALL FOUR upload routes so none can drift into being the weaker one
+ * (`/photo` carried its own copy until audit 2026-10-03, API-20, and that copy
+ * had already drifted: it answered an oversize file with 400 where the others
+ * answered 413). Two subtleties worth keeping in one place:
  *
  *  - @fastify/multipart SILENTLY TRUNCATES the stream at `fileSize` rather than
  *    throwing, so a post-buffer `length > MAX_FILE_SIZE` check is ALWAYS FALSE.
  *    `data.file.truncated` is the only reliable oversize signal.
  *  - The declared mime type is attacker-controlled, so the magic bytes are
- *    checked against it before anything touches disk.
+ *    checked against it before anything touches disk — and a type with NO
+ *    signature is REFUSED, never waved through (SEC-3). The startup check above
+ *    makes that branch unreachable from the environment; it stays as the
+ *    defence in depth for a caller that passes its own `allowed` list.
+ *
+ * Exported for the unit tests only.
  */
-async function readValidatedImage(
+export async function readValidatedImage(
   data: { mimetype: string; file: NodeJS.ReadableStream & { truncated?: boolean } },
   allowed: string[] = ALLOWED_TYPES,
 ): Promise<{ ok: true; buffer: Buffer; ext: string } | { ok: false; code: 400 | 413; body: object }> {
@@ -89,6 +141,16 @@ async function readValidatedImage(
     };
   }
 
+  // Resolved BEFORE the stream is read: a type that cannot be content-checked is
+  // refused without buffering anything (SEC-3).
+  const expectedMagic = MAGIC_BYTES[data.mimetype];
+  if (!expectedMagic) {
+    return {
+      ok: false, code: 400,
+      body: { error: 'INVALID_FILE_TYPE', message: `No content signature is known for ${data.mimetype}; it cannot be accepted.` },
+    };
+  }
+
   const chunks: Buffer[] = [];
   for await (const chunk of data.file) chunks.push(chunk as Buffer);
   const buffer = Buffer.concat(chunks);
@@ -96,12 +158,11 @@ async function readValidatedImage(
   if (data.file.truncated) {
     return {
       ok: false, code: 413,
-      body: { error: 'FILE_TOO_LARGE', message: `File exceeds maximum size of ${MAX_FILE_SIZE / 1024 / 1024} MB` },
+      body: { error: 'FILE_TOO_LARGE', message: `File exceeds maximum size of ${MAX_MB} MB` },
     };
   }
 
-  const expectedMagic = MAGIC_BYTES[data.mimetype];
-  if (expectedMagic && !expectedMagic.every((byte, i) => buffer[i] === byte)) {
+  if (!expectedMagic.every((byte, i) => buffer[i] === byte)) {
     return {
       ok: false, code: 400,
       body: { error: 'INVALID_FILE', message: 'File content does not match declared type' },
@@ -111,7 +172,40 @@ async function readValidatedImage(
   return { ok: true, buffer, ext: MIME_TO_EXT[data.mimetype] ?? '.jpg' };
 }
 
+/**
+ * The catch-all every upload route shares. `FST_REQ_FILE_TOO_LARGE` is what
+ * @fastify/multipart throws when `req.file()` itself refuses the part (rather
+ * than truncating it), and it is 413 on EVERY route — `/photo` answered 400 for
+ * it until audit 2026-10-03, API-20.
+ */
+function uploadFailure(app: FastifyInstance, reply: FastifyReply, err: unknown) {
+  const e = err as { code?: string; statusCode?: number; message?: string };
+  if (e.code === 'FST_REQ_FILE_TOO_LARGE') {
+    return reply.code(413).send({
+      error: 'FILE_TOO_LARGE',
+      message: `File exceeds maximum size of ${MAX_MB} MB`,
+    });
+  }
+  if (e.statusCode === 415 || e.message?.includes('multipart')) {
+    return reply.code(400).send({
+      error: 'INVALID_REQUEST',
+      message: 'Request must be multipart/form-data with a file',
+    });
+  }
+  app.log.error(err);
+  return reply.code(500).send({ error: 'Failed to upload file' });
+}
+
 export default async function uploadRoutes(app: FastifyInstance) {
+  // Refuse to start on an environment the validator cannot honour (SEC-3). A
+  // thrown registration error stops `app.register(uploadRoutes)` and so the
+  // server, which is the point: a misconfigured allow-list must be loud at
+  // install time, not discovered as a stored-XSS report.
+  const problems = uploadConfigProblems(ALLOWED_TYPES);
+  if (problems.length) {
+    throw new Error(`Upload configuration refused (audit 2026-10-03, SEC-3):\n  ${problems.join('\n  ')}`);
+  }
+
   // Ensure directories exist on startup
   await ensureDirectories();
 
@@ -138,7 +232,7 @@ export default async function uploadRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Uploads'],
       summary: 'Upload a profile photo',
-      description: 'Upload a profile photo image file (JPEG, PNG, GIF, or WebP). Maximum file size is 5 MB. Returns the URL path for the uploaded photo.',
+      description: `Upload a profile photo image file (JPEG, PNG, GIF, or WebP). Maximum file size is ${MAX_MB} MB. Returns the URL path for the uploaded photo.`,
       consumes: ['multipart/form-data'],
       response: {
         200: {
@@ -173,82 +267,22 @@ export default async function uploadRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     try {
-      const data = await req.file();
+      const data = await req.file(FILE_LIMITS);
+      if (!data) return reply.code(400).send({ error: 'No file uploaded' });
 
-      if (!data) {
-        return reply.code(400).send({ error: 'No file uploaded' });
-      }
+      // The SHARED validator (audit 2026-10-03, API-20). This route carried its
+      // own inline copy of the type / truncation / magic checks, which had drifted
+      // from the one the other three use.
+      const result = await readValidatedImage(data as never);
+      if (!result.ok) return reply.code(result.code).send(result.body);
 
-      // Validate file type
-      if (!ALLOWED_TYPES.includes(data.mimetype)) {
-        return reply.code(400).send({
-          error: 'INVALID_FILE_TYPE',
-          message: 'Only JPEG, PNG, GIF, and WebP images are allowed'
-        });
-      }
+      // Named after the CALLER, so a photo can never land on another user's record.
+      const filename = `${req.user.sub}-${randomUUID()}${result.ext}`;
+      await writeFile(path.join(profilePhotosDir, filename), result.buffer);
 
-      // Generate unique filename — derive extension from validated MIME type, not user-supplied filename
-      const MIME_TO_EXT: Record<string, string> = {
-        'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp',
-      };
-      const ext = MIME_TO_EXT[data.mimetype] || '.jpg';
-      const filename = `${req.user.sub}-${randomUUID()}${ext}`;
-      const filepath = path.join(profilePhotosDir, filename);
-
-      // Buffer the file first
-      const chunks: Buffer[] = [];
-      for await (const chunk of data.file) {
-        chunks.push(chunk);
-      }
-      const buffer = Buffer.concat(chunks);
-
-      // Check truncation flag — @fastify/multipart silently TRUNCATES the stream
-      // at the configured fileSize limit instead of throwing. The post-buffer
-      // length check (buffer.length > MAX_FILE_SIZE) is therefore always false
-      // because the buffer is capped at exactly MAX_FILE_SIZE bytes. Checking
-      // data.file.truncated is the only reliable way to detect oversized uploads.
-      if ((data.file as any).truncated) {
-        return reply.code(413).send({
-          error: 'FILE_TOO_LARGE',
-          message: `File exceeds maximum size of ${MAX_FILE_SIZE / 1024 / 1024} MB`,
-        });
-      }
-
-      // Validate magic bytes
-      const MAGIC_BYTES: Record<string, number[]> = {
-        'image/jpeg': [0xFF, 0xD8, 0xFF],
-        'image/png': [0x89, 0x50, 0x4E, 0x47],
-        'image/gif': [0x47, 0x49, 0x46],
-        'image/webp': [0x52, 0x49, 0x46, 0x46], // RIFF header
-      };
-      const expectedMagic = MAGIC_BYTES[data.mimetype];
-      if (expectedMagic) {
-        const matches = expectedMagic.every((byte, i) => buffer[i] === byte);
-        if (!matches) {
-          return reply.code(400).send({ error: 'INVALID_FILE', message: 'File content does not match declared type' });
-        }
-      }
-
-      // Write to disk
-      await writeFile(filepath, buffer);
-
-      // Return the URL
-      const photoUrl = `/uploads/photos/${filename}`;
-
-      return {
-        success: true,
-        photoUrl,
-        filename,
-      };
-    } catch (err: any) {
-      if (err.code === 'FST_REQ_FILE_TOO_LARGE') {
-        return reply.code(400).send({ error: 'FILE_TOO_LARGE', message: 'File exceeds maximum size of 5MB' });
-      }
-      if (err.statusCode === 415 || err.message?.includes('multipart')) {
-        return reply.code(400).send({ error: 'INVALID_REQUEST', message: 'Request must be multipart/form-data with a file' });
-      }
-      app.log.error(err);
-      return reply.code(500).send({ error: 'Failed to upload file' });
+      return { success: true, photoUrl: `/uploads/photos/${filename}`, filename };
+    } catch (err: unknown) {
+      return uploadFailure(app, reply, err);
     }
   });
 
@@ -273,7 +307,7 @@ export default async function uploadRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Uploads'],
       summary: 'Upload a floorplan background image',
-      description: 'Upload a floor layout image (JPEG, PNG, GIF, or WebP). Maximum 5 MB. Returns the URL to store on the floorplan record.',
+      description: `Upload a floor layout image (JPEG, PNG, GIF, or WebP). Maximum ${MAX_MB} MB. Returns the URL to store on the floorplan record.`,
       consumes: ['multipart/form-data'],
       response: {
         200: {
@@ -291,7 +325,7 @@ export default async function uploadRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     try {
-      const data = await req.file();
+      const data = await req.file(FILE_LIMITS);
       if (!data) return reply.code(400).send({ error: 'No file uploaded' });
 
       const result = await readValidatedImage(data as never);
@@ -302,21 +336,7 @@ export default async function uploadRoutes(app: FastifyInstance) {
 
       return { success: true, url: `/uploads/floorplans/${filename}`, filename };
     } catch (err: unknown) {
-      const e = err as { code?: string; statusCode?: number; message?: string };
-      if (e.code === 'FST_REQ_FILE_TOO_LARGE') {
-        return reply.code(413).send({
-          error: 'FILE_TOO_LARGE',
-          message: `File exceeds maximum size of ${MAX_FILE_SIZE / 1024 / 1024} MB`,
-        });
-      }
-      if (e.statusCode === 415 || e.message?.includes('multipart')) {
-        return reply.code(400).send({
-          error: 'INVALID_REQUEST',
-          message: 'Request must be multipart/form-data with a file',
-        });
-      }
-      app.log.error(err);
-      return reply.code(500).send({ error: 'Failed to upload file' });
+      return uploadFailure(app, reply, err);
     }
   });
 
@@ -338,7 +358,7 @@ export default async function uploadRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Uploads'],
       summary: 'Upload the application background image',
-      description: 'Upload a background image (JPEG, PNG, GIF, or WebP). Maximum 5 MB. Returns the URL to store on the branding config.',
+      description: `Upload a background image (JPEG, PNG, GIF, or WebP). Maximum ${MAX_MB} MB. Returns the URL to store on the branding config.`,
       consumes: ['multipart/form-data'],
       response: {
         200: {
@@ -356,7 +376,7 @@ export default async function uploadRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     try {
-      const data = await req.file();
+      const data = await req.file(FILE_LIMITS);
       if (!data) return reply.code(400).send({ error: 'No file uploaded' });
 
       // The SHARED validator — magic bytes checked against the declared (and
@@ -376,21 +396,7 @@ export default async function uploadRoutes(app: FastifyInstance) {
       // by the operator, not silently by this route.
       return { success: true, url: `/uploads/branding/${filename}`, filename };
     } catch (err: unknown) {
-      const e = err as { code?: string; statusCode?: number; message?: string };
-      if (e.code === 'FST_REQ_FILE_TOO_LARGE') {
-        return reply.code(413).send({
-          error: 'FILE_TOO_LARGE',
-          message: `File exceeds maximum size of ${MAX_FILE_SIZE / 1024 / 1024} MB`,
-        });
-      }
-      if (e.statusCode === 415 || e.message?.includes('multipart')) {
-        return reply.code(400).send({
-          error: 'INVALID_REQUEST',
-          message: 'Request must be multipart/form-data with a file',
-        });
-      }
-      app.log.error(err);
-      return reply.code(500).send({ error: 'Failed to upload file' });
+      return uploadFailure(app, reply, err);
     }
   });
 
@@ -413,7 +419,7 @@ export default async function uploadRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Uploads'],
       summary: 'Upload the browser tab icon (favicon)',
-      description: 'Upload a favicon (ICO, PNG, JPEG, GIF or WebP). Maximum 5 MB. Returns the URL to store on the branding config as faviconUrl.',
+      description: `Upload a favicon (ICO, PNG, JPEG, GIF or WebP). Maximum ${MAX_MB} MB. Returns the URL to store on the branding config as faviconUrl.`,
       consumes: ['multipart/form-data'],
       response: {
         200: {
@@ -431,7 +437,7 @@ export default async function uploadRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     try {
-      const data = await req.file();
+      const data = await req.file(FILE_LIMITS);
       if (!data) return reply.code(400).send({ error: 'No file uploaded' });
 
       // The SHARED validator, with this route's wider allow-list — magic bytes
@@ -453,21 +459,7 @@ export default async function uploadRoutes(app: FastifyInstance) {
       // orphaned image.
       return { success: true, url: `/uploads/branding/${filename}`, filename };
     } catch (err: unknown) {
-      const e = err as { code?: string; statusCode?: number; message?: string };
-      if (e.code === 'FST_REQ_FILE_TOO_LARGE') {
-        return reply.code(413).send({
-          error: 'FILE_TOO_LARGE',
-          message: `File exceeds maximum size of ${MAX_FILE_SIZE / 1024 / 1024} MB`,
-        });
-      }
-      if (e.statusCode === 415 || e.message?.includes('multipart')) {
-        return reply.code(400).send({
-          error: 'INVALID_REQUEST',
-          message: 'Request must be multipart/form-data with a file',
-        });
-      }
-      app.log.error(err);
-      return reply.code(500).send({ error: 'Failed to upload file' });
+      return uploadFailure(app, reply, err);
     }
   });
 }
