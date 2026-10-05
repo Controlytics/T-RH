@@ -126,7 +126,8 @@ if (Test-Path $envFile) {
   if (-not $AdminPassword) { Write-Host "FATAL: -AdminPassword required on fresh install." -ForegroundColor Red; exit 1 }
   $appDbPassword = NewSecret 18
   $jwt           = NewSecret 48
-  $verify        = NewSecret 48
+  # VERIFICATION_TOKEN_SECRET is no longer generated: the /api/auth/verify route
+  # it signed for was removed (audit 2026-10-03, SEC-5); nothing reads it.
   $offline       = NewSecret 48
   # 21 CFR 11.10(e) — audit-chain HMAC key. Without it the writer falls back to
   # UNKEYED SHA-256, and because the checksum lives in the same table it
@@ -140,13 +141,17 @@ if (Test-Path $envFile) {
   # table is empty, so the keyed era starts at 0 (every row, forever).
   $auditKey      = NewSecret 48
   $dbUrl = "postgresql://digilog:$appDbPassword@localhost:$PgPort/digilog_db?schema=public"
+  # AUDIT_HARD_DELETE_ENABLED=false (audit 2026-10-03, DATA-8): a customer
+  # install must not be able to physically destroy §11 audit rows out of the
+  # box. The code default with the line ABSENT is enabled, so the template
+  # writes it explicitly; a validated site that needs the capability flips it.
   $envBody = @"
 DATABASE_URL=$dbUrl
 JWT_SECRET=$jwt
-VERIFICATION_TOKEN_SECRET=$verify
 OFFLINE_REPLAY_SECRET=$offline
 AUDIT_CHAIN_KEY=$auditKey
 AUDIT_CHAIN_KEYED_FROM=0
+AUDIT_HARD_DELETE_ENABLED=false
 JWT_EXPIRES_IN=1h
 NODE_ENV=production
 PORT=$ApiPort

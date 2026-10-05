@@ -6,7 +6,6 @@ const {
   mockHashPassword,
   mockVerifyPassword,
   mockSignToken,
-  mockSignVerificationToken,
   mockVerifyToken,
   mockAuditLog,
   mockCreateNotification,
@@ -38,7 +37,6 @@ const {
   mockHashPassword: vi.fn(),
   mockVerifyPassword: vi.fn(),
   mockSignToken: vi.fn(),
-  mockSignVerificationToken: vi.fn(),
   mockVerifyToken: vi.fn(),
   mockAuditLog: vi.fn(),
   mockCreateNotification: vi.fn(),
@@ -46,7 +44,7 @@ const {
 
 vi.mock('../auth.repository.js', () => ({ authRepository: mockRepo }));
 vi.mock('../../../lib/password.js', () => ({ hashPassword: mockHashPassword, verifyPassword: mockVerifyPassword }));
-vi.mock('../../../lib/jwt.js', () => ({ signToken: mockSignToken, signVerificationToken: mockSignVerificationToken, verifyToken: mockVerifyToken }));
+vi.mock('../../../lib/jwt.js', () => ({ signToken: mockSignToken, verifyToken: mockVerifyToken }));
 vi.mock('../../../lib/audit.js', () => ({ auditLog: mockAuditLog }));
 vi.mock('../../notifications/notification.service.js', () => ({ createNotification: mockCreateNotification }));
 
@@ -337,24 +335,8 @@ describe('authService', () => {
     });
   });
 
-  // ── verify ──
-  describe('verify', () => {
-    it('returns verification token on valid password', async () => {
-      mockRepo.findUserById.mockResolvedValue(makeUser());
-      mockVerifyPassword.mockResolvedValue(true);
-      mockSignVerificationToken.mockResolvedValue('vtoken');
-
-      const result = await authService.verify('user-1', 'pass');
-      expect(result).toBe('vtoken');
-    });
-
-    it('throws for wrong password', async () => {
-      mockRepo.findUserById.mockResolvedValue(makeUser());
-      mockVerifyPassword.mockResolvedValue(false);
-
-      await expect(authService.verify('user-1', 'wrong')).rejects.toThrow('incorrect');
-    });
-  });
+  // (`verify` and its two cases went with POST /api/auth/verify — audit
+  // 2026-10-03, SEC-5. The re-auth password check is lib/reauth-check.ts now.)
 
   // ── forgotPassword ──
   describe('forgotPassword', () => {

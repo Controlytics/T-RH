@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll } from 'vitest';
-import { signToken, verifyToken, signVerificationToken, verifyVerificationToken, type JwtPayload } from './jwt.js';
+import { describe, it, expect } from 'vitest';
+import { signToken, verifyToken, type JwtPayload } from './jwt.js';
 
 // JWT module initializes secrets on import; dev mode generates random secrets
 // so these tests work without env vars set
@@ -50,31 +50,7 @@ describe('JWT token operations', () => {
     });
   });
 
-  describe('signVerificationToken + verifyVerificationToken', () => {
-    it('signs and verifies a verification token', async () => {
-      const token = await signVerificationToken('user-456');
-      expect(token).toBeTruthy();
-
-      const decoded = await verifyVerificationToken(token);
-      expect(decoded.sub).toBe('user-456');
-    });
-
-    it('rejects tampered verification token', async () => {
-      const token = await signVerificationToken('user-789');
-      const tampered = token.slice(0, -3) + 'ZZZ';
-      await expect(verifyVerificationToken(tampered)).rejects.toThrow();
-    });
-  });
-
-  describe('cross-contamination prevention', () => {
-    it('main token cannot be verified as verification token', async () => {
-      const mainToken = await signToken(testPayload);
-      await expect(verifyVerificationToken(mainToken)).rejects.toThrow();
-    });
-
-    it('verification token cannot be verified as main token', async () => {
-      const verifyTok = await signVerificationToken('user-123');
-      await expect(verifyToken(verifyTok)).rejects.toThrow();
-    });
-  });
+  // The `signVerificationToken` / `verifyVerificationToken` pair and their
+  // cross-contamination cases were removed with POST /api/auth/verify (audit
+  // 2026-10-03, SEC-5): the token they minted had no consumer anywhere.
 });

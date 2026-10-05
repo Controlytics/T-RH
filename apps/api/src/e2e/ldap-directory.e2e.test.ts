@@ -334,48 +334,36 @@ describe('access restriction', () => {
 });
 
 describe('re-authentication — the electronic-signature path', () => {
-  it('POST /api/auth/verify succeeds for a directory user with their AD password', async () => {
-    // THE critical fix. This endpoint always verifies — it cannot pass
-    // vacuously the way a reauth-gated route can when the action isn't
-    // configured for the caller's role. Before 2026-08-08 it bcrypt-compared
-    // against the sentinel and could never succeed, so no AD Supervisor or QA
-    // could sign anything.
-    const token = JSON.parse((await login('EMP1002', AD_PASSWORD)).body).token;
+  // POST /api/auth/verify — the first re-auth implementation, which minted a
+  // verification token nothing consumed — was removed (audit 2026-10-03,
+  // SEC-5). The ONE re-auth path is now lib/reauth-check.ts, exercised below
+  // through a real gated endpoint. Before 2026-08-08 both implementations
+  // bcrypt-compared a directory user's password against the sentinel and could
+  // never succeed, so no AD Supervisor or QA could sign anything.
 
-    const res = await app.inject({
-      method: 'POST', url: '/api/auth/verify',
-      headers: { authorization: `Bearer ${token}` },
-      payload: { password: AD_PASSWORD },
-    });
-
-    expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body).verificationToken).toBeTruthy();
-  });
-
-  it('POST /api/auth/verify rejects the wrong password', async () => {
-    const token = JSON.parse((await login('EMP1002', AD_PASSWORD)).body).token;
-
-    const res = await app.inject({
-      method: 'POST', url: '/api/auth/verify',
-      headers: { authorization: `Bearer ${token}` },
-      payload: { password: 'wrong' },
-    });
-
-    expect(res.statusCode).toBe(401);
+  // Seeding action-reauth is essential — without a row naming this action for
+  // this role, enforceReauth short-circuits and a test would pass while
+  // proving nothing. Idempotent, so each case seeds for itself.
+  const armProfileReauthForAdmin = () => prisma.systemConfig.upsert({
+    where: { configKey: 'action-reauth' },
+    update: { configValue: { UPDATE_PROFILE: ['ADMIN'] } as any },
+    create: { configKey: 'action-reauth', configValue: { UPDATE_PROFILE: ['ADMIN'] } as any, configType: 'security', updatedBy: 'e2e' },
   });
 
   it('a failed reauth does NOT lock the account (lockout delegated to AD)', async () => {
-    const token = JSON.parse((await login('EMP1002', AD_PASSWORD)).body).token;
+    await armProfileReauthForAdmin();
+    const token = JSON.parse((await login('EMP1001', AD_PASSWORD)).body).token; // ADMIN
 
     for (let i = 0; i < 6; i++) {
-      await app.inject({
-        method: 'POST', url: '/api/auth/verify',
+      const res = await app.inject({
+        method: 'PUT', url: '/api/auth/profile',
         headers: { authorization: `Bearer ${token}` },
-        payload: { password: 'wrong' },
+        payload: { fullName: 'Ravi Kumar', _currentPassword: 'wrong' },
       });
+      expect(res.statusCode).toBe(401);
     }
 
-    const user = await prisma.user.findUnique({ where: { username: 'EMP1002' } });
+    const user = await prisma.user.findUnique({ where: { username: 'EMP1001' } });
     expect(user!.failedLoginAttempts).toBe(0);
     expect(user!.status).toBe('ENABLED');
   });

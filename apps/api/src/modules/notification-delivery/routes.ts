@@ -3,7 +3,7 @@
  * sending test notifications, and querying delivery logs.
  */
 
-import { type FastifyInstance } from 'fastify';
+import { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { buildContext } from '../../lib/build-context.js';
@@ -22,6 +22,30 @@ const escapeHtml = (s: unknown): string =>
 import { stripPrivateFields, enforceReauth } from '../../lib/reauth-check.js';
 
 const MASK = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
+
+/**
+ * The public origin of THIS server, for the OAuth2 redirect URI the provider
+ * is told to send the authorization code back to (audit 2026-10-03, SEC-6).
+ *
+ * `PUBLIC_BASE_URL` (env) is the one configured value - the address the
+ * administrator registered with Azure AD / Google - and wins whenever set.
+ * Without it the origin is derived from the request through Fastify's own
+ * `req.protocol` / `req.host`, which honour `X-Forwarded-Proto` /
+ * `X-Forwarded-Host` ONLY when the app was built with `trustProxy` on
+ * (TRUST_PROXY in env, see app.ts). Until this helper the three OAuth2 routes
+ * read the raw `x-forwarded-*` headers themselves, regardless of trustProxy -
+ * on a direct deployment (the AWS unit runs Fastify on 443 with no proxy) those
+ * are whatever the client sends - and defaulted the scheme to `http`, so an
+ * HTTPS install registered an `http://` redirect URI and the provider refused
+ * it as a mismatch.
+ */
+export function publicBaseUrl(req: FastifyRequest): string {
+  const configured = process.env.PUBLIC_BASE_URL?.trim();
+  if (configured) return configured.replace(/\/+$/, '');
+  return `${req.protocol}://${req.host}`;
+}
+
+const OAUTH2_CALLBACK_PATH = '/api/notification-settings/email/oauth2/code';
 
 // Audit allowlists \u2014 keys whose values are safe to persist into the immutable,
 // hash-chained audit trail. Anything absent is redacted (see lib/mask-secrets.ts
@@ -178,9 +202,7 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', properties: { redirectUri: { type: 'string' } } } },
     },
   }, async (req) => {
-    const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
-    const proto = req.headers['x-forwarded-proto'] || 'http';
-    const redirectUri = `${proto}://${host}/api/notification-settings/email/oauth2/code`;
+    const redirectUri = `${publicBaseUrl(req)}${OAUTH2_CALLBACK_PATH}`;
     return { redirectUri };
   });
 
@@ -197,9 +219,7 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     const config = await prisma.systemConfig.findUnique({ where: { configKey: 'notification-email' } });
     const value = (config?.configValue ?? {}) as Record<string, unknown>;
 
-    const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
-    const proto = req.headers['x-forwarded-proto'] || 'http';
-    const redirectUri = `${proto}://${host}/api/notification-settings/email/oauth2/code`;
+    const redirectUri = `${publicBaseUrl(req)}${OAUTH2_CALLBACK_PATH}`;
 
     const provider = String(value.oauth2Provider ?? 'microsoft');
     const clientId = String(value.clientId ?? '');
@@ -290,9 +310,7 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
         return reply.type('text/html').send('<html><body><h2>Authorization Error</h2><p>Invalid or expired authorization state. Please restart the connection from the notification settings page.</p><script>window.close();</script></body></html>');
       }
 
-      const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
-      const proto = req.headers['x-forwarded-proto'] || 'http';
-      const redirectUri = `${proto}://${host}/api/notification-settings/email/oauth2/code`;
+      const redirectUri = `${publicBaseUrl(req)}${OAUTH2_CALLBACK_PATH}`;
 
       const provider = String(value.oauth2Provider ?? 'microsoft');
       const clientId = String(value.clientId ?? '');

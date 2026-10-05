@@ -17,6 +17,7 @@ vi.mock('../../lib/jwt.js', () => ({ verifyToken: mockVerifyToken }));
 vi.mock('../../lib/prisma.js', () => ({ prisma: mockPrisma }));
 
 import authPlugin, { invalidatePasswordPolicyCache, invalidateUserAuthCache, invalidateSessionAuthCache, matchesPublicPath } from '../auth.js';
+import { invalidateSuperAdminApiCache } from '../../lib/super-admin-lock.js';
 
 describe('matchesPublicPath — segment-boundary public-path matching', () => {
   const PUBLIC = ['/api/auth/login', '/api/health', '/api/roles/active'];
@@ -331,6 +332,132 @@ describe('authPlugin', () => {
 
     await onRequestHook(req, reply);
     expect(reply.code).toHaveBeenCalledWith(401);
+  });
+});
+
+/**
+ * The two gated states — forced password change and the SUPER_ADMIN API
+ * kill-switch — each keep a short allowlist (audit 2026-10-03, SEC-4). Both
+ * used to match it with a bare `startsWith`, and both named
+ * `/api/config/password-policy`, so `PUT /api/config/password-policy` (the
+ * policy WRITE, same prefix) was admitted while the account was supposedly
+ * frozen. These cases drive the real hook: the write must be refused, the
+ * public `/current` read admitted, and a shadowing sibling refused.
+ * Mutation-checked: restoring the prefix + `startsWith` fails the PUT cases.
+ */
+describe('authPlugin — gated-state allowlists are segment-matched (SEC-4)', () => {
+  let onRequestHook: Function;
+
+  const liveSession = () => ({
+    id: 's1',
+    isActive: true,
+    createdAt: new Date(Date.now() - 60_000),
+    expiresAt: new Date(Date.now() + 3_600_000),
+  });
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    invalidatePasswordPolicyCache();
+    invalidateUserAuthCache('u1');
+    invalidateSessionAuthCache('s1');
+    invalidateSuperAdminApiCache();
+    const app = {
+      addHook: vi.fn((event: string, handler: Function) => {
+        if (event === 'onRequest') onRequestHook = handler;
+      }),
+    } as any;
+    await authPlugin(app, {});
+    mockPrisma.session.findFirst.mockResolvedValue(liveSession());
+    mockPrisma.session.update.mockResolvedValue({});
+    mockPrisma.systemConfig.findFirst.mockResolvedValue({ configValue: { sessionDurationHours: 8 } });
+  });
+
+  async function run(url: string, method: string) {
+    const reply = makeReply();
+    await onRequestHook(makeReq({ url, method }), reply);
+    return reply;
+  }
+
+  describe('forced password change', () => {
+    beforeEach(() => {
+      mockVerifyToken.mockResolvedValue({ sub: 'u1', username: 'admin', role: 'ADMIN', sessionId: 's1' });
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'u1', role: 'ADMIN', username: 'admin', status: 'ENABLED',
+        forcePasswordChange: true,
+        passwordChangedAt: new Date(), createdAt: new Date(),
+      });
+      // password-policy row: 90-day expiry, saved long ago (no grace floor).
+      mockPrisma.systemConfig.findUnique.mockResolvedValue({
+        configValue: { passwordExpiryDays: 90 },
+        updatedAt: new Date(Date.now() - 365 * 86_400_000),
+      });
+    });
+
+    it('refuses the password-policy WRITE', async () => {
+      const reply = await run('/api/config/password-policy', 'PUT');
+      expect(reply.code).toHaveBeenCalledWith(403);
+      expect(reply.send).toHaveBeenCalledWith(expect.objectContaining({ error: 'FORCE_PASSWORD_CHANGE' }));
+    });
+
+    it('refuses the admin policy READ too — only the public /current leaf is needed', async () => {
+      const reply = await run('/api/config/password-policy', 'GET');
+      expect(reply.code).toHaveBeenCalledWith(403);
+    });
+
+    it('admits the public policy read the change-password page calls', async () => {
+      const reply = await run('/api/config/password-policy/current', 'GET');
+      expect(reply.code).not.toHaveBeenCalledWith(403);
+    });
+
+    it('admits the change-password and tablet-access leaves, with a query string', async () => {
+      expect((await run('/api/auth/change-password', 'POST')).code).not.toHaveBeenCalledWith(403);
+      expect((await run('/api/config/tablet-access/my-features?x=1', 'GET')).code).not.toHaveBeenCalledWith(403);
+    });
+
+    it('refuses a shadowing sibling of an allowed path', async () => {
+      // A bare prefix match would admit these; a segment match must not.
+      expect((await run('/api/auth/me-history', 'GET')).code).toHaveBeenCalledWith(403);
+      expect((await run('/api/config/password-policy/current-evil', 'GET')).code).toHaveBeenCalledWith(403);
+    });
+  });
+
+  describe('SUPER_ADMIN API kill-switch OFF', () => {
+    beforeEach(() => {
+      mockVerifyToken.mockResolvedValue({ sub: 'u1', username: 'superadmin', role: 'SUPER_ADMIN', sessionId: 's1' });
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'u1', role: 'SUPER_ADMIN', username: 'superadmin', status: 'ENABLED',
+        forcePasswordChange: false,
+        passwordChangedAt: new Date(), createdAt: new Date(),
+      });
+      // isSuperAdminApiEnabled() reads the kill-switch row through the same
+      // mocked client; answer by key so a policy read (if any) is unaffected.
+      mockPrisma.systemConfig.findUnique.mockImplementation(async ({ where }: any) =>
+        where?.configKey === 'super-admin-api-access'
+          ? { configValue: { enabled: false } }
+          : { configValue: { passwordExpiryDays: 90 }, updatedAt: new Date(Date.now() - 365 * 86_400_000) },
+      );
+    });
+
+    it('refuses the password-policy WRITE while locked', async () => {
+      const reply = await run('/api/config/password-policy', 'PUT');
+      expect(reply.code).toHaveBeenCalledWith(403);
+      expect(reply.send).toHaveBeenCalledWith(expect.objectContaining({ error: 'SUPER_ADMIN_API_LOCKED' }));
+    });
+
+    it('admits the public policy read and the lock toggle itself', async () => {
+      expect((await run('/api/config/password-policy/current', 'GET')).code).not.toHaveBeenCalledWith(403);
+      expect((await run('/api/super-admin/api-lock', 'GET')).code).not.toHaveBeenCalledWith(403);
+      expect((await run('/api/super-admin/api-lock', 'PUT')).code).not.toHaveBeenCalledWith(403);
+    });
+
+    it('refuses a shadowing sibling of an allowed path', async () => {
+      expect((await run('/api/super-admin/api-lockdown', 'GET')).code).toHaveBeenCalledWith(403);
+      expect((await run('/api/auth/refresh-all', 'POST')).code).toHaveBeenCalledWith(403);
+    });
+
+    it('still freezes everything else', async () => {
+      expect((await run('/api/users', 'GET')).code).toHaveBeenCalledWith(403);
+    });
   });
 });
 

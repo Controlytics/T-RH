@@ -217,6 +217,45 @@ const PUBLIC_PATHS = [
 // stays contained to one component.
 const PUBLIC_GET_PATHS = ['/api/config/branding', '/api/config/datetime/current', '/uploads/photos/', '/uploads/branding/', '/uploads/floorplans/', '/api/roles/active', '/api/admin-requests/user-lookup'];
 
+// The two allowlists below are matched with `matchesPublicPath` — a SEGMENT
+// boundary, never a bare prefix (audit 2026-10-03, SEC-4). Until then both
+// gates used `req.url.startsWith(p)` with `/api/config/password-policy` in the
+// list, and that prefix ALSO matched `PUT /api/config/password-policy` — the
+// policy WRITE. A SUPER_ADMIN whose API access had been switched off to
+// neutralise the account could still rewrite the password policy (drop the
+// complexity flags, set maxFailedAttempts to 1000), and a forced-password-change
+// user holding CONFIG_UPDATE could do the same before setting a new password.
+// What those two states actually need is the PUBLIC policy read the shell and
+// the change-password page call, so that leaf is listed, not its parent.
+// Pinned by plugins/__tests__/public-paths.test.ts (the exact lists) and
+// auth.plugin.test.ts (the write is refused, the read admitted).
+
+// Paths allowed when forcePasswordChange is true
+const PASSWORD_CHANGE_ALLOWED = [
+  '/api/auth/change-password',
+  '/api/auth/logout',
+  '/api/auth/me',
+  '/api/config/password-policy/current',
+  // The tablet login gate (mobile-login.tsx checkTabletAccess) reads the
+  // operator's OWN allowlist here before deciding whether to admit them.
+  // Without this exemption it returned 403 for any forced-change user, the
+  // fail-closed check read that as "no tablet access", and the operator
+  // was bounced off login and never reached /change-password — i.e. a
+  // temp-password / reset / expired user could not set a new password from
+  // the tablet at all (reported 2026-05-30). Read-only, own-config only.
+  '/api/config/tablet-access/my-features',
+];
+
+// Paths a SUPER_ADMIN may still reach while the API kill-switch is OFF.
+const SA_LOCK_ALLOWED = [
+  '/api/auth/me',
+  '/api/auth/logout',
+  '/api/auth/refresh',
+  '/api/auth/change-password',
+  '/api/config/password-policy/current', // public policy read used by the shell
+  '/api/super-admin/api-lock',           // read state + flip the switch (reauth on flip)
+];
+
 async function authPlugin(app: FastifyInstance) {
   app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
     // Fully public paths (all methods). Segment-boundary match, not bare prefix.
@@ -305,22 +344,6 @@ async function authPlugin(app: FastifyInstance) {
       username: user.username,
     };
 
-    // Paths allowed when forcePasswordChange is true
-    const PASSWORD_CHANGE_ALLOWED = [
-      '/api/auth/change-password',
-      '/api/auth/logout',
-      '/api/auth/me',
-      '/api/config/password-policy',
-      // The tablet login gate (mobile-login.tsx checkTabletAccess) reads the
-      // operator's OWN allowlist here before deciding whether to admit them.
-      // Without this exemption it returned 403 for any forced-change user, the
-      // fail-closed check read that as "no tablet access", and the operator
-      // was bounced off login and never reached /change-password — i.e. a
-      // temp-password / reset / expired user could not set a new password from
-      // the tablet at all (reported 2026-05-30). Read-only, own-config only.
-      '/api/config/tablet-access/my-features',
-    ];
-
     // Check password expiry (server-side enforcement). Derived from
     // passwordChangedAt + the live policy + policy save time (which acts
     // as a grace-period floor — lowering the policy doesn't mass-lock
@@ -379,7 +402,8 @@ async function authPlugin(app: FastifyInstance) {
     // because the flag has no meaning for an account whose password this
     // application neither holds nor can change.
     if (user.forcePasswordChange && !directoryUser) {
-      const isAllowed = PASSWORD_CHANGE_ALLOWED.some((p) => req.url.startsWith(p));
+      // Segment-boundary match, never a bare prefix — see PASSWORD_CHANGE_ALLOWED.
+      const isAllowed = matchesPublicPath(req.url, PASSWORD_CHANGE_ALLOWED);
       if (!isAllowed) {
         const errorCode = passwordExpired ? 'PASSWORD_EXPIRED' : 'FORCE_PASSWORD_CHANGE';
         return reply.code(403).send({
@@ -403,15 +427,8 @@ async function authPlugin(app: FastifyInstance) {
     if (user.role === 'SUPER_ADMIN') {
       const enabled = await isSuperAdminApiEnabled();
       if (!enabled) {
-        const SA_LOCK_ALLOWED = [
-          '/api/auth/me',
-          '/api/auth/logout',
-          '/api/auth/refresh',
-          '/api/auth/change-password',
-          '/api/config/password-policy', // public policy read used by the shell
-          '/api/super-admin/api-lock',   // read state + flip the switch (reauth on flip)
-        ];
-        if (!SA_LOCK_ALLOWED.some((p) => req.url.startsWith(p))) {
+        // Segment-boundary match, never a bare prefix — see SA_LOCK_ALLOWED.
+        if (!matchesPublicPath(req.url, SA_LOCK_ALLOWED)) {
           return reply.code(403).send({
             error: 'SUPER_ADMIN_API_LOCKED',
             message: 'Super Admin API access is currently disabled. Re-enable it to continue.',

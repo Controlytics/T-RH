@@ -28,6 +28,49 @@ describe('auth plugin public paths', () => {
     ]);
   });
 
+  /**
+   * The two gated-state allowlists (audit 2026-10-03, SEC-4). Each used to name
+   * `/api/config/password-policy`, which under the old `startsWith` ALSO admitted
+   * the policy WRITE while the account was locked or forced to change its
+   * password. Only the public `/current` read belongs here; a parent prefix of
+   * a writable resource is the hole being closed. Both lists are hoisted to
+   * module scope so this test can read them the same way it reads PUBLIC_PATHS.
+   */
+  const listAfter = (marker: string, end: string) => {
+    const start = src.indexOf(marker);
+    expect(start, `${marker} must be a module-scope constant in auth.ts`).toBeGreaterThan(-1);
+    const slice = src.slice(start, src.indexOf(end, start));
+    return [...slice.matchAll(/'(\/[^']*)'/g)].map((m) => m[1]).sort();
+  };
+
+  it('a forced-password-change user may reach exactly these paths', () => {
+    expect(listAfter('const PASSWORD_CHANGE_ALLOWED', 'const SA_LOCK_ALLOWED')).toEqual([
+      '/api/auth/change-password',
+      '/api/auth/logout',
+      '/api/auth/me',
+      '/api/config/password-policy/current',
+      '/api/config/tablet-access/my-features',
+    ]);
+  });
+
+  it('a SUPER_ADMIN under the API kill-switch may reach exactly these paths', () => {
+    expect(listAfter('const SA_LOCK_ALLOWED', 'async function authPlugin')).toEqual([
+      '/api/auth/change-password',
+      '/api/auth/logout',
+      '/api/auth/me',
+      '/api/auth/refresh',
+      '/api/config/password-policy/current',
+      '/api/super-admin/api-lock',
+    ]);
+  });
+
+  it('neither gated-state list names a writable config resource by its parent prefix', () => {
+    for (const marker of ['const PASSWORD_CHANGE_ALLOWED', 'const SA_LOCK_ALLOWED']) {
+      const list = listAfter(marker, marker === 'const SA_LOCK_ALLOWED' ? 'async function authPlugin' : 'const SA_LOCK_ALLOWED');
+      expect(list, `${marker} must list the /current read, not the PUT-able prefix`).not.toContain('/api/config/password-policy');
+    }
+  });
+
   it('exposes exactly the three device-token ingest paths', () => {
     // All three turn on a per-instrument token instead of a user JWT: the HTTP
     // POST, the WebSocket upgrade, and the hook EMQX calls at MQTT CONNECT

@@ -165,34 +165,14 @@ describe('Auth endpoints', () => {
   });
 
   // =============================================
-  // POST /api/auth/verify (re-auth)
+  // POST /api/auth/verify — REMOVED (audit 2026-10-03, SEC-5)
   // =============================================
   describe('POST /api/auth/verify', () => {
-    it('returns verification token for correct password', async () => {
+    it('no longer exists — the verification token it minted had no consumer', async () => {
       const token = await loginAs(app);
-      const res = await authPost(app, '/api/auth/verify', token, {
-        password: 'Admin@123',
-      });
-
-      expect(res.statusCode).toBe(200);
-      const body = JSON.parse(res.body);
-      expect(body.success).toBe(true);
-      expect(body.verificationToken).toBeTruthy();
-    });
-
-    it('returns 401 for wrong password', async () => {
-      const token = await loginAs(app);
-      const res = await authPost(app, '/api/auth/verify', token, {
-        password: 'WrongPassword@1',
-      });
-
-      expect(res.statusCode).toBe(401);
-    });
-
-    it('returns 400 when password is missing', async () => {
-      const token = await loginAs(app);
-      const res = await authPost(app, '/api/auth/verify', token, {});
-      expect(res.statusCode).toBe(400);
+      const res = await authPost(app, '/api/auth/verify', token, { password: 'Admin@123' });
+      expect(res.statusCode).toBe(404);
+      expect(res.body).not.toContain('verificationToken');
     });
   });
 

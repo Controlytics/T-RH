@@ -8,7 +8,7 @@ import { ldapService } from '../ldap/ldap.service.js';
 import {
   isLdapUser, verifyCredential, LDAP_SENTINEL_HASH, LDAP_PASSWORD_MANAGED_MESSAGE,
 } from '../../lib/ldap-identity.js';
-import { signToken, signVerificationToken, verifyToken } from '../../lib/jwt.js';
+import { signToken, verifyToken } from '../../lib/jwt.js';
 import { AppError, NotFoundError, ValidationError, ConflictError } from '../../lib/errors.js';
 import { authRepository } from './auth.repository.js';
 import { createNotification } from '../notifications/notification.service.js';
@@ -20,7 +20,8 @@ const DUMMY_HASH = '$2b$12$7fXFzVUc/0SLHtxesM41PODN09mcQBJ0QB/uy7BQHDWzsklxK9yh6
 
 /**
  * Record a failed password verification and apply the account-lockout policy.
- * Shared by login AND the re-authentication surface (reauth-check.ts + /verify)
+ * Shared by login AND the re-authentication surface (reauth-check.ts; the
+ * /verify route that also called it was removed — audit 2026-10-03, SEC-5)
  * so a reauth password-guessing attack counts toward the SAME lockout as login.
  * Closes the 2026-07-09 security-review gap where a holder of a valid session
  * could grind the password via reauth without the account ever locking.
@@ -529,55 +530,15 @@ export const authService = {
     });
   },
 
-  /**
-   * Re-authentication for sensitive operations (21 CFR §11.200 — the second
-   * component of an electronic signature). Returns a 5-minute verification token.
-   *
-   * BUG FIXED 2026-08-08: this used to call `verifyPassword(password,
-   * user.passwordHash)` unconditionally. For a directory user that hash is the
-   * literal sentinel string, so bcrypt always returned false and reauth could
-   * NEVER succeed — an AD-authenticated Supervisor or QA could log in but was
-   * unable to approve, sign, bypass, terminate, or save any reauth-gated
-   * configuration. That is every e-signature surface in the product. The failure
-   * also fed `applyFailedPasswordAttempt`, so trying twice more locked the
-   * account outright. Routing through `verifyCredential` re-binds to the
-   * directory instead, which is the correct proof of identity for these users.
-   */
-  async verify(userId: string, password: string, ip: string, userAgent: string | undefined) {
-    const user = await authRepository.findUserById(userId);
-    if (!user) throw new NotFoundError('User not found');
-    const { ok, lockoutDelegated, unavailableReason } = await verifyCredential(user as any, password);
-    if (!ok) {
-      if (unavailableReason) logger.error(`[Reauth] ${user.username}: ${unavailableReason}`);
-      // Reauth password guesses count toward the SAME lockout as login — except
-      // for directory users, whose lockout the directory owns (see the login
-      // branch above for the double-lockout rationale). The audit record is
-      // written in both cases by applyFailedPasswordAttempt / the caller.
-      if (!lockoutDelegated) {
-        const { locked } = await applyFailedPasswordAttempt(user, ip, userAgent);
-        if (locked) throw new AppError(403, 'ACCOUNT_LOCKED', 'Account locked due to multiple failed attempts. Contact administrator.');
-      } else {
-        await auditLog({
-          userId: user.username, userRole: user.role, action: 'LOGIN_FAILED',
-          targetType: 'user', targetId: user.id,
-          afterValue: {
-            username: user.username, fullName: user.fullName,
-            authSource: 'ldap', context: 'reauthentication',
-            lockoutDelegatedToDirectory: true,
-          },
-          signatureMeaning: 'Directory (LDAP/AD) rejected the re-authentication password',
-          ipAddress: ip, userAgent,
-        });
-      }
-      throw new AppError(401, 'INVALID_PASSWORD', 'Password is incorrect');
-    }
-    // Successful password proof clears the consecutive-failure streak (guarded
-    // so the common already-zero case pays no write).
-    if (user.failedLoginAttempts > 0) {
-      await authRepository.updateUser(user.id, { failedLoginAttempts: 0 });
-    }
-    return await signVerificationToken(user.id);
-  },
+  // `verify(userId, password, ip, userAgent)` — the service half of
+  // POST /api/auth/verify — was REMOVED (audit 2026-10-03, SEC-5). The
+  // verification token it minted had no consumer. The behaviour it carried
+  // (a directory user's re-auth is a live LDAP bind, never a bcrypt compare
+  // against the sentinel; lockout delegated to the directory; a local user's
+  // wrong guesses feed the same lockout as login) lives in ONE place now:
+  // lib/reauth-check.ts `verifyReauthPassword`, over lib/ldap-identity.ts
+  // `verifyCredential`. Pinned by e2e/ldap-directory.e2e.test.ts and
+  // lib/__tests__/ldap-identity.test.ts.
 
   async forgotPassword(username: string, ip: string, userAgent: string | undefined) {
     const user = await authRepository.findUserByUsername(username);

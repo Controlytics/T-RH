@@ -1,13 +1,16 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 /**
- * Directory-user behaviour in `authService.login` and `authService.verify`
- * (2026-08-08). Three separate traps, each of which made an AD account unusable
- * in a different way — and one of which the FIX for another trap created.
+ * Directory-user behaviour in `authService.login` (2026-08-08). Three separate
+ * traps, each of which made an AD account unusable in a different way — and one
+ * of which the FIX for another trap created. The `authService.verify` cases
+ * that used to sit here went with POST /api/auth/verify (audit 2026-10-03,
+ * SEC-5); the directory re-bind on re-auth is pinned by
+ * lib/__tests__/ldap-identity.test.ts and e2e/ldap-directory.e2e.test.ts.
  */
 
 const {
-  mockRepo, mockVerifyPassword, mockSignToken, mockSignVerificationToken,
+  mockRepo, mockVerifyPassword, mockSignToken,
   mockAuditLog, mockCreateNotification, mockLdap,
 } = vi.hoisted(() => ({
   mockRepo: {
@@ -20,7 +23,6 @@ const {
   },
   mockVerifyPassword: vi.fn(),
   mockSignToken: vi.fn(),
-  mockSignVerificationToken: vi.fn(),
   mockAuditLog: vi.fn(),
   mockCreateNotification: vi.fn(),
   mockLdap: { getConfig: vi.fn(), authenticateUser: vi.fn(), syncUserAttributes: vi.fn() },
@@ -29,7 +31,7 @@ const {
 vi.mock('../auth.repository.js', () => ({ authRepository: mockRepo }));
 vi.mock('../../../lib/password.js', () => ({ hashPassword: vi.fn(), verifyPassword: mockVerifyPassword }));
 vi.mock('../../../lib/jwt.js', () => ({
-  signToken: mockSignToken, signVerificationToken: mockSignVerificationToken, verifyToken: vi.fn(),
+  signToken: mockSignToken, verifyToken: vi.fn(),
 }));
 vi.mock('../../../lib/audit.js', () => ({ auditLog: mockAuditLog }));
 vi.mock('../../notifications/notification.service.js', () => ({ createNotification: mockCreateNotification }));
@@ -157,47 +159,6 @@ describe('login — directory users', () => {
     mockVerifyPassword.mockResolvedValue(true); // even if bcrypt says yes
 
     await expect(authService.login('EMP1234', 'anything', '1.2.3.4', 'ua')).rejects.toThrow();
-  });
-});
-
-describe('verify (re-authentication) — directory users', () => {
-  it('re-binds to the directory instead of bcrypt-comparing the sentinel', async () => {
-    // THE critical bug: this always returned false, so no AD Supervisor or QA
-    // could ever complete an electronic signature (21 CFR §11.200).
-    mockRepo.findUserById.mockResolvedValue(directoryUser());
-    mockLdap.authenticateUser.mockResolvedValue(bindOk);
-    mockSignVerificationToken.mockResolvedValue('verify-token');
-
-    const token = await authService.verify('u-ad', 'ADpassword', '1.2.3.4', 'ua');
-
-    expect(token).toBe('verify-token');
-    expect(mockLdap.authenticateUser).toHaveBeenCalledWith('EMP1234', 'ADpassword');
-    expect(mockVerifyPassword).not.toHaveBeenCalled();
-  });
-
-  it('rejects a wrong password without locking the account', async () => {
-    mockRepo.findUserById.mockResolvedValue(directoryUser({ failedLoginAttempts: 4 }));
-    mockLdap.authenticateUser.mockResolvedValue(null);
-
-    await expect(authService.verify('u-ad', 'wrong', '1.2.3.4', 'ua')).rejects.toThrow(/incorrect/i);
-
-    const incremented = mockRepo.updateUser.mock.calls.some(
-      ([, data]: any[]) => data && 'failedLoginAttempts' in data && data.failedLoginAttempts > 0,
-    );
-    expect(incremented).toBe(false);
-  });
-
-  it('still uses bcrypt for a local user', async () => {
-    mockRepo.findUserById.mockResolvedValue({
-      ...directoryUser(), authSource: 'local', passwordHash: '$2b$12$real', role: 'ADMIN',
-    });
-    mockVerifyPassword.mockResolvedValue(true);
-    mockSignVerificationToken.mockResolvedValue('verify-token');
-
-    await authService.verify('u-1', 'localpw', '1.2.3.4', 'ua');
-
-    expect(mockVerifyPassword).toHaveBeenCalled();
-    expect(mockLdap.authenticateUser).not.toHaveBeenCalled();
   });
 });
 

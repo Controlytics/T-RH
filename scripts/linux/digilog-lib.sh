@@ -98,13 +98,18 @@ digilog_ensure_env() {
   local lan; lan="$(hostname -I 2>/dev/null | awk '{print $1}')"; [ -n "$lan" ] || lan=127.0.0.1
   local db_pw; db_pw="$(secret 18)"
   umask 027
+  # VERIFICATION_TOKEN_SECRET is no longer written: the /api/auth/verify route it
+  # signed for was removed (audit 2026-10-03, SEC-5); nothing reads it.
+  # AUDIT_HARD_DELETE_ENABLED=false (audit 2026-10-03, DATA-8): a customer install
+  # must not be able to physically destroy §11 audit rows out of the box. The
+  # code default with the line ABSENT is enabled, so it is written explicitly.
   cat > "$ENV_FILE" <<EOF
 DATABASE_URL=postgresql://digilog:$db_pw@localhost:$PG_PORT/digilog_db?schema=public
 JWT_SECRET=$(secret 48)
-VERIFICATION_TOKEN_SECRET=$(secret 48)
 OFFLINE_REPLAY_SECRET=$(secret 48)
 AUDIT_CHAIN_KEY=$(secret 48)
 AUDIT_CHAIN_KEYED_FROM=0
+AUDIT_HARD_DELETE_ENABLED=false
 JWT_EXPIRES_IN=1h
 NODE_ENV=production
 PORT=$API_PORT

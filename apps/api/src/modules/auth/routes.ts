@@ -283,38 +283,12 @@ export default async function authRoutes(app: FastifyInstance) {
     return { success: true, message: 'Password changed successfully' };
   });
 
-  // POST /api/auth/verify (re-authentication for sensitive ops)
-  app.post('/verify', {
-    config: {
-      rateLimit: {
-        max: 5,
-        timeWindow: '1 minute',
-        keyGenerator: (req: any) => req.ip,
-      },
-    },
-    schema: {
-      tags: ['Auth'],
-      summary: 'Re-authenticate',
-      description: 'Re-verify password for sensitive operations. Returns a 5-min verification token.',
-      body: {
-        type: 'object',
-        required: ['password'],
-        properties: { password: { type: 'string' } },
-      },
-      response: {
-        200: { type: 'object', properties: { success: { type: 'boolean' }, verificationToken: { type: 'string' } } },
-        ...errorResponses,
-      },
-    },
-  }, async (req, reply) => {
-    const body = req.body as { password?: string };
-    if (!body.password) {
-      return reply.code(400).send({ error: 'VALIDATION', message: 'Password is required' });
-    }
-
-    const verificationToken = await authService.verify(req.user.sub, body.password, req.ip, req.headers['user-agent']);
-    return { success: true, verificationToken };
-  });
+  // POST /api/auth/verify was REMOVED (audit 2026-10-03, SEC-5). It proved a
+  // password and handed back a 5-minute "verification token" that no route in
+  // the product ever accepted — re-authentication is proven inline on each
+  // gated request by lib/reauth-check.ts (`_currentPassword` in the body or
+  // the x-reauth-password header). What remained was a live password oracle
+  // issuing a bearer-looking credential whose `purpose` claim nothing checked.
 
   // POST /api/auth/forgot-password (public endpoint for password reset requests)
   app.post('/forgot-password', {

@@ -17,7 +17,12 @@ function getSecret(envVar: string, name: string): Uint8Array {
 }
 
 const JWT_SECRET = getSecret('JWT_SECRET', 'JWT signing');
-const VERIFY_SECRET = getSecret('VERIFICATION_TOKEN_SECRET', 'Verification token');
+// A second secret, VERIFICATION_TOKEN_SECRET, used to sign a 5-minute
+// "verification token" issued by POST /api/auth/verify. Nothing in the product
+// ever consumed that token — re-authentication is proven inline on each gated
+// request by lib/reauth-check.ts — so the route, the helpers and the secret were
+// removed (audit 2026-10-03, SEC-5). Do not reintroduce a bearer-looking
+// credential that no route honours.
 
 export interface JwtPayload {
   sub: string;
@@ -52,17 +57,4 @@ export async function verifyToken(token: string): Promise<JwtPayload> {
   // allowlist removes any dependence on library defaults across upgrades.
   const { payload } = await jose.jwtVerify(token, JWT_SECRET, { algorithms: ['HS256'] });
   return payload as unknown as JwtPayload;
-}
-
-export async function signVerificationToken(userId: string): Promise<string> {
-  return new jose.SignJWT({ sub: userId, purpose: 'reauth' })
-    .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt()
-    .setExpirationTime('5m')
-    .sign(VERIFY_SECRET);
-}
-
-export async function verifyVerificationToken(token: string): Promise<{ sub: string }> {
-  const { payload } = await jose.jwtVerify(token, VERIFY_SECRET, { algorithms: ['HS256'] });
-  return { sub: payload.sub as string };
 }
