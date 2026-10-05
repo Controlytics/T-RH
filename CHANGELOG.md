@@ -1,5 +1,45 @@
 # Changelog
 
+## [Unreleased] - Layout Designer: the 2D design model is authored in the designer (2026-10-05)
+
+Operator: "layout designer feature is should able to create 2d design model".
+Asked what that should mean, of three options — full 2D authoring; a style
+switch only; full authoring plus making the five traced floors designer-owned
+— the operator chose **full 2D authoring**. Spec
+`docs/superpowers/specs/2026-10-05-layout-designer-2d-design.md`, plan
+`docs/superpowers/plans/2026-10-05-layout-designer-2d.md`.
+
+- **A plan has a style, a floor and a north.** A Plan panel (shown when
+  nothing on the canvas is selected) sets Standard / 2D architectural, the
+  floor group / label / order (the Module-F floor switch) and north; a NEW
+  plan is created in the 2D style. Switching back to Standard keeps the
+  structure data — nothing is deleted by a style change.
+- **Five structure tools** — Column and Equipment (drag a box), Window and
+  Wall stub (two clicks; a segment drawn along a wall lands ON it through
+  `segmentOnEdge` in `@digilog/shared`, and a window is stored as the thin
+  box the traces store), Label (one click, text in the panel). Elements are
+  selectable, draggable, editable by number and deletable (button or the
+  Delete key, which takes the element before a room selected beside it).
+  They show only on a 2D plan. The canvas draws the 2D look itself.
+- **Doors in 2D**: the door row gains Hinge (start / end / none — a leafless
+  opening), Swing (in / out), Width, and **Double leaf**, which replaces the
+  door by two half-width doors with mirrored hinges (`splitDoor`; the
+  traces' rule, no flag in the data); refused at six doors.
+- **The API writes the layer**: `annotationsSchema` on plan create / update
+  (coordinates 0..1, arrays bounded, label text 1..60, `north` < 360,
+  `floor.order` 0..99, unknown keys refused; `hvac` / `water` / `airflow`
+  pass through for the traced plans). Omitted = the column is untouched;
+  given = replaced whole; `null` refused. The `FLOORPLAN_CREATED` /
+  `_UPDATED` audit rows carry a COUNT summary of the layer, not the arrays.
+- **The dashboard is unchanged** — a designer-made plan carries exactly the
+  keys a traced plan carries and renders through the same 2D path
+  (`floorplan-designer-2d.test.tsx`). The five script-drawn plans stay
+  script-owned; the Plan panel says a re-run overwrites designer edits.
+- Pinned by 6 shared unit, 12 API e2e, 10 reducer, 5 Plan panel, 8 structure
+  tool, 4 door and 1 dashboard render cases; mutation-checked: `null`
+  refused, tools hidden on a standard plan, the Delete key's precedence. No
+  count moved.
+
 ## [Unreleased] - Alarms report: the header prints the period only (2026-10-05)
 
 Operator: "in all alarms report dont show block,area,location and instrument

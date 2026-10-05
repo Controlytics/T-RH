@@ -667,7 +667,18 @@ or empty space in between rooms like corridor …"). Spec
 `CLAUDE.md` note carries the data rules. Files: `index.tsx` (data, saves,
 panels), `canvas.tsx` (the SVG surface; every callback receives PLAN UNITS),
 `properties-panel.tsx`, `tools.ts` (pure reducer), `snapping.ts` (pure),
-`types.ts`.
+`types.ts`. **Since 2026-10-05 also `plan-panel.tsx`** (style / floor / north,
+shown when nothing is selected) **and `structure-panel.tsx`** (the selected
+column / window / wall stub / equipment / label, editable in place) — the 2D
+design model. Rules: the five structure tools show ONLY on a 2D plan
+(`isArchitectural`); every structure edit PUTs the plan's WHOLE
+`annotations` object (`saveAnnotations`, the `doors` rule — the API replaces
+it whole and refuses `null`); the canvas draws the 2D look (navy walls with a
+light core, hatched columns, glazed windows, outlined equipment) itself and
+never imports the dashboard renderer; the Delete key takes a selected
+structure element before a selected room. Tests: `plan-panel.test.tsx`,
+`structure-tools.test.tsx`, `door-controls.test.tsx`, and the dashboard's
+`floorplan-designer-2d.test.tsx` proving the same 2D path as a traced floor.
 
 - **`tools.ts` is a pure reducer and `snapping.ts` is pure** — the drawing
   rules are tested one at a time without the DOM. Snap priority is a

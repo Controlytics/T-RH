@@ -309,6 +309,26 @@ history; `docs/recreation/` holds the inventory.
     `<Route` count unchanged. **Not seen on screen** — pinned by 8 API e2e, 20
     shared unit, 5 page, 6 tool, 7 snapping and 4 render tests, several
     mutation-checked.
+  - **The designer AUTHORS the 2D architectural style (2026-10-05, operator:
+    "layout designer feature is should able to create 2d design model"; chose
+    full 2D authoring of three).** A plan has a STYLE (Plan panel: Standard /
+    2D; a NEW plan is 2D), floor group / label / order and north; five
+    structure tools (Column, Equipment, Window, Wall stub, Label) write
+    `annotations.{columns,equipment,windows,walls,labels}` — the SAME shape
+    the trace scripts write, so the dashboard changed NOTHING (pinned by
+    `floorplan-designer-2d.test.tsx`); doors gain hinge / swing / width and a
+    Double leaf action (two half-width doors with mirrored hinges, `splitDoor`
+    in `@digilog/shared`; no flag). The API's `floorplanSchema` gained
+    `annotationsSchema` (bounded; omitted = untouched, given = replaced whole,
+    `null` refused — mutation-checked) and the plan audit rows carry a COUNT
+    summary (`annotationsSummary`), never the arrays. `segmentOnEdge` snaps a
+    window / stub drawn along a wall onto it; a window is stored as the thin
+    box the traces store (`WINDOW_DEPTH`). The structure tools show ONLY on a
+    2D plan (mutation-checked); the Delete key takes a selected element, never
+    the room beside it (mutation-checked). The five script-drawn plans
+    (`SCRIPT_DRAWN_PLANS`) stay script-owned and the Plan panel says so. Spec
+    `docs/superpowers/specs/2026-10-05-layout-designer-2d-design.md`, plan
+    `docs/superpowers/plans/2026-10-05-layout-designer-2d.md`. No count moved.
 - **The MQTT client id and topic segment are the instrument CODE (2026-09-04).**
   Operator: "35dd00b3-… this is CWH/RDU/001-00 instrument mqtt client id, i want
   client id as CWH/RDU/001-00". It was the code until 2026-08-07, the UUID from
