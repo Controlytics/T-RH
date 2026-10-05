@@ -133,6 +133,7 @@ export {
   rectanglePoints, boundingBox, polygonArea, signedArea, polygonEdges, isSimplePolygon,
   validatePolygon, pointInPolygon, sharedEdges, mirrorOpening, largestInscribedRect, inscribedRects,
   doorEdge, centroid, isRectilinear, unionRectilinear,
+  segmentOnEdge, splitDoor, SEGMENT_SNAP_TOL,
 } from './types/floorplan-geometry.js';
 export type { Point, Box, Segment, Polygon, EdgeOpening, SharedEdge } from './types/floorplan-geometry.js';
 

@@ -418,3 +418,49 @@ export function unionRectilinear(a: Polygon, b: Polygon): Polygon | null {
   }
   return out.length >= 3 ? out : null;
 }
+
+/** How close BOTH ends of a drawn segment must be to one edge to land on it (1 % of the plan). */
+export const SEGMENT_SNAP_TOL = 0.01;
+
+const r6 = (n: number) => Math.round(n * 1e6) / 1e6;
+
+function projectOnto(p: Point, e: Segment): { point: Point; dist: number } {
+  const dx = e.x2 - e.x1, dy = e.y2 - e.y1;
+  const len2 = dx * dx + dy * dy || 1;
+  const t = Math.max(0, Math.min(1, ((p.x - e.x1) * dx + (p.y - e.y1) * dy) / len2));
+  const q = { x: r6(e.x1 + dx * t), y: r6(e.y1 + dy * t) };
+  return { point: q, dist: Math.hypot(q.x - p.x, q.y - p.y) };
+}
+
+/**
+ * A two-click segment (a window, a wall stub) drawn ALONG a wall lands ON the
+ * wall (Layout Designer 2D, 2026-10-05): when BOTH ends lie within `tol` of the
+ * SAME polygon edge, both are projected onto it. One end near one edge and the
+ * other near a different edge is not "along a wall" and is left alone, as is a
+ * free segment across a room — Module-E's duct stubs are drawn that way.
+ */
+export function segmentOnEdge(a: Point, b: Point, polys: Polygon[], tol = SEGMENT_SNAP_TOL): { a: Point; b: Point; snapped: boolean } {
+  let best: { a: Point; b: Point; worst: number } | null = null;
+  for (const poly of polys) {
+    for (const e of polygonEdges(poly)) {
+      const pa = projectOnto(a, e), pb = projectOnto(b, e);
+      const worst = Math.max(pa.dist, pb.dist);
+      if (worst <= tol && (!best || worst < best.worst)) best = { a: pa.point, b: pb.point, worst };
+    }
+  }
+  return best ? { a: best.a, b: best.b, snapped: true } : { a, b, snapped: false };
+}
+
+/**
+ * A double door is TWO doors on the same edge: half the width each, the first
+ * hinged at its start and the second at its end, abutting at the middle of the
+ * original opening — the `vPair` / `hPair` rule the traced floors use. No flag
+ * in the data; the dashboard needs none.
+ */
+export function splitDoor<D extends { offset: number; width: number; hinge?: string }>(door: D): [D, D] {
+  const half = r6(door.width / 2);
+  return [
+    { ...door, width: half, hinge: 'start' },
+    { ...door, offset: r6(door.offset + half), width: half, hinge: 'end' },
+  ];
+}
