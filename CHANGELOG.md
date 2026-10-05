@@ -1,5 +1,41 @@
 # Changelog
 
+## [Unreleased] - Audit fixes, batch 10: signature inputs on the Super Admin card, a landing rule for `/`, the Users guard, the chart axis format (2026-10-05)
+
+Closes WEB-1, WEB-2, WEB-4 and WEB-5 of `docs/audit/2026-10-03-technical-audit.md`.
+
+- **The Super Admin API-access card and lockdown screen use
+  `SignaturePasswordInput`.** They were bare `<input type="password"
+  autoComplete="current-password">` in no form — the exact combination that
+  makes Chrome fill the saved login password (the 08-31 acknowledge-dialog
+  incident), so whoever sat at an unlocked super-admin workstation could
+  press Enter and flip privileged APIs under the super admin's name.
+- **`/` lands by rule** (`routes/dashboard/landing.ts`, pure;
+  `landing-page.tsx`): the dashboard for SUPER_ADMIN or a role holding
+  `DASHBOARD_VIEW`, else the first sidebar page the role can see (the
+  sidebar's own visibility rule), else the profile page. Every login lands
+  on `/` since 2026-10-03 and it was unguarded: a user-admin role saw "0
+  instruments", an empty Blocks overview and a readings error with the 403
+  toast suppressed. A redirect rather than a guard, so the first screen is
+  never Access Denied.
+- **`/users` guards on `USER_READ` alone**, the permission its list and
+  stats routes require; the six other `users.*` nodes imply it, and a role
+  granted one of them directly used to render the page onto a 403.
+- **The chart x-axis prints the administered date / time format** through
+  the same `useDatetimeFormat` the hover table uses, never the browser's
+  locale and zone — on a workstation in another zone the axis endpoints sat
+  hours from the rows beneath them, and the rasterised chart in the signed
+  Trend PDF carried the wrong labels.
+- Tests: new `routes/dashboard/__tests__/landing.test.ts` (4),
+  `components/__tests__/super-admin-api-access.test.tsx` (2, both boxes read
+  `autocomplete="one-time-code"` out of the DOM),
+  `routes/dashboard/__tests__/chart-axis-format.test.tsx` (2).
+  `route-guard-coverage` (2; `/` stays listed as unguarded by `RequireRole`
+  — it guards itself), `time-series-chart` (3), `chart-limit-lines` (5) and
+  `trend-downloads` (24) unchanged and green. Web typecheck clean. No count
+  moved: `landing.ts` and `landing-page.tsx` are route files, not hooks or
+  lib modules.
+
 ## [Unreleased] - Audit fixes, batch 9: a re-auth password is never stored; the hardcoded config re-auth applies lockout and LDAP (2026-10-05)
 
 Closes SEC-1 and SEC-2 / API-11 of `docs/audit/2026-10-03-technical-audit.md`.

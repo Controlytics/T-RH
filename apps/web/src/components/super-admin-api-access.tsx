@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useSuperAdminLock } from '@/hooks/use-super-admin-lock';
 import { Button } from '@/components/ui/button';
+import { SignaturePasswordInput } from '@/components/ui/signature-password-input';
 
 /**
  * Super Admin API kill-switch UI.
@@ -64,15 +65,17 @@ export function SuperAdminLockdownScreen() {
           </p>
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Password</label>
-            <input
-              type="password"
+            {/* The signature input, never a bare password box (audit 2026-10-03,
+                WEB-1): `autoComplete="current-password"` is the one value that
+                tells Chrome to fill the saved login password, so whoever sat at
+                an unlocked super-admin workstation could press Enter and flip
+                privileged APIs with the super admin's name on the audit row. */}
+            <SignaturePasswordInput
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') enable(); }}
-              autoFocus
-              autoComplete="current-password"
+              onChange={setPassword}
+              onEnter={enable}
               placeholder="Enter your password"
-              className="ctl w-full"
+              className="w-full"
             />
           </div>
           {error && <div className="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-700">{error}</div>}
@@ -155,15 +158,12 @@ export function SuperAdminApiAccessCard() {
           )}
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Confirm with your password</label>
-            <input
-              type="password"
+            <SignaturePasswordInput
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
-              autoFocus
-              autoComplete="current-password"
+              onChange={setPassword}
+              onEnter={submit}
               placeholder="Enter your password"
-              className="ctl w-full"
+              className="w-full"
             />
           </div>
           {error && <div className="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-700">{error}</div>}

@@ -1762,6 +1762,15 @@ resizes it with no drag. `routes/dashboard/panel-auto-height.ts` holds the maths
 
 ## Auth Flow
 - Token stored in sessionStorage (not localStorage — for shared workstation security)
+- **`/` lands by RULE (2026-10-05, audit WEB-4):** `routes/dashboard/landing.ts`
+  `landingRoute(perms, role)` — the dashboard for SUPER_ADMIN or `DASHBOARD_VIEW`,
+  else the first sidebar page the role can see (the sidebar's own
+  `isSidebarItemVisible`), else `/profile`. `landing-page.tsx` renders the
+  dashboard or a `<Navigate>`; a redirect, never Access Denied, because `/` is
+  the first screen after every login. `/users` guards on `USER_READ` alone
+  (WEB-5). The Super Admin API-access password boxes are
+  `SignaturePasswordInput` (WEB-1); the chart x-axis uses `useDatetimeFormat`
+  (WEB-2).
 - **Every login lands on `/` (the dashboard) — there is NO return-URL (2026-10-03,
   operator: "after every login user should come to dashboard page only dont
   redirect to other pages").** The layout and the API client's 401 handler send

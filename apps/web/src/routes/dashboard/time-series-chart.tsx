@@ -255,7 +255,7 @@ export function TimeSeriesChart({
   series, envelope, unit, min, max, minText = null, maxText = null, spanMs, title, onZoom, onResetZoom,
   variant = 'plain', lastReading = null, dateTimeFormat,
 }: Props) {
-  const { formatDateTime } = useDatetimeFormat(dateTimeFormat);
+  const { formatDateTime, formatDate, formatTime } = useDatetimeFormat(dateTimeFormat);
   const [hoverX, setHoverX] = useState<number | null>(null);
   /** Drag in progress, in viewBox x — null when not dragging. */
   const [drag, setDrag] = useState<{ a: number; b: number } | null>(null);
@@ -321,11 +321,14 @@ export function TimeSeriesChart({
   }
 
   const g = geom!;
+  // The ADMINISTERED date / time format and zone (audit 2026-10-03, WEB-2),
+  // the same formatters the hover table beside this axis uses — never the
+  // browser's locale, which put the axis endpoints hours away from the rows
+  // on a workstation whose clock zone differs from the site's, and carried
+  // that into the rasterised chart of the signed Trend PDF.
   const fmtTime = (t: number) => {
     const d = new Date(t);
-    return spanMs > 24 * 3_600_000
-      ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-      : d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    return spanMs > 24 * 3_600_000 ? formatDate(d) : formatTime(d);
   };
 
   // Nearest point per series to the hovered x, for the readout. Same pixel→time

@@ -12,7 +12,7 @@ import { LoginPage } from './routes/auth/login';
 import { ForgotPasswordPage } from './routes/auth/forgot-password';
 import { ChangePasswordPage } from './routes/auth/change-password';
 import { ContactAdminPage } from './routes/auth/contact-admin';
-import { DashboardPage } from './routes/dashboard';
+import { LandingPage } from './routes/dashboard/landing-page';
 // AuditTrailPage pulls jspdf + jspdf-autotable (+ ~250 KB gz). Lazy-load it so
 // the main chunk shrinks meaningfully for first paint.
 import { PERMISSIONS } from '@digilog/shared';
@@ -107,11 +107,13 @@ createRoot(document.getElementById('root')!).render(
 
           {/* Protected routes */}
           <Route element={<RouteErrorBoundary><AppLayout /></RouteErrorBoundary>}>
-            <Route path="/" element={<DashboardPage />} />
+            {/* The dashboard for a role that may see it, else the first page its sidebar offers (audit 2026-10-03, WEB-4). */}
+            <Route path="/" element={<LandingPage />} />
             <Route path="/profile" element={<ProfilePage />} />
 
             {/* User management — permission-based */}
-            <Route path="/users" element={<RequireRole permissions={[PERMISSIONS.USER_READ, PERMISSIONS.USER_CREATE, PERMISSIONS.USER_UPDATE, PERMISSIONS.USER_DELETE, PERMISSIONS.USER_RESET_PASSWORD, PERMISSIONS.USER_UNLOCK, PERMISSIONS.USER_ENABLE_DISABLE]}><UserListPage /></RequireRole>} />
+            {/* USER_READ alone (audit 2026-10-03, WEB-5): the list and its stats need it, and every other users.* node implies it. */}
+            <Route path="/users" element={<RequireRole permissions={[PERMISSIONS.USER_READ]}><UserListPage /></RequireRole>} />
             <Route path="/users/create" element={<RequireRole permissions={[PERMISSIONS.USER_CREATE]}><CreateUserPage /></RequireRole>} />
             <Route path="/users/reset-requests" element={<RequireRole permissions={[PERMISSIONS.USER_RESET_PASSWORD]}><ResetRequestsPage /></RequireRole>} />
             <Route path="/users/:id" element={<RequireRole permissions={[PERMISSIONS.USER_READ]}><EditUserPage /></RequireRole>} />
