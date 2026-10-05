@@ -246,7 +246,8 @@ export function scopeTableRows(pairs: readonly [string, string][]): string[][] {
 
 /** The default A4 portrait text column: 210mm less two 14mm margins. */
 export const CONTENT_WIDTH_MM = 182;
-const SCOPE_LABEL_MM = 26;
+/** The label column of EVERY report's header block (2026-10-05, one block for all): wide enough for `Start Date :` at HEADER_BLOCK_PT. */
+export const HEADER_LABEL_MM = 32;
 
 /**
  * All FOUR columns pinned, so the block's centre line lands in the CENTRE.
@@ -261,7 +262,7 @@ const SCOPE_LABEL_MM = 26;
  * whatever is left. Derived from the page rather than hardcoded, because this
  * chrome is shared and the other reports are landscape.
  */
-export function scopeColumnStyles(contentWidth = CONTENT_WIDTH_MM, labelWidth = SCOPE_LABEL_MM) {
+export function scopeColumnStyles(contentWidth = CONTENT_WIDTH_MM, labelWidth = HEADER_LABEL_MM) {
   const value = contentWidth / 2 - labelWidth;
   return {
     0: { cellWidth: labelWidth, fontStyle: 'bold' as const },

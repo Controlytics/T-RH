@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased] - Reports: ONE header block for every report (2026-10-05)
+
+Operator: "make all reports header table same only dont put any differences
+like table lines and font styles bold everything".
+
+- **Every report's header block now prints identically**: dark rules, every
+  cell bold (labels AND values), one size (`HEADER_BLOCK_PT` = 10, the
+  Data Report's record size — so that report's header did not move and the
+  Alarms page, trend and Instrument Alarms headers grew to match), and one
+  label-column width (`HEADER_LABEL_MM` = 32, which the Data Report already
+  used; the others were 26). ONE rule in `lib/pdf-report.ts` `addTable`:
+  a headless table takes the header style whatever typography the report
+  prints its records at; a headed table keeps the report's own. Pinned by
+  `pdf-report-rules.test.ts` (6) across both typographies. No count moved.
+
 ## [Unreleased] - Trend report: the readings table is gone (2026-10-05)
 
 Operator, pasting the report's own "Truncated: showing the first 2,000 of

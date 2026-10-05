@@ -273,11 +273,12 @@ describe('the trend report shows the trend', () => {
     const last = tokens[tokens.length - 1];
     expect(last[1]).toBe('1');
     expect(Number(last[2])).toBe(DEFAULT_TYPOGRAPHY.companyPt);
-    // The only table left is the headless header block: its cells print at the
-    // default table size (the Data Report's are larger); its label column is
-    // bold by `scopeColumnStyles`, as on every header block.
+    // The only table left is the headless header block, which prints at the
+    // ONE header size every report shares (2026-10-05), not this report's
+    // record size — the chrome defaults are checked on the company line above.
+    const { HEADER_BLOCK_PT } = await import('@/lib/pdf-report');
     const cells = Object.values(report.doc.lastAutoTable.body[0].cells) as any[];
-    for (const c of cells) expect(c.styles.fontSize).toBe(DEFAULT_TYPOGRAPHY.tablePt);
+    for (const c of cells) expect(c.styles.fontSize).toBe(HEADER_BLOCK_PT);
   });
 
   /** The Data Report's inputs for the two-row fixture above, at Raw. */

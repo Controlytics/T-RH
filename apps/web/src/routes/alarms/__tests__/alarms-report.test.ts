@@ -446,8 +446,10 @@ describe('the parameter block is a TABLE, one line per field', () => {
   });
 
   it('pins the label columns so a long Block name cannot eat the row', () => {
-    expect(scopeColumnStyles()[0].cellWidth).toBe(26);
-    expect(scopeColumnStyles()[2].cellWidth).toBe(26);
+    // 32 mm since 2026-10-05: ONE header block for every report, at the Data
+    // Report's size — the width that report already used.
+    expect(scopeColumnStyles()[0].cellWidth).toBe(32);
+    expect(scopeColumnStyles()[2].cellWidth).toBe(32);
   });
 });
 

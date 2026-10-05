@@ -47,3 +47,42 @@ describe('report table rules', () => {
     for (const c of Object.values(t.body[0].cells) as any[]) expect(c.styles.lineColor).toEqual(DARK);
   });
 });
+
+/**
+ * ONE header-block style for EVERY report (operator, 2026-10-05: "make all
+ * reports header table same only dont put any differences like table lines
+ * and font styles bold everything"): dark rules, every cell bold, one size —
+ * whatever typography the report itself prints its records at.
+ */
+describe('one header block for every report', () => {
+  it('every cell of a headless table is bold at HEADER_BLOCK_PT, in a default-typography report', async () => {
+    const { HEADER_BLOCK_PT } = await import('../pdf-report');
+    const report = await createReport(chrome);
+    report.addTable({ body: [['Block :', 'CWH Block', 'Start Date :', '2026-05-27']], columnStyles: { 0: { cellWidth: 32, fontStyle: 'bold' }, 1: { cellWidth: 59 }, 2: { cellWidth: 32, fontStyle: 'bold' }, 3: { cellWidth: 59 } } });
+    const cells = Object.values((report.doc as any).lastAutoTable.body[0].cells) as any[];
+    expect(cells).toHaveLength(4);
+    for (const c of cells) {
+      expect(c.styles.fontStyle).toBe('bold');
+      expect(c.styles.fontSize).toBe(HEADER_BLOCK_PT);
+      expect(c.styles.lineColor).toEqual(DARK);
+    }
+  });
+
+  it('...and exactly the same in a report that prints its records larger (the Data Report)', async () => {
+    const { HEADER_BLOCK_PT } = await import('../pdf-report');
+    const report = await createReport({ ...chrome, typography: { tablePt: 10, tableHeadPt: 10.5, labelPt: 10 } });
+    report.addTable({ body: [['Block :', 'CWH Block', 'Start Date :', '2026-05-27']] });
+    const cells = Object.values((report.doc as any).lastAutoTable.body[0].cells) as any[];
+    for (const c of cells) {
+      expect(c.styles.fontStyle).toBe('bold');
+      expect(c.styles.fontSize).toBe(HEADER_BLOCK_PT);
+    }
+    expect(HEADER_BLOCK_PT).toBe(10);
+  });
+
+  it('a headed (records) table is NOT bolded by this rule', async () => {
+    const report = await createReport(chrome);
+    report.addTable({ head: ['Type', 'Raised'], body: [['High Temperature', '2026-05-28 12:02']] });
+    for (const c of Object.values((report.doc as any).lastAutoTable.body[0].cells) as any[]) expect(c.styles.fontStyle).toBe('normal');
+  });
+});

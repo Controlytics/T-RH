@@ -1,4 +1,5 @@
 import type { TableCell } from '@/lib/pdf-report';
+import { HEADER_LABEL_MM } from '@/routes/alarms/alarms-report';
 import { formatDecimals, INTERVALS, isOutOfRange } from '@digilog/shared';
 import { formatSetPoint, boundInForce, outOfSpec } from '@/routes/dashboard/set-point';
 import type { TableRow } from './trend-series';
@@ -96,7 +97,8 @@ export const DATA_REPORT_TYPOGRAPHY = {
  * `Temp. Limit :` in 10pt bold needs ~28mm with its padding, and a label that
  * wraps onto two lines makes one field read as two.
  */
-export const DATA_REPORT_LABEL_MM = 32;
+/** The same label column every other header block uses (2026-10-05): one block for all reports. */
+export const DATA_REPORT_LABEL_MM = HEADER_LABEL_MM;
 
 /** The reference's four columns, verbatim, in order. */
 export const DATA_REPORT_HEAD = ['DATE', 'TIME', 'TEMPERATURE (°C)', 'RELATIVE HUMIDITY(%)'];
