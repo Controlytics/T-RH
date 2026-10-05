@@ -2,8 +2,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FormSection } from '@/components/ui/form-section';
 import { ROOM_GRADES, ROOM_GRADE_META } from '@/routes/dashboard/use-telemetry';
+import { splitDoor } from '@digilog/shared';
 import type { DoorKind, RoomDoor } from '@/routes/dashboard/room-geometry';
-import type { DesignerLink } from './types';
+import { MAX_DOORS, type DesignerLink } from './types';
 
 /** The editable fields of a room. Strings, because they are inputs; the page converts on save. */
 export interface RoomForm {
@@ -75,7 +76,7 @@ export function RoomPropertiesPanel({
         ) : (
           <ul className="space-y-1">
             {form.doors.map((d, i) => (
-              <li key={i} className="flex items-center gap-2 text-xs text-slate-600">
+              <li key={i} className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
                 <span className="w-16 font-medium">{d.wall ?? `edge ${d.edge}`}</span>
                 <select
                   value={d.kind}
@@ -87,6 +88,26 @@ export function RoomPropertiesPanel({
                   <option value="EXIT">Exit</option>
                   <option value="PASSAGE">Passage</option>
                 </select>
+                {/* 2D (2026-10-05): which end the leaf hangs on ('none' = a leafless
+                    opening — a sliding door or an open bay), which side it swings
+                    to, and how wide it is, as a fraction of its wall. */}
+                <select value={d.hinge ?? 'start'} aria-label={`Door ${i + 1} hinge`} className="ctl ctl-sm"
+                  onChange={(e) => { const hinge = e.target.value as 'start' | 'end' | 'none'; setForm((f) => ({ ...f, doors: f.doors.map((door, ix) => (ix === i ? { ...door, hinge } : door)) })); }}>
+                  <option value="start">Hinge: start</option>
+                  <option value="end">Hinge: end</option>
+                  <option value="none">No leaf (opening)</option>
+                </select>
+                <select value={d.swing ?? 'in'} aria-label={`Door ${i + 1} swing`} className="ctl ctl-sm"
+                  onChange={(e) => { const swing = e.target.value as 'in' | 'out'; setForm((f) => ({ ...f, doors: f.doors.map((door, ix) => (ix === i ? { ...door, swing } : door)) })); }}>
+                  <option value="in">Swings in</option>
+                  <option value="out">Swings out</option>
+                </select>
+                <input type="number" step={0.01} min={0.02} max={0.5} value={d.width} aria-label={`Door ${i + 1} width`} className="ctl ctl-sm w-20"
+                  onChange={(e) => { const width = Math.min(0.5, Math.max(0.02, Number(e.target.value) || 0.02)); setForm((f) => ({ ...f, doors: f.doors.map((door, ix) => (ix === i ? { ...door, width } : door)) })); }} />
+                <Button variant="ghost" size="sm" type="button" aria-label={`Door ${i + 1} double leaf`} disabled={form.doors.length >= MAX_DOORS}
+                  onClick={() => setForm((f) => { const [a, b] = splitDoor(f.doors[i]); return { ...f, doors: [...f.doors.slice(0, i), a, b, ...f.doors.slice(i + 1)] }; })}>
+                  Double leaf
+                </Button>
                 <Button variant="ghost" size="sm" type="button" onClick={() => setForm((f) => ({ ...f, doors: f.doors.filter((_, ix) => ix !== i) }))}>Remove</Button>
               </li>
             ))}
