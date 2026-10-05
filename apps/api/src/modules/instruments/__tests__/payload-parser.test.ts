@@ -52,6 +52,22 @@ describe('parsePayload', () => {
     expect(p.ok).toBe(true);
     expect(p.ts).toBeNull();
   });
+
+  // Audit 2026-10-03, INGEST-13: `JSON.parse` yields an OWN "__proto__" key,
+  // and assigning it onto a plain `{}` hits Object.prototype's setter — the
+  // reading vanished, stored nowhere and dead-lettered nowhere. The gateway
+  // fan-out has guarded this since it was written; the flat path did not.
+  it('does not silently drop a flat reading key literally named "__proto__"', () => {
+    const p = parsePayload(Buffer.from('{"__proto__": 5, "temp": 21}'));
+    expect(p.ok).toBe(true);
+    expect(Object.keys(p.values).sort()).toEqual(['__proto__', 'temp']);
+    expect(toReadings(p.values, new Date()).map((r) => [r.key, r.value])).toEqual([['__proto__', 5], ['temp', 21]]);
+  });
+
+  it('nor inside an envelope', () => {
+    const p = parsePayload(Buffer.from('{"values": {"__proto__": 5, "t": 1}}'));
+    expect(Object.keys(p.values).sort()).toEqual(['__proto__', 't']);
+  });
 });
 
 describe('toReadings', () => {

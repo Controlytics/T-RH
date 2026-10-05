@@ -82,6 +82,7 @@ afterAll(async () => {
     } catch (e) { console.error(`${k} restore failed`, e); }
   }
   invalidateOffsetConfigCache();
+  await prisma.deadLetter.deleteMany({ where: { instrumentId: { in: created } } });
   for (const id of created) await app.inject({ method: 'DELETE', url: `/api/instruments/${id}`, headers: admin });
   try { await prisma.session.deleteMany({ where: { user: { username: USER } } }); } catch { /* cascade */ }
   try { await prisma.user.deleteMany({ where: { username: USER } }); } catch (e) { console.error(e); }
@@ -119,6 +120,44 @@ describe('the reading is corrected as it arrives', () => {
     await ingest(gw.token, { devices: { [a.code]: { t: 20 }, [b.code]: { t: 20 } } });
     expect((await history(a.id, 't'))[0].value).toBe(19);
     expect((await history(b.id, 't'))[0]).toEqual({ value: 20, raw_value: null });
+  });
+
+  // Audit 2026-10-03, INGEST-11.
+  it('a corrected reading carries an INGEST value type (int / float), never a word outside the vocabulary', async () => {
+    const i = await mk({ name: 'OFS-VT', code: `OFSVT-${STAMP}` });
+    await setAttr(i.id, admin, 'Temp Off set', '+2');
+    await ingest(i.token, { t: 23.4 });
+    await ingest(i.token, { t: '20' });
+    const rows = await prisma.$queryRaw<{ value: unknown; value_type: string }[]>`
+      SELECT value, value_type FROM instrument_telemetry_history WHERE instrument_id = ${i.id} AND key = 't' ORDER BY ts ASC`;
+    expect(rows).toEqual([{ value: 25.4, value_type: 'float' }, { value: 22, value_type: 'int' }]);
+  });
+
+  it('when the offsets cannot be resolved the batch is REFUSED and dead-lettered — never stored uncorrected as if corrected', async () => {
+    const i = await mk({ name: 'OFS-FAIL', code: `OFSFAIL-${STAMP}` });
+    await setAttr(i.id, admin, 'Temp Off set', '+2');
+    // The delegate is swapped for one that throws and put back EXACTLY as it
+    // was: a `delete` after an own-property shadow (the telemetry-partition
+    // test's trick for `$executeRawUnsafe`) leaves a model delegate undefined
+    // on this client, and every later attribute call 500s.
+    const client = prisma as unknown as Record<string, unknown>;
+    const real = client.instrumentAttribute;
+    client.instrumentAttribute = { findMany: async () => { throw new Error('boom: attributes unreadable'); } };
+    try {
+      const res = await ingest(i.token, { t: 23.4 });
+      expect(res.statusCode).toBe(503);
+      expect(res.json()).toMatchObject({ error: 'WRITE_FAILED' });
+    } finally {
+      client.instrumentAttribute = real;
+    }
+    expect(await history(i.id, 't')).toEqual([]);
+    const dl = await prisma.deadLetter.findMany({ where: { instrumentId: i.id } });
+    expect(dl).toHaveLength(1);
+    expect(dl[0].reason).toContain('boom: attributes unreadable');
+    expect(dl[0].rawPayload).toContain('23.4');
+    // And the device's retry, once the fault is gone, lands corrected.
+    expect((await ingest(i.token, { t: 23.4 })).statusCode).toBe(200);
+    expect(await history(i.id, 't')).toEqual([{ value: 25.4, raw_value: 23.4 }]);
   });
 
   it('switched OFF in configuration, new readings are stored as sent', async () => {

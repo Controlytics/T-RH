@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import { prisma } from '../../../lib/prisma.js';
-import { writeBatch, getLatest, getHistory, writeDeadLetters, getDistinctKeys } from '../telemetry.repository.js';
+import { writeBatch, getLatest, getHistory, writeDeadLetters, getDistinctKeys, lastPerInstant } from '../telemetry.repository.js';
 
 /**
  * Ported from pre-data-injection-drop:apps/api/src/modules/data-injection/__tests__/telemetry.repository.test.ts
@@ -167,6 +167,54 @@ describe('telemetry repository', () => {
     ]);
     expect((await getDistinctKeys(INST)).map((k) => k.key)).toEqual(['temp']);
     expect((await getDistinctKeys(OTHER)).map((k) => k.key)).toEqual(['co2']);
+  });
+
+  /**
+   * TWO READINGS AT ONE INSTANT (audit 2026-10-03, INGEST-14): history used to
+   * keep the FIRST (`DO NOTHING`) while latest kept the LAST, so a device
+   * stamping whole seconds showed one value on the dashboard and printed the
+   * other in every report. The rule is now ONE: the last arrival wins in both.
+   */
+  describe('two readings at one instant', () => {
+    it('in ONE batch: the last in arrival order wins in history AND latest', async () => {
+      await writeBatch([
+        { instrumentId: INST, key: 'temp', value: 1, valueType: 'int', ts: AT },
+        { instrumentId: INST, key: 'temp', value: 2, valueType: 'int', ts: AT },
+      ]);
+      expect((await getLatest(INST))[0].value).toBe(2);
+      const hist = await getHistory({ instrumentId: INST, limit: 10 });
+      expect(hist.rows).toHaveLength(1);
+      expect(hist.rows[0].value).toBe(2);
+    });
+
+    it('across TWO batches: the later arrival rewrites the instant in both tables', async () => {
+      await writeBatch([{ instrumentId: INST, key: 'temp', value: 1, valueType: 'int', ts: AT }]);
+      await writeBatch([{ instrumentId: INST, key: 'temp', value: 2, valueType: 'int', ts: AT }]);
+      expect((await getLatest(INST))[0].value).toBe(2);
+      const hist = await getHistory({ instrumentId: INST, limit: 10 });
+      expect(hist.rows).toHaveLength(1);
+      expect(hist.rows[0].value).toBe(2);
+    });
+
+    it('a redelivered IDENTICAL reading changes nothing — history stays idempotent under QoS 1', async () => {
+      await writeBatch([{ instrumentId: INST, key: 'temp', value: 7, valueType: 'int', ts: AT }]);
+      await writeBatch([{ instrumentId: INST, key: 'temp', value: 7, valueType: 'int', ts: AT }]);
+      const hist = await getHistory({ instrumentId: INST, limit: 10 });
+      expect(hist.rows).toHaveLength(1);
+      expect(hist.rows[0].value).toBe(7);
+      expect(await getLatest(INST)).toHaveLength(1);
+    });
+
+    it('lastPerInstant keeps the last of each (instrument, key, ts) and leaves distinct instants alone', () => {
+      const later = new Date(AT.getTime() + 1000);
+      const rows = [
+        { instrumentId: INST, key: 'temp', value: 1, ts: AT },
+        { instrumentId: INST, key: 'temp', value: 2, ts: AT },
+        { instrumentId: INST, key: 'temp', value: 3, ts: later },
+        { instrumentId: OTHER, key: 'temp', value: 4, ts: AT },
+      ];
+      expect(lastPerInstant(rows).map((r) => r.value).sort()).toEqual([2, 3, 4]);
+    });
   });
 
   it('writes dead letters', async () => {

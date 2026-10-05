@@ -11,6 +11,7 @@
  *
  * Design: docs/superpowers/specs/2026-08-11-instrument-dashboard-floorplan-design.md
  */
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { resolveLocationIds } from '../functional-locations/tree.js';
 import type { FlType } from '../functional-locations/validation.js';
@@ -432,10 +433,16 @@ export async function buildTelemetryOverview(
   if (instruments.length === 0) return [];
 
   // One query for every latest reading, not one per instrument. The table is the
-  // whole fleet and this is polled every few seconds.
+  // whole fleet and this is polled every few seconds — so it reads ONLY the
+  // rows of the instruments already selected above (audit 2026-10-03,
+  // INGEST-17): until then it scanned the whole table on every poll and every
+  // evaluation pass and threw away every row outside the selection in JS. The
+  // empty-selection return above is what keeps `Prisma.join` off an empty list,
+  // which it refuses.
   const readings = await prisma.$queryRaw<RawReading[]>`
     SELECT instrument_id AS "instrumentId", key, value, value_type AS "valueType", ts
-    FROM instrument_telemetry_latest`;
+    FROM instrument_telemetry_latest
+    WHERE instrument_id IN (${Prisma.join(instruments.map((i) => i.id))})`;
 
   const byInstrument = new Map<string, RawReading[]>();
   for (const r of readings) {

@@ -233,6 +233,24 @@ describe('telemetry aggregate — the numbers', () => {
     expect(mixed.limits.temperature).toBeNull();
     expect(mixed.limitsMixed.temperature).toBe(true);
   });
+
+  // Audit 2026-10-03, INGEST-9: the plant's gateway firmware QUOTES every
+  // reading, and this query counted `jsonb_typeof = 'number'` alone — so the
+  // gateway-fed instruments were missing from the trend card while the table
+  // beside it showed them. One SQL definition of a reading now
+  // (`NUMERIC_READING`), the same the range summaries use.
+  it('a QUOTED number is a reading — it moves the max; a word still does not', async () => {
+    const ts = new Date(Date.now() - 2 * 60_000);
+    await prisma.$executeRaw`
+      INSERT INTO instrument_telemetry_history (instrument_id, key, value, value_type, ts)
+      VALUES (${inAreaId}, 'temperature', '"26.5"'::jsonb, 'string', ${ts}),
+             (${inAreaId}, 'temperature', '"hello"'::jsonb, 'string', ${new Date(ts.getTime() + 1000)})
+      ON CONFLICT (instrument_id, key, ts) DO NOTHING`;
+    const body = await aggregate('?window=1h');
+    expect(maxOf(body)).toBe(26.5);
+    // LAST, deliberately: the max it asserts would fail every test above that
+    // pins the max at 24.
+  });
 });
 
 /**

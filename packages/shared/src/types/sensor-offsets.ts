@@ -108,11 +108,20 @@ export function applyOffset(value: number, offset: number): number {
  * failure word is left exactly as sent, or RS485 detection would never see it).
  * The corrected value is stored as a NUMBER; `rawValue` keeps what the device
  * sent. Pure: the API resolves the aliases and the instrument's offsets.
+ *
+ * `classify` names the corrected number's `valueType`, in the INGEST
+ * VOCABULARY the caller owns (`classifyValue` in the API's payload parser:
+ * `int` | `float`). This file wrote the literal `'number'` until audit
+ * 2026-10-03 INGEST-11 — a word outside that vocabulary, which the documented
+ * RS485 probe query (`value_type NOT IN ('int','float')`) would have read as a
+ * failed probe on every corrected reading. The vocabulary is not restated
+ * here: a second copy in a second package is how the two drift.
  */
 export function offsetReadings<R extends { key: string; value: unknown; valueType: string }>(
   readings: R[],
   slotAliases: Record<TelemetrySlot, string[]>,
   offsets: Partial<Record<TelemetrySlot, number>>,
+  classify: (corrected: number) => R['valueType'],
 ): (R & { rawValue?: unknown })[] {
   return readings.map((r) => {
     const k = r.key.trim().toLowerCase();
@@ -122,6 +131,7 @@ export function offsetReadings<R extends { key: string; value: unknown; valueTyp
     if (slot === null || offset === undefined || offset === 0) return r;
     const n = coerceReading(r.value);
     if (n === null) return r;
-    return { ...r, value: applyOffset(n, offset), valueType: 'number', rawValue: r.value };
+    const corrected = applyOffset(n, offset);
+    return { ...r, value: corrected, valueType: classify(corrected), rawValue: r.value };
   });
 }

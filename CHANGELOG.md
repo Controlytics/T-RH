@@ -1,5 +1,69 @@
 # Changelog
 
+## [Unreleased] - Audit fixes, batch 13: ingest and alarm mediums — the bridge's own echoes, one SQL reading, TCP rate cap and dead-letter retention, offsets fail closed, webhook cooldown and regex, same-instant readings (2026-10-05)
+
+Closes INGEST-7, 9, 10, 11, 12, 13, 14, 15, 17 and 18 of
+`docs/audit/2026-10-03-technical-audit.md`.
+
+- **The MQTT bridge's own retained downlinks no longer count against its
+  queue cap.** `isBridgeEcho(topic)` in `listeners/mqtt-bridge.ts` drops a
+  downlink slot (not an attribute REPORT) synchronously in the `message`
+  handler, BEFORE the `maxQueued` check — a flood of the bridge's own
+  republished slots could otherwise push a device's reading over the cap and
+  log it LOST. Pinned by `mqtt-topic.test.ts` and an e2e with `maxQueued: 1`.
+- **ONE SQL definition of "a numeric reading"**: `NUMERIC_READING` in
+  `telemetry.repository.ts` (number, or a string matching `coerceReading`'s
+  regex), used by the range summaries, the trend aggregates
+  (`telemetry-aggregate.ts`) and the room history buckets
+  (`floorplans/room-history.ts`). The last two tested `jsonb_typeof =
+  'number'` alone, so a quoted `"19.25"` counted on the chart and the Data
+  Report but not in a bucket mean or a trend aggregate. Pinned both ways.
+- **TCP listener: a per-connection rate cap** (600 framed lines per 60 s;
+  exceeding it closes the socket with a coded log line) — the MQTT and
+  WebSocket transports already had one. **Dead letters are pruned**:
+  `pruneDeadLetters` (30 days, then the newest 2,000 per instrument) runs
+  inside `telemetry_partition_maintenance`. **Residual**: that task is on the
+  1st and 15th; between runs the table is bounded only by the rate caps.
+- **A failed offset lookup no longer stores an UNCORRECTED reading as a
+  corrected one.** `applySensorOffsets` THROWS instead of logging and handing
+  the rows back; the throw lands in `writeBatchOrDeadLetter` (batch 1), so
+  the payload is dead-lettered with the error and the device gets
+  `WRITE_FAILED` (503) and retries. `offsetReadings` in `@digilog/shared` now
+  takes the ingest `classifyValue`, so a corrected row carries `int` /
+  `float` like every other instead of a literal `'number'`.
+- **A webhook target's cooldown is released when every delivery attempt
+  failed.** `shouldFire` still claims at check time (two concurrent jobs
+  cannot both sound the hooter); `releaseCooldown(targetId, claimedAt)`
+  clears that claim after an all-failed RAISED delivery so the NEXT raise is
+  not silenced by a target that never sounded. A failed CLEARED releases
+  nothing. Mutation-checked.
+- **A flat-path reading keyed `__proto__` is kept, not swallowed**: parsed
+  values are built on `Object.create(null)` (`ownKeys()` in
+  `payload-parser.ts`).
+- **Two readings at one instant: the LAST arrival wins everywhere.** Until
+  now history kept the FIRST (`ON CONFLICT DO NOTHING`) while the latest
+  table kept the LAST (`ts <= EXCLUDED.ts`), so the dashboard could show a
+  value the history table never held. History is now `ON CONFLICT (instrument,
+  key, ts) DO UPDATE` over `lastPerInstant()` of the batch. Stated plainly:
+  a later arrival at the identical (instrument, key, timestamp) REPLACES the
+  stored value and its `raw_value`; nothing is dead-lettered. An identical
+  QoS 1 redelivery rewrites the row with the same values.
+- **The operator's success regex runs against the stored 1,000-byte snippet
+  inside a `vm` context with a 100 ms budget**; a timeout fails closed like
+  a bad pattern, so a catastrophic pattern cannot hang the worker. Not done:
+  refusing such a pattern at validation (`validation.ts`, next batch).
+- **`telemetry-overview` reads `instrument_telemetry_latest` for the
+  instruments in hand** (`WHERE instrument_id IN (…)`), not the whole table.
+- **The MQTT reconnect "backoff" was dead code** — `mqtt` 5.15.2 arms ONE
+  `setInterval(reconnectPeriod)` on first close and ignores a later change
+  to `client.options.reconnectPeriod`. The mutation and its false comment are
+  gone; the period is 1 s as it always was, and the LOG is throttled (first
+  attempt, then every 60th) so a broker outage does not write a line a
+  second. The e2e that asserted the period grew was pinning a mechanism that
+  never worked; it now asserts the throttle.
+- Found, not fixed: `dead_letters` has no index on `instrument_id` (the
+  dead-letter route and the prune both filter on it). No count moved.
+
 ## [Unreleased] - Audit fixes, batch 12: the gated-state allowlists match a segment, the password oracle is gone, one origin rule for the OAuth2 redirect, hard delete ships off (2026-10-05)
 
 Closes SEC-4, SEC-5, SEC-6 and DATA-8 of

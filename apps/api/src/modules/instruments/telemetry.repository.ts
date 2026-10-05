@@ -37,6 +37,57 @@ export interface TelemetryRow {
   ts: Date;
 }
 
+/**
+ * The ONE SQL definition of "this stored `value` is a reading", as a float8 or
+ * NULL — the SQL half of `coerceReading` in @digilog/shared.
+ *
+ * Casts inside a CASE, never a bare `::float8`: telemetry `value` is jsonb and
+ * this database really contains a non-numeric one (a device sent the string
+ * "hello"). A `WHERE jsonb_typeof(value) = 'number'` is NOT a reliable guard —
+ * Postgres does not promise the filter runs before the projection, so a query
+ * passes under one plan and fails under another. CASE guarantees the order.
+ *
+ * A QUOTED number counts too (operator, 2026-08-31). The regex is
+ * `coerceReading`'s NUMERIC_STRING: if you widen one, widen the other, or the
+ * SQL population and the chart drawn from the same range would disagree.
+ *
+ * Shared by `getRangeSummary` here, `telemetry-aggregate.ts` (the dashboard's
+ * trend card) and `floorplans/room-history.ts` (audit 2026-10-03, INGEST-9):
+ * each of those carried its own `jsonb_typeof(value) = 'number'` copy, so the
+ * gateway-fed instruments — whose firmware quotes every reading — vanished from
+ * the trend card and the room history while the table beside them showed the
+ * readings. A reading filter belongs in `WHERE ${NUMERIC_READING} IS NOT NULL`,
+ * never in a second `jsonb_typeof` test.
+ */
+export const NUMERIC_READING = Prisma.sql`CASE
+    WHEN jsonb_typeof(value) = 'number' THEN (value #>> '{}')::float8
+    WHEN jsonb_typeof(value) = 'string'
+      AND btrim(value #>> '{}') ~ '^[+-]?([0-9]+\.?[0-9]*|\.[0-9]+)$'
+      THEN btrim(value #>> '{}')::float8
+  END`;
+
+/**
+ * TWO READINGS AT ONE INSTANT: THE LAST ONE IN ARRIVAL ORDER WINS, EVERYWHERE
+ * (audit 2026-10-03, INGEST-14). Until then history kept the FIRST (`ON
+ * CONFLICT DO NOTHING`) while `latest` kept the LAST (`ts <= EXCLUDED.ts`), so
+ * a device stamping whole seconds that sent two values inside one second
+ * showed the second on the dashboard and printed the first in every report.
+ * Nothing is dead-lettered: a same-instant pair is ordinary behaviour for a
+ * coarse clock, not a fault, and the rule is stated here rather than recorded
+ * per occurrence. Redelivery of the SAME reading remains idempotent — the
+ * update writes the value it already holds.
+ *
+ * Collapsed to one row per (instrument, key, ts) BEFORE the INSERT, because
+ * Postgres refuses an ON CONFLICT DO UPDATE whose VALUES carry the same
+ * conflict target twice ("cannot affect row a second time") — and that would
+ * discard the whole batch, not the duplicate.
+ */
+export function lastPerInstant<R extends { instrumentId: string; key: string; ts: Date }>(rows: R[]): R[] {
+  const byInstant = new Map<string, R>();
+  for (const r of rows) byInstant.set(`${r.instrumentId}|${r.key}|${r.ts.getTime()}`, r);
+  return [...byInstant.values()];
+}
+
 export async function writeBatch(
   rows: (Reading & { instrumentId: string })[],
 ): Promise<void> {
@@ -44,11 +95,13 @@ export async function writeBatch(
 
   // `raw_value` is what the device sent when a sensor offset corrected the
   // reading (2026-10-01) — kept for the record, NULL otherwise, never shown.
-  const histValues = Prisma.join(rows.map((r) => Prisma.sql`(
+  const histValues = Prisma.join(lastPerInstant(rows).map((r) => Prisma.sql`(
     ${r.instrumentId}, ${r.key}, ${JSON.stringify(r.value)}::jsonb, ${r.valueType}, ${r.ts},
     ${r.rawValue === undefined ? null : JSON.stringify(r.rawValue)}::jsonb)`));
 
-  // Collapse to ONE row per (instrument, key), keeping the newest ts.
+  // Collapse to ONE row per (instrument, key), keeping the newest ts — and on
+  // a tie the LAST in arrival order, the same rule `lastPerInstant` applies to
+  // history, so the two tables cannot disagree about one instant.
   //
   // Not an optimisation — a correctness requirement. Postgres rejects an
   // INSERT ... ON CONFLICT DO UPDATE whose VALUES contain the same conflict
@@ -58,9 +111,6 @@ export async function writeBatch(
   // (instrument, key) — e.g. a batch payload keyed by device — so without
   // this collapse a duplicate would discard EVERY reading in the batch, not
   // just its own.
-  //
-  // History is unaffected: it keeps every row, deduplicated on (instrument,
-  // key, ts) by DO NOTHING.
   const newestPerKey = new Map<string, (typeof rows)[number]>();
   for (const r of rows) {
     const k = `${r.instrumentId}|${r.key}`;
@@ -72,13 +122,15 @@ export async function writeBatch(
     ${r.instrumentId}, ${r.key}, ${JSON.stringify(r.value)}::jsonb, ${r.valueType}, ${r.ts})`));
 
   await prisma.$transaction([
+    // Same (instrument, key, ts) again → the LAST arrival wins (see
+    // `lastPerInstant`). An identical redelivery rewrites the row with the
+    // value it already holds, so history stays idempotent under QoS 1.
     prisma.$executeRaw`
       INSERT INTO instrument_telemetry_history
         (instrument_id, key, value, value_type, ts, raw_value)
       VALUES ${histValues}
-      ON CONFLICT (instrument_id, key, ts) DO NOTHING`,
-    // A device that re-sends the same (instrument, key, ts) is a duplicate, not
-    // new information — DO NOTHING keeps history idempotent under redelivery.
+      ON CONFLICT (instrument_id, key, ts) DO UPDATE SET
+        value = EXCLUDED.value, value_type = EXCLUDED.value_type, raw_value = EXCLUDED.raw_value`,
     prisma.$executeRaw`
       INSERT INTO instrument_telemetry_latest
         (instrument_id, key, value, value_type, ts)
@@ -86,7 +138,8 @@ export async function writeBatch(
       ON CONFLICT (instrument_id, key) DO UPDATE SET
         value = EXCLUDED.value, value_type = EXCLUDED.value_type, ts = EXCLUDED.ts
       WHERE instrument_telemetry_latest.ts <= EXCLUDED.ts`,
-    // The WHERE guard stops an out-of-order arrival overwriting a NEWER value.
+    // The WHERE guard stops an out-of-order arrival overwriting a NEWER value;
+    // `<=`, not `<`, is what lets the last arrival at one instant win here too.
   ]);
 }
 
@@ -269,11 +322,10 @@ export interface RangeSummary {
  * sampled rows understates an excursion the sampler skipped. They are counted
  * in the same single pass, against bounds the CALLER resolved.
  *
- * Casts inside a CASE, never a bare `::float8`: telemetry `value` is jsonb and this
- * database really contains a non-numeric one (a device sent the string "hello").
- * A WHERE on jsonb_typeof is NOT a reliable guard — Postgres does not promise the
- * filter runs before the projection, so the query passes under one plan and fails
- * under another. room-history.ts does the same thing for the same reason.
+ * `NUMERIC_READING` (above) is the cast: a CASE, never a bare `::float8`, for
+ * the reason recorded on it, and the same expression in the FILTER as in the
+ * aggregates — a bare cast in the filter would throw on this database's one
+ * non-numeric reading under any plan that projects before it filters.
  */
 export async function getRangeSummary(opts: {
   instrumentId: string; key: string; from?: Date; to?: Date;
@@ -282,20 +334,7 @@ export async function getRangeSummary(opts: {
    *  work out which attribute is a limit. */
   low?: number | null; high?: number | null;
 }): Promise<RangeSummary | null> {
-  // The SAME `CASE`-wrapped cast the aggregates use, reused rather than
-  // repeated: a bare `(value #>> '{}')::float8` in the FILTER would throw on
-  // this database's one non-numeric reading under any plan that projects
-  // before it filters.
-  // A QUOTED number counts too (operator, 2026-08-31), matching `coerceReading`
-  // in @digilog/shared. The regex is that function's NUMERIC_STRING: if you widen
-  // one, widen the other, or the summaries here would be computed over a
-  // different population than the chart drawn from the same range.
-  const numeric = Prisma.sql`CASE
-    WHEN jsonb_typeof(value) = 'number' THEN (value #>> '{}')::float8
-    WHEN jsonb_typeof(value) = 'string'
-      AND btrim(value #>> '{}') ~ '^[+-]?([0-9]+\.?[0-9]*|\.[0-9]+)$'
-      THEN btrim(value #>> '{}')::float8
-  END`;
+  const numeric = NUMERIC_READING;
   const below = opts.low == null
     ? Prisma.sql`NULL::bigint`
     : Prisma.sql`count(*) FILTER (WHERE ${numeric} < ${opts.low})::bigint`;

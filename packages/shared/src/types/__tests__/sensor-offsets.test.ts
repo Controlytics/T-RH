@@ -25,24 +25,35 @@ describe('parseOffsetValue — a number with an optional + / - sign', () => {
 
 describe('applyOffset / offsetReadings', () => {
   const aliases = { temperature: ['temperature', 't'], humidity: ['humidity', 'h'] };
+  // The caller's vocabulary (the API's `classifyValue` for a number), handed in
+  // rather than restated here — audit 2026-10-03, INGEST-11.
+  const classify = (n: number) => (Number.isInteger(n) ? 'int' : 'float');
   it('adds without binary-float noise', () => {
     expect(applyOffset(23.4, 2)).toBe(25.4);
     expect(applyOffset(45.1, -1.2)).toBe(43.9);
   });
   it('corrects only the slot keys, keeps the raw value, and stores a NUMBER (a quoted reading counts)', () => {
     const out = offsetReadings([
-      { key: 't', value: 23.4, valueType: 'number' },
+      { key: 't', value: 23.4, valueType: 'float' },
       { key: 'H', value: '45.0', valueType: 'string' },
-      { key: 'battery', value: 3.3, valueType: 'number' },
-    ], aliases, { temperature: 2, humidity: -1.5 });
-    expect(out[0]).toMatchObject({ value: 25.4, valueType: 'number', rawValue: 23.4 });
-    expect(out[1]).toMatchObject({ value: 43.5, valueType: 'number', rawValue: '45.0' });
-    expect(out[2]).toEqual({ key: 'battery', value: 3.3, valueType: 'number' });
+      { key: 'battery', value: 3.3, valueType: 'float' },
+    ], aliases, { temperature: 2, humidity: -1.5 }, classify);
+    expect(out[0]).toMatchObject({ value: 25.4, valueType: 'float', rawValue: 23.4 });
+    expect(out[1]).toMatchObject({ value: 43.5, valueType: 'float', rawValue: '45.0' });
+    expect(out[2]).toEqual({ key: 'battery', value: 3.3, valueType: 'float' });
+  });
+  it('names the corrected value\'s type through the caller\'s classifier, never a literal of its own', () => {
+    // `"20"` + 2 = 22, an integer: the type is whatever the caller's vocabulary
+    // says for 22, so the stored row reads like every other ingested integer.
+    const out = offsetReadings([{ key: 't', value: '20', valueType: 'string' }], aliases, { temperature: 2 }, classify);
+    expect(out[0]).toMatchObject({ value: 22, valueType: 'int', rawValue: '20' });
+    const spy = offsetReadings([{ key: 't', value: 1, valueType: 'int' }], aliases, { temperature: 0.5 }, () => 'custom');
+    expect(spy[0].valueType).toBe('custom');
   });
   it('leaves a sensor-failure word exactly as sent, and changes nothing with no or a zero offset', () => {
-    const out = offsetReadings([{ key: 't', value: 'NA', valueType: 'string' }, { key: 'h', value: 50, valueType: 'number' }], aliases, { temperature: 2, humidity: 0 });
+    const out = offsetReadings([{ key: 't', value: 'NA', valueType: 'string' }, { key: 'h', value: 50, valueType: 'int' }], aliases, { temperature: 2, humidity: 0 }, classify);
     expect(out[0]).toEqual({ key: 't', value: 'NA', valueType: 'string' });
-    expect(out[1]).toEqual({ key: 'h', value: 50, valueType: 'number' });
+    expect(out[1]).toEqual({ key: 'h', value: 50, valueType: 'int' });
   });
 });
 

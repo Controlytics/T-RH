@@ -51,11 +51,26 @@ const DEFAULT_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 /** Slots, not bandwidth. Well beyond any real instrument count on one site. */
 const DEFAULT_MAX_CONNECTIONS = 200;
 
+/**
+ * Per CONNECTION, matching the WS listener's and the HTTP route's 600/min
+ * (audit 2026-10-03, INGEST-10). This was the one transport with no rate cap:
+ * a line costs a JSON parse and a write — or, when it cannot be parsed, a
+ * dead-letter row of up to 4 KB — so an authenticated logger with corrupt
+ * firmware could stream garbage at wire speed and grow `dead_letters` at
+ * ~270 rows a second with nothing to stop it. Counted on LINES, the unit the
+ * core is handed, and before the queue, so a flood is refused before it costs
+ * anything. Pre-auth lines count too: the window belongs to the socket.
+ */
+const DEFAULT_MAX_MESSAGES_PER_WINDOW = 600;
+const DEFAULT_RATE_WINDOW_MS = 60_000;
+
 export interface TcpListenerOptions {
   authTimeoutMs?: number;
   idleTimeoutMs?: number;
   maxLineBytes?: number;
   maxConnections?: number;
+  maxMessagesPerWindow?: number;
+  rateWindowMs?: number;
   /** Injected in tests to keep the run quiet; defaults to console. */
   log?: (msg: string, meta?: Record<string, unknown>) => void;
 }
@@ -91,6 +106,8 @@ export async function startTcpListener(
   const idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
   const maxLineBytes = opts.maxLineBytes ?? DEFAULT_MAX_LINE_BYTES;
   const maxConnections = opts.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
+  const maxMessages = opts.maxMessagesPerWindow ?? DEFAULT_MAX_MESSAGES_PER_WINDOW;
+  const rateWindowMs = opts.rateWindowMs ?? DEFAULT_RATE_WINDOW_MS;
   const log = opts.log ?? ((msg: string, meta?: Record<string, unknown>) =>
     logger.warn(`[ingest:tcp] ${msg}`, meta ?? ''));
 
@@ -119,6 +136,9 @@ export async function startTcpListener(
     // unbounded concurrent writes in nondeterministic order.
     let draining = false;
     const queue: string[] = [];
+
+    let windowStart = Date.now();
+    let inWindow = 0;
 
     // ABSOLUTE, not `socket.setTimeout`. Node's socket timeout is an INACTIVITY
     // timer and resets on every byte, so a scanner dribbling one byte every
@@ -156,6 +176,18 @@ export async function startTcpListener(
         lines = framer.push(chunk);
       } catch (e) {
         kill('framer failure', { err: (e as Error).message });
+        return;
+      }
+
+      // Rate first: the cheapest check, and the one that must apply to lines
+      // about to be rejected anyway. See DEFAULT_MAX_MESSAGES_PER_WINDOW.
+      const now = Date.now();
+      if (now - windowStart >= rateWindowMs) { windowStart = now; inWindow = 0; }
+      inWindow += lines.length;
+      if (inWindow > maxMessages) {
+        kill('closing socket — message rate cap exceeded', {
+          cap: maxMessages, windowMs: rateWindowMs, code: identity?.code,
+        });
         return;
       }
 

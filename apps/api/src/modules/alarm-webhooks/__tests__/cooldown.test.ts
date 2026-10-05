@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { shouldFire, resetCooldowns } from '../cooldown.js';
+import { shouldFire, releaseCooldown, resetCooldowns } from '../cooldown.js';
 
 describe('cooldown', () => {
   beforeEach(() => resetCooldowns());
@@ -37,5 +37,27 @@ describe('cooldown', () => {
   it('never suppresses a TEST fire', () => {
     expect(shouldFire('RAISED', 'T1', 3600, 0)).toBe(true);
     expect(shouldFire('TEST', 'T1', 3600, 1)).toBe(true);
+  });
+
+  // Audit 2026-10-03, INGEST-12: a claim for a raise that never reached the
+  // device must not suppress the next one.
+  describe('releaseCooldown', () => {
+    it('a released claim lets the next RAISED inside the window fire', () => {
+      expect(shouldFire('RAISED', 'T1', 60, 0)).toBe(true);
+      releaseCooldown('T1', 0);
+      expect(shouldFire('RAISED', 'T1', 60, 10_000)).toBe(true);
+    });
+
+    it('releasing a claim that is not the recorded one changes nothing', () => {
+      expect(shouldFire('RAISED', 'T1', 60, 0)).toBe(true);
+      // A newer successful raise — a release for the OLD claim must not clear it.
+      expect(shouldFire('RAISED', 'T1', 60, 70_000)).toBe(true);
+      releaseCooldown('T1', 0);
+      expect(shouldFire('RAISED', 'T1', 60, 80_000)).toBe(false);
+    });
+
+    it('a release for an unknown target is a no-op', () => {
+      expect(() => releaseCooldown('nope', 0)).not.toThrow();
+    });
   });
 });

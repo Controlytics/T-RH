@@ -174,15 +174,28 @@ export function parsePayload(buf: Buffer): ParsedPayload {
       (k) => k !== ENVELOPE_KEY && !META_KEYS.has(k),
     );
     if (otherReadingKeys.length === 0) {
-      return { ok: true, devices: null, values: { ...(envelope as Record<string, unknown>) }, ts };
+      return { ok: true, devices: null, values: ownKeys(envelope as Record<string, unknown>), ts };
     }
   }
 
-  const values: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(obj)) {
-    if (!META_KEYS.has(k)) values[k] = v;
-  }
+  const values = ownKeys(obj, META_KEYS);
   return { ok: true, devices: null, values, ts };
+}
+
+/**
+ * Copies a parsed object's own keys onto a PROTOTYPE-LESS object. A plain `{}`
+ * has Object.prototype's `__proto__` setter, so a reading key literally named
+ * `__proto__` (which `JSON.parse` does produce as an own property) would hit
+ * the setter and vanish — stored nowhere, dead-lettered nowhere. The gateway
+ * fan-out has guarded this since it was written; the flat path did not
+ * (audit 2026-10-03, INGEST-13). Do not tidy this back to `{}`.
+ */
+function ownKeys(src: Record<string, unknown>, skip?: Set<string>): Record<string, unknown> {
+  const out: Record<string, unknown> = Object.create(null);
+  for (const [k, v] of Object.entries(src)) {
+    if (!skip?.has(k)) out[k] = v;
+  }
+  return out;
 }
 
 export function toReadings(values: Record<string, unknown>, ts: Date): Reading[] {

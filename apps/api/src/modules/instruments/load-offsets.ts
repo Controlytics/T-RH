@@ -4,6 +4,7 @@ import {
   type SensorOffsetConfig, type TelemetrySlot,
 } from '@digilog/shared';
 import { prisma } from '../../lib/prisma.js';
+import { classifyValue } from './payload-parser.js';
 
 /**
  * Sensor offsets (2026-10-01) — the server half. See
@@ -69,29 +70,38 @@ async function offsetsFor(config: SensorOffsetConfig, instrumentIds: string[]): 
 /**
  * Correct a batch of readings (any number of instruments) before it is stored.
  * Returns the rows unchanged when the feature is off or nobody in the batch has
- * an offset. NEVER throws into ingest: a failure here stores the readings
- * uncorrected and logs it — losing a reading is worse than an uncorrected one,
- * and the log says which.
+ * an offset.
+ *
+ * THROWS when the offsets cannot be resolved (audit 2026-10-03, INGEST-11).
+ * Until then a failed lookup — a database blip inside `offsetsFor`, say —
+ * logged a line and handed the rows back UNCORRECTED, which the write path
+ * then stored exactly as it stores a corrected batch: `raw_value` NULL,
+ * nothing on the row to say the correction was skipped, two degrees off and
+ * indistinguishable from a reading that never needed one. A reading this
+ * system cannot vouch for must not be stored as one it can. The throw lands in
+ * `writeBatchOrDeadLetter` (ingest-core.ts), which records the raw payload as
+ * a dead letter with the error against the sender and answers the device with
+ * WRITE_FAILED (503 on HTTP), so it retries once the fault is gone — the same
+ * path a partition miss takes, for the same reason.
+ *
+ * The corrected number's `valueType` comes from `classifyValue`, the ONE
+ * ingest vocabulary (`int` | `float`), passed into the pure shared function
+ * rather than restated there.
  */
 export async function applySensorOffsets<R extends { instrumentId: string; key: string; value: unknown; valueType: string }>(
   rows: R[],
 ): Promise<(R & { rawValue?: unknown })[]> {
   if (rows.length === 0) return rows;
-  try {
-    const config = await loadOffsetConfig();
-    if (!config.enabled) return rows;
-    const ids = [...new Set(rows.map((r) => r.instrumentId))];
-    const offsets = await offsetsFor(config, ids);
-    if (offsets.size === 0) return rows;
-    const aliases = await slotAliases();
-    return rows.map((r) => {
-      const o = offsets.get(r.instrumentId);
-      return o ? offsetReadings([r], aliases, o)[0] : r;
-    });
-  } catch (e) {
-    console.error('[sensor-offsets] could not apply offsets — readings stored UNCORRECTED:', (e as Error).message);
-    return rows;
-  }
+  const config = await loadOffsetConfig();
+  if (!config.enabled) return rows;
+  const ids = [...new Set(rows.map((r) => r.instrumentId))];
+  const offsets = await offsetsFor(config, ids);
+  if (offsets.size === 0) return rows;
+  const aliases = await slotAliases();
+  return rows.map((r) => {
+    const o = offsets.get(r.instrumentId);
+    return o ? offsetReadings([r], aliases, o, classifyValue)[0] : r;
+  });
 }
 
 /**

@@ -76,9 +76,29 @@ const DEFAULT_MAX_MESSAGE_BYTES = 65_536;
  */
 const DEFAULT_MAX_QUEUED = 500;
 
-/** Reconnect backoff. Capped so a broker outage does not become a hot loop. */
-const RECONNECT_MIN_MS = 1_000;
-const RECONNECT_MAX_MS = 60_000;
+/**
+ * Reconnect period. FLAT, and that is a fact about mqtt.js rather than a
+ * choice made here: the client arms ONE `setInterval(options.reconnectPeriod)`
+ * on the first close after a disconnect and re-reads the option only after the
+ * NEXT SUCCESSFUL CONNECT — `_setupReconnect` is a no-op while `reconnectTimer`
+ * is set, and `_clearReconnect` runs on CONNACK, on `end()` and nowhere on a
+ * failed attempt (verified in `node_modules/mqtt` 5.15.2,
+ * `build/lib/client.js`, audit 2026-10-03 INGEST-18). Until that audit this
+ * file doubled `client.options.reconnectPeriod` on every 'reconnect' event
+ * and called it a capped backoff: the mutation was never read, every retry
+ * was one second apart, and the comment was false. One TCP connect a second
+ * against a down broker is not a hot loop; the cost is the warn line per
+ * attempt, and `reconnectLogDue` throttles THAT instead of pretending to
+ * throttle the attempts.
+ */
+const RECONNECT_PERIOD_MS = 1_000;
+/** Log the first attempt and then one in every N — about once a minute at the period above. */
+export const RECONNECT_LOG_EVERY = 60;
+
+/** Pure: is this reconnect attempt one that gets a log line? */
+export function reconnectLogDue(attempt: number): boolean {
+  return attempt === 1 || attempt % RECONNECT_LOG_EVERY === 0;
+}
 
 export const TELEMETRY_TOPIC_FILTER = 'instruments/#';
 
@@ -215,6 +235,22 @@ export function isDownlinkTopic(topic: string): boolean {
   return topic.endsWith('/attributes') || topic.includes('/attributes/') || topic.endsWith('/children');
 }
 
+/**
+ * A message that is the bridge's OWN retained publish coming back to it, and
+ * nothing else: a downlink slot that is NOT a device's attribute report (which
+ * also sits under `/attributes/` and must win — the same precedence the drain
+ * applies). Pure, so the `message` handler can apply it SYNCHRONOUSLY before
+ * a queue slot is taken (audit 2026-10-03, INGEST-7): one retained slot per
+ * instrument, one per child, one roster per gateway — about 200 on this plant
+ * — are all re-delivered on every (re)subscribe, and until then they counted
+ * against `maxQueued`, so a reconnect's burst pushed real readings past the
+ * cap and the log blamed "publishing faster than readings can be written" for
+ * what was a reconnect.
+ */
+export function isBridgeEcho(topic: string): boolean {
+  return parseAttributeReportTopic(topic) === null && isDownlinkTopic(topic);
+}
+
 /** mqtt.js transports that encrypt. Anything else puts the credential on the wire. */
 const ENCRYPTED_BROKER_SCHEMES = new Set(['mqtts:', 'wss:', 'tls:', 'ssl:']);
 
@@ -307,7 +343,7 @@ export async function startMqttBridge(
     // give each instance its own MQTT_CLIENT_ID (two clients sharing one id
     // kick each other off in a loop).
     clientId: process.env.MQTT_CLIENT_ID || 'digilog-ingest-bridge',
-    reconnectPeriod: RECONNECT_MIN_MS,
+    reconnectPeriod: RECONNECT_PERIOD_MS,
     // Redelivery of anything published while we were down is the whole reason
     // for QoS 1; a clean session would throw it away at reconnect.
     clean: false,
@@ -315,16 +351,16 @@ export async function startMqttBridge(
     ...opts.clientOptions,
   });
 
-  let backoff = RECONNECT_MIN_MS;
+  /** Attempts since the last successful connect; drives `reconnectLogDue`. */
+  let reconnectAttempts = 0;
   let closing = false;
 
   const queue: Array<{ topic: string; payload: Buffer }> = [];
   let draining = false;
 
   client.on('connect', () => {
-    backoff = RECONNECT_MIN_MS;
-    client.options.reconnectPeriod = RECONNECT_MIN_MS;
-    log('connected to broker', { url });
+    log('connected to broker', { url, afterAttempts: reconnectAttempts });
+    reconnectAttempts = 0;
     client.subscribe(TELEMETRY_TOPIC_FILTER, { qos: 1 }, (err) => {
       if (err) {
         // LOUD: a bridge that is connected but not subscribed looks healthy
@@ -343,9 +379,15 @@ export async function startMqttBridge(
   // accepts, and nothing reaches the database until someone notices a gap in
   // the readings days later.
   client.on('reconnect', () => {
-    log('reconnecting to broker — telemetry is NOT being ingested', { url, nextDelayMs: backoff });
-    backoff = Math.min(backoff * 2, RECONNECT_MAX_MS);
-    client.options.reconnectPeriod = backoff;
+    // Nothing here touches `client.options.reconnectPeriod` — mqtt.js would
+    // not read it (see RECONNECT_PERIOD_MS). The attempt count is what is
+    // throttled, so a day-long outage is ~1,440 lines, not 86,400.
+    reconnectAttempts++;
+    if (reconnectLogDue(reconnectAttempts)) {
+      log('reconnecting to broker — telemetry is NOT being ingested', {
+        url, attempt: reconnectAttempts, periodMs: RECONNECT_PERIOD_MS,
+      });
+    }
   });
   client.on('offline', () => {
     if (!closing) log('OFFLINE — telemetry is NOT being ingested', { url });
@@ -370,6 +412,12 @@ export async function startMqttBridge(
       });
       return;
     }
+
+    // The bridge's own retained slots echoed back under `instruments/#` are
+    // dropped HERE, synchronously, before they can take a queue slot — see
+    // `isBridgeEcho`. Silently: a line per slot per reconnect would bury a
+    // real drop.
+    if (isBridgeEcho(topic)) return;
 
     if (queue.length >= maxQueued) {
       // LOST, not deferred — see DEFAULT_MAX_QUEUED. The broker has already
@@ -429,7 +477,9 @@ export async function startMqttBridge(
 
         const code = parseTelemetryTopic(topic);
         if (!code) {
-          // Our own retained downlinks come back to us under `instruments/#`.
+          // Our own retained downlinks never reach the queue (`isBridgeEcho`
+          // in the message handler); this guard stays so a reordering there
+          // cannot turn them into a logged drop apiece.
           if (!isDownlinkTopic(topic)) {
             log('message dropped — topic does not match instruments/<code>/telemetry', { topic });
           }

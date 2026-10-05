@@ -20,19 +20,15 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { withVisibility, type ScopeWhere } from './visibility.js';
 import { loadAliases } from './telemetry-overview.js';
+import { NUMERIC_READING } from './telemetry.repository.js';
 import { loadLimitConfig, limitsFor } from '../alarms/load-limits.js';
 import { WINDOW_SPEC, type HistoryWindow } from '../floorplans/room-history.js';
 import { resolveLocationIds, type FlNode } from '../functional-locations/tree.js';
 
-/**
- * Identical to room-history.ts's cast, and identical for the same reason: a CASE
- * guarantees evaluation order where a `WHERE jsonb_typeof(...)` does not, so the
- * cast is only ever reached for a row already known to be a number. Without it the
- * query works under one plan and 500s under another, on data this database really
- * holds.
- */
-const NUMERIC_VALUE = Prisma.sql`
-  CASE WHEN jsonb_typeof(value) = 'number' THEN (value #>> '{}')::float8 END`;
+// `NUMERIC_READING` is the ONE SQL definition of a reading (see its comment in
+// telemetry.repository.ts). This file carried its own number-only copy until
+// audit 2026-10-03 INGEST-9, and the gateway-fed instruments — quoted readings
+// — were missing from the trend card while the table beside it showed them.
 
 export type AggregateSlot = 'temperature' | 'humidity';
 
@@ -190,15 +186,15 @@ export async function getTelemetryAggregate(opts: AggregateOptions): Promise<Agg
   const rows = await prisma.$queryRaw<AggregateRow[]>`
     SELECT ${bucketExpr} AS ts,
            CASE WHEN lower(key) = ANY(${tempKeys}::text[]) THEN 'temperature' ELSE 'humidity' END AS slot,
-           min(${NUMERIC_VALUE}) AS min,
-           avg(${NUMERIC_VALUE}) AS avg,
-           max(${NUMERIC_VALUE}) AS max,
+           min(${NUMERIC_READING}) AS min,
+           avg(${NUMERIC_READING}) AS avg,
+           max(${NUMERIC_READING}) AS max,
            count(DISTINCT instrument_id) AS "instrumentCount"
     FROM instrument_telemetry_history
     WHERE instrument_id = ANY(${ids}::text[])
       AND lower(key) = ANY(${allKeys}::text[])
       AND ts >= ${from} AND ts <= ${to}
-      AND jsonb_typeof(value) = 'number'
+      AND ${NUMERIC_READING} IS NOT NULL
     GROUP BY 1, 2
     ORDER BY 1 ASC`;
 

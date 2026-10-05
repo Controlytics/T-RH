@@ -13,7 +13,7 @@ import { prisma } from '../lib/prisma.js';
 import { alarmWebhookJobSchema, type AlarmWebhookJob } from '@digilog/queue';
 import type { AlarmWebhookTargetShape } from '@digilog/shared';
 import { expandLocations, targetMatches } from '../modules/alarm-webhooks/target-scope.js';
-import { shouldFire } from '../modules/alarm-webhooks/cooldown.js';
+import { shouldFire, releaseCooldown } from '../modules/alarm-webhooks/cooldown.js';
 import { deliverToTarget } from '../modules/alarm-webhooks/send.js';
 import { logger } from '../lib/logger.js';
 
@@ -51,6 +51,8 @@ export async function attemptTarget(
 export async function runAlarmWebhookJob(
   payload: AlarmWebhookJob,
   now: number = Date.now(),
+  /** Injected in tests, like `attemptTarget`'s; defaults to the real sender. */
+  deliver: typeof deliverToTarget = deliverToTarget,
 ): Promise<{ targets: number; sent: number; failed: number }> {
   const { event, alarmId, instrumentId, variables } = payload;
 
@@ -110,12 +112,20 @@ export async function runAlarmWebhookJob(
   // the failure isolation, and a settled rejection (which that catch should make
   // unreachable) is still counted as a failure rather than silently dropped.
   const results = await Promise.allSettled(
-    due.map((t) => attemptTarget(t, event, alarmId, variables)),
+    due.map((t) => attemptTarget(t, event, alarmId, variables, deliver)),
   );
-  for (const r of results) {
-    if (r.status === 'fulfilled' && r.value) sent++;
-    else failed++;
-  }
+  results.forEach((r, i) => {
+    if (r.status === 'fulfilled' && r.value) {
+      sent++;
+      return;
+    }
+    failed++;
+    // Every attempt failed, so nothing sounded: the cooldown claimed above is
+    // handed back (audit 2026-10-03, INGEST-12), or the NEXT excursion inside
+    // the window would be suppressed on the strength of a buzz that never
+    // happened. `releaseCooldown` only clears the claim made at THIS `now`.
+    if (event === 'RAISED') releaseCooldown(due[i].id, now);
+  });
 
   return { targets: matched, sent, failed };
 }

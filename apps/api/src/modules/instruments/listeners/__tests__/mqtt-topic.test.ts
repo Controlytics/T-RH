@@ -1,5 +1,39 @@
 import { describe, it, expect } from 'vitest';
-import { parseTelemetryTopic, isDownlinkTopic, TELEMETRY_TOPIC_FILTER } from '../mqtt-bridge.js';
+import {
+  parseTelemetryTopic, isDownlinkTopic, isBridgeEcho, reconnectLogDue, RECONNECT_LOG_EVERY, TELEMETRY_TOPIC_FILTER,
+} from '../mqtt-bridge.js';
+
+/**
+ * Audit 2026-10-03, INGEST-7: the bridge's own retained slots are classified
+ * synchronously in the message handler, before a queue slot is taken. The one
+ * thing that MUST NOT read as an echo is a device's attribute REPORT, which
+ * also sits under `/attributes/`.
+ */
+describe('isBridgeEcho', () => {
+  it('is the bridge\'s own retained slots', () => {
+    expect(isBridgeEcho('instruments/CWH/RDU/001-00/attributes')).toBe(true);
+    expect(isBridgeEcho('instruments/IOTGW01/attributes/CWH/RDU/002-00')).toBe(true);
+    expect(isBridgeEcho('instruments/IOTGW01/children')).toBe(true);
+  });
+
+  it('is NOT telemetry, an attribute report, an RTC request or a foreign topic', () => {
+    expect(isBridgeEcho('instruments/CWH/RDU/001-00/telemetry')).toBe(false);
+    expect(isBridgeEcho('instruments/CWH/RDU/001-00/attributes/report')).toBe(false);
+    expect(isBridgeEcho('instruments/CWH/RDU/001-00/rtc-request')).toBe(false);
+    expect(isBridgeEcho('other/x/attributes')).toBe(false);
+  });
+});
+
+/** INGEST-18: the attempts are flat (mqtt.js's doing); the LOG is what is throttled. */
+describe('reconnectLogDue', () => {
+  it('logs the first attempt, then one in every RECONNECT_LOG_EVERY', () => {
+    expect(reconnectLogDue(1)).toBe(true);
+    expect(reconnectLogDue(2)).toBe(false);
+    expect(reconnectLogDue(RECONNECT_LOG_EVERY - 1)).toBe(false);
+    expect(reconnectLogDue(RECONNECT_LOG_EVERY)).toBe(true);
+    expect(reconnectLogDue(RECONNECT_LOG_EVERY * 2)).toBe(true);
+  });
+});
 
 /**
  * Pure routing. A loose router is how a message gets filed against the wrong

@@ -9,7 +9,6 @@
  *
  * Design: docs/superpowers/specs/2026-08-11-instrument-dashboard-floorplan-design.md
  */
-import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import {
   parseTelemetryAliases,
@@ -18,6 +17,7 @@ import {
 } from '@digilog/shared';
 import { loadDecimalsConfig, decimalsFor } from '../instruments/decimals.js';
 import { withVisibility, type ScopeWhere } from '../instruments/visibility.js';
+import { NUMERIC_READING } from '../instruments/telemetry.repository.js';
 
 export type HistoryWindow = '15m' | '1h' | '6h' | '24h' | '7d';
 
@@ -71,20 +71,10 @@ async function slotAliases(): Promise<Record<TelemetrySlot, string[]>> {
   };
 }
 
-/**
- * Cast jsonb → float8 ONLY inside a CASE.
- *
- * `value` is jsonb and this table really does contain non-numeric readings — a
- * device sent the string "hello". A bare `(value #>> '{}')::float8` in the
- * SELECT list errors on that row with "invalid input syntax for type double
- * precision", and adding `WHERE jsonb_typeof(value) = 'number'` is NOT a
- * reliable fix: Postgres does not guarantee the filter is evaluated before the
- * projection, so the query works under one plan and fails under another. CASE
- * does guarantee evaluation order, so the cast is only ever reached for a row
- * already known to be a number.
- */
-const NUMERIC_VALUE = Prisma.sql`
-  CASE WHEN jsonb_typeof(value) = 'number' THEN (value #>> '{}')::float8 END`;
+// `NUMERIC_READING` (telemetry.repository.ts) is the ONE SQL definition of a
+// reading — a CASE-guarded cast that also accepts a quoted number. This file
+// carried its own number-only copy until audit 2026-10-03 INGEST-9, so a room
+// of gateway-fed instruments (quoted readings) drew an empty chart.
 
 /**
  * `visibility` is the caller's resolved instrument scope, or undefined when they
@@ -118,22 +108,22 @@ export async function getRoomHistory(roomId: string, window: HistoryWindow, visi
 
   const rows = spec.bucketSec === null
     ? await prisma.$queryRaw<RawPoint[]>`
-        SELECT instrument_id AS "instrumentId", key, ts, ${NUMERIC_VALUE} AS value
+        SELECT instrument_id AS "instrumentId", key, ts, ${NUMERIC_READING} AS value
         FROM instrument_telemetry_history
         WHERE instrument_id = ANY(${ids}::text[])
           AND lower(key) = ANY(${allKeys}::text[])
           AND ts >= ${from} AND ts <= ${to}
-          AND jsonb_typeof(value) = 'number'
+          AND ${NUMERIC_READING} IS NOT NULL
         ORDER BY ts ASC`
     : await prisma.$queryRaw<RawPoint[]>`
         SELECT instrument_id AS "instrumentId", key,
                to_timestamp(floor(extract(epoch FROM ts) / ${spec.bucketSec}) * ${spec.bucketSec}) AS ts,
-               avg(${NUMERIC_VALUE}) AS value
+               avg(${NUMERIC_READING}) AS value
         FROM instrument_telemetry_history
         WHERE instrument_id = ANY(${ids}::text[])
           AND lower(key) = ANY(${allKeys}::text[])
           AND ts >= ${from} AND ts <= ${to}
-          AND jsonb_typeof(value) = 'number'
+          AND ${NUMERIC_READING} IS NOT NULL
         GROUP BY instrument_id, key, 3
         ORDER BY 3 ASC`;
 

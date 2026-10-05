@@ -27,6 +27,7 @@ const S = Date.now();
 let listener: Awaited<ReturnType<typeof startTcpListener>>;
 let fastAuthListener: Awaited<ReturnType<typeof startTcpListener>>;
 let fastIdleListener: Awaited<ReturnType<typeof startTcpListener>>;
+let rateListener: Awaited<ReturnType<typeof startTcpListener>>;
 const instrumentIds: string[] = [];
 
 let plainToken: string;
@@ -114,12 +115,20 @@ beforeAll(async () => {
   // second closer that made the cap tests vacuous, so the only test allowed to
   // have one is the test about it.
   fastIdleListener = await startTcpListener(0, { authTimeoutMs: 30_000, idleTimeoutMs: 400 });
+  // Only the message-rate cap may close anything here (audit 2026-10-03,
+  // INGEST-10): long deadlines, a large line cap, a window the test cannot
+  // outlive.
+  rateListener = await startTcpListener(0, {
+    authTimeoutMs: 30_000, idleTimeoutMs: 30_000, maxLineBytes: 65_536,
+    maxMessagesPerWindow: 3, rateWindowMs: 60_000, log: () => {},
+  });
 });
 
 afterAll(async () => {
   await listener?.close();
   await fastAuthListener?.close();
   await fastIdleListener?.close();
+  await rateListener?.close();
   await prisma.deadLetter.deleteMany({ where: { instrumentId: { in: instrumentIds } } });
   await prisma.$executeRaw`DELETE FROM instrument_telemetry_latest WHERE instrument_id = ANY(${instrumentIds}::text[])`;
   // Children first — the FK is SetNull, but deleting the parent while a child
@@ -250,6 +259,24 @@ describe('TCP ingest listener', () => {
     const row = await prisma.instrument.findUnique({ where: { id: childId } });
     expect(row?.lastSeenVia).toBe('gateway');
     s.destroy();
+  });
+
+  it('closes a socket that exceeds the per-connection message rate cap', async () => {
+    // Three lines a minute is the cap; the token line is the first of them.
+    // Two readings fit, the third does not — and the valid readings before it
+    // were ingested, so this is the cap and not a parse refusal (which keeps
+    // the socket open, see above).
+    const s = await connect(rateListener.port);
+    const shut = closed(s);
+    s.write(`${JSON.stringify({ token: plainToken })}\n`);
+    s.write(`${JSON.stringify({ ratefirst: 1 })}\n`);
+    s.write(`${JSON.stringify({ ratesecond: 1 })}\n`);
+    await waitFor(async () => (await latestKeys(plainId)).some((r) => r.key === 'ratesecond'));
+    expect(s.destroyed).toBe(false);
+    s.write(`${JSON.stringify({ ratethird: 1 })}\n`);
+    await expect(shut).resolves.toBe('close');
+    await sleep(200);
+    expect((await latestKeys(plainId)).some((r) => r.key === 'ratethird')).toBe(false);
   });
 
   it('refuses connections past the concurrent-connection cap', async () => {

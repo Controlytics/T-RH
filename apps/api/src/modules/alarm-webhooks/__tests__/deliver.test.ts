@@ -64,6 +64,18 @@ describe('decideSuccess', () => {
     expect(() => decideSuccess(200, 'ok', '([')).not.toThrow();
     expect(decideSuccess(200, 'ok', '([')).toBe(false);
   });
+
+  // Audit 2026-10-03, INGEST-15: judged against the stored snippet, under a budget.
+  it('judges the first 1000 characters — what the delivery row stores — and nothing beyond', () => {
+    expect(decideSuccess(200, `OK${'x'.repeat(1500)}`, '^OK')).toBe(true);
+    expect(decideSuccess(200, `${'x'.repeat(1500)}OK`, 'OK$')).toBe(false);
+  });
+
+  it('fails closed within its budget on a catastrophically backtracking pattern', () => {
+    const started = Date.now();
+    expect(decideSuccess(200, `${'a'.repeat(40)}b`, '(a+)+$')).toBe(false);
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
 });
 
 describe('attemptDelivery', () => {

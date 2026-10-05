@@ -222,8 +222,46 @@ describe('MQTT ingest bridge', () => {
     lastClient.emit('offline');
     lastClient.emit('reconnect');
     expect(logs.some((l) => l.msg.includes('OFFLINE'))).toBe(true);
-    expect(logs.some((l) => l.msg.includes('reconnecting'))).toBe(true);
-    // Backoff, not a hot loop.
-    expect(lastClient.options.reconnectPeriod).toBeGreaterThan(1000);
+    const reconnecting = logs.filter((l) => l.msg.includes('reconnecting'));
+    expect(reconnecting).toHaveLength(1);
+    // The period mqtt.js actually retries at, stated truthfully (audit
+    // 2026-10-03, INGEST-18). Until then this test asserted that the bridge
+    // had DOUBLED `options.reconnectPeriod` — a mutation mqtt.js never reads,
+    // so the "backoff" it pinned had never once happened.
+    expect(reconnecting[0].meta).toMatchObject({ attempt: 1, periodMs: 1000 });
+    expect(lastClient.options.reconnectPeriod).toBe(1000);
+    // And the line is throttled, not the attempts: 59 more reconnects, one more line.
+    for (let i = 0; i < 59; i++) lastClient.emit('reconnect');
+    expect(logs.filter((l) => l.msg.includes('reconnecting'))).toHaveLength(2);
+    lastClient.emit('connect');
+  });
+
+  /**
+   * Audit 2026-10-03, INGEST-7: the bridge's own retained downlinks come back
+   * under `instruments/#` on every reconnect — ~200 on this plant — and used to
+   * take a queue slot each, so a reconnect's burst pushed real readings past
+   * `maxQueued` and LOST them (the broker had already acked). With a cap of ONE:
+   * one reading in flight, one echo, one more reading — the reading must land.
+   */
+  it('a retained echo takes no queue slot, so it cannot push a real reading past the cap', async () => {
+    const main = lastClient;
+    const tight: Array<{ msg: string; meta?: Record<string, unknown> }> = [];
+    const bridge2 = await startMqttBridge('mqtt://127.0.0.1:1883', {
+      maxQueued: 1,
+      log: (msg, meta) => { tight.push({ msg, meta }); },
+    });
+    const client2 = lastClient;
+    try {
+      const msg = (topic: string, body: unknown) => client2.emit('message', topic, Buffer.from(JSON.stringify(body)));
+      msg(`instruments/${PLAIN_CODE}/telemetry`, { echofirst: 1 });   // in flight
+      msg(`instruments/${PLAIN_CODE}/attributes`, { stale: 'slot' });  // the bridge's own echo
+      msg(`instruments/${GW_CODE}/children`, { children: [] });        // and another
+      msg(`instruments/${PLAIN_CODE}/telemetry`, { echosecond: 1 });  // must take the one slot
+      await waitFor(async () => (await latestKeys(plainId)).some((r) => r.key === 'echosecond'));
+      expect(tight.some((l) => l.msg.includes('LOST'))).toBe(false);
+    } finally {
+      await bridge2.close();
+      lastClient = main;
+    }
   });
 });

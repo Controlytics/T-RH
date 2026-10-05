@@ -197,4 +197,25 @@ describe('GET /api/floorplans/:id/rooms/:roomId/history', () => {
     const temp = res.json().series.find((x: { slot: string; instrumentCode: string }) => x.slot === 'temperature' && x.instrumentCode === `RH-A-${s}`);
     for (const p of temp.points) expect(typeof p.value).toBe('number');
   });
+
+  // Audit 2026-10-03, INGEST-9: the gateway firmware QUOTES its readings, and
+  // this query counted `jsonb_typeof = 'number'` alone — a room of gateway-fed
+  // instruments drew an empty chart. `NUMERIC_READING` is now the ONE SQL
+  // definition of a reading, in both the raw and the bucketed path.
+  it('a QUOTED number is a reading, raw and bucketed alike', async () => {
+    const ts = new Date(Date.now() - 4 * 60_000);
+    await prisma.$executeRaw`
+      INSERT INTO instrument_telemetry_history (instrument_id, key, value, value_type, ts)
+      VALUES (${instB}, 'temperature', '"19.25"'::jsonb, 'string', ${ts})
+      ON CONFLICT (instrument_id, key, ts) DO NOTHING`;
+    const bTemp = (window: string, body: { series: { slot: string; instrumentCode: string; points: { value: number }[] }[] }) =>
+      body.series.find((x) => x.slot === 'temperature' && x.instrumentCode === `RH-B-${s}`);
+
+    const raw = bTemp('1h', (await history(roomId, '1h')).json());
+    expect(raw!.points.map((p) => p.value)).toContain(19.25);
+    // B had one reading (20.0) and now a quoted 19.25 in the same 3-minute
+    // bucket: the bucket's mean must include both.
+    const bucketed = bTemp('24h', (await history(roomId, '24h')).json());
+    expect(bucketed!.points.map((p) => p.value)).toContain(19.625);
+  });
 });
