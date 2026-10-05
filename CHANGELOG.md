@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased] - Reports: the header block is ruled dark (2026-10-05)
+
+Operator: "make all the reports headers tables lines into dark".
+
+- **Every report's HEADER table — the headless parameter block at the top
+  (Block / Area / Location / Inst ID against the period on the Data Report
+  and the trend page's Instrument Alarms report; the period block on the
+  Alarms page report; any other headless block)** — is now ruled in the
+  dark ink (`COLORS.dark`) instead of the light border grey. ONE rule in
+  `lib/pdf-report.ts` `addTable`: a table with no heading row is the form at
+  the top and rules dark; a headed table is records and keeps the light
+  rule, as does the signature table in the footer. A replayed snapshot (the
+  approved copy) draws the same. Pinned by `pdf-report-rules.test.ts` (3).
+  No count moved.
+
 ## [Unreleased] - Trend page: the Instrument Alarms report header carries the full parameter block (2026-10-05)
 
 Operator: "in alarms report on the trends page, on header, Block, area,

@@ -633,7 +633,11 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       body: opts.body,
       theme: 'grid',
       margin: { left: GUTTER_MM, right: GUTTER_MM },
-      styles: { fontSize: t.tablePt, cellPadding: 2.5, lineColor: COLORS.border, lineWidth: 0.2, textColor: COLORS.text, overflow: 'linebreak' },
+      // A HEADLESS table is the report's header block (the Block / Area / …
+      // form at the top) and is ruled DARK (operator, 2026-10-05: "make all the
+      // reports headers tables lines into dark"); a headed table is records and
+      // keeps the light rule.
+      styles: { fontSize: t.tablePt, cellPadding: 2.5, lineColor: opts.head ? COLORS.border : COLORS.dark, lineWidth: 0.2, textColor: COLORS.text, overflow: 'linebreak' },
       headStyles: { fillColor: opts.headColor ?? COLORS.primary, textColor: COLORS.white, fontStyle: 'bold', fontSize: t.tableHeadPt, halign: t.tableHeadAlign },
       // Zebra striping reads as "these are records"; a parameter block is a
       // form, and striping it makes the reader look for a fifth row.
