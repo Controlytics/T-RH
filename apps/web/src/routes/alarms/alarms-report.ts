@@ -194,6 +194,28 @@ export function periodPairs(period: AlarmReportPeriod, fmt: AlarmReportFormatter
 }
 
 /**
+ * The TREND PAGE's Instrument Alarms report keeps the reference's full block
+ * (operator, 2026-10-05: "in alarms report on the trends page, on header,
+ * Block, area, location, instrument id, start date and start time and end date
+ * and end time"): scope on the left, period on the right, two per row. That
+ * report is ONE instrument's, so its table has no Instrument ID / Area /
+ * Location columns to say this — the header is where the scope is stated.
+ * The Alarms page's report prints `periodPairs` alone.
+ */
+export function instrumentAlarmsHeaderPairs(
+  scope: AlarmReportScope,
+  period: AlarmReportPeriod,
+  fmt: AlarmReportFormatters,
+): [string, string][] {
+  return [
+    ['Block', orDash(scope.blockName)], ['Start Date', fmt.formatDate(period.from)],
+    ['Area', orDash(scope.areaName)], ['Start Time', fmt.formatTime(period.from)],
+    ['Location', orDash(scope.locationName)], ['End Date', fmt.formatDate(period.to)],
+    ['Inst ID', orDash(scope.instrumentLabel)], ['End Time', fmt.formatTime(period.to)],
+  ];
+}
+
+/**
  * The parameter block as TABLE ROWS, label and value on ONE line (operator,
  * 2026-09-01: *"header part like Block, area, start date, etc these all should
  * show in one table, title and value should come in one Line, like

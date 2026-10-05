@@ -8,7 +8,10 @@ import {
 import type { TableRow } from './trend-series';
 import type { ChartImage } from './chart-image';
 import type { SlotSummary } from './trend-summary';
-import { scopeColumnStyles, CONTENT_WIDTH_MM } from '@/routes/alarms/alarms-report';
+import {
+  scopeColumnStyles, scopeTableRows, instrumentAlarmsHeaderPairs, CONTENT_WIDTH_MM,
+  type AlarmReportScope, type AlarmReportFormatters,
+} from '@/routes/alarms/alarms-report';
 import {
   DATA_REPORT_TITLE, DATA_REPORT_HEAD, DATA_REPORT_TYPOGRAPHY, DATA_REPORT_LABEL_MM,
   dataReportLegend, dataReportParameterRows, dataReportRows,
@@ -595,6 +598,13 @@ export async function renderAlarmsReport(
   formatDateTime: (d: string) => string,
   statusTexts?: AlarmStatusTexts,
   inactivityTexts?: AlarmDisplayTexts,
+  /**
+   * The header block (operator, 2026-10-05): Block / Area / Location / Inst ID
+   * against Start Date / Start Time / End Date / End Time, the Data Report's
+   * eight fields, ruled the same way. Optional only so an older caller still
+   * renders; the trend page always passes it.
+   */
+  header?: { scope: AlarmReportScope; fmt: AlarmReportFormatters },
 ): Promise<ReportDoc> {
   const { shown, capped, total } = capRows(rows);
   const report = await createReport({
@@ -603,7 +613,14 @@ export async function renderAlarmsReport(
     reportKey: 'instrument-trend',
     formatDateTime,
   });
-  addInstrumentDetails(report, instrument, period);
+  if (header) {
+    report.addTable({
+      body: scopeTableRows(instrumentAlarmsHeaderPairs(header.scope, { from: period.from, to: period.to }, header.fmt)),
+      columnStyles: scopeColumnStyles(),
+    });
+  } else {
+    addInstrumentDetails(report, instrument, period);
+  }
   addCapNotice(report, capped, shown.length, total, period);
   report.addTable({
     head: ['Type', 'Raised', 'Value', 'Limit', 'Cleared', 'Status'],

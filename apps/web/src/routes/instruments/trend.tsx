@@ -735,7 +735,13 @@ export function InstrumentTrend() {
         });
       } else {
         const rows = await fetchAlarmsForPeriod(reportPeriod.from, reportPeriod.to);
-        const report = await renderAlarmsReport(rows, instrument, reportPeriod, formatDateTime, statusTexts, inactivityTexts);
+        // The header's scope is the Data Report's: Block / Area from the
+        // functional location, the Location ATTRIBUTE, the instrument's code.
+        const placement = resolveBlockArea(locationTree?.data ?? [], inst?.functionalLocationId ?? null);
+        const report = await renderAlarmsReport(rows, instrument, reportPeriod, formatDateTime, statusTexts, inactivityTexts, {
+          scope: { ...placement, locationName: trend.overview?.locationAttribute ?? '', instrumentLabel: instrument.code },
+          fmt: { formatDate, formatTime },
+        });
         const snapshot = report.getSnapshot();
         outcome = await deliverReport({
           kind: 'instrument-alarms', req, report, reportType: 'Instrument Alarms', title: snapshot.title, subtitle: snapshot.subtitle,

@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased] - Trend page: the Instrument Alarms report header carries the full parameter block (2026-10-05)
+
+Operator: "in alarms report on the trends page, on header, Block, area,
+location, instrument id, start date and start time and end date and end time".
+
+- **The trend page's Instrument Alarms report now opens with the Data
+  Report's eight-field block** — `Block : / Start Date :`, `Area : / Start
+  Time :`, `Location : / End Date :`, `Inst ID : / End Time :` — ruled like
+  the Data Report's (`instrumentAlarmsHeaderPairs` in
+  `routes/alarms/alarms-report.ts`, laid through the same `scopeTableRows` /
+  `scopeColumnStyles`). It replaces the Instrument / Name / Location / Limits
+  in force / Period key-values. Block and Area come from the functional
+  location, Location is the instrument's own attribute, Inst ID its code —
+  the same facts the Data Report prints; a missing one prints `-`.
+- The Alarms PAGE report is unchanged: its header prints the period only
+  (earlier today), because its table carries the scope columns when they
+  vary; this per-instrument report has no such columns, so the header is
+  where the scope is stated. No count moved.
+
 ## [Unreleased] - Layout Designer: the 2D design model is authored in the designer (2026-10-05)
 
 Operator: "layout designer feature is should able to create 2d design model".

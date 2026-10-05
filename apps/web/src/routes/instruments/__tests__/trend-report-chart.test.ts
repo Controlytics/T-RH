@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { BRANDING_TAB_TITLE_DEFAULT } from '@digilog/shared';
-import { renderTrendReport, renderDataReport, type TrendChartSection } from '../trend-report';
+import { renderTrendReport, renderDataReport, renderAlarmsReport, type TrendChartSection } from '../trend-report';
 import { summariseSlot, withServerSummary } from '../trend-summary';
 import { scheduleRows } from '../data-report';
 
@@ -700,5 +700,43 @@ describe('the trend report shows the trend', () => {
     const note3 = (r3.getSnapshot().sections as any[]).find((s) => s.kind === 'note' && /REPRESENTATIVE SAMPLE/.test(s.text))!;
     expect(note3.text).not.toMatch(/Max|Min/);
     expect(note3.text).toContain('REPRESENTATIVE SAMPLE');
+  });
+});
+
+/**
+ * The trend page's Instrument Alarms report (operator, 2026-10-05: "in alarms
+ * report on the trends page, on header, Block, area, location, instrument id,
+ * start date and start time and end date and end time"): the same
+ * eight-field parameter block the Data Report prints, two per row.
+ */
+describe('the Instrument Alarms report header', () => {
+  const pdfTextOf = (report: any) => {
+    const pages: string[][] = report.doc.internal.pages;
+    const raw = pages.filter(Boolean).flat().join('\n');
+    return [...raw.matchAll(/\((.*?)\)\s*Tj/gs)].map((m) => m[1].replace(/\\([()\\])/g, '$1')).join(' ');
+  };
+  const fmtDT = (d: string) => d.slice(0, 16).replace('T', ' ');
+  const fmt = { formatDate: (d: string) => d.slice(0, 10), formatTime: (d: string) => d.slice(11, 16) };
+  const instrument = { code: 'CWH/RDU/046-00', name: 'CWH/RDU/046-00', locationText: 'Room CWH-I/222 (GC Room)', limitsText: '18.0 - 25.0' };
+  const period = { from: '2026-05-27T16:00:00.000Z', to: '2026-05-28T16:00:00.000Z', label: 'Last 24h' };
+  const scope = { blockName: 'CWH Block', areaName: 'QC 3', locationName: 'GC Room', instrumentLabel: 'CWH/RDU/046-00' };
+
+  it('prints Block / Area / Location / Inst ID against Start and End date and time', async () => {
+    const report = await renderAlarmsReport([], instrument, period, fmtDT, undefined, undefined, { scope, fmt });
+    const text = pdfTextOf(report);
+    for (const label of ['Block :', 'Area :', 'Location :', 'Inst ID :', 'Start Date :', 'Start Time :', 'End Date :', 'End Time :']) {
+      expect(text).toContain(label);
+    }
+    expect(text).toContain('CWH Block');
+    expect(text).toContain('QC 3');
+    expect(text).toContain('GC Room');
+    expect(text).toContain('2026-05-27');
+    expect(text).toContain('2026-05-28');
+    expect(text).not.toContain('Limits in force');
+  });
+
+  it('prints a dash, never an empty cell, for a scope field the instrument lacks', async () => {
+    const report = await renderAlarmsReport([], instrument, period, fmtDT, undefined, undefined, { scope: { ...scope, blockName: '', areaName: '' }, fmt });
+    expect(pdfTextOf(report)).toContain('Block : -');
   });
 });
