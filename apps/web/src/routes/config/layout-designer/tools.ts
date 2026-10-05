@@ -1,4 +1,5 @@
 import { validatePolygon, type Point, type Polygon } from '@digilog/shared';
+import type { StructureLayer } from './types';
 
 /**
  * The Layout Designer's tool state, as a pure reducer. The canvas turns
@@ -9,13 +10,14 @@ import { validatePolygon, type Point, type Polygon } from '@digilog/shared';
  * unsaved state and the only thing undo covers: a saved change is a §11 record
  * and is reversed by another edit, never silently.
  */
-export type Tool = 'select' | 'room' | 'corridor' | 'door' | 'link';
+export type Tool = 'select' | 'room' | 'corridor' | 'door' | 'link' | 'column' | 'equipment' | 'window' | 'wall' | 'label';
 
 export type Selection =
   | { kind: 'room'; roomId: string }
   | { kind: 'corner'; roomId: string; index: number }
   | { kind: 'door'; roomId: string; index: number }
   | { kind: 'link'; linkId: string }
+  | { kind: 'structure'; layer: StructureLayer; index: number }
   | null;
 
 export interface DesignerState {
@@ -63,6 +65,21 @@ export function reduce(s: DesignerState, a: DesignerAction): DesignerState {
     case 'select': return { ...s, selection: a.selection };
     case 'linkFirst': return { ...s, linkFrom: a.roomId, message: null };
     case 'flash': return { ...s, message: a.message };
+  }
+}
+
+/** The 2D structure tools (2026-10-05): a box is dragged, a segment is two clicks, a label is one. */
+export const isBoxTool = (t: Tool): boolean => t === 'column' || t === 'equipment';
+export const isSegmentTool = (t: Tool): boolean => t === 'window' || t === 'wall';
+export const isStructureTool = (t: Tool): boolean => isBoxTool(t) || isSegmentTool(t) || t === 'label';
+export function layerOfTool(t: Tool): StructureLayer | null {
+  switch (t) {
+    case 'column': return 'columns';
+    case 'equipment': return 'equipment';
+    case 'window': return 'windows';
+    case 'wall': return 'walls';
+    case 'label': return 'labels';
+    default: return null;
   }
 }
 
