@@ -67,6 +67,10 @@ function baseInput(overrides: Partial<Input> = {}): Input {
     averagedLabel: null,
     tableIsAveraged: false,
     coverage: { returned: 3, total: 3 },
+    header: {
+      scope: { blockName: 'CWH Block', areaName: 'QC 3', locationName: 'GC Room', instrumentLabel: 'CWH/RDU/046-00' },
+      fmt: { formatDate: (d: string) => d.slice(0, 10), formatTime: (d: string) => d.slice(11, 16) },
+    },
     ...overrides,
   };
 }
@@ -155,8 +159,9 @@ describe('the trend report shows the trend', () => {
   it('keeps the readings table beneath the chart — the chart is the picture, the table is the record', async () => {
     const { report } = await capture(baseInput());
     const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x);
-    // ONE table (operator, 2026-10-05: "in trend repots remove period summary table"): the readings.
-    expect(tables).toHaveLength(1);
+    // The ruled header block and the readings (operator, 2026-10-05: "in trend
+    // repots remove period summary table" — no summary between them).
+    expect(tables).toHaveLength(2);
     const readingsTable = tables.find((t: any) => t.head[0] === 'Timestamp')!;
     expect(readingsTable.head).toEqual(['Timestamp', 'Temperature (°C)']);
     expect(readingsTable.body).toEqual([
@@ -165,10 +170,26 @@ describe('the trend report shows the trend', () => {
     ]);
   });
 
+  it('opens with the alarm report\'s ruled header table — Block / Area / Location / Inst ID against the period (operator, 2026-10-05)', async () => {
+    const { text, report } = await capture(baseInput());
+    for (const label of ['Block :', 'Area :', 'Location :', 'Inst ID :', 'Start Date :', 'Start Time :', 'End Date :', 'End Time :']) {
+      expect(text).toContain(label);
+    }
+    expect(text).toContain('CWH Block');
+    expect(text).toContain('GC Room');
+    expect(text).not.toContain('Limits in force');
+    // A TABLE, not the key-value block: the first table section has no heading row and four cells per row.
+    const first = report.getSnapshot().sections.find((x: any) => 'head' in x);
+    expect(first.head).toEqual([]);
+    expect(first.body[0]).toEqual(['Block :', 'CWH Block', 'Start Date :', '2026-08-24']);
+    expect(first.body).toHaveLength(4);
+  });
+
   it('prints NO period summary table (operator, 2026-10-05: "in trend repots remove period summary table")', async () => {
     const { report, text } = await capture(baseInput());
     const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x);
-    expect(tables.map((t: any) => t.head[0])).toEqual(['Timestamp']);
+    // The only HEADED table is the readings; the header block is headless.
+    expect(tables.filter((t: any) => t.head.length).map((t: any) => t.head[0])).toEqual(['Timestamp']);
     expect(text).not.toMatch(/period summary/i);
     expect(text).not.toMatch(/Out of limit/);
   });

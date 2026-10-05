@@ -617,9 +617,16 @@ export function InstrumentTrend() {
         const pivoted = toTableRows(plottedLong, keysMeta.map((k) => k.key));
 
         const slotLabel = TREND_SLOT_LABEL[which.slot];
+        // The header's scope is the Data Report's: Block / Area from the
+        // functional location, the Location ATTRIBUTE, the instrument's code.
+        const trendPlacement = resolveBlockArea(locationTree?.data ?? [], inst?.functionalLocationId ?? null);
         const report = await renderTrendReport({
           slotLabel, charts, rows: pivoted, keys: keysMeta, instrument,
           period: reportPeriod, formatDateTime,
+          header: {
+            scope: { ...trendPlacement, locationName: trend.overview?.locationAttribute ?? '', instrumentLabel: instrument.code },
+            fmt: { formatDate, formatTime },
+          },
           averagedLabel: intervalLabel(period.intervalMs),
           tableIsAveraged: period.intervalMs !== null,
           // `fetched.history.length`, NOT `rows.length`. `rows` has already had

@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased] - Trend report: the header is the alarm report's ruled table (2026-10-05)
+
+Operator: "make trend report header into table properly as like alarm report
+header table".
+
+- **The Instrument Trend report (Temperature / Humidity) opens with the same
+  eight-field ruled table the trend page's Instrument Alarms report prints**
+  — `Block : / Start Date :`, `Area : / Start Time :`, `Location : / End
+  Date :`, `Inst ID : / End Time :` — through the same `instrumentAlarmsHeaderPairs`
+  / `scopeTableRows` / `scopeColumnStyles`, ruled dark like every header
+  block. It replaces the Instrument / Name / Location / Limits in force /
+  Period key-value block. Block and Area come from the functional location,
+  Location is the instrument's own attribute, Inst ID its code — the Data
+  Report's facts. `TrendReportInput` gains a required `header`. No count
+  moved.
+
 ## [Unreleased] - Trend report: the period summary table is gone (2026-10-05)
 
 Operator: "in trend repots remove period summary table".

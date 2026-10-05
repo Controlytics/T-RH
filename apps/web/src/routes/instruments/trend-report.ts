@@ -137,6 +137,14 @@ export interface TrendReportInput {
   period: ReportPeriod;
   formatDateTime: (d: string) => string;
   /**
+   * The header block (operator, 2026-10-05: "make trend report header into
+   * table properly as like alarm report header table"): Block / Area /
+   * Location / Inst ID against Start Date / Time and End Date / Time, ruled
+   * exactly as the alarm report's. It replaced the Instrument / Name /
+   * Location / Limits in force / Period key-value block.
+   */
+  header: { scope: AlarmReportScope; fmt: AlarmReportFormatters };
+  /**
    * The bucket the CHARTS were averaged over, or `null` at raw.
    *
    * Not cosmetic. A plotted point in an averaged chart is a derived number, and
@@ -218,7 +226,10 @@ export async function renderTrendReport(input: TrendReportInput): Promise<Report
     reportKey: 'instrument-trend',
     formatDateTime: input.formatDateTime,
   });
-  addInstrumentDetails(report, input.instrument, input.period);
+  report.addTable({
+    body: scopeTableRows(instrumentAlarmsHeaderPairs(input.header.scope, { from: input.period.from, to: input.period.to }, input.header.fmt)),
+    columnStyles: scopeColumnStyles(),
+  });
 
   // Coverage first, above everything it qualifies. What the chart and the table
   // are drawn from has to be the first thing read, not a footnote under them.
