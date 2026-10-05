@@ -1,7 +1,7 @@
 import { type FastifyInstance } from 'fastify';
 import { passwordPolicySchema, loginSecuritySchema, sessionConfigSchema, datetimeConfigSchema, paginationConfigSchema, exportLimitConfigSchema, instrumentAttributesConfigSchema, instrumentActivityConfigSchema } from '@digilog/shared';
 import { verifyPassword } from '../../lib/password.js';
-import { enforceReauth } from '../../lib/reauth-check.js';
+import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { buildContext } from '../../lib/build-context.js';
 import { configService } from './config.service.js';
@@ -109,27 +109,16 @@ export default async function configRoutes(app: FastifyInstance) {
       // Hardcoded re-auth: always required for sensitive config changes.
       // Skip if dynamic enforceReauth already verified the password.
       if (requiresReauth && !(req as any)._reauthVerified) {
-        // Accept the password from either the body (UI submits via
-        // _currentPassword) or the x-reauth-password header (matches
-        // enforceReauth and the e2e test helpers). Without this fallback,
-        // configs that aren't in the dynamic action-reauth registry (eg
-        // datetime) would always 401 even when the caller did supply the
-        // header.
-        const currentPassword =
-          (body._currentPassword as string | undefined)
-          ?? (req.headers['x-reauth-password'] as string | undefined);
-        if (!currentPassword) {
-          return reply.code(401).send({ error: 'REAUTH_REQUIRED', message: 'Current password is required to modify this configuration.' });
-        }
-        const user = await configRepository.findUserById(req.user.sub);
-        if (!user) {
-          return reply.code(401).send({ error: 'REAUTH_FAILED', message: 'User not found.' });
-        }
-        const passwordValid = await verifyPassword(currentPassword, (user as any).passwordHash);
-        if (!passwordValid) {
-          return reply.code(401).send({ error: 'REAUTH_FAILED', message: 'Incorrect password. Please try again.' });
-        }
-        delete body._currentPassword;
+        // The SHARED verifier, not a bare bcrypt compare (audit 2026-10-03,
+        // SEC-2 / API-11): it applies the account-lockout policy on a wrong
+        // password — this branch counted nothing, so a stolen CONFIG_UPDATE
+        // session could guess at the rate limiter's pace — and it routes a
+        // directory user through an LDAP bind, where the bcrypt compare
+        // against the LDAP sentinel could never pass, so an AD admin could
+        // never save these four configs. Accepts the body field or the
+        // x-reauth-password header, as before.
+        const { ok } = await enforceReauthAlways(actionKey ?? `UPDATE_CONFIG_${key.toUpperCase().replace(/-/g, '_')}`, req, reply);
+        if (!ok) return;
       }
 
       const ctx = buildContext(req);

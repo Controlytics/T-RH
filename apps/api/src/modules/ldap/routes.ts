@@ -2,7 +2,7 @@ import { type FastifyInstance } from 'fastify';
 import { ldapService } from './ldap.service.js';
 import { auditLog } from '../../lib/audit.js';
 import { maskSecrets } from '../../lib/mask-secrets.js';
-import { enforceReauth } from '../../lib/reauth-check.js';
+import { stripPrivateFields, enforceReauth } from '../../lib/reauth-check.js';
 
 // Audit allowlist — see lib/mask-secrets.ts. This was `{ ...body,
 // bindPassword: '********' }`: a denylist that happens to be complete only
@@ -48,6 +48,7 @@ export default async function ldapRoutes(app: FastifyInstance) {
     const { ok } = await enforceReauth('UPDATE_LDAP_CONFIG', req, reply);
     if (!ok) return;
     const body = req.body as Record<string, any>;
+    stripPrivateFields(body as Record<string, unknown>);
     await ldapService.saveConfig(body, req.user.username);
 
     await auditLog({

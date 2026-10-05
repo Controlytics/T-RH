@@ -19,7 +19,7 @@ import { maskSecrets } from '../../lib/mask-secrets.js';
 // are otherwise a reflected-XSS vector — audit H-4).
 const escapeHtml = (s: unknown): string =>
   String(s ?? '').replace(/[&<>"']/g, (c) => (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string));
-import { enforceReauth } from '../../lib/reauth-check.js';
+import { stripPrivateFields, enforceReauth } from '../../lib/reauth-check.js';
 
 const MASK = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
 
@@ -129,6 +129,7 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
       }
     }
 
+    stripPrivateFields(body);
     await prisma.systemConfig.upsert({
       where: { configKey: 'notification-email' },
       update: { configValue: body as any, updatedBy: ctx.userId },
@@ -453,6 +454,7 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     const existingValue = (existing?.configValue ?? {}) as Record<string, unknown>;
     for (const key of sensitiveKeys) { if (body[key] === MASK) body[key] = existingValue[key]; }
 
+    stripPrivateFields(body);
     await prisma.systemConfig.upsert({
       where: { configKey: 'notification-sms' },
       update: { configValue: body as any, updatedBy: ctx.userId },

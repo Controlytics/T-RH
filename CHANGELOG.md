@@ -1,5 +1,33 @@
 # Changelog
 
+## [Unreleased] - Audit fixes, batch 9: a re-auth password is never stored; the hardcoded config re-auth applies lockout and LDAP (2026-10-05)
+
+Closes SEC-1 and SEC-2 / API-11 of `docs/audit/2026-10-03-technical-audit.md`.
+
+- **`stripPrivateFields()` in `lib/reauth-check.ts` removes every
+  underscore-prefixed key from a request body, and both re-auth helpers call
+  it BEFORE any early return.** `enforceReauth` used to delete
+  `_currentPassword` only on the path where the role required a password; when
+  it did not — a stale client cache, or any direct caller — the early return
+  left the login password in the body, the dynamic config PUT spread the body
+  into the stored row, and every later GET returned it to anyone holding
+  `CONFIG_READ`. The dynamic PUT, the SMTP and SMS saves and the LDAP save
+  strip as well, so no stored value may ever begin with `_`.
+- **The four config saves with hardcoded re-auth (`password-policy`,
+  `login-security`, `session`, `datetime`) verify through
+  `enforceReauthAlways`** instead of a bare bcrypt compare: a wrong password
+  now counts toward the account lockout (a stolen `CONFIG_UPDATE` session
+  could guess at the rate limiter's pace), and a directory user is verified by
+  an LDAP bind, where the compare against the LDAP sentinel could never pass,
+  so an AD admin can save those four at last.
+- Tests: new `lib/__tests__/reauth-strip.test.ts` (3; mutation-checked — the
+  strip moved back after the early return fails it), `config.test.ts` 62 →
+  **64** (a `_currentPassword` sent with no re-auth required is neither
+  stored nor returned; a wrong password on `PUT /api/config/datetime` counts
+  one failed attempt — driven through the operator, since SUPER_ADMIN is
+  exempt from lockout by design). `ldap-directory.e2e.test.ts` (29) unchanged
+  and green. No count moved.
+
 ## [Unreleased] - Audit fixes, batch 8: one pass clears an alarm; the range pass reads quoted numbers; device timestamps and null readings (2026-10-05)
 
 Closes INGEST-3, INGEST-4, INGEST-5, INGEST-6, INGEST-8 and INGEST-16 of

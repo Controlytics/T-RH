@@ -6,6 +6,7 @@ import {
   TREND_WIDGET_LABEL_KEYS, TREND_WIDGET_LABEL_DEFAULT, TREND_WIDGET_IDS,
 } from '@digilog/shared';
 import { prisma } from '../lib/prisma.js';
+import { invalidateRolePermsCache } from '../plugins/rbac.js';
 import {
   buildApp, loginAs, authGet, authPost, authPut, authDelete,
   ADMIN_PASSWORD,
@@ -1099,3 +1100,57 @@ describe('Config endpoints', () => {
     });
   });
 });
+
+/**
+ * Audit 2026-10-03, SEC-1 and SEC-2.
+ */
+describe('re-auth hygiene on config writes', () => {
+  let app: FastifyInstance;
+  let adminToken: string;
+  beforeAll(async () => {
+    app = await buildApp();
+    adminToken = await loginAs(app);
+  });
+  afterAll(async () => {
+    await prisma.user.updateMany({ where: { username: 'admin' }, data: { failedLoginAttempts: 0, lockedAt: null, lockoutUntil: null } });
+    await app.close();
+  });
+
+  it('a _currentPassword sent when no re-auth is required is NEVER stored or returned', async () => {
+    const before = await prisma.systemConfig.findUnique({ where: { configKey: 'inactivity-alarms' } });
+    const current = ((before?.configValue ?? {}) as Record<string, unknown>);
+    const put = await authPut(app, '/api/config/dynamic/inactivity-alarms', adminToken, {
+      ...current, _currentPassword: 'Admin@123', _anythingPrivate: 'x',
+    });
+    expect(put.statusCode).toBe(200);
+    const row = await prisma.systemConfig.findUniqueOrThrow({ where: { configKey: 'inactivity-alarms' } });
+    expect(JSON.stringify(row.configValue)).not.toContain('Admin@123');
+    expect(Object.keys(row.configValue as object).some((k) => k.startsWith('_'))).toBe(false);
+    const get = await authGet(app, '/api/config/dynamic/inactivity-alarms', adminToken);
+    expect(JSON.stringify(get.json())).not.toContain('_currentPassword');
+  });
+
+  it('a wrong password on the hardcoded config re-auth counts toward lockout (SUPER_ADMIN is exempt by design, so: the operator)', async () => {
+    const role = await prisma.role.findFirstOrThrow({ where: { name: 'OPERATOR' } });
+    const permsBefore = role.permissions as string[];
+    await prisma.role.update({ where: { id: role.id }, data: { permissions: [...new Set([...permsBefore, 'CONFIG_UPDATE'])] } });
+    invalidateRolePermsCache('OPERATOR');
+    try {
+      const operatorToken = await loginAs(app, 'RB0001', 'Test@1234');
+      await prisma.user.updateMany({ where: { username: 'RB0001' }, data: { failedLoginAttempts: 0, lockedAt: null, lockoutUntil: null } });
+      const res = await app.inject({
+        method: 'PUT', url: '/api/config/datetime',
+        headers: { authorization: `Bearer ${operatorToken}`, 'x-reauth-password': 'definitely-wrong' },
+        payload: { dateFormat: 'DD/MM/YYYY' },
+      });
+      expect(res.statusCode).toBe(401);
+      const user = await prisma.user.findFirstOrThrow({ where: { username: 'RB0001' }, select: { failedLoginAttempts: true } });
+      expect(user.failedLoginAttempts).toBe(1);
+    } finally {
+      await prisma.user.updateMany({ where: { username: 'RB0001' }, data: { failedLoginAttempts: 0, lockedAt: null, lockoutUntil: null, status: 'ENABLED' } });
+      await prisma.role.update({ where: { id: role.id }, data: { permissions: permsBefore as never } });
+      invalidateRolePermsCache('OPERATOR');
+    }
+  });
+});
+

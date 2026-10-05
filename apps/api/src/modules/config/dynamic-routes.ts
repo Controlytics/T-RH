@@ -4,7 +4,7 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { sanitizeAuditValue } from '../../lib/audit-diff.js';
 import { redactConfigSecrets } from './config.service.js';
-import { enforceReauth } from '../../lib/reauth-check.js';
+import { stripPrivateFields, enforceReauth } from '../../lib/reauth-check.js';
 import { buildContext } from '../../lib/build-context.js';
 
 export default async function dynamicConfigRoutes(app: FastifyInstance) {
@@ -106,7 +106,8 @@ export default async function dynamicConfigRoutes(app: FastifyInstance) {
         where: { configKey: def.moduleKey },
       });
       const oldValue = (existing?.configValue ?? {}) as Record<string, any>;
-      const newValue = { ...body } as Record<string, any>;
+      // Nothing underscore-prefixed is ever stored (SEC-1): see stripPrivateFields.
+      const newValue = stripPrivateFields({ ...body }) as Record<string, any>;
 
       for (const s of def.settings) {
         if (s.maskedInApi && newValue[s.key] === '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022') {

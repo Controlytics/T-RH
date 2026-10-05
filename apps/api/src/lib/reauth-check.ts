@@ -143,6 +143,23 @@ export async function isReauthRequired(action: string, role: string): Promise<bo
  * routes that serve multiple logical actions (e.g., POST /instances handles
  * both CREATE_ASSET and CREATE_FILTER semantics).
  */
+/**
+ * Removes every underscore-prefixed key from a request body IN PLACE and
+ * returns it (audit 2026-10-03, SEC-1). `_currentPassword` is the one the web
+ * client sends whenever its cached re-auth matrix says a password is needed;
+ * `enforceReauth` used to delete it only on the path where the role DID need
+ * one, so when the role did not — a stale cache, or any direct caller — the
+ * early return left it in the body and the dynamic config PUT stored
+ * `{..., _currentPassword: "…"}` in `system_config`, returned by every later
+ * GET to anyone holding CONFIG_READ. No stored value may ever begin with `_`.
+ */
+export function stripPrivateFields<T extends Record<string, unknown> | undefined>(body: T): T {
+  if (body && typeof body === 'object') {
+    for (const k of Object.keys(body)) if (k.startsWith('_')) delete (body as Record<string, unknown>)[k];
+  }
+  return body;
+}
+
 export async function enforceReauth(
   action: string | string[],
   req: FastifyRequest,
@@ -150,14 +167,15 @@ export async function enforceReauth(
 ): Promise<{ ok: boolean }> {
   const role = req.user.role;
   const actions = Array.isArray(action) ? action : [action];
-  const needed = (await Promise.all(actions.map(a => isReauthRequired(a, role)))).some(Boolean);
-  if (!needed) return { ok: true };
-  const primaryAction = actions[0];
-
-  // Extract password from body field or custom header
+  // The password is read and the body stripped FIRST, before the "not needed"
+  // return — see stripPrivateFields. Nothing below may read it from the body.
   const body = req.body as Record<string, unknown> | undefined;
   const password = (body?._currentPassword as string)
     ?? (req.headers['x-reauth-password'] as string);
+  stripPrivateFields(body);
+  const needed = (await Promise.all(actions.map(a => isReauthRequired(a, role)))).some(Boolean);
+  if (!needed) return { ok: true };
+  const primaryAction = actions[0];
 
   if (!password) {
     reply.code(401).send({
@@ -174,10 +192,7 @@ export async function enforceReauth(
     return { ok: false };
   }
 
-  // Strip password from body so it doesn't get stored or validated by Zod
-  if (body?._currentPassword) {
-    delete body._currentPassword;
-  }
+  // (The body was stripped above, before any return.)
 
   // Mark request as already verified so hardcoded re-auth can skip
   (req as any)._reauthVerified = true;
@@ -198,6 +213,7 @@ export async function enforceReauthAlways(
 ): Promise<{ ok: boolean }> {
   const body = req.body as Record<string, unknown> | undefined;
   const password = (body?._currentPassword as string) ?? (req.headers['x-reauth-password'] as string);
+  stripPrivateFields(body);
   if (!password) {
     reply.code(401).send({ error: 'REAUTH_REQUIRED', message: 'This action requires password re-authentication.', action });
     return { ok: false };
@@ -207,7 +223,6 @@ export async function enforceReauthAlways(
     reply.code(failure.error === 'ACCOUNT_LOCKED' ? 403 : 401).send(failure);
     return { ok: false };
   }
-  if (body?._currentPassword) delete body._currentPassword;
   (req as any)._reauthVerified = true;
   return { ok: true };
 }
