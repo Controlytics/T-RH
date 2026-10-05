@@ -109,7 +109,9 @@ npm run build -w @digilog/shared && npm run build -w @digilog/queue
 - **Password:** on THIS machine it is `Admin@123` — verified 2026-08-24 by
   POSTing it to `/api/auth/login`, which returned **409 SESSION_CONFLICT**
   (credentials accepted; refused only because a session was already open).
-  `apps/api/scripts/demo-live-scenario.ts` hardcodes the same value.
+  (`apps/api/scripts/demo-live-scenario.ts` used to hardcode the same value; it and three
+  sibling probe scripts called `prisma.alarmRule`, removed 2026-08-31, and were deleted
+  2026-10-05 — audit DOCS-3. `apps/api/scripts/` is type-checked by `npm run lint` now.)
   **But it is not a repo default** — it is whatever `INITIAL_ADMIN_PASSWORD`
   was set to when this database was seeded, and a fresh seed elsewhere will
   have a different one. **There is NO forced change on first login**; that half

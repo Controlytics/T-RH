@@ -46,7 +46,6 @@ async function main() {
       instrumentCode: 'PROBE-I/1',
       instrumentName: 'Probe probe',
       metric: 'TEMPERATURE',
-      severity: 'MAJOR',
       ruleName: 'probe rule',
       condition: 'temperature above 25',
       triggeredValue: 27.4,
@@ -54,18 +53,18 @@ async function main() {
     });
     console.log(`\n  payload: ${JSON.stringify(job.variables)}`);
     console.log('  running the notification task handler on it...');
-    await notificationTask(job as never, { logger } as never, {} as never);
+    await notificationTask(job as never, { logger } as never);
     console.log('  handler completed without throwing');
 
     // 4. And the cleared variant, which carries the duration.
     const cleared = alarmNotificationJob('cleared', {
       alarmId: 'probe-alarm', instrumentId: 'probe-instrument', instrumentCode: 'PROBE-I/1',
-      metric: 'TEMPERATURE', severity: 'MAJOR', ruleName: 'probe rule',
+      metric: 'TEMPERATURE', ruleName: 'probe rule',
       condition: 'temperature above 25', triggeredValue: 24,
       raisedAt: new Date(Date.now() - 95 * 60 * 1000), clearedAt: new Date(),
     });
     console.log(`\n  cleared duration: ${cleared.variables.duration} (expect "1 h 35 min")`);
-    await notificationTask(cleared as never, { logger } as never, {} as never);
+    await notificationTask(cleared as never, { logger } as never);
     console.log('  handler completed without throwing');
   } finally {
     if (ruleId) {

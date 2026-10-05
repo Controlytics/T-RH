@@ -7,19 +7,23 @@ import { prisma } from './prisma.js';
 import { computeChainedChecksumV2, computeChainedChecksumV3, getAuditChainKey } from './hash-chain.js';
 
 export interface AuditEntry {
-  userId?: string;
-  userName?: string;
-  userRole?: string;
+  userId?: string | null;
+  userName?: string | null;
+  userRole?: string | null;
   action: string;
-  targetType?: string;
-  targetId?: string;
+  targetType?: string | null;
+  targetId?: string | null;
   beforeValue?: unknown;
   afterValue?: unknown;
-  reason?: string;
-  ipAddress?: string;
-  userAgent?: string;
-  sessionId?: string;
-  signatureMeaning?: string;
+  reason?: string | null;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  sessionId?: string | null;
+  // `null` is accepted on every optional field (2026-10-05): the insert
+  // writes `?? null` and the hash `?? undefined`, and the scripts under
+  // apps/api/scripts/ — type-checked by `npm run lint` since the audit —
+  // pass `sessionId: null` for a run with no session.
+  signatureMeaning?: string | null;
 }
 
 /**

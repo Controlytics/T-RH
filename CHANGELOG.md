@@ -1,5 +1,42 @@
 # Changelog
 
+## [Unreleased] - Audit fixes, batch 11: repository hygiene — the dangling worktree gitlink, stale scripts, scripts type-checked, phantom dependencies, tracked test outputs (2026-10-05)
+
+Closes DOCS-2, DOCS-3, DOCS-14 and DOCS-17 (and DATA-17) of
+`docs/audit/2026-10-03-technical-audit.md`.
+
+- **`.claude/worktrees/ui-redesign-stage2` is no longer in the index.** A git
+  worktree under `.claude/` had been swept in as a submodule gitlink
+  (`160000 80a2e35…`, commit `7ee1a27`) with no `.gitmodules`, so every fresh
+  clone — the GitHub runner, the AWS checkout — got a pointer to a commit that
+  exists nowhere. `git rm --cached`, and `.claude/worktrees/` is ignored. The
+  worktree itself is untouched.
+- **Four scripts that called `prisma.alarmRule` (removed 2026-08-31) are
+  deleted** — `demo-live-scenario.ts`, `probe-alarms.ts`,
+  `probe-live-alarm.ts`, `seed-demo-alarms.ts`; their subject no longer
+  exists. They never surfaced because `apps/api/tsconfig.json` includes
+  `src/**/*` only. **`npm run lint` now also type-checks `apps/api/scripts/`
+  and the seed** (`tsconfig.scripts.json`), which found 26 more errors of
+  type drift in nine live scripts, all fixed: `AuditEntry` accepts `null` on
+  its optional fields (the insert always wrote `?? null`; scripts pass
+  `sessionId: null`), a helper in `draw-cwh-floorplan.ts` whose `Cell` type
+  left with `traced-layout.ts` is gone, `probe-alarm-notifications.ts` no
+  longer passes the `severity` removed on 2026-09-01, and
+  `probe-visibility.ts` writes `Prisma.DbNull` for a SQL NULL. The stale,
+  untracked `prisma/seed.mjs` (217 filter-domain permissions,
+  `apply-schema.ps1` preferred it in dev) is deleted; the installer rebuilds
+  it.
+- **Two phantom dependencies are declared where they are imported**:
+  `graphile-worker` as an API devDependency (three workers import its
+  `Task` type; only `packages/queue` declared it) and `react-resizable` in
+  the web app (`panel-grid.tsx` imports its stylesheet; it arrived only
+  through `react-grid-layout`). Lockfile: two lines.
+- **`apps/web/approved.pdf`, `draft.pdf`, `x.pdf` are untracked** — vitest
+  writes them (`pdf-report-snapshot`, `trend-report-chart`); `apps/web/*.pdf`
+  is ignored.
+- Root `CLAUDE.md`'s password note no longer cites a script that could not
+  run. No count moved.
+
 ## [Unreleased] - Audit fixes, batch 10: signature inputs on the Super Admin card, a landing rule for `/`, the Users guard, the chart axis format (2026-10-05)
 
 Closes WEB-1, WEB-2, WEB-4 and WEB-5 of `docs/audit/2026-10-03-technical-audit.md`.

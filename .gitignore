@@ -118,3 +118,8 @@ old/db-backups/*
 # customer install). Operator data, not source; a floor layout in particular
 # should not end up in the repo.
 apps/api/uploads/
+
+# Audit 2026-10-03 (DOCS-2, DOCS-17): a git worktree under .claude/ was committed as a
+# dangling submodule gitlink, and vitest writes PDFs into apps/web/ that were tracked.
+.claude/worktrees/
+apps/web/*.pdf

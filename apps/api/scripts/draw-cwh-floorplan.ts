@@ -327,14 +327,6 @@ function buildingLayout(
   return out;
 }
 
-/** Door faces the corridor the room touches; otherwise the spine, otherwise down. */
-function doorTowardCorridorLocal(cell: Cell, corridorRows: Set<number>): Door[] {
-  const kind = 'ENTRY' as const;
-  if (corridorRows.has(cell.r1 + 1)) return [{ wall: 'bottom', offset: 0.36, width: 0.22, kind }];
-  if (corridorRows.has(cell.r0 - 1)) return [{ wall: 'top', offset: 0.36, width: 0.22, kind }];
-  if (cell.c0 === 1) return [{ wall: 'left', offset: 0.34, width: 0.28, kind }];
-  return [{ wall: 'bottom', offset: 0.36, width: 0.22, kind }];
-}
 
 interface RoomSpec { code: string; label: string | null; grade: Grade; rect: Rect; instruments: string[]; door?: Door[]; meta?: Record<string, string> }
 

@@ -6,6 +6,7 @@
  * a second user account or an HTTP round trip. Restores the original scope in a
  * `finally`, so an exception cannot leave a role scoped.
  */
+import { Prisma } from '@prisma/client';
 import { prisma } from '../src/lib/prisma.js';
 import { resolveVisibility, withVisibility } from '../src/modules/instruments/visibility.js';
 
@@ -14,7 +15,7 @@ const ROLE = 'VIEWER';
 async function countFor(scope: unknown, label: string) {
   await prisma.roleConfig.update({
     where: { role: ROLE },
-    data: { instrumentScope: scope === undefined ? null : (scope as never) },
+    data: { instrumentScope: scope === undefined ? Prisma.DbNull : (scope as never) },
   });
   const { scope: effective, where } = await resolveVisibility({ userId: '__probe__', userRole: ROLE });
   const n = await prisma.instrument.count({ where: withVisibility(undefined, where) as never });

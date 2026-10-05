@@ -71,17 +71,17 @@ verify-chain on Ubuntu: intact, 45 rows, 0 anomalies. GitHub deploy key added vi
 ## 2026-10-03 — Fix all audit findings (operator: "fix all the issues")
 
 HIGH (runtime), in the report's §3 order — one commit each:
-- [ ] F1  INGEST-1/2: ensurePartitions at boot + installers; bounded cron fill; writeBatch failure → dead letter
-- [ ] F2  API-1: role-config save asserts caller privilege; API-2: scope/panel bodies required
-- [ ] F3  DATA-1 backup chain verifier field set; DATA-5 secrets stripped from backups; DATA-12 restore creates partitions
-- [ ] F4  DATA-4: seed never resets an existing role's permissions
-- [ ] F5  DATA-3 user_role → 50; API-4 central signature_meaning bound in auditLog + FL name bound + FL audit in tx
-- [ ] F6  API-3: FL PUT serializer + e2e
-- [ ] F7  API-5/8/9/10: visibility on attribute read, instrument writes, pickers, FL detail; profile cascade gate
-- [ ] F8  API-6: public admin-request audit row as SYSTEM
-- [ ] F9  INGEST-4 double clear; INGEST-3 range coercion; INGEST-5/6/8/16 timestamps, null, clearedValue
-- [ ] F10 SEC-1 _currentPassword strip before early return; SEC-2 config PUT via verifyReauthPassword
-- [ ] F11 WEB-1 SA password boxes; WEB-4 `/` guard; WEB-5 `/users` guard; WEB-2 chart axis format
+- [x] F1  INGEST-1/2: ensurePartitions at boot + installers; bounded cron fill; writeBatch failure → dead letter
+- [x] F2  API-1: role-config save asserts caller privilege; API-2: scope/panel bodies required
+- [x] F3  DATA-1 backup chain verifier field set; DATA-5 secrets stripped from backups; DATA-12 restore creates partitions
+- [x] F4  DATA-4: seed never resets an existing role's permissions
+- [x] F5  DATA-3 user_role → 50; API-4 central signature_meaning bound in auditLog + FL name bound + FL audit in tx
+- [x] F6  API-3: FL PUT serializer + e2e
+- [x] F7  API-5/8/9/10: visibility on attribute read, instrument writes, pickers, FL detail; profile cascade gate
+- [x] F8  API-6: public admin-request audit row as SYSTEM
+- [x] F9  INGEST-4 double clear; INGEST-3 range coercion; INGEST-5/6/8/16 timestamps, null, clearedValue
+- [x] F10 SEC-1 _currentPassword strip before early return; SEC-2 config PUT via verifyReauthPassword
+- [x] F11 WEB-1 SA password boxes; WEB-4 `/` guard; WEB-5 `/users` guard; WEB-2 chart axis format
 - [ ] F12 DOCS-2 untrack gitlink; DOCS-3 stale scripts + scripts tsconfig in lint; DOCS-14 phantom deps; DOCS-17 tracked pdfs
 MEDIUM/LOW sweeps (per module, after the HIGHs):
 - [ ] S1 ingest mediums/lows (7, 9, 10, 11, 12, 13, 14, 15, 17)

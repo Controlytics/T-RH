@@ -798,7 +798,15 @@ admin-requests, assets, audit, auth, backup, block-change-requests, checklist-pr
 
 ```bash
 cd apps/api && npm test    # Stable single-fork run (see below for why)
+cd apps/api && npm run lint  # tsc over src/ AND over scripts/ + the seed (tsconfig.scripts.json, 2026-10-05)
 ```
+
+**`npm run lint` type-checks `apps/api/scripts/` since 2026-10-05 (audit
+DOCS-3).** `tsconfig.json` includes `src/**/*` only, so four scripts calling
+`prisma.alarmRule` (removed 2026-08-31) and 26 further type errors in nine live
+scripts sat unnoticed until a `tsx` run. A script that no longer compiles now
+fails lint. `AuditEntry` accepts `null` on every optional field for that
+reason (the insert always wrote `?? null`).
 
 ### Local Active Directory stand-in (2026-08-08)
 
