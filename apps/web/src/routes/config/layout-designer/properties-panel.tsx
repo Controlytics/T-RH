@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FormSection } from '@/components/ui/form-section';
@@ -19,6 +20,28 @@ export interface RoomForm {
 export const EMPTY_FORM: RoomForm = { code: '', label: '', grade: '', tempMin: '', tempMax: '', rhMin: '', rhMax: '', instrumentIds: [], doors: [] };
 
 export interface InstrumentRow { id: string; code: string; name: string }
+
+/**
+ * A door's width as a fraction of its wall, 0.02..0.5. The DRAFT is the raw
+ * string while the operator types (review, 2026-10-05: clamping on every
+ * keystroke turned a typed "0" into 0.02 and made a partial "0." unreachable);
+ * the value is clamped and committed on blur.
+ */
+function DoorWidthInput({ label, value, onCommit }: { label: string; value: number; onCommit: (width: number) => void }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => { setDraft(String(value)); }, [value]);
+  const commit = () => {
+    const n = Number(draft);
+    const width = Math.min(0.5, Math.max(0.02, Number.isFinite(n) && draft.trim() !== '' ? n : 0.02));
+    setDraft(String(width));
+    onCommit(width);
+  };
+  return (
+    <input type="number" step={0.01} min={0.02} max={0.5} value={draft} aria-label={label} className="ctl ctl-sm w-20"
+      onChange={(e) => setDraft(e.target.value)} onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }} />
+  );
+}
 
 export function RoomPropertiesPanel({
   mode, form, setForm, instruments, roomOfInstrument, roomId, saving, onSave, onDelete, onCancel, onMerge, mergeLabel,
@@ -102,8 +125,8 @@ export function RoomPropertiesPanel({
                   <option value="in">Swings in</option>
                   <option value="out">Swings out</option>
                 </select>
-                <input type="number" step={0.01} min={0.02} max={0.5} value={d.width} aria-label={`Door ${i + 1} width`} className="ctl ctl-sm w-20"
-                  onChange={(e) => { const width = Math.min(0.5, Math.max(0.02, Number(e.target.value) || 0.02)); setForm((f) => ({ ...f, doors: f.doors.map((door, ix) => (ix === i ? { ...door, width } : door)) })); }} />
+                <DoorWidthInput label={`Door ${i + 1} width`} value={d.width}
+                  onCommit={(width) => setForm((f) => ({ ...f, doors: f.doors.map((door, ix) => (ix === i ? { ...door, width } : door)) }))} />
                 <Button variant="ghost" size="sm" type="button" aria-label={`Door ${i + 1} double leaf`} disabled={form.doors.length >= MAX_DOORS}
                   onClick={() => setForm((f) => { const [a, b] = splitDoor(f.doors[i]); return { ...f, doors: [...f.doors.slice(0, i), a, b, ...f.doors.slice(i + 1)] }; })}>
                   Double leaf

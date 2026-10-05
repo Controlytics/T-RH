@@ -153,6 +153,17 @@ function polygonOf(room: { x: number; y: number; w: number; h: number; points: u
   return Array.isArray(room.points) ? (room.points as unknown as Point[]) : rectanglePoints(room);
 }
 
+/**
+ * A plan refusal the browser can SHOW (review, 2026-10-05): the client toasts
+ * `message` and falls back to the bare code, so a 400 with only `details`
+ * read "Save failed: VALIDATION_ERROR" on screen. The first few issues, each
+ * with its path, e.g. "annotations.columns.0: The box leaves the plan."
+ */
+function planRefusal(error: { issues: { path: (string | number)[]; message: string }[] }): string {
+  const lines = error.issues.slice(0, 3).map((i) => `${i.path.join('.') || 'body'}: ${i.message}`);
+  return `The plan was refused — ${lines.join('; ')}${error.issues.length > 3 ? '; …' : ''}`;
+}
+
 const planProps = {
   id: { type: 'string' },
   name: { type: 'string' },
@@ -282,7 +293,7 @@ export default async function floorplanRoutes(app: FastifyInstance) {
       sanitizeStrings((req.body ?? {}) as Record<string, unknown>, IDENTITY_FIELDS),
     );
     if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: planRefusal(parsed.error), details: parsed.error.flatten() });
     }
 
     try {
@@ -337,7 +348,7 @@ export default async function floorplanRoutes(app: FastifyInstance) {
       sanitizeStrings((req.body ?? {}) as Record<string, unknown>, IDENTITY_FIELDS),
     );
     if (!parsed.success) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: planRefusal(parsed.error), details: parsed.error.flatten() });
     }
 
     try {

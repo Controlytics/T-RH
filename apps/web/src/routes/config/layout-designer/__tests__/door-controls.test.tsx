@@ -90,6 +90,7 @@ describe('door controls', () => {
     fireEvent.change(screen.getByLabelText('Door 1 hinge'), { target: { value: 'end' } });
     fireEvent.change(screen.getByLabelText('Door 1 swing'), { target: { value: 'out' } });
     fireEvent.change(screen.getByLabelText('Door 1 width'), { target: { value: '0.1' } });
+    fireEvent.blur(screen.getByLabelText('Door 1 width')); // the width commits when the field is left
     fireEvent.click(screen.getByRole('button', { name: 'Save room' }));
     await waitFor(() => expect(put).toHaveBeenCalled());
     expect(roomBody().doors[0]).toMatchObject({ edge: 0, offset: 0.4, width: 0.1, kind: 'ENTRY', hinge: 'end', swing: 'out' });
@@ -112,6 +113,20 @@ describe('door controls', () => {
       { edge: 0, offset: 0.4, width: 0.1, kind: 'ENTRY', hinge: 'start' },
       { edge: 0, offset: 0.5, width: 0.1, kind: 'ENTRY', hinge: 'end' },
     ]);
+  });
+
+  it('Width is typeable: a partial value is not clamped mid-keystroke, blur clamps it', async () => {
+    renderPage(); selectRoom();
+    const input = screen.getByLabelText('Door 1 width') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '0' } });
+    expect(input.value).toBe('0');            // what the operator typed, not 0.02
+    fireEvent.blur(input);
+    expect(input.value).toBe('0.02');         // clamped only when they leave the field
+    fireEvent.change(input, { target: { value: '0.3' } });
+    fireEvent.blur(input);
+    fireEvent.click(screen.getByRole('button', { name: 'Save room' }));
+    await waitFor(() => expect(put).toHaveBeenCalled());
+    expect(roomBody().doors[0].width).toBe(0.3);
   });
 
   it('Double leaf is refused when the room already carries six doors', () => {

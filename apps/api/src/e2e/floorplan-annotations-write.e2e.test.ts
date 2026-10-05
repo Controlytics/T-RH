@@ -104,6 +104,10 @@ describe('annotations through the plan routes', () => {
     expect(put.statusCode, put.body).toBe(400);
     expect(put.json().error).toBe('VALIDATION_ERROR');
     expect(JSON.stringify(put.json().details)).toContain('annotations');
+    // The browser toasts `message` (falling back to the bare code): a refusal
+    // with none reads "Save failed: VALIDATION_ERROR" on screen.
+    expect(typeof put.json().message).toBe('string');
+    expect(put.json().message.length).toBeGreaterThan(10);
   });
 
   it('the audit row carries a SUMMARY of the layer, not the arrays', async () => {

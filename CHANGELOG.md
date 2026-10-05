@@ -54,8 +54,22 @@ switch only; full authoring plus making the five traced floors designer-owned
   keys a traced plan carries and renders through the same 2D path
   (`floorplan-designer-2d.test.tsx`). The five script-drawn plans stay
   script-owned; the Plan panel says a re-run overwrites designer edits.
-- Pinned by 6 shared unit, 12 API e2e, 10 reducer, 5 Plan panel, 8 structure
-  tool, 4 door and 1 dashboard render cases; mutation-checked: `null`
+- **Whole-branch review, fixed in one pass (same day):** two structure
+  edits in quick succession no longer lose the first (the page builds each
+  save from the layer it LAST SENT, `latestAnnotations`, not from the plan
+  list that has not revalidated yet); a box dragged to the plan's edge stops
+  at the edge (the translation is clamped, the room move's rule) and a window
+  drawn along the border stays inside it; the Structure panel refuses a
+  zero-size box, a blank label or a zero-length stub IN PLACE with the reason;
+  Escape discards a box being dragged out; the door Width input holds what is
+  typed and clamps on blur; the plan routes' 400 carries a readable `message`.
+  Deferred (minor): the room-drawing status line and Enter under the segment
+  tools, the Remove button's title, `SCRIPT_DRAWN_PLANS` matching by name,
+  `splitDoor` on a leafless opening, the label click not grid-snapped, and
+  the audit summary recording counts only (so a move writes a row whose
+  before and after match).
+- Pinned by 6 shared unit, 12 API e2e, 10 reducer, 5 Plan panel, 13 structure
+  tool, 5 door and 1 dashboard render cases; mutation-checked: `null`
   refused, tools hidden on a standard plan, the Delete key's precedence. No
   count moved.
 

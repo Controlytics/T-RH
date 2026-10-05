@@ -1,4 +1,4 @@
-import { useRef, useState, type Dispatch, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useRef, useState, type Dispatch, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   rectanglePoints, sharedEdges, centroid, pointInPolygon, segmentOnEdge,
   type Point, type Polygon, type SharedEdge,
@@ -70,6 +70,14 @@ export function DesignerCanvas({
     | null
   >(null);
   const boxTool = isBoxTool(state.tool), segmentTool = isSegmentTool(state.tool);
+  // Escape discards a box being dragged out (review, 2026-10-05): the page's
+  // keydown cancels the reducer's drawing, but this drag is canvas-local and
+  // the release would otherwise still place the box — an unwanted §11 write.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSdrag(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const toPlan = (e: { clientX: number; clientY: number }): Point => {
     const el = svgRef.current;
@@ -112,6 +120,10 @@ export function DesignerCanvas({
           ? { x: r6(Math.min(a.x, b.x)), y: r6(a.y - WINDOW_DEPTH / 2), w: r6(Math.abs(b.x - a.x)), h: WINDOW_DEPTH }
           : { x: r6(a.x - WINDOW_DEPTH / 2), y: r6(Math.min(a.y, b.y)), w: WINDOW_DEPTH, h: r6(Math.abs(b.y - a.y)) };
         if (box.w <= 0 || box.h <= 0) { dispatch({ type: 'flash', message: 'A window needs two different points.' }); return; }
+        // A window on a wall at the plan's border would start just outside it
+        // (review, 2026-10-05); the API refuses any coordinate below 0.
+        box.x = r6(Math.max(0, Math.min(1 - box.w, box.x)));
+        box.y = r6(Math.max(0, Math.min(1 - box.h, box.y)));
         onAddStructure('windows', box);
       } else {
         if (a.x === b.x && a.y === b.y) { dispatch({ type: 'flash', message: 'A wall stub needs two different points.' }); return; }
@@ -140,12 +152,21 @@ export function DesignerCanvas({
     const raw = toPlan(e);
     if (sdrag?.kind === 'box') { setSdrag({ ...sdrag, to: snapPoint(raw, [], { grid: showGrid }) }); return; }
     if (sdrag?.kind === 'move') {
-      const dx = raw.x - sdrag.origin.x, dy = raw.y - sdrag.origin.y;
+      // The TRANSLATION is clamped so the whole element stays inside the plan
+      // (review, 2026-10-05) — the room move's rule. Clamping each coordinate
+      // alone let a box's origin stop at the edge while its far side went past
+      // it, and the API then refused the whole layer as VALIDATION_ERROR.
       const s = sdrag.start as unknown as Record<string, number | string>;
+      const num = (k: string) => (typeof s[k] === 'number' ? (s[k] as number) : null);
+      const xs = [num('x'), num('x1'), num('x2'), num('x') != null && num('w') != null ? num('x')! + num('w')! : null].filter((v): v is number => v != null);
+      const ys = [num('y'), num('y1'), num('y2'), num('y') != null && num('h') != null ? num('y')! + num('h')! : null].filter((v): v is number => v != null);
+      const dx = raw.x - sdrag.origin.x, dy = raw.y - sdrag.origin.y;
+      const tx = Math.min(1 - Math.max(...xs), Math.max(-Math.min(...xs), dx));
+      const ty = Math.min(1 - Math.max(...ys), Math.max(-Math.min(...ys), dy));
       const preview: Record<string, number | string> = { ...s };
-      for (const k of ['x', 'x1', 'x2']) if (typeof s[k] === 'number') preview[k] = r6(Math.min(1, Math.max(0, (s[k] as number) + dx)));
-      for (const k of ['y', 'y1', 'y2']) if (typeof s[k] === 'number') preview[k] = r6(Math.min(1, Math.max(0, (s[k] as number) + dy)));
-      setSdrag({ ...sdrag, preview: preview as unknown as StructureEl, moved: Math.abs(dx) > 1e-6 || Math.abs(dy) > 1e-6 });
+      for (const k of ['x', 'x1', 'x2']) if (typeof s[k] === 'number') preview[k] = r6((s[k] as number) + tx);
+      for (const k of ['y', 'y1', 'y2']) if (typeof s[k] === 'number') preview[k] = r6((s[k] as number) + ty);
+      setSdrag({ ...sdrag, preview: preview as unknown as StructureEl, moved: Math.abs(tx) > 1e-6 || Math.abs(ty) > 1e-6 });
       return;
     }
     if (segmentTool && state.drawing?.length) setHover(raw);

@@ -94,6 +94,13 @@ export function LayoutDesignerPage() {
   const selectedLink = selectedLinkId ? plan?.links.find((l) => l.id === selectedLinkId) ?? null : null;
   // The 2D layer (2026-10-05): held whole, saved whole.
   const annotations = useMemo(() => normaliseAnnotations(plan?.annotations), [plan]);
+  // The layer as LAST SENT (review, 2026-10-05): every structure edit PUTs the
+  // whole object, and the plan list only revalidates after the save lands, so
+  // two edits in quick succession built from `annotations` alone would have
+  // the second replace the row with a copy that never saw the first. The ref
+  // follows the server once it answers, and runs ahead of it in between.
+  const latestAnnotations = useRef(annotations);
+  useEffect(() => { latestAnnotations.current = annotations; }, [annotations]);
   const arch = isArchitectural(plan);
   const tools = arch ? [...BASE_TOOLS, ...STRUCTURE_TOOLS] : BASE_TOOLS;
   const selectedStructure = state.selection?.kind === 'structure' ? state.selection : null;
@@ -136,20 +143,24 @@ export function LayoutDesignerPage() {
   /** The ONE write of the 2D layer: the whole object, replaced (the `doors` rule). */
   const saveAnnotations = (next: DesignerAnnotations, done: { title: string; message?: string } | null, onDone?: () => void) => {
     if (!plan) return;
+    latestAnnotations.current = next;
     run('UPDATE_FLOORPLAN', async (pw) => { await put(`/api/floorplans/${plan.id}`, { annotations: next }, pw); }, done, onDone);
   };
   const addStructure = (layer: StructureLayer, element: StructureElement) => {
-    const next = { ...annotations, [layer]: [...annotations[layer], element] } as DesignerAnnotations;
-    saveAnnotations(next, null, () => dispatch({ type: 'select', selection: { kind: 'structure', layer, index: annotations[layer].length } }));
+    const base = latestAnnotations.current;
+    const next = { ...base, [layer]: [...base[layer], element] } as DesignerAnnotations;
+    saveAnnotations(next, null, () => dispatch({ type: 'select', selection: { kind: 'structure', layer, index: base[layer].length } }));
   };
   const updateStructure = (layer: StructureLayer, index: number, element: StructureElement) => {
-    const list = [...annotations[layer]] as StructureElement[];
+    const base = latestAnnotations.current;
+    const list = [...base[layer]] as StructureElement[];
     list[index] = element;
-    saveAnnotations({ ...annotations, [layer]: list } as DesignerAnnotations, null);
+    saveAnnotations({ ...base, [layer]: list } as DesignerAnnotations, null);
   };
   const removeStructure = (layer: StructureLayer, index: number) => {
-    const list = (annotations[layer] as StructureElement[]).filter((_, i) => i !== index);
-    saveAnnotations({ ...annotations, [layer]: list } as DesignerAnnotations, { title: 'Element removed' }, () => dispatch({ type: 'select', selection: null }));
+    const base = latestAnnotations.current;
+    const list = (base[layer] as StructureElement[]).filter((_, i) => i !== index);
+    saveAnnotations({ ...base, [layer]: list } as DesignerAnnotations, { title: 'Element removed' }, () => dispatch({ type: 'select', selection: null }));
   };
 
   const roomBody = (room: DesignerRoom, f: RoomForm, points: Polygon | null) => {
@@ -577,6 +588,7 @@ export function LayoutDesignerPage() {
           element={annotations[selectedStructure.layer][selectedStructure.index] as StructureElement}
           saving={saving}
           onChange={(el) => updateStructure(selectedStructure.layer, selectedStructure.index, el)}
+          onRefuse={(reason) => toast.error('Not saved', reason)}
           onDelete={() => removeStructure(selectedStructure.layer, selectedStructure.index)}
           onCancel={() => dispatch({ type: 'select', selection: null })}
         />

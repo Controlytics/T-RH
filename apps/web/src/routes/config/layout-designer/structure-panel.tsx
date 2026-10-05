@@ -14,9 +14,12 @@ const TITLE: Record<StructureLayer, string> = { columns: 'Column', windows: 'Win
  * position and text. Plan units, shown to four places. Save replaces the one
  * element; the page writes the whole layer.
  */
-export function StructurePropertiesPanel({ layer, index, element, saving, onChange, onDelete, onCancel }: {
+export function StructurePropertiesPanel({ layer, index, element, saving, onChange, onRefuse, onDelete, onCancel }: {
   layer: StructureLayer; index: number; element: StructureElement; saving: boolean;
-  onChange: (next: StructureElement) => void; onDelete: () => void; onCancel: () => void;
+  onChange: (next: StructureElement) => void;
+  /** A value the API would refuse is refused HERE with the reason (review, 2026-10-05); nothing is sent. */
+  onRefuse: (reason: string) => void;
+  onDelete: () => void; onCancel: () => void;
 }) {
   const [draft, setDraft] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -29,6 +32,16 @@ export function StructurePropertiesPanel({ layer, index, element, saving, onChan
   const save = () => {
     const next: Record<string, number | string> = {};
     for (const k of fields) next[k] = k === 'text' ? (draft[k] ?? '').trim() : Math.min(1, Math.max(0, Number(draft[k]) || 0));
+    // The API's rules, applied before any request: a box has a size, a label
+    // has text, a box ends inside the plan, a segment has two different ends.
+    if (layer === 'labels' && !(next.text as string)) { onRefuse('Text is required.'); return; }
+    if (layer === 'walls') {
+      if (next.x1 === next.x2 && next.y1 === next.y2) { onRefuse('A wall stub needs two different ends.'); return; }
+    } else if (layer !== 'labels') {
+      if ((next.w as number) <= 0 || (next.h as number) <= 0) { onRefuse('Width and height must be above zero.'); return; }
+      next.x = Math.min(next.x as number, 1 - (next.w as number));
+      next.y = Math.min(next.y as number, 1 - (next.h as number));
+    }
     onChange(next as unknown as StructureElement);
   };
   return (

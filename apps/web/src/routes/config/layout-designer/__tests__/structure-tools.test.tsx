@@ -187,3 +187,78 @@ describe('structure tools on a 2D plan', () => {
     expect(screen.getByText('HPLC')).toBeInTheDocument();
   });
 });
+
+/**
+ * Review findings (2026-10-05, whole-branch review): two structure edits in
+ * quick succession must not lose the first — the second PUT is built from the
+ * layer the first one SENT, not from the plan list that has not revalidated
+ * yet; and a box dragged to the plan's edge must stay inside it, as a room
+ * does, or the API refuses the whole save as VALIDATION_ERROR.
+ */
+describe('structure edits under review findings', () => {
+  it('two labels placed before the plan revalidates both land in the second PUT', async () => {
+    renderPage();
+    const svg = stubCanvas();
+    fireEvent.click(screen.getByRole('button', { name: 'Label' }));
+    clickAt(svg, 500, 400);
+    clickAt(svg, 600, 450);
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(2));
+    expect(lastPut()[1].annotations.labels).toHaveLength(2);
+  });
+
+  it('a window drawn along the plan\'s top border stays inside the plan (y >= 0)', async () => {
+    PLANS.current = { data: [{ ...twoD(), rooms: [rect('A', 'A', 0, 0, 0.4, 0.3)] }] };
+    renderPage();
+    const svg = stubCanvas();
+    fireEvent.click(screen.getByRole('button', { name: 'Window' }));
+    clickAt(svg, 100, 2);
+    clickAt(svg, 200, 3);
+    await waitFor(() => expect(put).toHaveBeenCalled());
+    const w = lastPut()[1].annotations.windows[0] as { x: number; y: number; w: number; h: number };
+    expect(w.y).toBeGreaterThanOrEqual(0);
+    expect(w.y + w.h).toBeCloseTo(0.008, 6);
+  });
+
+  it('the Structure panel refuses a zero-size box and a blank label IN PLACE, sending nothing', async () => {
+    PLANS.current = { data: [twoD({ columns: [{ x: 0.1, y: 0.1, w: 0.02, h: 0.02 }], labels: [{ x: 0.5, y: 0.5, text: 'HPLC' }] })] };
+    renderPage();
+    stubCanvas();
+    clickAt(screen.getByTestId('structure-columns-0'), 110, 90);
+    fireEvent.pointerUp(screen.getByTestId('designer-canvas'));
+    fireEvent.change(screen.getByLabelText('W'), { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save element' }));
+    expect(put).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith('Not saved', expect.stringMatching(/width|height/i));
+    clickAt(screen.getByTestId('structure-labels-0'), 500, 375);
+    fireEvent.pointerUp(screen.getByTestId('designer-canvas'));
+    fireEvent.change(screen.getByLabelText('Text'), { target: { value: '   ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save element' }));
+    expect(put).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith('Not saved', expect.stringMatching(/text/i));
+  });
+
+  it('Escape during a box drag discards it; the release places nothing', async () => {
+    renderPage();
+    const svg = stubCanvas();
+    fireEvent.click(screen.getByRole('button', { name: 'Column' }));
+    clickAt(svg, 100, 100);
+    fireEvent.pointerMove(svg, { clientX: 140, clientY: 130, pointerId: 1 });
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.pointerUp(svg, { clientX: 140, clientY: 130, pointerId: 1 });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('a column dragged past the right edge stops at the edge (x + w <= 1)', async () => {
+    PLANS.current = { data: [twoD({ columns: [{ x: 0.9, y: 0.1, w: 0.08, h: 0.04 }] })] };
+    renderPage();
+    stubCanvas();
+    clickAt(screen.getByTestId('structure-columns-0'), 940, 90);
+    fireEvent.pointerMove(screen.getByTestId('designer-canvas'), { clientX: 1000, clientY: 90, pointerId: 1 });
+    fireEvent.pointerUp(screen.getByTestId('designer-canvas'), { clientX: 1000, clientY: 90, pointerId: 1 });
+    await waitFor(() => expect(put).toHaveBeenCalled());
+    const c = lastPut()[1].annotations.columns[0] as { x: number; w: number };
+    expect(c.x + c.w).toBeLessThanOrEqual(1 + 1e-9);
+    expect(c.x).toBeCloseTo(0.92, 6);
+  });
+});
