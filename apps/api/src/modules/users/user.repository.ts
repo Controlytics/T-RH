@@ -1,7 +1,16 @@
 import { prisma } from '../../lib/prisma.js';
-import { invalidateUserAuthCache } from '../../plugins/auth.js';
+import { invalidateUserAuthCache, invalidateSessionAuthCache } from '../../plugins/auth.js';
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+/**
+ * Every write below takes an optional `tx` (audit 2026-10-03, API-7) so the
+ * service can run the mutation and its `auditLog(entry, tx)` in ONE
+ * transaction: a user row must not be able to commit — or vanish — with no
+ * audit row, and an audit row must not be able to assert a change that rolled
+ * back. Without a `tx` each write still stands alone, as before.
+ */
+const db = (tx?: Tx) => tx ?? prisma;
 
 /**
  * Remove every row that holds an ON DELETE RESTRICT foreign key to the users
@@ -86,8 +95,8 @@ export const userRepository = {
     isTemporaryPassword: boolean;
     passwordExpiresAt: Date | null;
     createdBy: string;
-  }) {
-    return prisma.user.create({
+  }, tx?: Tx) {
+    return db(tx).user.create({
       data: {
         username: data.username,
         fullName: data.fullName,
@@ -105,26 +114,28 @@ export const userRepository = {
     });
   },
 
-  async update(id: string, data: Record<string, unknown>) {
-    const updated = await prisma.user.update({ where: { id }, data: data as any });
+  async update(id: string, data: Record<string, unknown>, tx?: Tx) {
+    const updated = await db(tx).user.update({ where: { id }, data: data as any });
     invalidateUserAuthCache(id);
     return updated;
   },
 
-  async delete(id: string) {
-    const result = await prisma.$transaction(async (tx) => {
-      await clearUserDeleteBlockers(tx, [id]);
-      return tx.user.delete({ where: { id } });
-    });
+  async delete(id: string, tx?: Tx) {
+    const run = async (t: Tx) => {
+      await clearUserDeleteBlockers(t, [id]);
+      return t.user.delete({ where: { id } });
+    };
+    const result = tx ? await run(tx) : await prisma.$transaction(run);
     invalidateUserAuthCache(id);
     return result;
   },
 
-  async deleteMany(ids: string[]) {
-    const result = await prisma.$transaction(async (tx) => {
-      await clearUserDeleteBlockers(tx, ids);
-      return tx.user.deleteMany({ where: { id: { in: ids } } });
-    });
+  async deleteMany(ids: string[], tx?: Tx) {
+    const run = async (t: Tx) => {
+      await clearUserDeleteBlockers(t, ids);
+      return t.user.deleteMany({ where: { id: { in: ids } } });
+    };
+    const result = tx ? await run(tx) : await prisma.$transaction(run);
     for (const id of ids) invalidateUserAuthCache(id);
     return result;
   },
@@ -147,19 +158,30 @@ export const userRepository = {
     return { total, enabled, disabled, locked, expired };
   },
 
-  async addPasswordHistory(userId: string, passwordHash: string) {
-    return prisma.passwordHistory.create({ data: { userId, passwordHash } });
+  async addPasswordHistory(userId: string, passwordHash: string, tx?: Tx) {
+    return db(tx).passwordHistory.create({ data: { userId, passwordHash } });
   },
 
   async findRole(name: string) {
     return prisma.role.findUnique({ where: { name } });
   },
 
-  async terminateSessions(userId: string, reason: string) {
-    return prisma.session.updateMany({
+  async terminateSessions(userId: string, reason: string, tx?: Tx) {
+    // The auth plugin caches SESSIONS by session id for 30 s, and
+    // `invalidateUserAuthCache` (which every caller runs after the commit)
+    // never touches that cache — so an ended session kept answering until the
+    // TTL ran out: a user whose ROLE was changed kept the OLD token with the
+    // NEW role's grants for up to 30 s, and a disabled / unlocked / reset user
+    // was refused only by the user-status check, if at all (found 2026-10-05 by
+    // the api-a sweep). Evict each ended session by id, the pattern
+    // auth.repository's own terminate paths already follow.
+    const sessions = await db(tx).session.findMany({ where: { userId, isActive: true }, select: { id: true } });
+    const result = await db(tx).session.updateMany({
       where: { userId, isActive: true },
       data: { isActive: false, terminationReason: reason },
     });
+    for (const s of sessions) invalidateSessionAuthCache(s.id);
+    return result;
   },
 
   async getPasswordExpiresAt(): Promise<Date | null> {
@@ -179,8 +201,8 @@ export const userRepository = {
    * there is no local password to change, so flagging one would strand the user
    * at a change-password screen that refuses directory accounts.
    */
-  async unlockWithoutPasswordChange(id: string, updatedBy: string) {
-    const result = await prisma.user.update({
+  async unlockWithoutPasswordChange(id: string, updatedBy: string, tx?: Tx) {
+    const result = await db(tx).user.update({
       where: { id },
       data: {
         status: 'ENABLED',
@@ -196,9 +218,9 @@ export const userRepository = {
     return result;
   },
 
-  async unlockUser(id: string, newHash: string, passwordExpiresAt: Date | null, updatedBy: string) {
-    const result = await prisma.$transaction([
-      prisma.user.update({
+  async unlockUser(id: string, newHash: string, passwordExpiresAt: Date | null, updatedBy: string, tx?: Tx) {
+    const run = async (t: Tx) => {
+      const user = await t.user.update({
         where: { id },
         data: {
           status: 'ENABLED',
@@ -212,16 +234,18 @@ export const userRepository = {
           passwordExpiresAt,
           updatedBy,
         },
-      }),
-      prisma.passwordHistory.create({ data: { userId: id, passwordHash: newHash } }),
-    ]);
+      });
+      const history = await t.passwordHistory.create({ data: { userId: id, passwordHash: newHash } });
+      return [user, history] as const;
+    };
+    const result = tx ? await run(tx) : await prisma.$transaction(run);
     invalidateUserAuthCache(id);
     return result;
   },
 
-  async resetPassword(id: string, newHash: string, passwordExpiresAt: Date | null, updatedBy: string) {
-    const result = await prisma.$transaction([
-      prisma.user.update({
+  async resetPassword(id: string, newHash: string, passwordExpiresAt: Date | null, updatedBy: string, tx?: Tx) {
+    const run = async (t: Tx) => {
+      const user = await t.user.update({
         where: { id },
         data: {
           passwordHash: newHash,
@@ -235,9 +259,11 @@ export const userRepository = {
           passwordExpiresAt,
           updatedBy,
         },
-      }),
-      prisma.passwordHistory.create({ data: { userId: id, passwordHash: newHash } }),
-    ]);
+      });
+      const history = await t.passwordHistory.create({ data: { userId: id, passwordHash: newHash } });
+      return [user, history] as const;
+    };
+    const result = tx ? await run(tx) : await prisma.$transaction(run);
     invalidateUserAuthCache(id);
     return result;
   },
@@ -255,9 +281,9 @@ export const userRepository = {
     return prisma.passwordResetRequest.findUnique({ where: { id } });
   },
 
-  async approveResetRequest(requestId: string, userId: string, newHash: string, passwordExpiresAt: Date | null, processedBy: string, notes?: string) {
-    const result = await prisma.$transaction([
-      prisma.user.update({
+  async approveResetRequest(requestId: string, userId: string, newHash: string, passwordExpiresAt: Date | null, processedBy: string, notes?: string, tx?: Tx) {
+    const run = async (t: Tx) => {
+      const user = await t.user.update({
         where: { id: userId },
         data: {
           passwordHash: newHash,
@@ -271,19 +297,21 @@ export const userRepository = {
           passwordExpiresAt,
           updatedBy: processedBy,
         },
-      }),
-      prisma.passwordHistory.create({ data: { userId, passwordHash: newHash } }),
-      prisma.passwordResetRequest.update({
+      });
+      const history = await t.passwordHistory.create({ data: { userId, passwordHash: newHash } });
+      const request = await t.passwordResetRequest.update({
         where: { id: requestId },
         data: { status: 'APPROVED', processedAt: new Date(), processedBy, notes },
-      }),
-    ]);
+      });
+      return [user, history, request] as const;
+    };
+    const result = tx ? await run(tx) : await prisma.$transaction(run);
     invalidateUserAuthCache(userId);
     return result;
   },
 
-  async rejectResetRequest(requestId: string, processedBy: string, notes?: string) {
-    return prisma.passwordResetRequest.update({
+  async rejectResetRequest(requestId: string, processedBy: string, notes?: string, tx?: Tx) {
+    return db(tx).passwordResetRequest.update({
       where: { id: requestId },
       data: { status: 'REJECTED', processedAt: new Date(), processedBy, notes },
     });

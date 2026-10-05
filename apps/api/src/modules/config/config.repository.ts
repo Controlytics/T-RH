@@ -1,5 +1,10 @@
 import { prisma } from '../../lib/prisma.js';
 
+/** Escape `\`, `%` and `_` so a string matches itself under `LIKE … ESCAPE '\'`. */
+export function escapeLikeLiteral(s: string): string {
+  return s.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
 export const configRepository = {
   async getSystemConfig(key: string) {
     return prisma.systemConfig.findUnique({ where: { configKey: key } });
@@ -93,9 +98,13 @@ export const configRepository = {
 
   // Raw queries for User ID next
   async getMaxUserIdNum(prefix: string) {
+    // The prefix is a LITERAL, so its LIKE metacharacters are escaped (audit
+    // 2026-10-03, API-20): `_` is a single-character wildcard, so a prefix of
+    // `EMP_` matched `EMPX0007` and the next id jumped past another series'
+    // numbers; `%` and the escape character itself get the same treatment.
     return prisma.$queryRawUnsafe(
-      `SELECT MAX(CAST(SUBSTRING(username FROM '\\d+$') AS INTEGER)) AS max_num FROM users WHERE username LIKE $1`,
-      `${prefix}%`
+      `SELECT MAX(CAST(SUBSTRING(username FROM '\\d+$') AS INTEGER)) AS max_num FROM users WHERE username LIKE $1 ESCAPE '\\'`,
+      `${escapeLikeLiteral(prefix)}%`
     ) as Promise<{ max_num: number | null }[]>;
   },
 

@@ -15,7 +15,7 @@ const { mockPrisma, mockAuditLog } = vi.hoisted(() => ({
 
 vi.mock('../../lib/prisma.js', () => ({ prisma: mockPrisma }));
 
-import rbacPlugin, { invalidateRolePermsCache } from '../rbac.js';
+import rbacPlugin, { invalidateRolePermsCache, roleHasPermission } from '../rbac.js';
 
 function makeReq(user: any = { sub: 'u1', username: 'admin', role: 'ADMIN', sessionId: 's1' }) {
   return {
@@ -75,6 +75,7 @@ describe('rbacPlugin', () => {
 
       mockPrisma.role.findFirst.mockResolvedValue({
         permissions: ['INSTRUMENT_READ', 'INSTRUMENT_CREATE'],
+        isActive: true,
       });
 
       await middleware(req, reply);
@@ -88,6 +89,7 @@ describe('rbacPlugin', () => {
 
       mockPrisma.role.findFirst.mockResolvedValue({
         permissions: ['INSTRUMENT_READ'],
+        isActive: true,
       });
 
       await middleware(req, reply);
@@ -121,10 +123,38 @@ describe('rbacPlugin', () => {
 
       mockPrisma.role.findFirst.mockResolvedValue({
         permissions: null,
+        isActive: true,
       });
 
       await middleware(req, reply);
       expect(reply.code).toHaveBeenCalledWith(403);
+    });
+
+    /**
+     * Audit 2026-10-03, API-15: an INACTIVE role holds nothing. The flag was
+     * never read on the request path, so deactivating a role changed nothing.
+     * Mutation check: drop the `isActive` test in getRolePerms and this fails.
+     */
+    it('denies every permission for a role that is inactive, whatever it holds', async () => {
+      const middleware = requirePermission('INSTRUMENT_READ');
+      const req = makeReq();
+      const reply = makeReply();
+
+      mockPrisma.role.findFirst.mockResolvedValue({
+        permissions: ['INSTRUMENT_READ', 'INSTRUMENT_CREATE'],
+        isActive: false,
+      });
+
+      await middleware(req, reply);
+      expect(reply.code).toHaveBeenCalledWith(403);
+    });
+
+    it('roleHasPermission answers false for an inactive role and true once it is active again', async () => {
+      mockPrisma.role.findFirst.mockResolvedValue({ permissions: ['AUDIT_READ'], isActive: false });
+      expect(await roleHasPermission('ADMIN', 'AUDIT_READ')).toBe(false);
+      invalidateRolePermsCache('ADMIN');
+      mockPrisma.role.findFirst.mockResolvedValue({ permissions: ['AUDIT_READ'], isActive: true });
+      expect(await roleHasPermission('ADMIN', 'AUDIT_READ')).toBe(true);
     });
   });
 

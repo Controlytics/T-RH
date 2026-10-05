@@ -97,9 +97,12 @@ describe('PUT /api/config/roles/:role checks the caller\'s own privilege before 
     const before = await perms('VIEWER');
     const res = await app.inject({
       method: 'PUT', url: '/api/config/roles/VIEWER', headers: operator,
-      payload: { permissions: {} },
+      // `{}` rebuilds the set from no toggles, which REVOKES the viewer's
+      // feature permissions — a change to the set, so it carries a reason
+      // (DATA-11); what this case pins is that it grants nothing new.
+      payload: { permissions: {}, reason: 'e2e: sidebar rearrangement' },
     });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode, res.body).toBe(200);
     // Nothing the viewer did not already have was added.
     const after = await perms('VIEWER');
     expect(after.filter((p) => !before.includes(p))).toEqual([]);
@@ -108,10 +111,36 @@ describe('PUT /api/config/roles/:role checks the caller\'s own privilege before 
   it('SUPER_ADMIN is exempt — the grant lands', async () => {
     const res = await app.inject({
       method: 'PUT', url: '/api/config/roles/VIEWER', headers: admin,
-      payload: { permissions: { 'audit.delete': true } },
+      payload: { permissions: { 'audit.delete': true }, reason: 'e2e: privilege check' },
     });
     expect(res.statusCode).toBe(200);
     expect(await perms('VIEWER')).toContain('AUDIT_DELETE');
+  });
+
+  // DATA-11 (2026-10-05): this PUT is the Permissions tab, where role
+  // permissions actually change from the UI, so a change to the SET needs the
+  // operator's reason; a save that moves no permission needs none.
+  it('a permission change with no reason is 400 REASON_REQUIRED and writes nothing', async () => {
+    const before = await perms('VIEWER');
+    const res = await app.inject({
+      method: 'PUT', url: '/api/config/roles/VIEWER', headers: admin,
+      payload: { permissions: { 'audit.delete': !before.includes('AUDIT_DELETE') } },
+    });
+    expect(res.statusCode, res.body).toBe(400);
+    expect(res.json()).toMatchObject({ error: 'REASON_REQUIRED' });
+    expect(await perms('VIEWER')).toEqual(before);
+  });
+
+  it('the reason lands on the CONFIG_CHANGED audit row of a permission change', async () => {
+    const before = await perms('VIEWER');
+    const reason = `e2e perm reason ${Date.now()}`;
+    const res = await app.inject({
+      method: 'PUT', url: '/api/config/roles/VIEWER', headers: admin,
+      payload: { permissions: { 'audit.delete': !before.includes('AUDIT_DELETE') }, reason },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const row = await prisma.auditTrail.findFirst({ where: { action: 'CONFIG_CHANGED', targetType: 'role_config', targetId: 'VIEWER' }, orderBy: { timestamp: 'desc' } });
+    expect(row?.reason).toBe(reason);
   });
 });
 
@@ -123,9 +152,48 @@ describe('scope and panel PUTs refuse an empty body instead of widening to every
     expect(await prisma.roleConfig.count({ where: { role: 'VIEWER' } })).toBe(rowsBefore);
   });
 
-  it('instrument scope: an explicit null (inherit) is still accepted', async () => {
-    const res = await app.inject({ method: 'PUT', url: '/api/roles/instrument-scope/role/VIEWER', headers: admin, payload: { scope: null } });
+  it('instrument scope: an explicit null (inherit) is still accepted — with a reason', async () => {
+    const res = await app.inject({ method: 'PUT', url: '/api/roles/instrument-scope/role/VIEWER', headers: admin, payload: { scope: null, reason: 'e2e: inherit' } });
     expect(res.statusCode).toBe(200);
+  });
+
+  // Audit 2026-10-03, DATA-11: a visibility change carries the operator's
+  // reason, stored on the CONFIG_CHANGED row.
+  it('instrument scope: a save with no reason is 400 REASON_REQUIRED and writes nothing', async () => {
+    const before = await prisma.roleConfig.findUnique({ where: { role: 'VIEWER' }, select: { instrumentScope: true } });
+    const res = await app.inject({
+      method: 'PUT', url: '/api/roles/instrument-scope/role/VIEWER', headers: admin,
+      payload: { scope: { locationIds: [], instrumentIds: [] } },
+    });
+    expect(res.statusCode).toBe(400);
+    const after = await prisma.roleConfig.findUnique({ where: { role: 'VIEWER' }, select: { instrumentScope: true } });
+    expect(after?.instrumentScope ?? null).toEqual(before?.instrumentScope ?? null);
+  });
+
+  it('instrument scope: the reason lands on the audit row', async () => {
+    const res = await app.inject({
+      method: 'PUT', url: '/api/roles/instrument-scope/role/VIEWER', headers: admin,
+      payload: { scope: null, reason: 'e2e: viewers see everything again' },
+    });
+    expect(res.statusCode).toBe(200);
+    const row = await prisma.auditTrail.findFirst({
+      where: { action: 'CONFIG_CHANGED', targetType: 'role_config', targetId: 'VIEWER' },
+      orderBy: { timestamp: 'desc' },
+    });
+    expect(row?.reason).toBe('e2e: viewers see everything again');
+  });
+
+  // Audit 2026-10-03, API-20: a role-keyed upsert on a role that does not
+  // exist is a 404, not a fresh orphan `role_configs` row.
+  it('role-keyed PUTs answer 404 for an unknown role and create no config row', async () => {
+    const ghost = `GHOST_${Date.now()}`;
+    const scope = await app.inject({ method: 'PUT', url: `/api/roles/instrument-scope/role/${ghost}`, headers: admin, payload: { scope: null, reason: 'x' } });
+    const panels = await app.inject({ method: 'PUT', url: `/api/roles/panel-access/role/${ghost}`, headers: admin, payload: { panels: null } });
+    const access = await app.inject({ method: 'PUT', url: `/api/roles/attribute-access/${ghost}`, headers: admin, payload: { mode: null } });
+    const layout = await app.inject({ method: 'PUT', url: `/api/roles/dashboard-layout/role/${ghost}`, headers: admin, payload: { layout: null } });
+    const config = await app.inject({ method: 'PUT', url: `/api/config/roles/${ghost}`, headers: admin, payload: { sidebarItems: ['users'] } });
+    for (const r of [scope, panels, access, layout, config]) expect(r.statusCode).toBe(404);
+    expect(await prisma.roleConfig.count({ where: { role: ghost } })).toBe(0);
   });
 
   it('panel access: {} is a 400', async () => {

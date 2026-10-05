@@ -100,28 +100,69 @@ describe('notificationService', () => {
 
   describe('markRead', () => {
     it('marks notification as read', async () => {
-      mockNotifRepo.findById.mockResolvedValue({ id: 'n1' });
+      mockNotifRepo.findById.mockResolvedValue({ id: 'n1', forUserId: 'me', forRole: null });
       mockNotifRepo.markRead.mockResolvedValue({});
 
-      const result = await notificationService.markRead('n1');
+      const result = await notificationService.markRead('n1', 'OPERATOR', 'me');
       expect(result.success).toBe(true);
       expect(mockNotifRepo.markRead).toHaveBeenCalledWith('n1');
     });
 
     it('throws NotFoundError', async () => {
       mockNotifRepo.findById.mockResolvedValue(null);
-      await expect(notificationService.markRead('bad')).rejects.toThrow('not found');
+      await expect(notificationService.markRead('bad', 'SUPER_ADMIN', 'sa')).rejects.toThrow('not found');
+    });
+
+    /**
+     * Audit 2026-10-03, API-16: the single-row check is the SAME rule as the
+     * list. It used to be wider — an ADMIN could act on any row not addressed
+     * to SUPER_ADMIN, and a user on the admin-addressed row ABOUT themself.
+     */
+    it('an ADMIN cannot reach another user\'s personal notification by id (404, nothing written)', async () => {
+      mockNotifRepo.findById.mockResolvedValue({ id: 'n1', type: 'USER_CREATED', forUserId: 'someone-else', forRole: null });
+      await expect(notificationService.markRead('n1', 'ADMIN', 'me')).rejects.toThrow('not found');
+      expect(mockNotifRepo.markRead).not.toHaveBeenCalled();
+    });
+
+    it('a user cannot reach the admin-addressed row ABOUT themself by id', async () => {
+      mockNotifRepo.findById.mockResolvedValue({ id: 'n1', type: 'USER_LOCKED', forUserId: null, forRole: 'ADMIN', targetUserId: 'me' });
+      await expect(notificationService.markRead('n1', 'OPERATOR', 'me')).rejects.toThrow('not found');
+      expect(mockNotifRepo.markRead).not.toHaveBeenCalled();
+    });
+
+    it('an ADMIN can act on an ADMIN-addressed row', async () => {
+      mockNotifRepo.findById.mockResolvedValue({ id: 'n1', type: 'USER_LOCKED', forUserId: null, forRole: 'ADMIN' });
+      mockNotifRepo.markRead.mockResolvedValue({});
+      await notificationService.markRead('n1', 'ADMIN', 'me');
+      expect(mockNotifRepo.markRead).toHaveBeenCalledWith('n1');
     });
   });
 
   describe('markUnread', () => {
     it('marks notification as unread', async () => {
-      mockNotifRepo.findById.mockResolvedValue({ id: 'n1' });
+      mockNotifRepo.findById.mockResolvedValue({ id: 'n1', forUserId: null, forRole: null });
       mockNotifRepo.markUnread.mockResolvedValue({});
 
-      const result = await notificationService.markUnread('n1');
+      const result = await notificationService.markUnread('n1', 'SUPER_ADMIN', 'sa');
       expect(result.success).toBe(true);
       expect(mockNotifRepo.markUnread).toHaveBeenCalledWith('n1');
+    });
+  });
+
+  /** Audit 2026-10-03, API-12: a bad date is a 400 by field, never a Prisma 500. */
+  describe('list — date validation', () => {
+    it('refuses an unparseable startDate with a field-keyed 400', async () => {
+      await expect(notificationService.list({ startDate: 'yesterday' }, 'SUPER_ADMIN', 'sa'))
+        .rejects.toMatchObject({ statusCode: 400, details: { fieldErrors: { startDate: expect.any(Array) } } });
+      expect(mockNotifRepo.findMany).not.toHaveBeenCalled();
+    });
+
+    it('a date-only endDate covers the whole of that day', async () => {
+      mockNotifRepo.findMany.mockResolvedValue([]);
+      mockNotifRepo.count.mockResolvedValue(0);
+      await notificationService.list({ endDate: '2026-10-05' }, 'SUPER_ADMIN', 'sa');
+      const where = mockNotifRepo.findMany.mock.calls[0][0] as any;
+      expect(where.createdAt.lte.toISOString()).toBe('2026-10-05T23:59:59.999Z');
     });
   });
 
@@ -155,6 +196,22 @@ describe('notificationService', () => {
     };
 
     it('deletes notification', async () => {
+      mockNotifRepo.findById.mockResolvedValue(notif);
+      mockNotifRepo.delete.mockResolvedValue({});
+
+      const result = await notificationService.delete('n1', ctx);
+      expect(result.success).toBe(true);
+      expect(mockNotifRepo.delete).toHaveBeenCalledWith('n1', 'TX');
+    });
+
+    it('a delete of a row outside the caller\'s visibility is a 404 with nothing written (API-16)', async () => {
+      mockNotifRepo.findById.mockResolvedValue({ ...notif, forUserId: 'someone-else' });
+      await expect(notificationService.delete('n1', ctx)).rejects.toThrow('not found');
+      expect(mockNotifRepo.delete).not.toHaveBeenCalled();
+      expect(mockAuditLog).not.toHaveBeenCalled();
+    });
+
+    it('deletes notification (the original happy path, kept)', async () => {
       mockNotifRepo.findById.mockResolvedValue(notif);
       mockNotifRepo.delete.mockResolvedValue({});
 

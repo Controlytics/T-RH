@@ -8,6 +8,10 @@ import nodemailer from "nodemailer";
 import dns from "dns";
 import type { EmailConfig, NotificationPayload, DeliveryResult, NotificationChannel as IChannel } from '../types.js';
 import { getEmailConfig } from '../config-loader.js';
+// The SHARED client (audit 2026-10-03, API-20): the token refresh below used
+// to open a throwaway `new PrismaClient()` — a second connection pool spun up
+// and torn down on every OAuth refresh.
+import { prisma } from '../../../lib/prisma.js';
 
 let transporter: nodemailer.Transporter | null = null;
 let currentConfigHash = "";
@@ -97,8 +101,6 @@ async function fetchOAuth2Token(config: EmailConfig): Promise<string> {
     // Persist new tokens back to DB if we got a refresh token
     if (savedRefresh) {
       try {
-        const { PrismaClient } = await import('@prisma/client');
-        const prisma = new PrismaClient();
         const dbConfig = await prisma.systemConfig.findUnique({ where: { configKey: 'notification-email' } });
         if (dbConfig) {
           const val = (dbConfig.configValue ?? {}) as Record<string, unknown>;
@@ -107,7 +109,6 @@ async function fetchOAuth2Token(config: EmailConfig): Promise<string> {
           if (data.refresh_token) val.refreshToken = data.refresh_token;
           await prisma.systemConfig.update({ where: { configKey: 'notification-email' }, data: { configValue: val as any } });
         }
-        await prisma.$disconnect();
       } catch { /* best effort */ }
     }
 

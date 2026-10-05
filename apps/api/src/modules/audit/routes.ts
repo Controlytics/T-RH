@@ -8,6 +8,8 @@ import { verifyAuditChain } from '../../lib/audit-verify.js';
 import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { policyForKind } from '../report-reviews/service.js';
 import { resolvePageSize } from '../../lib/page-size.js';
+import { parseDateRange } from '../../lib/query-dates.js';
+import { AppError } from '../../lib/errors.js';
 import {
   withAuditDeletesAllowed,
   isHardDeleteEnabled,
@@ -95,8 +97,21 @@ export default async function auditRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async (req) => {
-    const query = auditQuerySchema.parse(req.query);
+  }, async (req, reply) => {
+    // safeParse, not parse (audit 2026-10-03, API-12): a thrown ZodError
+    // escaped to the global handler as a 500 with the raw issue array, so a
+    // bad query string read as a server fault. The dates are checked the same
+    // way — `new Date('yesterday')` reached Prisma as Invalid Date, which was
+    // a 500 AND a SYSTEM_ERROR notification to every admin, for a typo.
+    const parsedQuery = auditQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsedQuery.error.flatten() });
+    }
+    const query = parsedQuery.data;
+    const range = parseDateRange(query.startDate, query.endDate);
+    if (!range.ok) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: { fieldErrors: range.fieldErrors } });
+    }
     const where: Record<string, unknown> = {
       AND: [
         // A SUPER_ADMIN viewer sees SUPER_ADMIN actions too (incl. their own
@@ -137,10 +152,12 @@ export default async function auditRoutes(app: FastifyInstance) {
       }
 
       where.timestamp = { gte: startDate };
-    } else if (query.startDate || query.endDate) {
-      where.timestamp = {};
-      if (query.startDate) (where.timestamp as Record<string, unknown>).gte = new Date(query.startDate);
-      if (query.endDate) (where.timestamp as Record<string, unknown>).lte = new Date(query.endDate);
+    } else if (range.gte || range.lte) {
+      // A date-only endDate is the END of that day — see lib/query-dates.ts.
+      where.timestamp = {
+        ...(range.gte ? { gte: range.gte } : {}),
+        ...(range.lte ? { lte: range.lte } : {}),
+      };
     }
     if (query.search) {
       const term = query.search;
@@ -182,10 +199,13 @@ export default async function auditRoutes(app: FastifyInstance) {
       prisma.auditTrail.count({ where: where as any }),
     ]);
 
-    // Read-time enrichment: resolve the redactor UUID (redacted_by) to a
-    // username for the inspector view. The redactor may since have been
-    // hard-deleted (user delete is physical), so the render falls back to the
-    // raw id rather than dropping the attribution. (The cleanroom domain
+    // Read-time enrichment: resolve a redactor UUID (redacted_by) to a
+    // username for the inspector view. Rows redacted since 2026-10-05 store
+    // the USERNAME there — the same identity `user_id` holds on every other
+    // row (audit 2026-10-03, DATA-13) — and pass through untouched; rows from
+    // before store the UUID and are resolved here. The redactor may since have
+    // been hard-deleted (user delete is physical), so the render falls back to
+    // the raw value rather than dropping the attribution. (The cleanroom domain
     // enrichment — filter/cycle/PM/replacement name lookups — was removed with
     // the 2026-07-18 domain strip; historic domain audit rows render with their
     // stored payloads as-is.)
@@ -246,8 +266,12 @@ export default async function auditRoutes(app: FastifyInstance) {
           type: 'object',
           properties: {
             id: { type: 'string' },
-            userId: { type: 'string' },
-            userRole: { type: 'string' },
+            // Nullable, as the LIST declares them (audit 2026-10-03, API-14):
+            // every SYSTEM_AUDIT_ACTIONS row stores NULL in both, and a
+            // non-nullable string serialises null as "" — so one row read
+            // `null` in the table and `""` in the inspector.
+            userId: { type: 'string', nullable: true },
+            userRole: { type: 'string', nullable: true },
             action: { type: 'string' },
             targetType: { type: 'string', nullable: true },
             targetId: { type: 'string', nullable: true },
@@ -443,25 +467,33 @@ export default async function auditRoutes(app: FastifyInstance) {
 
     const record = await prisma.auditTrail.findUnique({ where: { id } });
     if (!record) return reply.code(404).send({ error: 'Audit record not found' });
-    // redactedAt accessed via raw SQL because the Prisma client may not yet
-    // be regenerated against the 20260520140000 migration on dev machines
-    // with tsx watch holding the engine DLL (per LOCAL_SETUP_WINDOWS notes).
-    const priorRedact = await prisma.$queryRaw<Array<{ redacted_at: Date | null }>>`
-      SELECT redacted_at FROM audit_trail WHERE id = ${id}::uuid
-    `;
-    if (priorRedact[0]?.redacted_at) return reply.code(409).send({ error: 'ALREADY_REDACTED', message: 'Record was already redacted' });
 
     const now = new Date();
     await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`
+      // The "already redacted" decision is the UPDATE's own predicate, not a
+      // read before it (audit 2026-10-03, API-13). The check-then-write it
+      // replaces let two SUPER_ADMINs redact the same row: the second UPDATE
+      // overwrote the first redactor's name and reason, and two meta rows
+      // recorded one redaction. A conditional update claims the row the way
+      // the alarm acknowledge and the report decision do; the loser matches
+      // nothing and gets the 409. Throwing inside the transaction rolls back
+      // the meta row that would otherwise follow.
+      //
+      // `redacted_by` is the USERNAME — the identity `user_id` carries on every
+      // audit row (DATA-13). Rows redacted before 2026-10-05 hold the UUID; the
+      // list and detail reads resolve those.
+      const claimed = await tx.$executeRaw`
         UPDATE audit_trail
         SET before_value = NULL,
             after_value = NULL,
             redacted_at = ${now},
-            redacted_by = ${req.user.sub},
+            redacted_by = ${req.user.username},
             redaction_reason = ${reason}
-        WHERE id = ${id}::uuid
+        WHERE id = ${id}::uuid AND redacted_at IS NULL
       `;
+      if (claimed === 0) {
+        throw new AppError(409, 'ALREADY_REDACTED', 'Record was already redacted');
+      }
       // Meta-audit row records the redaction itself (within the same tx so
       // it cannot be lost if anything else fails).
       await auditLog({
@@ -503,28 +535,41 @@ export default async function auditRoutes(app: FastifyInstance) {
     if (!ok) return;
     const { ids, reason } = req.body as { ids: string[]; reason: string };
 
-    // Pull un-redacted matching ids via raw SQL (Prisma client regen-pending
-    // on dev). The redacted_at filter ensures we never re-redact (which
-    // would overwrite the prior redactor's name + reason).
-    const unredacted = await prisma.$queryRaw<Array<{ id: string; action: string; timestamp: Date; user_id: string | null; target_type: string | null; target_id: string | null }>>`
-      SELECT id, action, timestamp, user_id, target_type, target_id
-      FROM audit_trail
-      WHERE id = ANY(${ids}::uuid[]) AND redacted_at IS NULL
-    `;
-    if (unredacted.length === 0) return reply.code(409).send({ error: 'ALREADY_REDACTED_OR_MISSING', message: 'No matching un-redacted records' });
-    const matchedIds = unredacted.map((r) => r.id);
-
     const now = new Date();
     const result = await prisma.$transaction(async (tx) => {
+      // The un-redacted rows are selected INSIDE the transaction and LOCKED
+      // (audit 2026-10-03, API-13): selected outside it, a second bulk
+      // redaction racing this one could pass the same ids through its own
+      // select, and the two UPDATEs — neither carrying `redacted_at IS NULL` —
+      // would each stamp its own name and reason over the other's. With the
+      // rows locked the second caller waits, then sees them redacted and
+      // matches nothing. The UPDATE repeats the predicate so it can never
+      // touch more than the rows this transaction captured in the meta row.
+      const unredacted = await tx.$queryRaw<Array<{ id: string; action: string; timestamp: Date; user_id: string | null; target_type: string | null; target_id: string | null }>>`
+        SELECT id, action, timestamp, user_id, target_type, target_id
+        FROM audit_trail
+        WHERE id = ANY(${ids}::uuid[]) AND redacted_at IS NULL
+        FOR UPDATE
+      `;
+      if (unredacted.length === 0) {
+        throw new AppError(409, 'ALREADY_REDACTED_OR_MISSING', 'No matching un-redacted records');
+      }
+      const matchedIds = unredacted.map((r) => r.id);
       const updated = await tx.$executeRaw`
         UPDATE audit_trail
         SET before_value = NULL,
             after_value = NULL,
             redacted_at = ${now},
-            redacted_by = ${req.user.sub},
+            redacted_by = ${req.user.username},
             redaction_reason = ${reason}
-        WHERE id = ANY(${matchedIds}::uuid[])
+        WHERE id = ANY(${matchedIds}::uuid[]) AND redacted_at IS NULL
       `;
+      if (updated !== unredacted.length) {
+        // Cannot happen under the lock above; refused rather than recorded
+        // if it ever does, because the meta row would then name rows it did
+        // not redact.
+        throw new AppError(409, 'REDACTION_CONFLICT', 'The selected records changed during the redaction; nothing was redacted');
+      }
       await auditLog({
         userId: req.user.username, userRole: req.user.role,
         action: 'AUDIT_RECORDS_BULK_REDACTED',

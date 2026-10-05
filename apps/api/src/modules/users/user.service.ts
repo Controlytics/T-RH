@@ -6,6 +6,7 @@ import { validatePasswordPolicy } from '../../lib/password-validator.js';
 import { validateUserId } from '../../lib/user-id-validator.js';
 import { isLdapUser, LDAP_PASSWORD_MANAGED_MESSAGE } from '../../lib/ldap-identity.js';
 import { NotFoundError, ValidationError, ConflictError, ForbiddenError } from '../../lib/errors.js';
+import { requireReason } from '../../lib/require-reason.js';
 import { userRepository } from './user.repository.js';
 import { prisma } from '../../lib/prisma.js';
 import { createNotification } from '../notifications/notification.service.js';
@@ -14,6 +15,21 @@ import { dispatchNotification } from '../notification-delivery/notification-disp
 // change takes effect immediately instead of after the 30s TTL (audit M-7).
 import { invalidateUserAuthCache } from '../../plugins/auth.js';
 import { logger } from '../../lib/logger.js';
+
+/**
+ * EVERY mutation below runs its write and its audit row in ONE transaction
+ * (audit 2026-10-03, API-7): `prisma.$transaction(async (tx) => { write(tx);
+ * auditLog(entry, tx) })`. Until then the delete wrote its audit row BEFORE
+ * the delete (a chained row said the account was gone while it still logged
+ * in if the delete then failed) and every other write audited AFTER it (the
+ * write committed, the audit insert failed, no row). Row locks are taken
+ * before the audit advisory lock — the write first, the audit row last — the
+ * same lock order the instruments module documents.
+ *
+ * Side effects that are NOT part of the record — in-app notifications, the
+ * email/SMS dispatch, the auth-cache invalidation — stay OUTSIDE the
+ * transaction, after it commits.
+ */
 
 /**
  * Privilege-boundary guard for user-mutating operations (audit C2 fix).
@@ -34,6 +50,20 @@ async function assertCanManageTarget(callerRole: string, targetRoleName: string)
   }
 }
 
+/**
+ * The roles a caller's user views must NOT show — the ONE list that both
+ * `GET /api/users` and `GET /api/users/stats` apply (audit 2026-10-03, API-20).
+ * Until then the list hid SUPER_ADMIN and ADMIN from a lower role while the
+ * stats hid only SUPER_ADMIN, and only from an ADMIN — so an OPERATOR's stats
+ * counted accounts their list could not show.
+ */
+export function hiddenRolesFor(callerRole: string | undefined): string[] {
+  const hidden: string[] = [];
+  if (callerRole !== 'SUPER_ADMIN') hidden.push('SUPER_ADMIN');
+  if (callerRole !== 'SUPER_ADMIN' && callerRole !== 'ADMIN') hidden.push('ADMIN');
+  return hidden;
+}
+
 export const userService = {
   async list(query: { page: number; limit?: number; role?: string; status?: string; search?: string; callerRole?: string }) {
     const where: Record<string, unknown> = {};
@@ -47,9 +77,7 @@ export const userService = {
       ];
     }
     // Hide higher-privilege accounts from the caller's list view
-    const excludedRoles: string[] = [];
-    if (query.callerRole !== 'SUPER_ADMIN') excludedRoles.push('SUPER_ADMIN');
-    if (query.callerRole !== 'SUPER_ADMIN' && query.callerRole !== 'ADMIN') excludedRoles.push('ADMIN');
+    const excludedRoles = hiddenRolesFor(query.callerRole);
     if (excludedRoles.length > 0) {
       // An explicit ?role= must NARROW the visible set, never replace the
       // exclusion — `where.role = query.role` let a caller ask for exactly the
@@ -66,7 +94,8 @@ export const userService = {
   },
 
   async getStats(callerRole: string) {
-    const roleFilter: Record<string, unknown> = callerRole === 'ADMIN' ? { role: { not: 'SUPER_ADMIN' as any } } : {};
+    const hidden = hiddenRolesFor(callerRole);
+    const roleFilter: Record<string, unknown> = hidden.length > 0 ? { role: { notIn: hidden } } : {};
     return userRepository.countByStatus(roleFilter);
   },
 
@@ -115,30 +144,33 @@ export const userService = {
     const passwordHash = await hashPassword(data.password);
     const passwordExpiresAt = await userRepository.getPasswordExpiresAt();
 
-    const user = await userRepository.create({
-      username: data.username,
-      fullName: data.fullName,
-      email,
-      department: data.department,
-      role: data.role,
-      passwordHash,
-      status: data.status ?? 'ENABLED',
-      forcePasswordChange: true,
-      isTemporaryPassword: true,
-      passwordExpiresAt,
-      createdBy: ctx.userId,
-    });
+    const user = await prisma.$transaction(async (tx) => {
+      const created = await userRepository.create({
+        username: data.username,
+        fullName: data.fullName,
+        email,
+        department: data.department,
+        role: data.role,
+        passwordHash,
+        status: data.status ?? 'ENABLED',
+        forcePasswordChange: true,
+        isTemporaryPassword: true,
+        passwordExpiresAt,
+        createdBy: ctx.userId,
+      }, tx);
 
-    await userRepository.addPasswordHistory(user.id, passwordHash);
+      await userRepository.addPasswordHistory(created.id, passwordHash, tx);
 
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'USER_CREATED',
-      targetType: 'user',
-      targetId: user.id,
-      afterValue: { username: data.username, fullName: data.fullName, email: data.email, role: data.role, status: data.status },
-      signatureMeaning: 'New user account created by administrator',
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole,
+        action: 'USER_CREATED',
+        targetType: 'user',
+        targetId: created.id,
+        afterValue: { username: data.username, fullName: data.fullName, email: data.email, role: data.role, status: data.status },
+        signatureMeaning: 'New user account created by administrator',
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
+      return created;
     });
 
     await createNotification({
@@ -206,69 +238,75 @@ export const userService = {
 
     const beforeValue = { fullName: existing.fullName, email: existing.email, department: existing.department, role: existing.role, status: existing.status };
 
-    const user = await userRepository.update(id, {
-      ...data,
-      role: data.role as any,
-      status: data.status as any,
-      updatedBy: ctx.userId,
+    // Never let a password reach the (immutable) audit trail. sanitizeStrings
+    // only strips HTML from these keys; it does not remove them.
+    const { password: _pw, passwordHash: _ph, ...auditData } = data;
+
+    const user = await prisma.$transaction(async (tx) => {
+      const updated = await userRepository.update(id, {
+        ...data,
+        role: data.role as any,
+        status: data.status as any,
+        updatedBy: ctx.userId,
+      }, tx);
+
+      // If role changed, invalidate all active sessions so user gets fresh JWT on re-login
+      if (data.role && data.role !== existing.role) {
+        await userRepository.terminateSessions(id, 'role_changed', tx);
+      }
+
+      // If status changed to non-ENABLED, also invalidate sessions
+      if (data.status && data.status !== 'ENABLED' && data.status !== existing.status) {
+        await userRepository.terminateSessions(id, 'account_disabled', tx);
+      }
+
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole,
+        action: 'USER_UPDATED',
+        targetType: 'user',
+        targetId: id,
+        beforeValue,
+        afterValue: { ...auditData, username: updated.username, fullName: updated.fullName },
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
+      return updated;
     });
-
-    // If role changed, invalidate all active sessions so user gets fresh JWT on re-login
-    if (data.role && data.role !== existing.role) {
-      await prisma.session.updateMany({
-        where: { userId: id, isActive: true },
-        data: { isActive: false, terminationReason: 'role_changed' },
-      });
-    }
-
-    // If status changed to non-ENABLED, also invalidate sessions
-    if (data.status && data.status !== 'ENABLED' && data.status !== existing.status) {
-      await prisma.session.updateMany({
-        where: { userId: id, isActive: true },
-        data: { isActive: false, terminationReason: 'account_disabled' },
-      });
-    }
 
     // Take role/status/password change effect immediately (not after the 30s cache TTL).
     invalidateUserAuthCache(id);
 
-    // Never let a password reach the (immutable) audit trail. sanitizeStrings
-    // only strips HTML from these keys; it does not remove them.
-    const { password: _pw, passwordHash: _ph, ...auditData } = data;
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'USER_UPDATED',
-      targetType: 'user',
-      targetId: id,
-      beforeValue,
-      afterValue: { ...auditData, username: user.username, fullName: user.fullName },
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
-    });
-
     return { id: user.id, username: user.username, fullName: user.fullName, email: user.email, role: user.role, status: user.status };
   },
 
-  async delete(id: string, callerSub: string, ctx: RequestContext) {
+  async delete(id: string, callerSub: string, ctx: RequestContext, reason?: string) {
     const existing = await userRepository.findByIdFull(id);
     if (!existing) throw new NotFoundError('User not found');
     if (id === callerSub) throw new ValidationError('Cannot delete your own account');
     if ((existing as any).role === 'SUPER_ADMIN') throw new ForbiddenError('Cannot delete SUPER_ADMIN users');
+    const why = requireReason(reason, 'Deleting a user');
 
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'USER_DELETED',
-      targetType: 'user',
-      targetId: id,
-      beforeValue: { username: existing.username, fullName: existing.fullName, email: existing.email, role: existing.role, status: existing.status },
-      afterValue: { deleted: true },
-      signatureMeaning: 'User account permanently deleted by administrator',
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    // The audit row is written INSIDE the delete's transaction, after the
+    // delete (API-7). It used to be written BEFORE, standalone: a delete that
+    // then failed on a foreign key left a committed, chained row asserting an
+    // account was gone while it still logged in.
+    await prisma.$transaction(async (tx) => {
+      await userRepository.delete(id, tx);
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole,
+        action: 'USER_DELETED',
+        targetType: 'user',
+        targetId: id,
+        beforeValue: { username: existing.username, fullName: existing.fullName, email: existing.email, role: existing.role, status: existing.status },
+        afterValue: { deleted: true },
+        reason: why,
+        signatureMeaning: 'User account permanently deleted by administrator',
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
     });
-
-    await userRepository.delete(id);
+    invalidateUserAuthCache(id);
   },
 
-  async bulkDelete(userIds: string[], callerSub: string, ctx: RequestContext) {
+  async bulkDelete(userIds: string[], callerSub: string, ctx: RequestContext, reason?: string) {
     if (userIds.includes(callerSub)) throw new ValidationError('Cannot delete your own account');
 
     const users = await userRepository.findManyByIds(userIds);
@@ -278,23 +316,29 @@ export const userService = {
     if (superAdmins.length > 0) {
       throw new ForbiddenError(`Cannot delete SUPER_ADMIN users: ${superAdmins.map((u: any) => u.username).join(', ')}`);
     }
+    const why = requireReason(reason, 'Deleting users');
 
     const validIds = users.map((u: any) => u.id);
 
-    for (const user of users) {
-      await auditLog({
-        userId: ctx.userId, userRole: ctx.userRole,
-        action: 'BULK_USER_DELETED',
-        targetType: 'user',
-        targetId: user.id,
-        beforeValue: { username: user.username, fullName: user.fullName, role: user.role, status: user.status },
-        afterValue: { deleted: true },
-        signatureMeaning: 'User account permanently deleted via bulk delete by administrator',
-        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
-      });
-    }
-
-    await userRepository.deleteMany(validIds);
+    // One transaction: the delete and one BULK_USER_DELETED row per account.
+    // N standalone rows followed by a deleteMany could record N deletions and
+    // perform none (API-7).
+    await prisma.$transaction(async (tx) => {
+      await userRepository.deleteMany(validIds, tx);
+      for (const user of users) {
+        await auditLog({
+          userId: ctx.userId, userRole: ctx.userRole,
+          action: 'BULK_USER_DELETED',
+          targetType: 'user',
+          targetId: user.id,
+          beforeValue: { username: user.username, fullName: user.fullName, role: user.role, status: user.status },
+          afterValue: { deleted: true },
+          reason: why,
+          signatureMeaning: 'User account permanently deleted via bulk delete by administrator',
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, tx);
+      }
+    });
     for (const uid of validIds) invalidateUserAuthCache(uid);
     return { deletedCount: validIds.length, deletedUsers: users.map((u: any) => ({ id: u.id, username: u.username })) };
   },
@@ -304,16 +348,17 @@ export const userService = {
     if (!user) throw new NotFoundError('User not found');
     await assertCanManageTarget(ctx.userRole, (user as any).role);
 
-    await userRepository.update(id, { status: 'ENABLED', updatedBy: ctx.userId });
-    invalidateUserAuthCache(id);
-
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole, action: 'USER_ENABLED',
-      targetType: 'user', targetId: id,
-      beforeValue: { username: user.username, fullName: user.fullName, status: user.status },
-      afterValue: { username: user.username, status: 'ENABLED' },
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    await prisma.$transaction(async (tx) => {
+      await userRepository.update(id, { status: 'ENABLED', updatedBy: ctx.userId }, tx);
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole, action: 'USER_ENABLED',
+        targetType: 'user', targetId: id,
+        beforeValue: { username: user.username, fullName: user.fullName, status: user.status },
+        afterValue: { username: user.username, status: 'ENABLED' },
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
     });
+    invalidateUserAuthCache(id);
 
     await createNotification({
       type: 'ACCOUNT_ENABLED', title: 'Account Enabled',
@@ -327,22 +372,25 @@ export const userService = {
     });
   },
 
-  async disable(id: string, ctx: RequestContext) {
+  async disable(id: string, ctx: RequestContext, reason?: string) {
     const user = await userRepository.findByIdFull(id);
     if (!user) throw new NotFoundError('User not found');
     await assertCanManageTarget(ctx.userRole, (user as any).role);
+    const why = requireReason(reason, 'Disabling a user');
 
-    await userRepository.update(id, { status: 'DISABLED', updatedBy: ctx.userId });
-    await userRepository.terminateSessions(id, 'account_disabled');
-    invalidateUserAuthCache(id); // revoke access immediately, not after the 30s TTL
-
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole, action: 'USER_DISABLED',
-      targetType: 'user', targetId: id,
-      beforeValue: { username: user.username, fullName: user.fullName, status: user.status },
-      afterValue: { username: user.username, status: 'DISABLED' },
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    await prisma.$transaction(async (tx) => {
+      await userRepository.update(id, { status: 'DISABLED', updatedBy: ctx.userId }, tx);
+      await userRepository.terminateSessions(id, 'account_disabled', tx);
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole, action: 'USER_DISABLED',
+        targetType: 'user', targetId: id,
+        beforeValue: { username: user.username, fullName: user.fullName, status: user.status },
+        afterValue: { username: user.username, status: 'DISABLED' },
+        reason: why,
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
     });
+    invalidateUserAuthCache(id); // revoke access immediately, not after the 30s TTL
 
     await createNotification({
       type: 'ACCOUNT_DISABLED', title: 'Account Disabled',
@@ -380,27 +428,28 @@ export const userService = {
     // These rows can still exist even though LDAP lockout is now delegated —
     // accounts locked before that change, or locked by a non-credential path.
     if (isLdapUser(user as any)) {
-      await userRepository.unlockWithoutPasswordChange(id, ctx.userId);
-      await userRepository.terminateSessions(id, 'account_unlocked');
-      invalidateUserAuthCache(id);
-
-      await auditLog({
-        userId: ctx.userId, userRole: ctx.userRole, action: 'ACCOUNT_UNLOCKED',
-        targetType: 'user', targetId: id,
-        beforeValue: {
-          username: user.username, fullName: user.fullName,
-          status: user.status, failedLoginAttempts: user.failedLoginAttempts,
-        },
-        afterValue: {
-          username: user.username, fullName: user.fullName,
-          status: 'ENABLED', failedLoginAttempts: 0, authSource: 'ldap',
-          passwordUnchanged: true,
-        },
-        signatureMeaning:
-          'Directory-authenticated account unlocked by administrator '
-          + '(no password set — credential remains managed in Active Directory)',
-        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      await prisma.$transaction(async (tx) => {
+        await userRepository.unlockWithoutPasswordChange(id, ctx.userId, tx);
+        await userRepository.terminateSessions(id, 'account_unlocked', tx);
+        await auditLog({
+          userId: ctx.userId, userRole: ctx.userRole, action: 'ACCOUNT_UNLOCKED',
+          targetType: 'user', targetId: id,
+          beforeValue: {
+            username: user.username, fullName: user.fullName,
+            status: user.status, failedLoginAttempts: user.failedLoginAttempts,
+          },
+          afterValue: {
+            username: user.username, fullName: user.fullName,
+            status: 'ENABLED', failedLoginAttempts: 0, authSource: 'ldap',
+            passwordUnchanged: true,
+          },
+          signatureMeaning:
+            'Directory-authenticated account unlocked by administrator '
+            + '(no password set — credential remains managed in Active Directory)',
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, tx);
       });
+      invalidateUserAuthCache(id);
       return { passwordIssued: false };
     }
 
@@ -419,20 +468,21 @@ export const userService = {
     const newHash = await hashPassword(newPassword);
     const passwordExpiresAt = await userRepository.getPasswordExpiresAt();
 
-    await userRepository.unlockUser(id, newHash, passwordExpiresAt, ctx.userId);
-    // Compromise-response: evict any live sessions/JWTs held for this user so a
-    // stolen session can't survive the reset (mirrors disable()).
-    await userRepository.terminateSessions(id, 'account_unlocked');
-    invalidateUserAuthCache(id);
-
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole, action: 'ACCOUNT_UNLOCKED',
-      targetType: 'user', targetId: id,
-      beforeValue: { username: user.username, fullName: user.fullName, status: user.status, failedLoginAttempts: user.failedLoginAttempts },
-      afterValue: { username: user.username, fullName: user.fullName, status: 'ENABLED', failedLoginAttempts: 0, forcePasswordChange: true, isTemporaryPassword: true },
-      signatureMeaning: 'User account unlocked by administrator with temporary password',
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    await prisma.$transaction(async (tx) => {
+      await userRepository.unlockUser(id, newHash, passwordExpiresAt, ctx.userId, tx);
+      // Compromise-response: evict any live sessions/JWTs held for this user so a
+      // stolen session can't survive the reset (mirrors disable()).
+      await userRepository.terminateSessions(id, 'account_unlocked', tx);
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole, action: 'ACCOUNT_UNLOCKED',
+        targetType: 'user', targetId: id,
+        beforeValue: { username: user.username, fullName: user.fullName, status: user.status, failedLoginAttempts: user.failedLoginAttempts },
+        afterValue: { username: user.username, fullName: user.fullName, status: 'ENABLED', failedLoginAttempts: 0, forcePasswordChange: true, isTemporaryPassword: true },
+        signatureMeaning: 'User account unlocked by administrator with temporary password',
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
     });
+    invalidateUserAuthCache(id);
 
     return { passwordIssued: true };
   },
@@ -462,20 +512,21 @@ export const userService = {
     const newHash = await hashPassword(newPassword);
     const passwordExpiresAt = await userRepository.getPasswordExpiresAt();
 
-    await userRepository.resetPassword(id, newHash, passwordExpiresAt, ctx.userId);
-    // Compromise-response: evict any live sessions/JWTs held for this user so a
-    // stolen session can't survive the reset (mirrors disable()).
-    await userRepository.terminateSessions(id, 'password_reset');
-    invalidateUserAuthCache(id);
-
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole, action: 'PASSWORD_RESET',
-      targetType: 'user', targetId: id,
-      beforeValue: { username: user.username, fullName: user.fullName, status: user.status },
-      afterValue: { status: 'ENABLED', forcePasswordChange: true, isTemporaryPassword: true },
-      signatureMeaning: 'Administrator reset user password',
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    await prisma.$transaction(async (tx) => {
+      await userRepository.resetPassword(id, newHash, passwordExpiresAt, ctx.userId, tx);
+      // Compromise-response: evict any live sessions/JWTs held for this user so a
+      // stolen session can't survive the reset (mirrors disable()).
+      await userRepository.terminateSessions(id, 'password_reset', tx);
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole, action: 'PASSWORD_RESET',
+        targetType: 'user', targetId: id,
+        beforeValue: { username: user.username, fullName: user.fullName, status: user.status },
+        afterValue: { status: 'ENABLED', forcePasswordChange: true, isTemporaryPassword: true },
+        signatureMeaning: 'Administrator reset user password',
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
     });
+    invalidateUserAuthCache(id);
   },
 
   async listResetRequests() {
@@ -555,14 +606,16 @@ export const userService = {
       const newHash = await hashPassword(newPassword);
       const passwordExpiresAt = await userRepository.getPasswordExpiresAt();
 
-      await userRepository.approveResetRequest(id, user.id, newHash, passwordExpiresAt, ctx.userId, notes);
-
-      await auditLog({
-        userId: ctx.userId, userRole: ctx.userRole, action: 'PASSWORD_RESET_REQUEST_APPROVED',
-        targetType: 'user', targetId: user.id,
-        afterValue: { requestId: id, username: user.username },
-        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      await prisma.$transaction(async (tx) => {
+        await userRepository.approveResetRequest(id, user.id, newHash, passwordExpiresAt, ctx.userId, notes, tx);
+        await auditLog({
+          userId: ctx.userId, userRole: ctx.userRole, action: 'PASSWORD_RESET_REQUEST_APPROVED',
+          targetType: 'user', targetId: user.id,
+          afterValue: { requestId: id, username: user.username },
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, tx);
       });
+      invalidateUserAuthCache(user.id);
 
       await createNotification({
         type: 'PASSWORD_RESET_APPROVED', title: 'Password Reset Approved',
@@ -577,13 +630,14 @@ export const userService = {
 
       return { message: 'Password reset approved and new password set.' };
     } else {
-      await userRepository.rejectResetRequest(id, ctx.userId, notes);
-
-      await auditLog({
-        userId: ctx.userId, userRole: ctx.userRole, action: 'PASSWORD_RESET_REQUEST_REJECTED',
-        targetType: 'password_reset_request', targetId: id,
-        afterValue: { username: user.username, notes },
-        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      await prisma.$transaction(async (tx) => {
+        await userRepository.rejectResetRequest(id, ctx.userId, notes, tx);
+        await auditLog({
+          userId: ctx.userId, userRole: ctx.userRole, action: 'PASSWORD_RESET_REQUEST_REJECTED',
+          targetType: 'password_reset_request', targetId: id,
+          afterValue: { username: user.username, notes },
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, tx);
       });
 
       await createNotification({

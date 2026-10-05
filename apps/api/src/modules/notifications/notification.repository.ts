@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
+import { visibilityWhere } from './notification-visibility.js';
 
 export const notificationRepository = {
   async findMany(where: Record<string, unknown>, skip: number, take?: number) {
@@ -111,13 +112,14 @@ type PrismaLike = { notification: { findMany: Function; deleteMany: Function; de
  * the operator and returned { count: <small> } as if successful. The UI
  * cleared the selection + toast'd success while the data lived on.
  *
- * This builder mirrors notification.service.ts buildVisibilityFilter so
- * bulk-op visibility matches list-visibility byte-for-byte:
- *   - SUPER_ADMIN: no extra restriction beyond ID set
- *   - ADMIN: forUserId === self OR forRole === 'ADMIN' OR system-wide
- *     (forRole + forUserId both null); never anything addressed to
- *     SUPER_ADMIN
- *   - everyone else: forUserId === self OR targetUserId === self
+ * The visibility fragment is `visibilityWhere` — the ONE rule, shared with the
+ * list and the single-row check (audit 2026-10-03, API-16). This builder used
+ * to carry its own copy, which had drifted: a regular user's bulk ops also
+ * matched `targetUserId === self`, the admin-addressed row ABOUT the user,
+ * which the list never showed them.
+ *
+ * No caller identity (a bare `bulkMarkRead(ids)`) matches nothing: a bulk
+ * write with nobody behind it must not touch anyone's rows.
  */
 function buildBulkVisibilityFilter(
   ids: string[],
@@ -125,24 +127,9 @@ function buildBulkVisibilityFilter(
   username?: string,
   visibleGated: string[] = [],
 ): Record<string, unknown> {
-  // Visibility fragment (role-based, same rules as the list).
-  let normal: Record<string, unknown>;
-  if (userRole === 'SUPER_ADMIN') {
-    normal = {};
-  } else if (userRole === 'ADMIN') {
-    normal = {
-      OR: [
-        { forUserId: username },
-        { forRole: 'ADMIN' },
-        { forRole: null, forUserId: null },
-      ],
-      // Null-safe SUPER_ADMIN exclusion — see notification.service.ts
-      // buildVisibilityFilter. A bare NOT drops every forRole IS NULL row.
-      AND: [{ OR: [{ forRole: null }, { forRole: { not: 'SUPER_ADMIN' } }] }],
-    };
-  } else {
-    normal = username ? { OR: [{ forUserId: username }, { targetUserId: username }] } : {};
-  }
+  const normal: Record<string, unknown> = userRole && username
+    ? visibilityWhere(userRole, username)
+    : { id: { in: [] } };
   // Config-gated types follow config role lists rather than per-user addressing.
   // The registry (GATED_TYPES in notification.service.ts) is empty as of
   // 2026-08-20, so this list is too — see the note there.

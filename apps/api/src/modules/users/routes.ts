@@ -36,7 +36,9 @@ export default async function userRoutes(app: FastifyInstance) {
           type: 'object',
           properties: {
             id: { type: 'string' }, username: { type: 'string' }, fullName: { type: 'string' },
-            email: { type: 'string' }, department: { type: 'string', nullable: true },
+            // `User.email` is `String?` and stored NULL when omitted; without
+            // `nullable` the serializer wrote "" (audit 2026-10-03, API-14).
+            email: { type: 'string', nullable: true }, department: { type: 'string', nullable: true },
             role: { type: 'string' }, status: { type: 'string' }, createdAt: { type: 'string', format: 'date-time' },
           },
         },
@@ -87,9 +89,12 @@ export default async function userRoutes(app: FastifyInstance) {
       description: 'Permanently delete multiple users and all related data. Requires SUPER_ADMIN.',
       body: {
         type: 'object',
-        required: ['userIds'],
+        required: ['userIds', 'reason'],
         properties: {
           userIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1, maxItems: 50 },
+          // The operator's reason, stored on every BULK_USER_DELETED row
+          // (audit 2026-10-03, DATA-11). The service is the control.
+          reason: { type: 'string', minLength: 1, maxLength: 500 },
         },
       },
       response: {
@@ -112,7 +117,8 @@ export default async function userRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
 
-    const result = await userService.bulkDelete(parsed.data.userIds, req.user.sub, buildContext(req));
+    const { reason } = req.body as { reason?: string };
+    const result = await userService.bulkDelete(parsed.data.userIds, req.user.sub, buildContext(req), reason);
     return { success: true, ...result };
   });
 
@@ -178,11 +184,10 @@ export default async function userRoutes(app: FastifyInstance) {
     if (!ok) return;
 
     const { id } = req.params as { id: string };
+    // `action` is required and enum-constrained by the body schema above, so
+    // Fastify has already answered 400 for anything else; the re-check that
+    // used to sit here was unreachable (audit 2026-10-03, API-20).
     const body = req.body as { action: 'approve' | 'reject'; newPassword?: string; notes?: string };
-
-    if (!body.action || !['approve', 'reject'].includes(body.action)) {
-      return reply.code(400).send({ error: 'VALIDATION', message: 'Invalid action. Must be "approve" or "reject".' });
-    }
 
     const result = await userService.processResetRequest(id, body.action, body.newPassword, body.notes, buildContext(req));
     return { success: true, ...result };
@@ -214,7 +219,7 @@ export default async function userRoutes(app: FastifyInstance) {
                 type: 'object',
                 properties: {
                   id: { type: 'string' }, username: { type: 'string' }, fullName: { type: 'string' },
-                  email: { type: 'string' }, department: { type: 'string', nullable: true },
+                  email: { type: 'string', nullable: true }, department: { type: 'string', nullable: true },
                   role: { type: 'string' }, status: { type: 'string' },
                   // 'local' | 'ldap'. The list page badges directory users and
                   // hides the password controls that no longer apply to them —
@@ -257,7 +262,7 @@ export default async function userRoutes(app: FastifyInstance) {
           type: 'object',
           properties: {
             id: { type: 'string' }, username: { type: 'string' }, fullName: { type: 'string' },
-            email: { type: 'string' }, department: { type: 'string', nullable: true },
+            email: { type: 'string', nullable: true }, department: { type: 'string', nullable: true },
             role: { type: 'string' }, status: { type: 'string' },
             failedLoginAttempts: { type: 'integer' }, forcePasswordChange: { type: 'boolean' },
             isTemporaryPassword: { type: 'boolean' },
@@ -303,7 +308,7 @@ export default async function userRoutes(app: FastifyInstance) {
           type: 'object',
           properties: {
             id: { type: 'string' }, username: { type: 'string' }, fullName: { type: 'string' },
-            email: { type: 'string' }, role: { type: 'string' }, status: { type: 'string' },
+            email: { type: 'string', nullable: true }, role: { type: 'string' }, status: { type: 'string' },
           },
         },
         ...errorResponses,
@@ -328,8 +333,17 @@ export default async function userRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Users'],
       summary: 'Delete user',
-      description: 'Permanently delete a user and all related data. Requires SUPER_ADMIN.',
+      description: 'Permanently delete a user and all related data. Requires SUPER_ADMIN and a reason.',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
+      // The operator's reason is REQUIRED and stored on the USER_DELETED row
+      // (audit 2026-10-03, DATA-11): a deletion carried an e-signature and no
+      // "why". The schema asks; `userService.delete` is the control (400
+      // REASON_REQUIRED), so a caller that skips the schema is refused too.
+      body: {
+        type: 'object',
+        required: ['reason'],
+        properties: { reason: { type: 'string', minLength: 1, maxLength: 500 } },
+      },
       response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } }, ...errorResponses },
     },
   }, async (req, reply) => {
@@ -337,7 +351,8 @@ export default async function userRoutes(app: FastifyInstance) {
     if (!ok) return;
 
     const { id } = req.params as { id: string };
-    await userService.delete(id, req.user.sub, buildContext(req));
+    const { reason } = req.body as { reason?: string };
+    await userService.delete(id, req.user.sub, buildContext(req), reason);
     return { success: true };
   });
 
@@ -361,15 +376,22 @@ export default async function userRoutes(app: FastifyInstance) {
   app.post('/:id/disable', {
     preHandler: [app.requirePermission('USER_ENABLE_DISABLE')],
     schema: {
-      tags: ['Users'], summary: 'Disable user', description: 'Disable a user account and terminate all active sessions',
+      tags: ['Users'], summary: 'Disable user', description: 'Disable a user account and terminate all active sessions. Requires a reason.',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
+      // See DELETE /:id — the reason is stored on the USER_DISABLED row (DATA-11).
+      body: {
+        type: 'object',
+        required: ['reason'],
+        properties: { reason: { type: 'string', minLength: 1, maxLength: 500 } },
+      },
       response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } }, ...errorResponses },
     },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('DISABLE_USER', req, reply);
     if (!ok) return;
     const { id } = req.params as { id: string };
-    await userService.disable(id, buildContext(req));
+    const { reason } = req.body as { reason?: string };
+    await userService.disable(id, buildContext(req), reason);
     return { success: true };
   });
 

@@ -94,7 +94,12 @@ async function main() {
       afterValue: { alarms: 0, webhookDeliveries: 0 },
       reason: REASON,
       signatureMeaning: `All ${alarms} alarm records and ${deliveries} webhook delivery receipts purged`,
-      userId: actor.id, userName: actor.username, userRole: actor.role,
+      // `audit_trail.user_id` is the USERNAME on every row the routes write
+      // (`buildContext`: `userId: req.user.username`). This script wrote the
+      // UUID (audit 2026-10-03, DATA-13), so its one ALARMS_PURGED row did not
+      // match `GET /api/audit?userId=superadmin`. The row written on
+      // 2026-09-21 is a §11 record and is left as it is.
+      userId: actor.username, userName: actor.username, userRole: actor.role,
       ipAddress: '127.0.0.1', userAgent: 'scripts/purge-alarms.ts',
     }, tx);
   });

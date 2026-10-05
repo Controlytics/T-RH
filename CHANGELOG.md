@@ -1,5 +1,83 @@
 # Changelog
 
+## [Unreleased] - Audit fixes, batch 17: every user / role / request write is one transaction with its audit row, dates validated, redaction races closed, inactive roles grant nothing, notification visibility as data, reasons on the regulated writes, ended sessions end now (2026-10-05)
+
+Closes API-7, API-12, API-13, API-14, API-15, API-16, API-18, the users /
+roles / admin-request / config sub-items of API-20, DATA-11 (users, roles,
+scopes, the Permissions tab) and DATA-13 of
+`docs/audit/2026-10-03-technical-audit.md`.
+
+- **Every user, role and admin-request write runs in `prisma.$transaction`
+  with `auditLog(entry, tx)` inside it** — create / update / delete / bulk /
+  enable / disable / unlock / reset / reset-request, role create / update /
+  delete, and the admin-request decision (claim + act + audit in one
+  transaction; the compensating "revert" is gone). A failed audit write now
+  rolls the change back instead of leaving a change with no record.
+- **Query dates are validated** (`lib/query-dates.ts`): a bad date or a
+  reversed range is a 400 by field, and a date-only `endDate` means the end
+  of that UTC day — the audit and notification lists read `Invalid Date`
+  as "no filter" until now.
+- **Redaction cannot race**: the redact UPDATE carries `AND redacted_at IS
+  NULL` inside the transaction (a second redaction is 409, mutation-checked),
+  and the bulk redact locks its rows `FOR UPDATE`.
+- **Response schemas declare what the routes return**: notification rows
+  (`targetUserId`, `forUserId`, `forRole`, `metadata`, `readAt`), audit
+  detail (`userId`, `userRole` nullable), user `email` and role
+  `description` as nullable — each asserted over `app.inject`, because
+  Fastify strips an undeclared field silently.
+- **An inactive role grants NOTHING** (`rbac.ts` resolves `[]` for it,
+  mutation-checked); deactivating a role ends its holders' sessions in the
+  same transaction and evicts BOTH auth caches. A system role's
+  `hierarchyLevel` / `isActive` cannot be CHANGED (400); an echo of the
+  stored value passes, because the Roles page sends the level on every save.
+- **Notification visibility is ONE rule as data**
+  (`notifications/notification-visibility.ts`: `visibilityWhere` +
+  `isNotificationVisible`), used by the list, the single-row check and the
+  bulk builder — the ADMIN / other-user and `targetUserId` widenings are
+  closed. 25 unit cases, 4 e2e as an operator.
+- **The three static config PUTs are validated with zod and re-auth gated**
+  (`UPDATE_ROLE_CONFIG` for the access matrix, `UPDATE_CONFIG_PAGE` for
+  export options and report page titles), the export-options enum is
+  enforced, report page titles are strictly `{companyName, appName}`.
+  The two pages save through the re-auth hook now.
+- **API-20 sub-items**: the shared Prisma client in admin-requests and the
+  email channel (two private pools gone); role-keyed upserts 404 on an
+  unknown role instead of creating an orphan row; the role delete count sits
+  inside the delete transaction; `LIKE` patterns are escaped with an
+  explicit `ESCAPE` clause; `hiddenRolesFor()` feeds `/users` and
+  `/users/stats` alike; a dead enum check removed; `MODIFY_USER` goes
+  through `updateUserSchema` and refuses a SUPER_ADMIN target (403, the
+  request rolls back to PENDING).
+- **A REASON is required and stored on the audit row** (`lib/require-reason
+  .ts`, 400 `REASON_REQUIRED`; the control is in the service, so a script or
+  an older client is refused the same way) for: user delete, bulk delete and
+  disable; a role permission CHANGE on the Roles page; a role or user
+  instrument-scope save; **and the Permissions tab** (`PUT
+  /api/config/roles/:role` when the permission SET changes — a grant or a
+  revocation, measured against the stored set, after the privilege check so
+  a forbidden grant is still 403). Web: the user dialogs and the scope tab
+  collect it, the role dialog offers it, and the Permissions tab shows a
+  Reason field once a toggle moves and saves through the re-auth hook (it
+  called `put` bare — so did the scope tab; a role whose matrix asked for a
+  password could never save either).
+- **`purge-alarms.ts` and the redact routes write the actor's USERNAME**
+  into `redacted_by`; legacy UUID rows are still resolved on read.
+- **An ended session ends NOW, not after the 30 s auth cache.**
+  `userRepository.terminateSessions` evicts each ended session from the
+  plugin's session cache (keyed by session id, which
+  `invalidateUserAuthCache` never touched): a user whose ROLE was changed
+  kept the OLD token with the NEW role's grants for up to 30 s. Pinned by a
+  users e2e (the old token is 401 on the very next request), mutation-
+  checked.
+- Also: `config.service.test.ts` could not load at HEAD (its partial shared
+  mock lacked `PERMISSIONS` since batch 2) — fixed. Found, not fixed: role
+  delete is one transaction but not serialised against a concurrent
+  user-create assigning the role (`users.role` has no FK); a vitest suite
+  that opens a real `$transaction` and asserts `toHaveBeenCalledWith` at the
+  wrong arity serialises the Prisma client into the diff (minutes per test,
+  "Invalid string length") — use the right arity. Reauth actions unchanged
+  (55); no other count moved.
+
 ## [Unreleased] - Audit fixes, batch 15: the audit trail refuses an UPDATE that is not a redaction, a report snapshot is hashed and verified on download, retention drops are audited and administered, the audit registry matches the code (2026-10-05)
 
 Closes DATA-6, DATA-7, DATA-9, DATA-10, DATA-14, DATA-15, DATA-16, DATA-18

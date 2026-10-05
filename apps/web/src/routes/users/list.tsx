@@ -87,7 +87,7 @@ export function UserListPage() {
   const isTopAdmin = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN';
   const data = rawData ?? null;
 
-  const handleAction = async () => {
+  const handleAction = async (reason: string) => {
     if (!actionDialog) return;
     const actionMap: Record<string, string> = {
       delete: 'DELETE_USER',
@@ -104,13 +104,18 @@ export function UserListPage() {
       disable: 'disabled',
     };
 
+    // A delete or a disable carries the operator's reason (audit 2026-10-03,
+    // DATA-11) — the server refuses either without one and stores it on the
+    // audit row. The dialog does not confirm until one is typed; an enable
+    // sends none.
+    const body = type === 'enable' ? {} : { reason };
     await reauth.execute(reauthAction, async (password?) => {
       if (type === 'delete') {
-        if (password) await apiClient.deleteWithReauth(`${apiBase}/users/${userId}`, password);
-        else await apiClient.delete(`${apiBase}/users/${userId}`);
+        if (password) await apiClient.deleteWithReauth(`${apiBase}/users/${userId}`, password, body);
+        else await apiClient.delete(`${apiBase}/users/${userId}`, body);
       } else {
-        if (password) await apiClient.postWithReauth(`${apiBase}/users/${userId}/${type}`, {}, password);
-        else await apiClient.post(`${apiBase}/users/${userId}/${type}`, {});
+        if (password) await apiClient.postWithReauth(`${apiBase}/users/${userId}/${type}`, body, password);
+        else await apiClient.post(`${apiBase}/users/${userId}/${type}`, body);
       }
       mutate();
       mutateStats();
@@ -171,13 +176,15 @@ export function UserListPage() {
     });
   }, []);
 
-  const handleBulkDelete = async () => {
+  const handleBulkDelete = async (reason: string) => {
     const ids = Array.from(selectedIds);
     setBulkDeleteDialog(false);
 
+    // The reason lands on every BULK_USER_DELETED row (DATA-11).
+    const body = { userIds: ids, reason };
     await reauth.execute('BULK_DELETE_USERS', async (password?) => {
-      if (password) await apiClient.postWithReauth(`${apiBase}/users/bulk-delete`, { userIds: ids }, password);
-      else await apiClient.post(`${apiBase}/users/bulk-delete`, { userIds: ids });
+      if (password) await apiClient.postWithReauth(`${apiBase}/users/bulk-delete`, body, password);
+      else await apiClient.post(`${apiBase}/users/bulk-delete`, body);
       setSelectedIds(new Set());
       mutate();
       mutateStats();

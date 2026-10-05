@@ -1,7 +1,9 @@
-import { NotFoundError } from '../../lib/errors.js';
+import { NotFoundError, ValidationError } from '../../lib/errors.js';
 import { notificationRepository } from './notification.repository.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
+import { parseDateRange } from '../../lib/query-dates.js';
+import { isNotificationVisible, visibilityWhere } from './notification-visibility.js';
 import type { RequestContext } from '../../types/context.js';
 import type { NotificationType } from '@prisma/client';
 import { z } from 'zod';
@@ -69,30 +71,11 @@ const notificationQuerySchema = z.object({
   period: z.enum(['today', 'week', 'month', 'quarter', 'year', 'all']).optional(),
 });
 
+// The ONE visibility rule, rendered as a where fragment. The rule itself is in
+// notification-visibility.ts (audit 2026-10-03, API-16) — the single-row check
+// and the bulk builder render the same data, so this cannot drift from them.
 function buildVisibilityFilter(userRole: string, username: string): Record<string, unknown> {
-  const where: Record<string, unknown> = {};
-
-  if (userRole === 'SUPER_ADMIN') {
-    // Super admin sees everything
-  } else if (userRole === 'ADMIN') {
-    // Admin sees: notifications for ADMIN role, or for the specific user, or general (no forUserId/forRole)
-    where.OR = [
-      { forUserId: username },
-      { forRole: 'ADMIN' },
-      { forRole: null, forUserId: null },
-    ];
-    // But not notifications specifically for SUPER_ADMIN. This must be
-    // null-safe: a bare `NOT: { forRole: 'SUPER_ADMIN' }` compiles to
-    // `NOT (for_role = 'SUPER_ADMIN')`, which evaluates to NULL — not TRUE —
-    // for the forRole IS NULL rows, silently excluding the personally-addressed
-    // and general branches above. Mirrored in notification.repository.ts.
-    where.AND = [{ OR: [{ forRole: null }, { forRole: { not: 'SUPER_ADMIN' } }] }];
-  } else {
-    // Regular users see only their own notifications
-    where.forUserId = username;
-  }
-
-  return where;
+  return visibilityWhere(userRole, username);
 }
 
 function applyDateFilter(where: Record<string, unknown>, period?: string, startDate?: string, endDate?: string) {
@@ -121,16 +104,26 @@ function applyDateFilter(where: Record<string, unknown>, period?: string, startD
     }
 
     where.createdAt = { gte: start };
-  } else if (startDate || endDate) {
-    where.createdAt = {};
-    if (startDate) (where.createdAt as Record<string, unknown>).gte = new Date(startDate);
-    if (endDate) (where.createdAt as Record<string, unknown>).lte = new Date(endDate);
+  } else if (startDate !== undefined || endDate !== undefined) {
+    // Validated, never `new Date(raw)` straight into the query (audit
+    // 2026-10-03, API-12): an unparseable value was a Prisma 500 plus a
+    // SYSTEM_ERROR notification. A date-only endDate is the END of that day —
+    // see lib/query-dates.ts. The 400 is field-keyed, as the alarms list's is.
+    const range = parseDateRange(startDate, endDate);
+    if (!range.ok) throw new ValidationError('Invalid date range', { fieldErrors: range.fieldErrors });
+    where.createdAt = {
+      ...(range.gte ? { gte: range.gte } : {}),
+      ...(range.lte ? { lte: range.lte } : {}),
+    };
   }
 }
 
 export const notificationService = {
   async list(query: unknown, userRole: string, username: string) {
-    const parsed = notificationQuerySchema.parse(query);
+    // safeParse → 400 by field; a thrown ZodError was a 500 (API-12).
+    const parsedQuery = notificationQuerySchema.safeParse(query);
+    if (!parsedQuery.success) throw new ValidationError('Invalid query', parsedQuery.error.flatten());
+    const parsed = parsedQuery.data;
     const where = gatedAwareWhere(userRole, username, await gatedTypesVisibleTo(userRole));
 
     // Apply date filtering
@@ -262,21 +255,20 @@ export const notificationService = {
   },
 };
 
-// Throws a 403-like error if the notification doesn't belong to the caller (unless ADMIN/SUPER_ADMIN).
-// Mirrors buildVisibilityFilter's rules so list-visibility == single-op access.
+/**
+ * 404 (never 403 — that would confirm the row exists) when the caller may not
+ * see the notification. The decision is `isNotificationVisible`, the in-memory
+ * rendering of the SAME rule the list query runs (audit 2026-10-03, API-16):
+ * until then this copy let an ADMIN act on any row not addressed to
+ * SUPER_ADMIN, and a user act on the admin-addressed row ABOUT themself.
+ */
 function assertNotificationVisible(notif: any, userRole: string, username: string, visibleGated: string[]): void {
   // Config-gated types follow config role lists, not per-user addressing.
   if (GATED_TYPE_KEYS.includes(notif.type)) {
     if (visibleGated.includes(notif.type)) return;
     throw new NotFoundError('Notification not found');
   }
-  if (userRole === 'SUPER_ADMIN') return;
-  if (userRole === 'ADMIN') {
-    if (notif.forRole === 'SUPER_ADMIN') throw new NotFoundError('Notification not found');
-    return;
-  }
-  const isForUser = notif.forUserId === username || notif.targetUserId === username;
-  if (!isForUser) throw new NotFoundError('Notification not found');
+  if (!isNotificationVisible(notif, userRole, username)) throw new NotFoundError('Notification not found');
 }
 
 // Exported for use by other modules (auth.service.ts, user.service.ts)

@@ -41,11 +41,14 @@ const {
 
 vi.mock('../user.repository.js', () => ({ userRepository: mockUserRepo }));
 vi.mock('../../../lib/audit.js', () => ({ auditLog: mockAuditLog }));
+// `prisma` is NOT mocked: the service opens a real `$transaction` (audit
+// 2026-10-03, API-7) and hands its client to the mocked repository and the
+// mocked auditLog, so the tests can assert the two received the SAME client.
 vi.mock('../../../lib/password.js', () => ({ hashPassword: mockHashPassword }));
 vi.mock('../../../lib/user-id-validator.js', () => ({ validateUserId: mockValidateUserId }));
 vi.mock('../../notifications/notification.service.js', () => ({ createNotification: mockCreateNotification }));
 
-import { userService } from '../user.service.js';
+import { userService, hiddenRolesFor } from '../user.service.js';
 
 const ctx = { userId: 'admin', userSub: 'sub-1', userRole: 'ADMIN', ipAddress: '127.0.0.1', userAgent: 'test', sessionId: 'sess-1' };
 
@@ -162,7 +165,13 @@ describe('userService', () => {
       }, adminCtx);
 
       expect(result.username).toBe('EMP001');
-      expect(mockAuditLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'USER_CREATED' }));
+      expect(mockAuditLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'USER_CREATED' }), expect.anything());
+      // The row, its password history and its audit row share ONE transaction
+      // client (API-7).
+      const tx = mockAuditLog.mock.calls[0][1];
+      expect(tx).toBeDefined();
+      expect(mockUserRepo.create.mock.calls[0][1]).toBe(tx);
+      expect(mockUserRepo.addPasswordHistory.mock.calls[0][2]).toBe(tx);
     });
 
     it('rejects invalid user ID', async () => {
@@ -200,6 +209,8 @@ describe('userService', () => {
 
       const result = await userService.update('1', { fullName: 'New' }, ctx);
       expect(result.fullName).toBe('New');
+      // Write and audit row on the same transaction client (API-7).
+      expect(mockUserRepo.update.mock.calls[0][2]).toBe(mockAuditLog.mock.calls[0][1]);
     });
 
     it('throws NotFoundError for missing user', async () => {
@@ -215,7 +226,7 @@ describe('userService', () => {
       // email. Update must succeed and store NULL, not '' (which would collide
       // on the @unique index across multiple no-email users).
       await userService.update('1', { email: '' }, ctx);
-      expect(mockUserRepo.update).toHaveBeenCalledWith('1', expect.objectContaining({ email: null }));
+      expect(mockUserRepo.update).toHaveBeenCalledWith('1', expect.objectContaining({ email: null }), expect.anything());
       // The blank email must NOT trigger the duplicate-email probe.
       expect(mockUserRepo.findByEmail).not.toHaveBeenCalled();
     });
@@ -223,31 +234,60 @@ describe('userService', () => {
 
   // ── delete ──
   describe('delete', () => {
-    it('deletes user and logs audit', async () => {
+    it('deletes user and logs audit IN THE SAME TRANSACTION, with the reason', async () => {
       mockUserRepo.findByIdFull.mockResolvedValue({ id: '2', username: 'u2', fullName: 'F', email: 'e', role: 'OP', status: 'ENABLED' });
       mockUserRepo.delete.mockResolvedValue({});
 
-      await userService.delete('2', 'different-user', ctx);
-      expect(mockUserRepo.delete).toHaveBeenCalledWith('2');
+      await userService.delete('2', 'different-user', ctx, 'left the company');
+      expect(mockUserRepo.delete).toHaveBeenCalledWith('2', expect.anything());
+      // Audit 2026-10-03, API-7: the USER_DELETED row used to be written
+      // BEFORE the delete, standalone — a delete that then failed left a
+      // chained row asserting the account was gone.
+      const [entry, tx] = mockAuditLog.mock.calls[0];
+      expect(entry.action).toBe('USER_DELETED');
+      expect(entry.reason).toBe('left the company');
+      expect(mockUserRepo.delete.mock.calls[0][1]).toBe(tx);
+    });
+
+    // DATA-11: the reason is the control, in the service.
+    it('refuses a delete with no reason and deletes nothing', async () => {
+      mockUserRepo.findByIdFull.mockResolvedValue({ id: '2', username: 'u2', fullName: 'F', email: 'e', role: 'OP', status: 'ENABLED' });
+      await expect(userService.delete('2', 'different-user', ctx)).rejects.toMatchObject({ code: 'REASON_REQUIRED', statusCode: 400 });
+      await expect(userService.delete('2', 'different-user', ctx, '   ')).rejects.toMatchObject({ code: 'REASON_REQUIRED' });
+      expect(mockUserRepo.delete).not.toHaveBeenCalled();
+      expect(mockAuditLog).not.toHaveBeenCalled();
     });
 
     it('prevents self-deletion', async () => {
       mockUserRepo.findByIdFull.mockResolvedValue({ id: 'me' });
-      await expect(userService.delete('me', 'me', ctx)).rejects.toThrow('own account');
+      await expect(userService.delete('me', 'me', ctx, 'x')).rejects.toThrow('own account');
     });
   });
 
   // ── bulkDelete ──
   describe('bulkDelete', () => {
-    it('deletes multiple users', async () => {
+    it('deletes multiple users, one audit row each, all on the delete\'s transaction', async () => {
       mockUserRepo.findManyByIds.mockResolvedValue([
         { id: '1', username: 'u1', fullName: 'F1', role: 'OP', status: 'ENABLED' },
         { id: '2', username: 'u2', fullName: 'F2', role: 'OP', status: 'ENABLED' },
       ]);
       mockUserRepo.deleteMany.mockResolvedValue({ count: 2 });
 
-      const result = await userService.bulkDelete(['1', '2'], 'admin-id', ctx);
+      const result = await userService.bulkDelete(['1', '2'], 'admin-id', ctx, 'contract ended');
       expect(result.deletedCount).toBe(2);
+      expect(mockAuditLog).toHaveBeenCalledTimes(2);
+      const tx = mockUserRepo.deleteMany.mock.calls[0][1];
+      for (const [entry, auditTx] of mockAuditLog.mock.calls) {
+        expect(entry.action).toBe('BULK_USER_DELETED');
+        expect(entry.reason).toBe('contract ended');
+        expect(auditTx).toBe(tx);
+      }
+    });
+
+    it('refuses a bulk delete with no reason', async () => {
+      mockUserRepo.findManyByIds.mockResolvedValue([{ id: '1', username: 'u1', fullName: 'F1', role: 'OP', status: 'ENABLED' }]);
+      await expect(userService.bulkDelete(['1'], 'admin-id', ctx)).rejects.toMatchObject({ code: 'REASON_REQUIRED' });
+      expect(mockUserRepo.deleteMany).not.toHaveBeenCalled();
     });
 
     it('prevents deleting SUPER_ADMIN users', async () => {
@@ -268,19 +308,29 @@ describe('userService', () => {
       mockUserRepo.update.mockResolvedValue({});
 
       await userService.enable('1', ctx);
-      expect(mockUserRepo.update).toHaveBeenCalledWith('1', expect.objectContaining({ status: 'ENABLED' }));
+      expect(mockUserRepo.update).toHaveBeenCalledWith('1', expect.objectContaining({ status: 'ENABLED' }), expect.anything());
       expect(mockCreateNotification).toHaveBeenCalled();
     });
   });
 
   describe('disable', () => {
-    it('disables user and terminates sessions', async () => {
+    it('disables user and terminates sessions, reason on the audit row, one transaction', async () => {
       mockUserRepo.findByIdFull.mockResolvedValue({ id: '1', username: 'u1', fullName: 'F', status: 'ENABLED' });
       mockUserRepo.update.mockResolvedValue({});
       mockUserRepo.terminateSessions.mockResolvedValue({ count: 1 });
 
-      await userService.disable('1', ctx);
-      expect(mockUserRepo.terminateSessions).toHaveBeenCalledWith('1', 'account_disabled');
+      await userService.disable('1', ctx, 'on leave');
+      expect(mockUserRepo.terminateSessions).toHaveBeenCalledWith('1', 'account_disabled', expect.anything());
+      const [entry, tx] = mockAuditLog.mock.calls[0];
+      expect(entry).toMatchObject({ action: 'USER_DISABLED', reason: 'on leave' });
+      expect(mockUserRepo.update.mock.calls[0][2]).toBe(tx);
+      expect(mockUserRepo.terminateSessions.mock.calls[0][2]).toBe(tx);
+    });
+
+    it('refuses a disable with no reason and changes nothing', async () => {
+      mockUserRepo.findByIdFull.mockResolvedValue({ id: '1', username: 'u1', fullName: 'F', status: 'ENABLED' });
+      await expect(userService.disable('1', ctx)).rejects.toMatchObject({ code: 'REASON_REQUIRED' });
+      expect(mockUserRepo.update).not.toHaveBeenCalled();
     });
   });
 
@@ -304,7 +354,7 @@ describe('userService', () => {
       mockUserRepo.terminateSessions.mockResolvedValue({ count: 2 });
 
       await userService.unlock('1', 'TempPass@1', ctx);
-      expect(mockUserRepo.terminateSessions).toHaveBeenCalledWith('1', 'account_unlocked');
+      expect(mockUserRepo.terminateSessions).toHaveBeenCalledWith('1', 'account_unlocked', expect.anything());
     });
   });
 
@@ -317,7 +367,23 @@ describe('userService', () => {
       mockUserRepo.terminateSessions.mockResolvedValue({ count: 1 });
 
       await userService.resetPassword('1', 'NewPass@1', ctx);
-      expect(mockUserRepo.terminateSessions).toHaveBeenCalledWith('1', 'password_reset');
+      expect(mockUserRepo.terminateSessions).toHaveBeenCalledWith('1', 'password_reset', expect.anything());
+    });
+  });
+
+  // ── the hidden-roles rule is ONE list for the list and the stats (API-20) ──
+  describe('hiddenRolesFor', () => {
+    it('SUPER_ADMIN hides nothing; ADMIN hides SUPER_ADMIN; everyone else hides both', () => {
+      expect(hiddenRolesFor('SUPER_ADMIN')).toEqual([]);
+      expect(hiddenRolesFor('ADMIN')).toEqual(['SUPER_ADMIN']);
+      expect(hiddenRolesFor('OPERATOR')).toEqual(['SUPER_ADMIN', 'ADMIN']);
+      expect(hiddenRolesFor(undefined)).toEqual(['SUPER_ADMIN', 'ADMIN']);
+    });
+
+    it('getStats applies the same exclusion as list for a non-admin caller', async () => {
+      mockUserRepo.countByStatus.mockResolvedValue({ total: 1 });
+      await userService.getStats('OPERATOR');
+      expect(mockUserRepo.countByStatus).toHaveBeenCalledWith({ role: { notIn: ['SUPER_ADMIN', 'ADMIN'] } });
     });
   });
 
@@ -382,7 +448,7 @@ describe('userService', () => {
 
     it('ADMIN cannot disable a SUPER_ADMIN', async () => {
       mockUserRepo.findByIdFull.mockResolvedValue({ id: 'sa', username: 'superadmin', fullName: 'SA', role: 'SUPER_ADMIN', status: 'ENABLED' });
-      await expect(userService.disable('sa', adminCtx)).rejects.toThrow(/higher than yours/);
+      await expect(userService.disable('sa', adminCtx, 'takeover attempt')).rejects.toThrow(/higher than yours/);
       expect(mockUserRepo.update).not.toHaveBeenCalled();
     });
 

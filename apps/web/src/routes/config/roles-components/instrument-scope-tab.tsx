@@ -2,7 +2,12 @@ import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
+
+/** The server's bound on the reason (`lib/require-reason.ts`). */
+export const SCOPE_REASON_MAX = 500;
 
 interface FlNode {
   id: string;
@@ -206,10 +211,16 @@ function ScopeEditor({
   flat: FlatNode[];
   instruments: PickerInstrument[];
   locationNameOf: (id: string) => string;
-  onSave: (s: Scope | null) => void;
+  onSave: (s: Scope | null, reason: string) => void;
 }) {
   const [limited, setLimited] = useState(current !== null);
   const [picked, setPicked] = useState<Scope>(current ?? EMPTY);
+  // The operator's reason for the visibility change (audit 2026-10-03,
+  // DATA-11): the server refuses a save without one (400 REASON_REQUIRED) and
+  // stores it on the CONFIG_CHANGED row, so Save stays disabled until it is
+  // typed rather than sending a request that will be refused.
+  const [reason, setReason] = useState('');
+  const reasonMissing = reason.trim().length === 0;
   const unlimitedLabel = inheritFrom !== undefined ? 'Inherit role' : 'All instruments';
 
   return (
@@ -223,7 +234,15 @@ function ScopeEditor({
           <input type="radio" checked={limited} onChange={() => setLimited(true)} className="ctl-radio" />
           <span>Only what I select</span>
         </label>
-        <Button className="ml-auto" disabled={busy} onClick={() => onSave(limited ? picked : null)}>
+        <input
+          className="ctl ctl-sm ml-auto w-64"
+          value={reason}
+          maxLength={SCOPE_REASON_MAX}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Reason (recorded in the audit trail)"
+          aria-label="Reason"
+        />
+        <Button disabled={busy || reasonMissing} onClick={() => onSave(limited ? picked : null, reason.trim())}>
           {busy ? 'Saving…' : 'Save'}
         </Button>
       </div>
@@ -278,6 +297,12 @@ function ScopeEditor({
  */
 export function InstrumentScopeTab() {
   const { toast } = useToast();
+  // Each save is a UPDATE_ROLE_CONFIG re-auth on the server. Until 2026-10-05
+  // this tab called `apiClient.put` bare, so a role whose matrix asked for a
+  // password could never save a scope at all (401 REAUTH_REQUIRED with no
+  // dialog); the password now goes through the shared hook, which also
+  // replays the save after a retroactive 401.
+  const reauth = useReauth();
   const { data: tree } = useSWR<{ data: FlNode[] }>('/api/functional-locations');
   // Deliberately the UNSCOPED admin listing, not /api/instruments: an admin who is
   // themselves scoped would otherwise build a scope from half the plant and not know.
@@ -308,20 +333,25 @@ export function InstrumentScopeTab() {
     ].join(', ');
   };
 
-  const save = async (kind: 'role' | 'user', key: string, scope: Scope | null) => {
+  const save = async (kind: 'role' | 'user', key: string, scope: Scope | null, reason: string) => {
     setSaving(`${kind}:${key}`);
-    try {
-      await apiClient.put(`/api/roles/instrument-scope/${kind}/${encodeURIComponent(key)}`, { scope });
+    const url = `/api/roles/instrument-scope/${kind}/${encodeURIComponent(key)}`;
+    // `reason` rides in the body with the scope (DATA-11); the server stores
+    // it on the CONFIG_CHANGED row and refuses the save without it.
+    const body = { scope, reason };
+    await reauth.execute('UPDATE_ROLE_CONFIG', async (password?) => {
+      if (password) await apiClient.putWithReauth(url, body, password);
+      else await apiClient.put(url, body);
       toast.success('Visibility updated', scope === null
         ? (kind === 'role' ? 'Sees all instruments.' : 'Now inherits the role.')
         : isEmpty(scope) ? 'Sees no instruments.'
           : `Limited to ${scope.locationIds.length} location(s) and ${scope.instrumentIds.length} instrument(s).`);
       await mutate();
-    } catch (e) {
-      toast.error('Could not save', (e as Error).message);
-    } finally {
-      setSaving(null);
-    }
+    }, {
+      onSuccess: () => setSaving(null),
+      onError: (e) => { toast.error('Could not save', (e as Error).message); setSaving(null); },
+      onCancel: () => setSaving(null),
+    });
   };
 
   return (
@@ -350,7 +380,7 @@ export function InstrumentScopeTab() {
                 flat={flat}
                 instruments={instruments}
                 locationNameOf={nameOfLocation}
-                onSave={(s) => save('role', r.role, s)}
+                onSave={(s, reason) => save('role', r.role, s, reason)}
               />
             </div>
           ))}
@@ -384,7 +414,7 @@ export function InstrumentScopeTab() {
                   flat={flat}
                   instruments={instruments}
                   locationNameOf={nameOfLocation}
-                  onSave={(s) => save('user', u.userId, s)}
+                  onSave={(s, reason) => save('user', u.userId, s, reason)}
                 />
               </div>
             );
@@ -396,6 +426,17 @@ export function InstrumentScopeTab() {
           )}
         </div>
       </div>
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Instrument Scope"
+      />
     </div>
   );
 }

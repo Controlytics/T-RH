@@ -37,8 +37,19 @@ export default async function notificationRoutes(app: FastifyInstance) {
                   title: { type: 'string' },
                   message: { type: 'string' },
                   isRead: { type: 'boolean' },
-                  readAt: { type: 'string', format: 'date-time' },
+                  // `readAt` is NULL on every unread row and serialised as ""
+                  // without `nullable` (audit 2026-10-03, API-14).
+                  readAt: { type: 'string', format: 'date-time', nullable: true },
                   createdAt: { type: 'string', format: 'date-time' },
+                  // DECLARED, or Fastify strips them silently: the repository
+                  // returned the full row all along, but the page's
+                  // `@{targetUserId}` chip never rendered because the field
+                  // never left the server. `metadata` is a free-shape JSONB
+                  // (requestId, instrument ids, …), hence additionalProperties.
+                  targetUserId: { type: 'string', nullable: true },
+                  forUserId: { type: 'string', nullable: true },
+                  forRole: { type: 'string', nullable: true },
+                  metadata: { type: 'object', additionalProperties: true, nullable: true },
                 },
               },
             },

@@ -13,7 +13,8 @@ import { logger } from './logger.js';
  * on failure (with a LOCKED code once the threshold trips).
  *
  * 2026-08-08: routed through `verifyCredential`. This path had the same defect
- * as `authService.verify` — a straight bcrypt compare against a directory
+ * as `authService.verify` (since removed, audit 2026-10-03 SEC-5 — this file is
+ * now the ONE credential check for re-auth) — a straight bcrypt compare against a directory
  * user's sentinel hash, which always fails — so every inline-password reauth
  * was unreachable for AD-authenticated staff, and three attempts locked them
  * out of the application entirely. Lockout is delegated to the directory for

@@ -336,12 +336,68 @@ describe('admin-requests e2e', () => {
       expect(await auditRowsFor(u.id, 'ACCOUNT_DISABLED')).toBe(0);
     });
 
-    it('DISABLE_ACCOUNT on an enabled account disables it', async () => {
+    it('DISABLE_ACCOUNT on an enabled account disables it, and the USER_DISABLED row names the request as its reason', async () => {
       const u = await makeUser('disable-real', 'ENABLED');
-      const { res } = await submitAndApprove('DISABLE_ACCOUNT', u.username);
+      const { res, requestId } = await submitAndApprove('DISABLE_ACCOUNT', u.username);
       expect(res.json().changed).toBe(true);
       const after = await prisma.user.findUnique({ where: { id: u.id }, select: { status: true } });
       expect(after?.status).toBe('DISABLED');
+      // DATA-11: a disable needs a reason; here it is the approved request.
+      const row = await prisma.auditTrail.findFirst({ where: { action: 'USER_DISABLED', targetId: u.id } });
+      expect(row?.reason).toContain(requestId);
+      expect(row?.reason).toContain('e2e'); // the admin's remarks
+    });
+
+    /**
+     * Audit 2026-10-03, API-20: MODIFY_USER forwarded an UNTYPED `newValue`
+     * from the public form straight to `userService.update`, and nothing
+     * refused a request for the SUPER_ADMIN role. Both refusals roll the
+     * approval back — the request is PENDING again, not APPROVED (API-7: the
+     * claim and the decision commit together).
+     */
+    it('MODIFY_USER asking for the SUPER_ADMIN role is refused (403) and the request stays PENDING', async () => {
+      const u = await makeUser('modify-sa', 'ENABLED');
+      const row = await prisma.adminRequest.create({
+        data: {
+          requestType: 'MODIFY_USER', requesterName: 'State Fixture', requesterEmployeeId: `req-${STAMP}`,
+          requestData: { username: u.username, modifyField: 'role', newValue: 'SUPER_ADMIN' }, status: 'PENDING',
+        },
+      });
+      requests.push(row.id);
+      const { res } = await approve(row.id);
+      expect(res.statusCode).toBe(403);
+      expect((await prisma.adminRequest.findUnique({ where: { id: row.id } }))?.status).toBe('PENDING');
+      expect((await prisma.user.findUnique({ where: { id: u.id } }))?.role).toBe('OPERATOR');
+    });
+
+    it('MODIFY_USER with a value the user schema refuses is a 400 and the request stays PENDING', async () => {
+      const u = await makeUser('modify-bad', 'ENABLED');
+      const row = await prisma.adminRequest.create({
+        data: {
+          requestType: 'MODIFY_USER', requesterName: 'State Fixture', requesterEmployeeId: `req-${STAMP}`,
+          requestData: { username: u.username, modifyField: 'status', newValue: 'BANANA' }, status: 'PENDING',
+        },
+      });
+      requests.push(row.id);
+      const { res } = await approve(row.id);
+      expect(res.statusCode).toBe(400);
+      expect((await prisma.adminRequest.findUnique({ where: { id: row.id } }))?.status).toBe('PENDING');
+      expect((await prisma.user.findUnique({ where: { id: u.id } }))?.status).toBe('ENABLED');
+    });
+
+    it('a decided request has its ADMIN_REQUEST_APPROVED row (claim and record commit together)', async () => {
+      const u = await makeUser('modify-ok', 'ENABLED');
+      const row = await prisma.adminRequest.create({
+        data: {
+          requestType: 'MODIFY_USER', requesterName: 'State Fixture', requesterEmployeeId: `req-${STAMP}`,
+          requestData: { username: u.username, modifyField: 'department', newValue: 'QC' }, status: 'PENDING',
+        },
+      });
+      requests.push(row.id);
+      const { res } = await approve(row.id);
+      expect(res.statusCode).toBe(200);
+      expect((await prisma.adminRequest.findUnique({ where: { id: row.id } }))?.status).toBe('APPROVED');
+      expect(await prisma.auditTrail.count({ where: { action: 'ADMIN_REQUEST_APPROVED', targetId: row.id } })).toBe(1);
     });
 
     it('names the TARGET account and its role in the approval audit record', async () => {

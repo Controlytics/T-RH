@@ -4,6 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
+import { Input } from '@/components/ui/input';
 import { FEATURE_PRIVILEGES } from '@digilog/shared';
 import type { RoleData } from '@digilog/shared';
 import { groupFeaturePrivilegesByTree } from './permission-tree-grouping';
@@ -22,7 +25,10 @@ interface PermissionsTabProps {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const DEFAULT_ROLE_ICON = 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z';
+// A role with no colour of its own takes the SITE THEME, and the access ring is
+// the theme gradient (audit 2026-10-03, WEB-17) — the fixed slate and blue were
+// the one patch of this screen the ten presets did not reach.
+const DEFAULT_ROLE_ICON ='M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z';
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -34,6 +40,8 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
     const [permissions, setPermissions] = useState<Record<string, boolean>>({});
     const [permSaving, setPermSaving] = useState(false);
     const [permDirty, setPermDirty] = useState(false);
+    const [reason, setReason] = useState('');
+    const reauth = useReauth();
 
     // Load role config — contract: SWR /api/config/roles/${role} → data.permissions
     const { data: roleConfig, isLoading: permLoading } = useSWR(
@@ -41,18 +49,35 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
       { onSuccess: (data) => { setPermissions(data.permissions || {}); setPermDirty(false); } }
     );
 
-    // Save — contract: PUT /api/config/roles/${role} with { permissions: Record<featureId, boolean> }
+    // Save — contract: PUT /api/config/roles/${role} with { permissions, reason }.
+    // The server demands a REASON whenever the permission SET changes (audit
+    // 2026-10-03, DATA-11) and challenges the save under UPDATE_ROLE_CONFIG,
+    // so the save runs through the re-auth hook (it was a bare put — a role
+    // whose matrix asked for a password could never save here). The callback
+    // is idempotent: the hook replays it after a 401.
     const handlePermSave = useCallback(async () => {
-      setPermSaving(true);
-      try {
-        await apiClient.put(`/api/config/roles/${permSelectedRole}`, { permissions });
-        setPermDirty(false);
-      } catch (error: any) {
-        toast.error('Save Failed', error.message || 'Failed to save permissions');
-      } finally {
-        setPermSaving(false);
+      const why = reason.trim();
+      if (!why) {
+        toast.error('Reason required', 'State why these permissions are changing — it is recorded in the audit trail.');
+        return;
       }
-    }, [permSelectedRole, permissions, roleConfig, toast]);
+      setPermSaving(true);
+      let done = false;
+      await reauth.execute('UPDATE_ROLE_CONFIG', async (password?: string) => {
+        if (done) return;
+        const body = { permissions, reason: why };
+        if (password) await apiClient.putWithReauth(`/api/config/roles/${permSelectedRole}`, body, password);
+        else await apiClient.put(`/api/config/roles/${permSelectedRole}`, body);
+        done = true;
+      }, {
+        onSuccess: () => { setPermDirty(false); setReason(''); setPermSaving(false); },
+        onError: (error: unknown) => {
+          toast.error('Save Failed', (error as { message?: string })?.message || 'Failed to save permissions');
+          setPermSaving(false);
+        },
+        onCancel: () => setPermSaving(false),
+      });
+    }, [permSelectedRole, permissions, reason, reauth, toast]);
 
     useEffect(() => {
       onStateChange({ dirty: permDirty, saving: permSaving });
@@ -113,7 +138,7 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
 
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
               {selectableRoles.map((role) => {
-                const color = role.color || '#64748b';
+                const color = role.color || 'var(--theme-primary, #2a78d6)';
                 return (
                   <button key={role.name} onClick={() => { setPermSelectedRole(role.name); setPermDirty(false); }}
                     className={`relative group p-4 rounded-[var(--radius-card)] border-2 transition-all duration-300 ${
@@ -158,16 +183,23 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
                 </div>
               </div>
             </div>
+            {permDirty && (
+              <div className="mt-5">
+                <label htmlFor="perm-reason" className="mb-1 block text-xs font-medium text-slate-600">Reason for change</label>
+                <Input id="perm-reason" value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)}
+                  placeholder="Why are these permissions changing? Recorded in the audit trail." />
+              </div>
+            )}
           </CardContent>
         </Card>
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Card className="border-0 shadow-[var(--elev-2)] overflow-hidden">
-            <div className="h-1" style={{ background: selectableRoles.find(r => r.name === permSelectedRole)?.color || '#64748b' }} />
+            <div className="h-1" style={{ background: selectableRoles.find(r => r.name === permSelectedRole)?.color || 'var(--theme-primary, #2a78d6)' }} />
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white shadow-[var(--elev-2)]" style={{ background: selectableRoles.find(r => r.name === permSelectedRole)?.color || '#64748b' }}>
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white shadow-[var(--elev-2)]" style={{ background: selectableRoles.find(r => r.name === permSelectedRole)?.color || 'var(--theme-primary, #2a78d6)' }}>
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={DEFAULT_ROLE_ICON} />
                   </svg>
@@ -218,8 +250,8 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
                     <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="url(#perm-gradient)" strokeWidth="3" strokeDasharray={`${enabledPercentage}, 100`} strokeLinecap="round" />
                     <defs>
                       <linearGradient id="perm-gradient">
-                        <stop offset="0%" stopColor="#3b82f6" />
-                        <stop offset="100%" stopColor="#6366f1" />
+                        <stop offset="0%" style={{ stopColor: 'var(--theme-gradient-from, #3b82f6)' }} />
+                        <stop offset="100%" style={{ stopColor: 'var(--theme-gradient-to, #6366f1)' }} />
                       </linearGradient>
                     </defs>
                   </svg>
@@ -466,6 +498,15 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
             </div>
           </div>
         </div>
+        <ReauthDialog
+          open={reauth.isOpen}
+          password={reauth.password}
+          error={reauth.error}
+          isVerifying={reauth.isVerifying}
+          onPasswordChange={reauth.setPassword}
+          onConfirm={reauth.confirm}
+          onCancel={reauth.cancel}
+        />
       </>
     );
   }

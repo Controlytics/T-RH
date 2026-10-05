@@ -4,6 +4,8 @@ import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { useBranding } from '@/hooks/use-branding';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
 
 type Draft = { companyName?: string; appName?: string };
@@ -29,15 +31,22 @@ export function ReportPageTitlesPage() {
   const dirty = JSON.stringify(draft) !== JSON.stringify(data ?? {});
   const set = (key: keyof Draft, value: string) => setDraft((d) => ({ ...d, [key]: value }));
 
+  // Re-authenticated as UPDATE_CONFIG_PAGE on the server (audit 2026-10-03,
+  // API-18); the shared hook asks for the password when the role's matrix
+  // requires it and replays the save after a retroactive 401.
+  const reauth = useReauth();
   const save = async () => {
     setSaving(true);
-    try {
-      await apiClient.put('/api/config/report-page-titles', draft);
+    await reauth.execute('UPDATE_CONFIG_PAGE', async (password?) => {
+      if (password) await apiClient.putWithReauth('/api/config/report-page-titles', draft, password);
+      else await apiClient.put('/api/config/report-page-titles', draft);
       await mutate(draft, false);
       toast.success('Saved', 'Report identity updated.');
-    } catch (e: any) {
-      toast.error('Save failed', e?.message ?? 'Could not save report identity.');
-    } finally { setSaving(false); }
+    }, {
+      onSuccess: () => setSaving(false),
+      onError: (e: any) => { toast.error('Save failed', e?.message ?? 'Could not save report identity.'); setSaving(false); },
+      onCancel: () => setSaving(false),
+    });
   };
 
   // Was a cyan focus ring, which matches no theme this product ships.
@@ -81,6 +90,17 @@ export function ReportPageTitlesPage() {
           );
         })}
       </div>
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Report Page Titles"
+      />
     </div>
   );
 }

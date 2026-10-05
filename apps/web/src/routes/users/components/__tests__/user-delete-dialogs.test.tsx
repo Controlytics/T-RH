@@ -97,3 +97,65 @@ describe('UserBulkDeleteDialog — bulk copy matches deleteMany', () => {
     expect(screen.getByText(/only the audit trail entries survive/i)).toBeInTheDocument();
   });
 });
+
+/**
+ * Audit 2026-10-03, DATA-11: a delete or a disable signs with the operator's
+ * REASON. The server refuses both without one (400 REASON_REQUIRED), so the
+ * dialogs do not confirm until one is typed and hand it to the page — which
+ * must never send `{}` for these two actions.
+ */
+import { fireEvent } from '@testing-library/react';
+import { vi } from 'vitest';
+
+describe('UserActionDialog — the reason', () => {
+  it('delete: asks for a reason, confirms only once typed, and passes it trimmed', () => {
+    const onConfirm = vi.fn();
+    render(<UserActionDialog actionDialog={deleteDialog} onClose={() => {}} onConfirm={onConfirm} />);
+    const confirm = screen.getByRole('button', { name: /delete user/i });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: '  left the company  ' } });
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
+    expect(onConfirm).toHaveBeenCalledWith('left the company');
+  });
+
+  it('disable: the same, with the disable wording', () => {
+    const onConfirm = vi.fn();
+    render(<UserActionDialog actionDialog={{ ...deleteDialog, type: 'disable' }} onClose={() => {}} onConfirm={onConfirm} />);
+    const confirm = screen.getByRole('button', { name: /^confirm$/i });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'on leave' } });
+    fireEvent.click(confirm);
+    expect(onConfirm).toHaveBeenCalledWith('on leave');
+  });
+
+  it('a whitespace-only reason does not confirm', () => {
+    render(<UserActionDialog actionDialog={deleteDialog} onClose={() => {}} onConfirm={() => {}} />);
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: '   ' } });
+    expect(screen.getByRole('button', { name: /delete user/i })).toBeDisabled();
+  });
+
+  it('enable: no reason is asked for and confirm is live at once', () => {
+    const onConfirm = vi.fn();
+    render(<UserActionDialog actionDialog={{ ...deleteDialog, type: 'enable' }} onClose={() => {}} onConfirm={onConfirm} />);
+    expect(screen.queryByLabelText('Reason')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^confirm$/i }));
+    expect(onConfirm).toHaveBeenCalledWith('');
+  });
+});
+
+describe('UserBulkDeleteDialog — the reason', () => {
+  const users = [{ id: 'u1', username: 'jdoe', fullName: 'Jane Doe', role: 'OPERATOR', status: 'ENABLED' }];
+
+  it('asks for a reason, confirms only once typed, and passes it', () => {
+    const onConfirm = vi.fn();
+    render(
+      <UserBulkDeleteDialog open selectedIds={new Set(['u1'])} displayedUsers={users} bulkDeleting={false} onClose={() => {}} onConfirm={onConfirm} />,
+    );
+    const confirm = screen.getByRole('button', { name: /delete 1 user/i });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'contract ended' } });
+    fireEvent.click(confirm);
+    expect(onConfirm).toHaveBeenCalledWith('contract ended');
+  });
+});

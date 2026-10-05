@@ -10,7 +10,8 @@ import { ldapService, LDAP_SENTINEL_HASH } from '../modules/ldap/ldap.service.js
  * else — so every other credential surface silently treated a directory user
  * as a local one:
  *
- *   - `authService.verify()` (POST /api/auth/verify) bcrypt-compared the
+ *   - `authService.verify()` (POST /api/auth/verify — both removed 2026-10-05,
+ *     audit SEC-5; nothing consumed the token it minted) bcrypt-compared the
  *     supplied password against the literal string 'LDAP_EXTERNAL_AUTH'.
  *     bcrypt.compare against a non-hash returns false, so **re-authentication
  *     could never succeed for a directory user** — every reauth-gated action

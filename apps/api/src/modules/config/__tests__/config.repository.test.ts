@@ -13,7 +13,7 @@ const { mockPrisma } = vi.hoisted(() => ({
 
 vi.mock('../../../lib/prisma.js', () => ({ prisma: mockPrisma }));
 
-import { configRepository } from '../config.repository.js';
+import { configRepository, escapeLikeLiteral } from '../config.repository.js';
 
 describe('config.repository', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -93,6 +93,21 @@ describe('config.repository', () => {
       mockPrisma.$queryRawUnsafe.mockResolvedValue([{ max_num: 42 }]);
       const result = await configRepository.getMaxUserIdNum('USR');
       expect(result[0].max_num).toBe(42);
+    });
+
+    // Audit 2026-10-03, API-20: `_` is a LIKE wildcard, so a prefix of `EMP_`
+    // matched `EMPX0007` and the next id jumped. The prefix is a literal.
+    it('escapes LIKE metacharacters in the prefix and declares the escape character', async () => {
+      mockPrisma.$queryRawUnsafe.mockResolvedValue([{ max_num: null }]);
+      await configRepository.getMaxUserIdNum('EMP_');
+      const [sql, param] = mockPrisma.$queryRawUnsafe.mock.calls[0];
+      expect(param).toBe('EMP\\_%');
+      expect(sql).toMatch(/LIKE \$1 ESCAPE '\\'/);
+    });
+
+    it('escapeLikeLiteral escapes backslash, percent and underscore', () => {
+      expect(escapeLikeLiteral('a_b%c\\d')).toBe('a\\_b\\%c\\\\d');
+      expect(escapeLikeLiteral('EMP')).toBe('EMP');
     });
   });
 });

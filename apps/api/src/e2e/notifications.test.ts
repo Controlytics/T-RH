@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type FastifyInstance } from 'fastify';
 import { buildApp, loginAs, authGet, authPut, authPost, authDelete, ADMIN_PASSWORD } from './test-helper.js';
+import { prisma } from '../lib/prisma.js';
 
 describe('Notifications endpoints', () => {
   let app: FastifyInstance;
@@ -33,6 +34,100 @@ describe('Notifications endpoints', () => {
       const body = JSON.parse(res.body);
       expect(body.data).toBeDefined();
       expect(body.total).toBeDefined();
+    });
+
+    /**
+     * Audit 2026-10-03, API-14: the list schema declared seven fields, so
+     * Fastify stripped `targetUserId` / `forUserId` / `forRole` / `metadata`
+     * off every row (the page's `@{targetUserId}` chip never rendered), and
+     * `readAt` — NULL on every unread row — serialised as "". Asserted over
+     * the wire, key by key, on a row this test writes.
+     */
+    it('declares the addressing fields and metadata, and serialises a null readAt as null', async () => {
+      const n = await prisma.notification.create({
+        data: {
+          type: 'USER_CREATED', title: 'e2e shape probe', message: 'shape',
+          targetUserId: 'probe-target', forRole: 'SUPER_ADMIN', metadata: { requestId: 'r-1', nested: { k: 1 } },
+        },
+      });
+      try {
+        const res = await authGet(app, '/api/notifications?limit=500', adminToken);
+        expect(res.statusCode).toBe(200);
+        const row = JSON.parse(res.body).data.find((r: any) => r.id === n.id);
+        expect(row).toBeDefined();
+        expect(row.targetUserId).toBe('probe-target');
+        expect(row.forRole).toBe('SUPER_ADMIN');
+        expect(row).toHaveProperty('forUserId');
+        expect(row.forUserId).toBeNull();
+        expect(row.metadata).toEqual({ requestId: 'r-1', nested: { k: 1 } });
+        expect(row).toHaveProperty('readAt');
+        expect(row.readAt).toBeNull();
+      } finally {
+        await prisma.notification.deleteMany({ where: { id: n.id } });
+      }
+    });
+
+    // Audit 2026-10-03, API-12: a bad date is a 400 by field, never a 500.
+    it('answers 400 by field for an unparseable startDate, never 500', async () => {
+      const res = await authGet(app, '/api/notifications?startDate=yesterday', adminToken);
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body).details.fieldErrors.startDate).toBeDefined();
+    });
+  });
+
+  /**
+   * Audit 2026-10-03, API-16: acting on a row by id is governed by the SAME
+   * rule as listing it. Driven as the seeded OPERATOR (RB0001), whose
+   * visibility is `forUserId = RB0001` and nothing else.
+   */
+  describe('single-row access equals list visibility', () => {
+    let operatorToken = '';
+    const made: string[] = [];
+
+    beforeAll(async () => {
+      operatorToken = await loginAs(app, 'RB0001', 'Test@1234');
+    });
+
+    afterAll(async () => {
+      await prisma.notification.deleteMany({ where: { id: { in: made } } });
+    });
+
+    async function make(data: { forUserId?: string | null; forRole?: string | null; targetUserId?: string | null }) {
+      const n = await prisma.notification.create({
+        data: { type: 'USER_LOCKED', title: 'e2e visibility', message: 'v', ...data },
+      });
+      made.push(n.id);
+      return n.id;
+    }
+
+    it('a user can mark their OWN notification read', async () => {
+      const id = await make({ forUserId: 'RB0001' });
+      expect((await authPut(app, `/api/notifications/${id}/read`, operatorToken)).statusCode).toBe(200);
+    });
+
+    it('a user gets 404 (never 403) for another user\'s notification, and it stays unread', async () => {
+      const id = await make({ forUserId: 'someone-else' });
+      expect((await authPut(app, `/api/notifications/${id}/read`, operatorToken)).statusCode).toBe(404);
+      expect((await prisma.notification.findUnique({ where: { id } }))?.isRead).toBe(false);
+    });
+
+    it('a user gets 404 for the admin-addressed row ABOUT themself (targetUserId grants nothing)', async () => {
+      const id = await make({ forRole: 'ADMIN', targetUserId: 'RB0001' });
+      expect((await authPut(app, `/api/notifications/${id}/read`, operatorToken)).statusCode).toBe(404);
+      // ...and the list never showed it either — the rule is one rule.
+      const list = JSON.parse((await authGet(app, '/api/notifications?limit=500', operatorToken)).body);
+      expect(list.data.some((r: any) => r.id === id)).toBe(false);
+    });
+
+    it('bulk read as that user touches only rows the list would show', async () => {
+      const mine = await make({ forUserId: 'RB0001' });
+      const theirs = await make({ forUserId: 'someone-else' });
+      const about = await make({ forRole: 'ADMIN', targetUserId: 'RB0001' });
+      const res = await authPut(app, '/api/notifications/bulk-read', operatorToken, { ids: [mine, theirs, about] });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).count).toBe(1);
+      expect((await prisma.notification.findUnique({ where: { id: theirs } }))?.isRead).toBe(false);
+      expect((await prisma.notification.findUnique({ where: { id: about } }))?.isRead).toBe(false);
     });
   });
 

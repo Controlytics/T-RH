@@ -80,6 +80,8 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
           sidebarItems: { type: 'array', items: { type: 'string' } },
           homeWidgets: { type: 'array', items: { type: 'string' } },
           permissions: { type: 'object', additionalProperties: { type: 'boolean' } },
+          // Required by the service when the permission SET changes (DATA-11).
+          reason: { type: 'string', maxLength: 500 },
         },
       },
       response: {
@@ -97,13 +99,14 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
     if (!ok) return;
 
     const { role } = req.params as { role: string };
-    const { sidebarItems, homeWidgets, permissions } = req.body as {
+    const { sidebarItems, homeWidgets, permissions, reason } = req.body as {
       sidebarItems?: string[];
       homeWidgets?: string[];
       permissions?: Record<string, boolean>;
+      reason?: string;
     };
     const ctx = buildContext(req);
-    const config = await configService.updateRoleConfig(role, { sidebarItems, homeWidgets, permissions }, ctx);
+    const config = await configService.updateRoleConfig(role, { sidebarItems, homeWidgets, permissions, reason }, ctx);
     return { success: true, data: config };
   });
 

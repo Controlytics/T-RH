@@ -10,6 +10,14 @@ export interface RoleFormData {
   hierarchyLevel: number;
   color: string;
   permissions: string[];
+  /**
+   * The operator's reason for the change, stored on the ROLE_UPDATED /
+   * ROLE_CREATED audit row (audit 2026-10-03, DATA-11). The server REQUIRES
+   * it when a save changes the role's permission set; this dialog never
+   * changes permissions (they are edited on the Permissions tab), so here it
+   * is optional and recorded when given.
+   */
+  reason?: string;
 }
 
 interface RoleFormDialogProps {
@@ -148,6 +156,18 @@ export function RoleFormDialog({
               onSelect={(color) => setFormData({ ...formData, color })}
             />
           </div>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-semibold text-slate-700">Reason for change</label>
+          <Input
+            value={formData.reason ?? ''}
+            maxLength={500}
+            onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
+            placeholder="Recorded in the audit trail"
+            aria-label="Reason for change"
+            className="h-12"
+          />
         </div>
 
         {/* Info note about permissions */}

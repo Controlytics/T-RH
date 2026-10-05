@@ -77,13 +77,13 @@ export function RoleAccessPage() {
   const openCreateDialog = () => { resetForm(); setShowCreateDialog(true); };
   const openEditDialog = (role: RoleData) => {
     setSelectedRoleForEdit(role);
-    setFormData({ name: role.name, displayName: role.displayName, description: role.description || '', hierarchyLevel: role.hierarchyLevel, color: role.color, permissions: role.permissions });
+    setFormData({ name: role.name, displayName: role.displayName, description: role.description || '', hierarchyLevel: role.hierarchyLevel, color: role.color, permissions: role.permissions, reason: '' });
     setShowEditDialog(true);
   };
   const handleCreate = async () => {
     if (!formData.name || !formData.displayName) { setError('Name and Display Name are required'); return; }
     setSaving(true); setError('');
-    const body = { name: formData.name.toUpperCase().replace(/\s+/g, '_'), displayName: formData.displayName, description: formData.description, hierarchyLevel: formData.hierarchyLevel, color: formData.color, permissions: formData.permissions };
+    const body = { name: formData.name.toUpperCase().replace(/\s+/g, '_'), displayName: formData.displayName, description: formData.description, hierarchyLevel: formData.hierarchyLevel, color: formData.color, permissions: formData.permissions, ...(formData.reason?.trim() ? { reason: formData.reason.trim() } : {}) };
     await reauth.execute('CREATE_ROLE', async (password?) => {
       if (password) await apiClient.postWithReauth('/api/roles', body, password);
       else await apiClient.post('/api/roles', body);
@@ -98,7 +98,11 @@ export function RoleAccessPage() {
     if (!selectedRoleForEdit) return;
     setSaving(true); setError('');
     const roleName = selectedRoleForEdit.name;
-    const body = { displayName: formData.displayName, description: formData.description, hierarchyLevel: formData.hierarchyLevel, color: formData.color, permissions: formData.permissions };
+    // `reason` is stored on the ROLE_UPDATED row (audit 2026-10-03, DATA-11). The
+    // server REQUIRES it only when the permission set changes, which this
+    // dialog cannot do (permissions are edited on the Permissions tab) — so it
+    // is sent when given and the save is not blocked on it.
+    const body = { displayName: formData.displayName, description: formData.description, hierarchyLevel: formData.hierarchyLevel, color: formData.color, permissions: formData.permissions, ...(formData.reason?.trim() ? { reason: formData.reason.trim() } : {}) };
     await reauth.execute('UPDATE_ROLE', async (password?) => {
       if (password) await apiClient.putWithReauth(`/api/roles/${roleName}`, body, password);
       else await apiClient.put(`/api/roles/${roleName}`, body);

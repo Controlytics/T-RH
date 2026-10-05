@@ -233,6 +233,27 @@ describe('Users endpoints', () => {
       // Reported bug (2026-07-08): editing a user (e.g. changing role) with a
       // blank email was rejected as if email were mandatory. Email is optional —
       // an empty string must update cleanly and clear the stored email to NULL.
+      it("a ROLE change ends the user's open session at once, not after the 30 s auth cache", async () => {
+        // The user's own session, then the admin changes their role: the old
+        // token must be refused on the very next request. The auth plugin
+        // caches sessions by id for 30 s and terminateSessions did not evict
+        // them (found 2026-10-05 by the api-a sweep) — the OLD token kept the
+        // NEW role's grants for up to 30 s.
+        const theirToken = await loginAs(app, TEST_USERNAME, TEST_PASSWORD);
+        const before = await app.inject({ method: 'GET', url: '/api/auth/me', headers: { authorization: `Bearer ${theirToken}` } });
+        expect(before.statusCode).toBe(200);
+
+        const res = await authPut(app, `/api/users/${createdUserId}`, adminToken, { role: 'ADMIN' }, ADMIN_PASSWORD);
+        expect(res.statusCode, res.body).toBe(200);
+
+        const after = await app.inject({ method: 'GET', url: '/api/auth/me', headers: { authorization: `Bearer ${theirToken}` } });
+        expect(after.statusCode, after.body).toBe(401);
+
+        const back = await authPut(app, `/api/users/${createdUserId}`, adminToken, { role: 'OPERATOR' }, ADMIN_PASSWORD);
+        expect(back.statusCode, back.body).toBe(200);
+        adminToken = await loginAs(app); // loginAs for the other user ended nothing of the admin's, but keep the suite's token fresh
+      });
+
       it('accepts an empty email (email is optional) and clears it to null', async () => {
         const res = await authPut(app, `/api/users/${createdUserId}`, adminToken, {
           fullName: 'Updated Test User',
@@ -242,19 +263,43 @@ describe('Users endpoints', () => {
 
         const check = await authGet(app, `/api/users/${createdUserId}`, adminToken);
         const body = JSON.parse(check.body);
-        // Stored as NULL (serialized as null/absent/'' — never a validation error).
-        expect(body.email == null || body.email === '').toBe(true);
+        // Stored as NULL and serialised as null — `email` is declared
+        // nullable, so the serializer no longer writes "" for it (audit
+        // 2026-10-03, API-14). The key must be present AND null.
+        expect(body).toHaveProperty('email');
+        expect(body.email).toBeNull();
+      });
+
+      it('the LIST serialises a null email as null too, not ""', async () => {
+        const res = await authGet(app, `/api/users?search=${TEST_USERNAME}`, adminToken);
+        const row = JSON.parse(res.body).data.find((u: any) => u.id === createdUserId);
+        expect(row).toBeDefined();
+        expect(row.email).toBeNull();
       });
     });
 
     // ---- 4. POST /api/users/:id/disable — Disable user ----
     describe('POST /api/users/:id/disable', () => {
-      it('disables the user', async () => {
+      // Audit 2026-10-03, DATA-11: a disable needs the operator's reason.
+      it('refuses a disable with no reason (400) and leaves the user enabled', async () => {
         expect(createdUserId).toBeTruthy();
         const res = await authPost(app, `/api/users/${createdUserId}/disable`, adminToken, {}, ADMIN_PASSWORD);
+        expect(res.statusCode).toBe(400);
+        const check = JSON.parse((await authGet(app, `/api/users/${createdUserId}`, adminToken)).body);
+        expect(check.status).toBe('ENABLED');
+      });
+
+      it('disables the user, and the reason lands on the USER_DISABLED audit row', async () => {
+        expect(createdUserId).toBeTruthy();
+        const res = await authPost(app, `/api/users/${createdUserId}/disable`, adminToken, { reason: 'e2e: on leave' }, ADMIN_PASSWORD);
         expect(res.statusCode).toBe(200);
         const body = JSON.parse(res.body);
         expect(body.success).toBe(true);
+        const row = await prisma.auditTrail.findFirst({
+          where: { action: 'USER_DISABLED', targetId: createdUserId },
+          orderBy: { timestamp: 'desc' },
+        });
+        expect(row?.reason).toBe('e2e: on leave');
       });
 
       it('verifies user is disabled via GET', async () => {
@@ -315,12 +360,25 @@ describe('Users endpoints', () => {
 
     // ---- 8. DELETE /api/users/:id — Delete user ----
     describe('DELETE /api/users/:id', () => {
-      it('deletes the user', async () => {
+      // Audit 2026-10-03, DATA-11: a delete needs the operator's reason.
+      it('refuses a delete with no reason (400) and the user survives', async () => {
         expect(createdUserId).toBeTruthy();
-        const res = await authDelete(app, `/api/users/${createdUserId}`, adminToken, ADMIN_PASSWORD);
+        const res = await authDelete(app, `/api/users/${createdUserId}`, adminToken, ADMIN_PASSWORD, {});
+        expect(res.statusCode).toBe(400);
+        expect((await authGet(app, `/api/users/${createdUserId}`, adminToken)).statusCode).toBe(200);
+      });
+
+      it('deletes the user; the USER_DELETED row carries the reason and was written with the delete', async () => {
+        expect(createdUserId).toBeTruthy();
+        const res = await authDelete(app, `/api/users/${createdUserId}`, adminToken, ADMIN_PASSWORD, { reason: 'e2e: fixture cleanup' });
         expect(res.statusCode).toBe(200);
         const body = JSON.parse(res.body);
         expect(body.success).toBe(true);
+        const row = await prisma.auditTrail.findFirst({
+          where: { action: 'USER_DELETED', targetId: createdUserId },
+          orderBy: { timestamp: 'desc' },
+        });
+        expect(row?.reason).toBe('e2e: fixture cleanup');
       });
 
       it('returns 404 after deletion', async () => {

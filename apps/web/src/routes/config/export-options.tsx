@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { EXPORT_SURFACES, type ExportFormat } from '@/lib/export-surfaces';
 import { Button } from '@/components/ui/button';
 import { PageHero } from '@/components/ui/page-hero';
@@ -27,6 +29,11 @@ const FMT_CLS: Record<string, string> = {
 
 export function ExportOptionsPage() {
   const { toast } = useToast();
+  // The PUT is re-authenticated as UPDATE_CONFIG_PAGE on the server (audit
+  // 2026-10-03, API-18); the save goes through the shared hook like every
+  // other configuration page, so a role whose matrix asks for a password gets
+  // the dialog instead of a bare 401.
+  const reauth = useReauth();
   const { data: matrixData, mutate } = useSWR<Matrix>('/api/config/export-options');
   const { data: rolesData } = useSWR<Role[]>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
 
@@ -48,15 +55,16 @@ export function ExportOptionsPage() {
 
   const save = async () => {
     setSaving(true);
-    try {
-      await apiClient.put('/api/config/export-options', draft);
+    await reauth.execute('UPDATE_CONFIG_PAGE', async (password?) => {
+      if (password) await apiClient.putWithReauth('/api/config/export-options', draft, password);
+      else await apiClient.put('/api/config/export-options', draft);
       await mutate(draft, false);
       toast.success('Saved', 'Export options updated for all roles.');
-    } catch (err: any) {
-      toast.error('Save failed', err?.message ?? 'Could not save export options.');
-    } finally {
-      setSaving(false);
-    }
+    }, {
+      onSuccess: () => setSaving(false),
+      onError: (err: any) => { toast.error('Save failed', err?.message ?? 'Could not save export options.'); setSaving(false); },
+      onCancel: () => setSaving(false),
+    });
   };
 
   return (
@@ -120,6 +128,17 @@ export function ExportOptionsPage() {
           </Table>
         </div>
       )}
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Export Options"
+      />
     </div>
   );
 }

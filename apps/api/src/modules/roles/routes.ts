@@ -3,6 +3,7 @@ import { offsetKeyTest } from '../instruments/load-offsets.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { buildContext } from '../../lib/build-context.js';
 import { AppError } from '../../lib/errors.js';
+import { requireReason } from '../../lib/require-reason.js';
 import { verifyToken } from '../../lib/jwt.js';
 import { roleService } from './role.service.js';
 import { Prisma } from '@prisma/client';
@@ -55,7 +56,9 @@ export default async function roleRoutes(app: FastifyInstance) {
               id: { type: 'string' },
               name: { type: 'string' },
               displayName: { type: 'string' },
-              description: { type: 'string' },
+              // `Role.description` is `String?`; without `nullable` a NULL
+              // serialised as "" (audit 2026-10-03, API-14).
+              description: { type: 'string', nullable: true },
               hierarchyLevel: { type: 'integer' },
               permissions: { type: 'array', items: { type: 'string' } },
               color: { type: 'string' },
@@ -148,7 +151,7 @@ export default async function roleRoutes(app: FastifyInstance) {
             id: { type: 'string' },
             name: { type: 'string' },
             displayName: { type: 'string' },
-            description: { type: 'string' },
+            description: { type: 'string', nullable: true },
             hierarchyLevel: { type: 'integer' },
             permissions: { type: 'array', items: { type: 'string' } },
             color: { type: 'string' },
@@ -186,6 +189,7 @@ export default async function roleRoutes(app: FastifyInstance) {
           hierarchyLevel: { type: 'integer', minimum: 1, maximum: 10, description: 'Hierarchy level (1=lowest, 10=highest)' },
           permissions: { type: 'array', items: { type: 'string' }, description: 'Permission keys assigned to this role' },
           color: { type: 'string', description: 'Display color (hex code)' },
+          reason: { type: 'string', maxLength: 500, description: 'Why the role is being created (stored on the audit row)' },
         },
       },
       response: {
@@ -200,6 +204,7 @@ export default async function roleRoutes(app: FastifyInstance) {
           type: 'object',
           properties: {
             error: { type: 'string' },
+            message: { type: 'string' },
             details: { type: 'object', additionalProperties: true },
           },
         },
@@ -241,7 +246,10 @@ export default async function roleRoutes(app: FastifyInstance) {
           hierarchyLevel: { type: 'integer', minimum: 1, maximum: 10, description: 'Updated hierarchy level' },
           permissions: { type: 'array', items: { type: 'string' }, description: 'Updated permissions list' },
           color: { type: 'string', description: 'Updated color' },
-          isActive: { type: 'boolean', description: 'Enable or disable the role' },
+          isActive: { type: 'boolean', description: 'Enable or disable the role. Deactivating ends every session of its users.' },
+          // REQUIRED when the permission set changes — 400 REASON_REQUIRED
+          // otherwise (audit 2026-10-03, DATA-11). Stored on the ROLE_UPDATED row.
+          reason: { type: 'string', maxLength: 500, description: 'Why the role is being changed. Required when permissions change.' },
         },
       },
       response: {
@@ -256,6 +264,7 @@ export default async function roleRoutes(app: FastifyInstance) {
           type: 'object',
           properties: {
             error: { type: 'string' },
+            message: { type: 'string' },
             details: { type: 'object', additionalProperties: true },
           },
         },
@@ -290,6 +299,10 @@ export default async function roleRoutes(app: FastifyInstance) {
           name: { type: 'string', description: 'Role name to delete' },
         },
       },
+      // No body schema: a bare DELETE (no body at all) must stay a valid
+      // request, and a body schema on a DELETE makes Fastify refuse one. An
+      // optional `{ reason }` JSON body is read leniently by the handler and
+      // stored on the ROLE_DELETED row when given.
       response: {
         200: {
           type: 'object',
@@ -324,9 +337,10 @@ export default async function roleRoutes(app: FastifyInstance) {
 
     const { name } = req.params as { name: string };
     const ctx = buildContext(req);
+    const { reason } = (req.body ?? {}) as { reason?: string };
 
     try {
-      return await roleService.delete(name, ctx);
+      return await roleService.delete(name, ctx, reason);
     } catch (err) {
       if (err instanceof AppError && (err as any).usersCount !== undefined) {
         return reply.code(err.statusCode as 409).send({
@@ -425,6 +439,28 @@ export default async function roleRoutes(app: FastifyInstance) {
     s.locationIds.length === 0 && s.instrumentIds.length === 0
       ? 'NO instruments at all'
       : `${s.locationIds.length} functional location(s) and ${s.instrumentIds.length} instrument(s)`;
+
+  /**
+   * Every role-keyed upsert below answers 404 for a role that does not exist
+   * (audit 2026-10-03, API-20). `roleConfig.upsert` on an unknown name used to
+   * create an orphan `role_configs` row — and audit it — for a typo in the
+   * URL; the row then resurfaced as that role's config if the name was ever
+   * created. The user-keyed routes already 404 the same way.
+   */
+  const roleExists = async (name: string) =>
+    (await prisma.role.findUnique({ where: { name }, select: { name: true } })) !== null;
+
+  // The scope PUTs carry the operator's reason, stored on the CONFIG_CHANGED
+  // row (audit 2026-10-03, DATA-11): a visibility change signs with a
+  // password and used to record no "why". `requireReason` is the control.
+  const scopeBody = {
+    type: 'object',
+    required: ['scope', 'reason'],
+    properties: {
+      scope: scopeShape,
+      reason: { type: 'string', minLength: 1, maxLength: 500 },
+    },
+  } as const;
 
   app.get('/instrument-scope', {
     preHandler: [app.requirePermission('ROLE_MANAGE')],
@@ -558,14 +594,16 @@ export default async function roleRoutes(app: FastifyInstance) {
       tags: ['Roles'],
       summary: 'Set a role\'s instrument visibility scope',
       params: { type: 'object', properties: { name: { type: 'string' } } },
-      body: { type: 'object', required: ['scope'], properties: { scope: scopeShape } },
+      body: scopeBody,
     },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('UPDATE_ROLE_CONFIG', req, reply);
     if (!ok) return;
     const { name } = req.params as { name: string };
-    const { scope } = req.body as { scope: ScopeSelection | null };
+    const { scope, reason } = req.body as { scope: ScopeSelection | null; reason?: string };
     const ctx = buildContext(req);
+    const why = requireReason(reason, "Changing a role's instrument visibility");
+    if (!(await roleExists(name))) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Role not found.' });
 
     const before = await prisma.roleConfig.findUnique({ where: { role: name }, select: { instrumentScope: true } });
     // upsert: a role may have no config row yet, and setting a scope must not
@@ -584,6 +622,7 @@ export default async function roleRoutes(app: FastifyInstance) {
       targetType: 'role_config', targetId: name,
       beforeValue: { instrumentScope: before?.instrumentScope ?? null },
       afterValue: { instrumentScope: scope },
+      reason: why,
       signatureMeaning: scope === null
         ? `Role "${name.slice(0, 60)}" instrument visibility set to ALL instruments`
         : `Role "${name.slice(0, 60)}" instrument visibility set to ${describeScope(scope)}`,
@@ -705,6 +744,7 @@ export default async function roleRoutes(app: FastifyInstance) {
     const { name } = req.params as { name: string };
     const body = req.body as { mode?: string | null; keys?: string[]; requireReauth?: boolean };
     const ctx = buildContext(req);
+    if (!(await roleExists(name))) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Role not found.' });
 
     // Built through the SAME parser the enforcement reads with, so a value this
     // endpoint accepts cannot be one the gate then treats as unconfigured.
@@ -769,14 +809,15 @@ export default async function roleRoutes(app: FastifyInstance) {
       tags: ['Roles'],
       summary: 'Set one user\'s instrument visibility scope, overriding their role',
       params: { type: 'object', properties: { userId: { type: 'string' } } },
-      body: { type: 'object', required: ['scope'], properties: { scope: scopeShape } },
+      body: scopeBody,
     },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('UPDATE_ROLE_CONFIG', req, reply);
     if (!ok) return;
     const { userId } = req.params as { userId: string };
-    const { scope } = req.body as { scope: ScopeSelection | null };
+    const { scope, reason } = req.body as { scope: ScopeSelection | null; reason?: string };
     const ctx = buildContext(req);
+    const why = requireReason(reason, "Changing a user's instrument visibility");
 
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { username: true, role: true } });
     if (!user) return reply.code(404).send({ error: 'NOT_FOUND', message: 'User not found.' });
@@ -794,6 +835,7 @@ export default async function roleRoutes(app: FastifyInstance) {
       targetType: 'user_config', targetId: userId,
       beforeValue: { instrumentScope: before?.instrumentScope ?? null },
       afterValue: { instrumentScope: scope },
+      reason: why,
       // An override REPLACES the role scope and can therefore WIDEN it, so the
       // signature says which user and what they were given rather than just "changed".
       signatureMeaning: scope === null
@@ -899,6 +941,7 @@ export default async function roleRoutes(app: FastifyInstance) {
     const { name } = req.params as { name: string };
     const { panels } = req.body as { panels: string[] | null };
     const ctx = buildContext(req);
+    if (!(await roleExists(name))) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Role not found.' });
 
     const before = await prisma.roleConfig.findUnique({ where: { role: name }, select: { dashboardCards: true } });
     await prisma.roleConfig.upsert({
@@ -1024,6 +1067,7 @@ export default async function roleRoutes(app: FastifyInstance) {
     const { name } = req.params as { name: string };
     const { layout } = req.body as { layout: unknown };
     const ctx = buildContext(req);
+    if (!(await roleExists(name))) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Role not found.' });
 
     // null clears the default; anything else must pass the SAME normalizer the
     // reader uses, so an unreadable value cannot be stored.

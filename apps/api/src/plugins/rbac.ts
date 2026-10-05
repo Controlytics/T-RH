@@ -39,9 +39,14 @@ async function getRolePerms(roleName: string): Promise<string[]> {
   }
   const role = await prisma.role.findFirst({
     where: { name: roleName },
-    select: { permissions: true },
+    select: { permissions: true, isActive: true },
   });
-  const perms = (role?.permissions as string[]) ?? [];
+  // An INACTIVE role holds nothing (audit 2026-10-03, API-15). The flag was
+  // read nowhere on the request path, so "switching off" a role left every
+  // one of its users fully authorised. The role service also ends their
+  // sessions when the flag flips; this is what stops a session that was
+  // issued before, or a login after, from carrying the role's grants.
+  const perms = role && role.isActive ? ((role.permissions as string[]) ?? []) : [];
   ROLE_PERMS_CACHE.set(roleName, { perms, cachedAt: now });
   return perms;
 }

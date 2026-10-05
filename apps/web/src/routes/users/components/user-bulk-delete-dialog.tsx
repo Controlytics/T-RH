@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { USER_ACTION_REASON_MAX } from './user-action-dialog';
 
 interface UserBulkDeleteDialogProps {
   open: boolean;
@@ -7,7 +9,12 @@ interface UserBulkDeleteDialogProps {
   displayedUsers: any[];
   bulkDeleting: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  /**
+   * Called with the operator's REASON (audit 2026-10-03, DATA-11): the server
+   * refuses a bulk delete without one and stores it on every
+   * BULK_USER_DELETED row.
+   */
+  onConfirm: (reason: string) => void;
 }
 
 export function UserBulkDeleteDialog({
@@ -18,6 +25,10 @@ export function UserBulkDeleteDialog({
   onClose,
   onConfirm,
 }: UserBulkDeleteDialogProps) {
+  const [reason, setReason] = useState('');
+  useEffect(() => { if (open) setReason(''); }, [open]);
+  const reasonMissing = reason.trim().length === 0;
+
   return (
     <Dialog open={open} onClose={onClose}>
       <DialogHeader>
@@ -61,12 +72,28 @@ export function UserBulkDeleteDialog({
             <p className="mt-1">Only the audit trail entries survive, recording each username, full name, role and status at the time of deletion.</p>
           </div>
         </div>
+        <label className="mt-4 block space-y-1">
+          <span className="text-sm font-medium text-slate-700">Reason</span>
+          <textarea
+            rows={3}
+            value={reason}
+            maxLength={USER_ACTION_REASON_MAX}
+            onChange={(e) => setReason(e.target.value)}
+            className="ctl w-full"
+            placeholder="Why are these accounts being deleted?"
+            aria-label="Reason"
+          />
+          <span className="block text-xs text-slate-500">
+            Required. Recorded in the audit trail against your user, on every account.
+          </span>
+        </label>
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Cancel</Button>
         <Button
           variant="destructive"
-          onClick={onConfirm}
+          onClick={() => onConfirm(reason.trim())}
+          disabled={reasonMissing}
           loading={bulkDeleting}
           loadingText="Deleting…"
         >

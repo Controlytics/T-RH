@@ -44,6 +44,10 @@ vi.mock('../../../lib/reauth-check.js', () => ({
 }));
 vi.mock('@digilog/shared', () => ({
   getDefaultTemplates: mockGetDefaultTemplates,
+  // role.service.ts (imported for assertRoleWithinCallerPrivilege since the
+  // 2026-10-03 API-1 fix) builds its permission catalogue from this at import
+  // time; without it the whole file failed to load.
+  PERMISSIONS: {},
   FEATURE_TO_PERMISSION_MAP: { 'user-management': ['USER_CREATE', 'USER_READ'] },
   FEATURE_PRIVILEGES: [{ id: 'user-management', label: 'User Management' }],
   SIDEBAR_PRIVILEGE_MAP: [
@@ -147,6 +151,18 @@ describe('configService', () => {
   });
 
   describe('updateRoleConfig — sidebar ↔ permission link', () => {
+    // The role must EXIST (audit 2026-10-03, API-20): a name with no role row
+    // is a 404, not a fresh orphan `role_configs` row.
+    beforeEach(() => { mockPrisma.role.findUnique.mockResolvedValue({ name: 'QA' }); });
+
+    it('404s for a role that does not exist and writes nothing', async () => {
+      mockPrisma.role.findUnique.mockResolvedValue(null);
+      await expect(configService.updateRoleConfig('GHOST', { sidebarItems: ['users'] }, ctx as any))
+        .rejects.toThrow('Role not found');
+      expect(mockConfigRepo.upsertRoleConfig).not.toHaveBeenCalled();
+      expect(mockAuditLog).not.toHaveBeenCalled();
+    });
+
     it('grants a sidebar item\'s primary permission when the item is enabled (sidebar-only save)', async () => {
       mockConfigRepo.findRoleConfig.mockResolvedValue(null);
       mockConfigRepo.upsertRoleConfig.mockResolvedValue({ role: 'QA', sidebarItems: ['users'], homeWidgets: [], permissions: {} });

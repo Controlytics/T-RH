@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 
@@ -11,10 +12,28 @@ interface ActionDialogData {
 interface UserActionDialogProps {
   actionDialog: ActionDialogData | null;
   onClose: () => void;
-  onConfirm: () => void;
+  /**
+   * Called with the operator's REASON for a delete or a disable (audit
+   * 2026-10-03, DATA-11): the server refuses both without one (400
+   * REASON_REQUIRED) and stores it on the USER_DELETED / USER_DISABLED row.
+   * An enable needs none and passes an empty string.
+   */
+  onConfirm: (reason: string) => void;
 }
 
+/** The two actions that sign with a reason. */
+export const REASON_ACTIONS = new Set(['delete', 'disable']);
+export const USER_ACTION_REASON_MAX = 500;
+
 export function UserActionDialog({ actionDialog, onClose, onConfirm }: UserActionDialogProps) {
+  const [reason, setReason] = useState('');
+  // Cleared on every open: a reason left over from the previous action would be
+  // recorded against a different account.
+  useEffect(() => { if (actionDialog) setReason(''); }, [actionDialog]);
+
+  const needsReason = !!actionDialog && REASON_ACTIONS.has(actionDialog.type);
+  const reasonMissing = needsReason && reason.trim().length === 0;
+
   return (
     <Dialog open={!!actionDialog} onClose={onClose}>
       <DialogHeader>
@@ -74,12 +93,32 @@ export function UserActionDialog({ actionDialog, onClose, onConfirm }: UserActio
             </div>
           </div>
         )}
+        {needsReason && (
+          <label className="mt-4 block space-y-1">
+            <span className="text-sm font-medium text-slate-700">Reason</span>
+            <textarea
+              rows={3}
+              value={reason}
+              maxLength={USER_ACTION_REASON_MAX}
+              onChange={(e) => setReason(e.target.value)}
+              className="ctl w-full"
+              placeholder={actionDialog?.type === 'delete' ? 'Why is this account being deleted?' : 'Why is this account being disabled?'}
+              aria-label="Reason"
+            />
+            {/* The §11 disclosure: the operator signing for this sees that the
+                reason is part of the record. */}
+            <span className="block text-xs text-slate-500">
+              Required. Recorded in the audit trail against your user.
+            </span>
+          </label>
+        )}
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Cancel</Button>
         <Button
           variant={(actionDialog?.type === 'disable' || actionDialog?.type === 'delete') ? 'destructive' : 'success'}
-          onClick={onConfirm}
+          disabled={reasonMissing}
+          onClick={() => onConfirm(needsReason ? reason.trim() : '')}
         >
           {actionDialog?.type === 'enable' && (
             <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">

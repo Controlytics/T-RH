@@ -1,4 +1,5 @@
 import type { RequestContext } from '../../types/context.js';
+import { requireReason } from '../../lib/require-reason.js';
 import { auditLog } from '../../lib/audit.js';
 import { NotFoundError, ValidationError } from '../../lib/errors.js';
 import { configRepository } from './config.repository.js';
@@ -217,7 +218,14 @@ export const configService = {
     };
   },
 
-  async updateRoleConfig(role: string, data: { sidebarItems?: string[]; homeWidgets?: string[]; permissions?: Record<string, boolean> }, ctx: RequestContext) {
+  async updateRoleConfig(role: string, data: { sidebarItems?: string[]; homeWidgets?: string[]; permissions?: Record<string, boolean>; reason?: unknown }, ctx: RequestContext) {
+    // 404 for a role that does not exist (audit 2026-10-03, API-20): the
+    // upsert below used to create — and audit — an orphan `role_configs` row
+    // for any name in the URL, which then resurfaced as that role's config if
+    // the name was ever created.
+    const roleRow = await prisma.role.findUnique({ where: { name: role }, select: { name: true } });
+    if (!roleRow) throw new NotFoundError('Role not found');
+
     const existing = await configRepository.findRoleConfig(role);
     const beforeValue = existing ? { sidebarItems: existing.sidebarItems, homeWidgets: existing.homeWidgets, permissions: existing.permissions } : null;
 
@@ -236,6 +244,12 @@ export const configService = {
     const plan = (data.permissions || data.sidebarItems)
       ? await this.planRolePermissions(role, data, existing)
       : null;
+    // A change to the role's PERMISSION SET — a grant or a revocation — needs
+    // the operator's stated reason (audit 2026-10-03, DATA-11): this PUT is the
+    // Permissions tab, the place role permissions actually change from the UI,
+    // and the Roles page's own update already demands one. A sidebar-only
+    // rearrangement that moves no permission needs none. Measured against the
+    // STORED set, so re-saving the same toggles is not a change.
     if (plan && plan.added.length > 0) {
       await assertRoleWithinCallerPrivilege(
         ctx,
@@ -243,6 +257,12 @@ export const configService = {
         { name: role, hierarchyLevel: plan.hierarchyLevel, permissions: plan.currentPerms },
       );
     }
+    // AFTER the privilege check: a caller who may not make the change at all
+    // is told so (403) before being asked why they are making it (400).
+    const permissionSetChanged = plan !== null && (
+      plan.added.length > 0 || plan.currentPerms.some((p) => !plan.permissionsArray.includes(p))
+    );
+    const reason = permissionSetChanged ? requireReason(data.reason, "Changing a role's permissions") : undefined;
 
     const config = await configRepository.upsertRoleConfig(role, data, existing, ctx.userId);
 
@@ -271,6 +291,7 @@ export const configService = {
       beforeValue: beforeValue as any,
       afterValue: { sidebarItems: config.sidebarItems, homeWidgets: config.homeWidgets, permissions: config.permissions },
       signatureMeaning: `Role configuration updated for ${role}`,
+      reason,
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
 

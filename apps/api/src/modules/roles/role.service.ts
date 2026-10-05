@@ -1,7 +1,10 @@
 import { z } from 'zod';
 import { PERMISSIONS } from '@digilog/shared';
 import { auditLog } from '../../lib/audit.js';
+import { prisma } from '../../lib/prisma.js';
 import { AppError, NotFoundError, ConflictError, ValidationError } from '../../lib/errors.js';
+import { requireReason, REASON_MAX } from '../../lib/require-reason.js';
+import { invalidateUserAuthCache, invalidateSessionAuthCache } from '../../plugins/auth.js';
 import type { RequestContext } from '../../types/context.js';
 import { roleRepository } from './role.repository.js';
 
@@ -62,6 +65,8 @@ const createRoleSchema = z.object({
   hierarchyLevel: z.number().int().min(1).max(10),
   permissions: z.array(z.string()).default([]),
   color: z.string().max(100).default('#6366f1'),
+  // Stored on the ROLE_CREATED row when given (audit 2026-10-03, DATA-11).
+  reason: z.string().max(REASON_MAX).optional(),
 });
 
 const updateRoleSchema = z.object({
@@ -71,7 +76,16 @@ const updateRoleSchema = z.object({
   permissions: z.array(z.string()).optional(),
   color: z.string().max(100).optional(),
   isActive: z.boolean().optional(),
+  // REQUIRED when the permission set changes — see update() (DATA-11).
+  reason: z.string().max(REASON_MAX).optional(),
 });
+
+/** Same permission SET, order ignored. */
+function samePermissions(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const s = new Set(a);
+  return b.every((p) => s.has(p));
+}
 
 // ---------------------------------------------------------------------------
 // Permission metadata — labels and categories for each PERMISSIONS key
@@ -170,26 +184,31 @@ export const roleService = {
 
     await assertRoleWithinCallerPrivilege(ctx, { hierarchyLevel: parsed.data.hierarchyLevel, permissions: parsed.data.permissions });
 
-    const role = await roleRepository.create({
-      name: parsed.data.name,
-      displayName: parsed.data.displayName,
-      description: parsed.data.description,
-      hierarchyLevel: parsed.data.hierarchyLevel,
-      permissions: parsed.data.permissions,
-      color: parsed.data.color,
-      createdBy: ctx.userId,
-    });
+    // The row and its audit row commit together (audit 2026-10-03, API-7).
+    const role = await prisma.$transaction(async (tx) => {
+      const created = await roleRepository.create({
+        name: parsed.data.name,
+        displayName: parsed.data.displayName,
+        description: parsed.data.description,
+        hierarchyLevel: parsed.data.hierarchyLevel,
+        permissions: parsed.data.permissions,
+        color: parsed.data.color,
+        createdBy: ctx.userId,
+      }, tx);
 
-    await auditLog({
-      userId: ctx.userId,
-      userRole: ctx.userRole,
-      action: 'ROLE_CREATED',
-      targetType: 'role',
-      targetId: role.name,
-      afterValue: role,
-      ipAddress: ctx.ipAddress,
-      userAgent: ctx.userAgent,
-      sessionId: ctx.sessionId,
+      await auditLog({
+        userId: ctx.userId,
+        userRole: ctx.userRole,
+        action: 'ROLE_CREATED',
+        targetType: 'role',
+        targetId: created.name,
+        afterValue: created,
+        reason: parsed.data.reason?.trim() || undefined,
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+        sessionId: ctx.sessionId,
+      }, tx);
+      return created;
     });
 
     return { success: true, data: role };
@@ -213,78 +232,121 @@ export const roleService = {
       { name: existing.name, hierarchyLevel: (existing as any).hierarchyLevel, permissions: ((existing as any).permissions as string[]) ?? [] },
     );
 
-    let role;
+    const { reason: rawReason, ...fields } = parsed.data;
+    const existingPerms = ((existing as any).permissions as string[]) ?? [];
 
-    // System roles can only have permissions, color, displayName, and description updated
+    // A CHANGE to the permission set needs the operator's reason (audit
+    // 2026-10-03, DATA-11). A change, not a mention: the Roles page sends the
+    // whole form on every save, so a display-name edit carries the unchanged
+    // permission list — demanding a reason for that would demand one for
+    // nothing. The reason is stored on the ROLE_UPDATED row.
+    const permissionsChange = fields.permissions !== undefined && !samePermissions(fields.permissions, existingPerms);
+    const reason = permissionsChange
+      ? requireReason(rawReason, "Changing a role's permissions")
+      : (rawReason?.trim() || undefined);
+
+    // System roles can only have permissions, color, displayName, and
+    // description updated. A request to CHANGE one of the other two is refused
+    // loudly (audit 2026-10-03, API-15): it used to be dropped on the floor
+    // with `success: true`, so an administrator "switching off" ADMIN was told
+    // it had worked. Echoing the stored value back is not a change and passes
+    // — the Roles page sends `hierarchyLevel` on every save.
     if (existing.isSystem) {
-      const allowedUpdates: any = {};
-      if (parsed.data.permissions !== undefined) allowedUpdates.permissions = parsed.data.permissions;
-      if (parsed.data.color !== undefined) allowedUpdates.color = parsed.data.color;
-      if (parsed.data.displayName !== undefined) allowedUpdates.displayName = parsed.data.displayName;
-      if (parsed.data.description !== undefined) allowedUpdates.description = parsed.data.description;
-
-      role = await roleRepository.update(name, {
-        ...allowedUpdates,
-        updatedBy: ctx.userId,
-      });
-    } else {
-      // Non-system roles can be fully updated
-      role = await roleRepository.update(name, {
-        ...parsed.data,
-        updatedBy: ctx.userId,
-      });
+      const refused: string[] = [];
+      if (fields.hierarchyLevel !== undefined && fields.hierarchyLevel !== existing.hierarchyLevel) refused.push('hierarchyLevel');
+      if (fields.isActive !== undefined && fields.isActive !== existing.isActive) refused.push('isActive');
+      if (refused.length > 0) {
+        throw new ValidationError(
+          `${refused.join(' and ')} cannot be changed on the system role ${existing.name}`,
+          { fieldErrors: Object.fromEntries(refused.map((f) => [f, ['Cannot be changed on a system role']])) },
+        );
+      }
+      delete fields.hierarchyLevel;
+      delete fields.isActive;
     }
 
-    await auditLog({
-      userId: ctx.userId,
-      userRole: ctx.userRole,
-      action: 'ROLE_UPDATED',
-      targetType: 'role',
-      targetId: role.name,
-      beforeValue: existing,
-      afterValue: role,
-      ipAddress: ctx.ipAddress,
-      userAgent: ctx.userAgent,
-      sessionId: ctx.sessionId,
+    const deactivating = fields.isActive === false && existing.isActive === true;
+
+    let endedSessionIds: string[] = [];
+    const role = await prisma.$transaction(async (tx) => {
+      const updated = await roleRepository.update(name, {
+        ...fields,
+        updatedBy: ctx.userId,
+      }, tx);
+
+      // Deactivating a role revokes access NOW (API-15): every live session of
+      // a user holding it is ended in the same transaction, and the rbac
+      // plugin answers [] permissions for an inactive role. Until then the
+      // flag changed nothing — every request still authorised.
+      let sessionsEnded = 0;
+      if (deactivating) {
+        const ended = await roleRepository.terminateSessionsForRole(name, 'role_deactivated', tx);
+        sessionsEnded = ended.count;
+        endedSessionIds = ended.sessionIds;
+      }
+
+      await auditLog({
+        userId: ctx.userId,
+        userRole: ctx.userRole,
+        action: 'ROLE_UPDATED',
+        targetType: 'role',
+        targetId: updated.name,
+        beforeValue: existing,
+        afterValue: deactivating ? { ...updated, sessionsTerminated: sessionsEnded } : updated,
+        reason,
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+        sessionId: ctx.sessionId,
+      }, tx);
+      return updated;
     });
+
+    if (deactivating) {
+      // The auth plugin caches sessions (by session id) and users (by user id)
+      // for 30 s, and the two caches are evicted separately — a session ended
+      // in the database keeps answering until its cache entry goes. Both are
+      // dropped here, after commit, so the next request from any holder is
+      // refused at once.
+      for (const id of endedSessionIds) invalidateSessionAuthCache(id);
+      const holders = await prisma.user.findMany({ where: { role: name }, select: { id: true } });
+      for (const u of holders) invalidateUserAuthCache(u.id);
+    }
 
     return { success: true, data: role };
   },
 
-  /** Delete a role. Checks for assigned users first. */
-  async delete(name: string, ctx: RequestContext) {
+  /** Delete a role. The "no assigned users" check runs inside the delete's transaction. */
+  async delete(name: string, ctx: RequestContext, rawReason?: string) {
     const existing = await roleRepository.findByName(name);
     if (!existing) {
       throw new NotFoundError('Role not found');
     }
+    const reason = rawReason?.trim() || undefined;
 
-    // Check if any users have this role
-    const usersWithRole = await roleRepository.countUsersByRole(name);
-    if (usersWithRole > 0) {
-      const err = new AppError(409, 'ROLE_HAS_USERS', 'Cannot delete role with assigned users');
-      (err as any).usersCount = usersWithRole;
-      throw err;
-    }
-
-    await roleRepository.delete(name);
-
-    await auditLog({
-      userId: ctx.userId,
-      userRole: ctx.userRole,
-      action: 'ROLE_DELETED',
-      targetType: 'role',
-      targetId: name,
-      beforeValue: {
-        name: existing.name,
-        displayName: existing.displayName,
-        hierarchyLevel: existing.hierarchyLevel,
-        permissions: existing.permissions,
-      },
-      afterValue: { deleted: true },
-      signatureMeaning: `Custom role "${existing.displayName}" permanently deleted`,
-      ipAddress: ctx.ipAddress,
-      userAgent: ctx.userAgent,
-      sessionId: ctx.sessionId,
+    // Count, delete and audit row in ONE transaction (API-7, API-20): the
+    // repository counts immediately before the delete and throws
+    // ROLE_HAS_USERS (409) — which rolls the whole thing back.
+    await prisma.$transaction(async (tx) => {
+      await roleRepository.delete(name, tx);
+      await auditLog({
+        userId: ctx.userId,
+        userRole: ctx.userRole,
+        action: 'ROLE_DELETED',
+        targetType: 'role',
+        targetId: name,
+        beforeValue: {
+          name: existing.name,
+          displayName: existing.displayName,
+          hierarchyLevel: existing.hierarchyLevel,
+          permissions: existing.permissions,
+        },
+        afterValue: { deleted: true },
+        reason,
+        signatureMeaning: `Custom role "${existing.displayName}" permanently deleted`,
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+        sessionId: ctx.sessionId,
+      }, tx);
     });
 
     return { success: true };
