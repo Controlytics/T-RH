@@ -6,10 +6,14 @@ import { Input } from '@/components/ui/input';
 import { Pagination } from '@/components/ui/pagination';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
+import { useRowKeys } from '@/hooks/use-row-keys';
+import { useToast } from '@/hooks/use-toast';
 import { PageHero } from '@/components/ui/page-hero';
 import { Tabs } from '@/components/ui/tabs';
 import { EmptyState } from '@/components/ui/empty-state';
-import { ALL_RECORDS_PARAM } from '@digilog/shared';
+import {
+  ALL_RECORDS_PARAM, notificationRuleFormSchema, notificationTemplateFormSchema, formFieldErrors, type FormFieldErrors,
+} from '@digilog/shared';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -200,15 +204,27 @@ function RulesTab() {
   const roles = (rolesData ?? []).filter(r => r.name !== 'SUPER_ADMIN');
 
   const [editing, setEditing] = useState<Partial<NotificationRule> | null>(null);
+  // Stable keys for the recipient rows (audit 2026-10-03, WEB-14).
+  const recipientKeys = useRowKeys(editing?.recipients?.length ?? 0);
   const [saving, setSaving] = useState(false);
+  const { toast } = useToast();
   const [error, setError] = useState('');
+  // Field errors from the form schema (audit 2026-10-03, WEB-15).
+  const [fieldErrors, setFieldErrors] = useState<FormFieldErrors>({});
   // The rule awaiting delete confirmation — held whole so the dialog can name
   // it. `window.confirm` was used here until 2026-08-06.
   const [pendingDelete, setPendingDelete] = useState<NotificationRule | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   const saveRule = async () => {
-    if (!editing?.name || !(editing?.eventTypes?.length)) return;
+    if (!editing) return;
+    const parsed = notificationRuleFormSchema.safeParse({
+      ...editing,
+      eventTypes: editing.eventTypes ?? (editing.eventType ? [editing.eventType] : []),
+      cooldownMinutes: editing.cooldownMinutes ?? 0, priority: editing.priority ?? 0, recipients: editing.recipients ?? [],
+    });
+    if (!parsed.success) { setFieldErrors(formFieldErrors(parsed.error)); return; }
+    setFieldErrors({});
     setSaving(true);
     setError('');
     try {
@@ -247,9 +263,12 @@ function RulesTab() {
   const testRule = async (id: string) => {
     try {
       const result = await apiClient.post<{ success: boolean; message?: string; error?: string }>(`/api/notification-rules/${id}/test`, {});
-      alert(result.success ? result.message : result.error);
+      // A toast, not a browser alert() (2026-10-05): every other outcome on
+      // this page reports through the toast, and a modal alert blocks the tab.
+      if (result.success) toast.success('Test sent', result.message ?? 'The rule fired.');
+      else toast.error('Test failed', result.error ?? 'The rule did not fire.');
     } catch (err: any) {
-      alert(err.message);
+      toast.error('Test failed', err.message);
     }
   };
 
@@ -261,6 +280,7 @@ function RulesTab() {
 
   const removeRecipient = (idx: number) => {
     if (!editing) return;
+    recipientKeys.remove(idx);
     const recipients = (editing.recipients ?? []).filter((_, i) => i !== idx);
     setEditing({ ...editing, recipients });
   };
@@ -290,6 +310,7 @@ function RulesTab() {
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Rule Name *</label>
             <Input value={editing.name ?? ''} onChange={e => setEditing({ ...editing, name: e.target.value })} placeholder="e.g. Cycle Completion Alert" />
+            {fieldErrors.name && <p className="mt-1 text-xs text-red-600">{fieldErrors.name[0]}</p>}
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Event Types *</label>
@@ -298,6 +319,7 @@ function RulesTab() {
               selected={editing.eventTypes ?? (editing.eventType ? [editing.eventType] : [])}
               onChange={(vals) => setEditing({ ...editing, eventTypes: vals, eventType: vals[0] ?? '' })}
             />
+            {fieldErrors.eventTypes && <p className="mt-1 text-xs text-red-600">{fieldErrors.eventTypes[0]}</p>}
           </div>
         </div>
 
@@ -379,7 +401,7 @@ function RulesTab() {
           <label className="block text-sm font-medium text-slate-700 mb-2">Recipients</label>
           <div className="space-y-2">
             {(editing.recipients ?? []).map((r, idx) => (
-              <div key={idx} className="flex items-center gap-2 bg-slate-50 p-3 rounded-lg">
+              <div key={recipientKeys.at(idx)} className={`flex items-center gap-2 bg-slate-50 p-3 rounded-lg ${fieldErrors[`recipients.${idx}`] ? 'ring-1 ring-red-400' : ''}`} title={fieldErrors[`recipients.${idx}`]?.[0]}>
                 <select
                   value={r.recipientType}
                   onChange={e => updateRecipient(idx, 'recipientType', e.target.value)}
@@ -429,6 +451,9 @@ function RulesTab() {
               </div>
             ))}
           </div>
+          {Object.keys(fieldErrors).some((k) => k.startsWith('recipients.')) && (
+            <p className="mt-1 text-xs text-red-600">Every recipient row needs a choice — pick one, or remove the row.</p>
+          )}
           <div className="flex gap-2 mt-2">
             <button onClick={() => addRecipient('ROLE')} className="px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100">+ Add Role</button>
             <button onClick={() => addRecipient('GROUP')} className="px-3 py-1.5 text-xs font-medium bg-green-50 text-green-700 rounded-lg hover:bg-green-100">+ Add Group</button>
@@ -441,18 +466,20 @@ function RulesTab() {
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Cooldown (minutes)</label>
             <Input type="number" min={0} value={editing.cooldownMinutes ?? 0} onChange={e => setEditing({ ...editing, cooldownMinutes: Number(e.target.value) })} />
+            {fieldErrors.cooldownMinutes && <p className="mt-1 text-xs text-red-600">{fieldErrors.cooldownMinutes[0]}</p>}
             <p className="text-xs text-slate-400 mt-1">0 = no cooldown, send every time</p>
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Priority</label>
             <Input type="number" value={editing.priority ?? 0} onChange={e => setEditing({ ...editing, priority: Number(e.target.value) })} />
+            {fieldErrors.priority && <p className="mt-1 text-xs text-red-600">{fieldErrors.priority[0]}</p>}
             <p className="text-xs text-slate-400 mt-1">Higher = evaluated first</p>
           </div>
         </div>
 
         <div className="flex justify-end gap-3 pt-2">
           <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
-          <Button onClick={saveRule} disabled={saving || !editing.name || !(editing.eventTypes?.length)}>
+          <Button onClick={saveRule} disabled={saving}>
             {saving ? 'Saving...' : editing.id ? 'Update Rule' : 'Create Rule'}
           </Button>
         </div>
@@ -719,11 +746,17 @@ function TemplatesTab() {
   const { data: eventTypes } = useSWR<EventTypeMeta[]>('/api/notification-rules/event-types', { revalidateOnMount: true, dedupingInterval: 0 });
   const [editing, setEditing] = useState<Partial<Template> | null>(null);
   const [saving, setSaving] = useState(false);
+  const { toast } = useToast();
+  // Field errors from the form schema (audit 2026-10-03, WEB-15).
+  const [fieldErrors, setFieldErrors] = useState<FormFieldErrors>({});
   const [pendingDelete, setPendingDelete] = useState<Template | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   const saveTemplate = async () => {
-    if (!editing?.name || !editing?.bodyTemplate) return;
+    if (!editing) return;
+    const parsed = notificationTemplateFormSchema.safeParse({ ...editing, channel: editing.channel ?? 'EMAIL' });
+    if (!parsed.success) { setFieldErrors(formFieldErrors(parsed.error)); return; }
+    setFieldErrors({});
     setSaving(true);
     try {
       if (editing.id) {
@@ -734,7 +767,7 @@ function TemplatesTab() {
       mutate();
       setEditing(null);
     } catch (err: any) {
-      alert(err.message);
+      toast.error('Save failed', err.message);
     }
     setSaving(false);
   };
@@ -765,6 +798,7 @@ function TemplatesTab() {
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Template Name *</label>
             <Input value={editing.name ?? ''} onChange={e => setEditing({ ...editing, name: e.target.value })} placeholder="e.g. Cycle Completion Email" />
+            {fieldErrors.name && <p className="mt-1 text-xs text-red-600">{fieldErrors.name[0]}</p>}
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Channel *</label>
@@ -789,8 +823,9 @@ function TemplatesTab() {
             onChange={e => setEditing({ ...editing, bodyTemplate: e.target.value })}
             rows={8}
             className="ctl w-full font-mono"
-            placeholder={editing.channel === 'EMAIL' ? '<h2>${eventType}</h2>\n<p>Filter: ${entityName}</p>' : 'DigiLog Alert: ${eventType} on ${entityName}'}
+            placeholder={editing.channel === 'EMAIL' ? '<h2>${eventType}</h2>\n<p>Filter: ${entityName}</p>' : 'Alert: ${eventType} on ${entityName}'}
           />
+          {fieldErrors.bodyTemplate && <p className="mt-1 text-xs text-red-600">{fieldErrors.bodyTemplate[0]}</p>}
         </div>
 
         {selectedEvent && (

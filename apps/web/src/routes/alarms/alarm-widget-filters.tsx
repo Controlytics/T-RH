@@ -35,15 +35,14 @@ export const EMPTY_WIDGET_FILTERS: AlarmWidgetFilterValue = { search: '', type: 
 /**
  * The two quadrants that can occur while a query is pinned to `state=ACTIVE`.
  *
- * The dashboard panel passes these. Offering all four there would put two options
- * in the list that can only ever return an empty table: `quadrantWhere` emits
- * `{ state: 'CLEARED' }` and the panel's own scope ANDs `{ state: 'ACTIVE' }`, so
- * `state = ACTIVE AND state = CLEARED` matches nothing, always. Same rule as the
- * Card height control hidden on an auto-height panel — a control that cannot
- * change the result is a decoy, and this one would look like a filter that found
- * nothing rather than one that could not.
+ * `ACTIVE_QUADRANTS` — the two active statuses alone, for a surface scoped to
+ * `state=ACTIVE` — was REMOVED (audit 2026-10-03, WEB-9). Its one consumer,
+ * the dashboard panel, stopped scoping to active alarms on 2026-09-25 and
+ * passes the default four; nothing imported it since. The rule it encoded
+ * still stands: never offer a status option the surface's own scope makes
+ * unsatisfiable — `state = ACTIVE AND state = CLEARED` matches nothing and
+ * reads as a filter that found nothing rather than one that could not.
  */
-export const ACTIVE_QUADRANTS = ALARM_QUADRANTS.filter((q) => q.id.startsWith('active-'));
 
 export function AlarmWidgetFilters({
   value, onChange, typeNames, statusOptions = ALARM_QUADRANTS,
@@ -55,8 +54,8 @@ export function AlarmWidgetFilters({
    *  column together. Undefined until the config has loaded — `alarmTypeOptions`
    *  then yields the shipped wording, never a blank list. */
   typeNames?: Record<string, string>;
-  /** Defaults to all four. Pass {@link ACTIVE_QUADRANTS} on a surface scoped to
-   *  active alarms. */
+  /** Defaults to all four. A surface whose own scope rules some out must pass
+   *  only the ones its query can satisfy — see the note above. */
   statusOptions?: readonly { id: AlarmQuadrant; label: string }[];
   /** Distinguishes the two boxes for a screen reader; both can be on screen at
    *  once is not the case today, but "Search" alone names nothing. */

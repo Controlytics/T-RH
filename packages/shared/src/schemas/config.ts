@@ -17,9 +17,13 @@ export const BRANDING_TAB_TITLE_DEFAULT = 'T&RH-Monitoring';
 
 export const brandingConfigSchema = z.object({
   // Logo & App Identity
-  appName: z.string().min(1).max(50).default('DigiLog'),
-  appTagline: z.string().max(100).default('21 CFR Part 11 Compliant Digital Logbook'),
-  logoText: z.string().min(1).max(5).default('DL'),
+  // The product's own name, not upstream DigiLog's (2026-10-05, audit WEB-16):
+  // these are what the API serves on a fresh install before Branding is ever
+  // saved, so they are the ONE place the shipped name lives — the web's own
+  // fallbacks read the same constant.
+  appName: z.string().min(1).max(50).default(BRANDING_TAB_TITLE_DEFAULT),
+  appTagline: z.string().max(100).default('21 CFR Part 11 Compliant Monitoring'),
+  logoText: z.string().min(1).max(5).default('TRH'),
   logoUrl: z.string().max(3000000).default(''), // URL or data URI for logo image; ~3M chars ≈ a 2MB base64 image (raised from 500k 2026-06-29)
 
   // The BROWSER TAB — its title and its icon (2026-09-03).

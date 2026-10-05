@@ -47,9 +47,20 @@ vi.mock('@/hooks/use-toast', () => ({
 vi.mock('@/hooks/use-datetime-format', () => ({
   useDatetimeFormat: () => ({ formatDate: (v: string) => v, formatTime: () => '' }),
 }));
+/** Every action the screen signed under (audit 2026-10-03, SEC-7). Pass-through
+ *  otherwise, as the Attributes panel test does: the callback runs with no
+ *  password — the path for a role whose policy is off. */
+const reauthActions: string[] = [];
 vi.mock('@/hooks/use-reauth', () => ({
   useReauth: () => ({
-    execute: async (_a: string, cb: (p?: string) => Promise<void>) => { await cb(); },
+    execute: async (
+      action: string,
+      cb: (p?: string) => Promise<void>,
+      opts?: { onSuccess?: () => void; onError?: (e: unknown) => void; onCancel?: () => void },
+    ) => {
+      reauthActions.push(action);
+      try { await cb(); await opts?.onSuccess?.(); } catch (e) { opts?.onError?.(e); }
+    },
     isOpen: false, password: '', error: '', isVerifying: false,
     setPassword: vi.fn(), confirm: vi.fn(), cancel: vi.fn(), needsReauth: () => false,
   }),
@@ -82,6 +93,15 @@ describe('instrument detail — delete confirmation', () => {
     fireEvent.click(screen.getByRole('button', { name: /^delete instrument$/i }));
     await waitFor(() => expect(del).toHaveBeenCalledWith('/api/instruments/i-1'));
     await waitFor(() => expect(screen.getByText('Instrument list')).toBeInTheDocument());
+  });
+
+  it('signs the delete under the DELETE_INSTRUMENT re-auth action (audit 2026-10-03, SEC-7)', async () => {
+    reauthActions.length = 0;
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^delete instrument$/i }));
+    await waitFor(() => expect(del).toHaveBeenCalledWith('/api/instruments/i-1'));
+    expect(reauthActions).toEqual(['DELETE_INSTRUMENT']);
   });
 
   it('deletes nothing when cancelled', async () => {

@@ -79,22 +79,12 @@ export function ChangePasswordPage() {
     try {
       await apiClient.post('/api/auth/change-password', data);
       await mutate();
-      // 2026-05-20: tablet users routed here by mobile-login.tsx (temp/forced
-      // change password flow) need to land back on /m, not the desktop
-      // dashboard. mobile-login stashes the hint before navigating us here.
-      //
-      // 2026-05-21 hardening: when the sessionStorage hint is missing for any
-      // reason (lost during navigation race / WebView storage quirk), detect
-      // Capacitor and default to /m instead of /. Without this, tablet users
-      // landed on the desktop dashboard or were bounced through the Capacitor
-      // auto-redirect (main.tsx) back to /m/login — operators saw a "refresh
-      // to login" symptom right after submitting their new password.
-      const isCapacitor = !!(window as any).Capacitor?.isNativePlatform?.();
-      const hint = sessionStorage.getItem('post_change_password_redirect');
-      sessionStorage.removeItem('post_change_password_redirect');
-      const redirect = hint || (isCapacitor ? '/m' : '/');
+      // Always the dashboard. The `window.Capacitor` check and the
+      // `post_change_password_redirect` hint that used to decide between `/`
+      // and `/m` went with the Capacitor remnants (audit 2026-10-03, WEB-10):
+      // there is no `/m` route in this fork and nothing ever wrote the hint.
       toast.success('Password changed successfully', 'Your password has been updated.');
-      navigate(redirect);
+      navigate('/');
     } catch (err: any) {
       const message = err.message || 'Failed to change password';
       setError(message);

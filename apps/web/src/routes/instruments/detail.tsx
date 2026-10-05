@@ -168,19 +168,36 @@ export function InstrumentDetailPage() {
       // id, and the server moves the broker slots; the device must reconnect
       // with the new id (name follows the code when it was the code).
       const newCode = (draft.code ?? inst.code).trim();
-      await apiClient.put(`/api/instruments/${inst.id}`, {
+      const body = {
         ...(newCode && newCode !== inst.code ? { code: newCode } : {}),
         isGateway: draft.isGateway ?? false,
+      };
+      // `UPDATE_INSTRUMENT` is an admin-configurable re-auth action (audit
+      // 2026-10-03, SEC-7; the server checks it FIRST on PUT). Through the
+      // shared hook, idempotent: the hook replays the callback with the
+      // password after a 401 and a replay must not PUT twice.
+      setReauthLabel('Update Instrument');
+      let written = false;
+      await reauth.execute('UPDATE_INSTRUMENT', async (password?: string) => {
+        if (written) return;
+        if (password) await apiClient.putWithReauth(`/api/instruments/${inst.id}`, body, password);
+        else await apiClient.put(`/api/instruments/${inst.id}`, body);
+        written = true;
+      }, {
+        onSuccess: () => {
+          setEditing(false);
+          void mutate();
+          toast.success('Instrument updated', newCode !== inst.code
+            ? `Instrument ID is now ${newCode}. Reconnect the device with the new ID.`
+            : `"${inst.code}" saved.`);
+        },
+        // D6: disabling Is Gateway while children remain is refused with a 409
+        // whose message already names the children — surface it verbatim rather
+        // than writing a generic one, it carries the detail the operator needs.
+        onError: (err: unknown) =>
+          toast.error('Update failed', (err as { message?: string })?.message ?? 'Could not save.'),
       });
-      setEditing(false);
-      void mutate();
-      toast.success('Instrument updated', newCode !== inst.code
-        ? `Instrument ID is now ${newCode}. Reconnect the device with the new ID.`
-        : `"${inst.code}" saved.`);
     } catch (err: unknown) {
-      // D6: disabling Is Gateway while children remain is refused with a 409
-      // whose message already names the children — surface it verbatim rather
-      // than writing a generic one, it carries the detail the operator needs.
       toast.error('Update failed', (err as { message?: string })?.message ?? 'Could not save.');
     }
   };
@@ -256,37 +273,62 @@ export function InstrumentDetailPage() {
     // live during the request, so a double click sent a second DELETE and the
     // operator got a spurious 404 toast for a row that had just been removed.
     setDeleting(true);
-    try {
-      await apiClient.delete(`/api/instruments/${inst.id}`);
-      toast.success('Instrument deleted', `"${inst.code}" removed.`);
-      // No `setDeleting(false)` / dialog close on success — we navigate away,
-      // and this component unmounts.
-      navigate('/instruments');
-    } catch (err: unknown) {
-      setConfirmDelete(false);
-      setDeleting(false);
-      toast.error('Delete failed', (err as { message?: string })?.message ?? 'Could not delete.');
-    }
+    // `DELETE_INSTRUMENT` is an admin-configurable re-auth action (audit
+    // 2026-10-03, SEC-7). Idempotent — see `save`.
+    setReauthLabel('Delete Instrument');
+    let done = false;
+    const abandon = () => { setConfirmDelete(false); setDeleting(false); };
+    await reauth.execute('DELETE_INSTRUMENT', async (password?: string) => {
+      if (done) return;
+      if (password) await apiClient.deleteWithReauth(`/api/instruments/${inst.id}`, password);
+      else await apiClient.delete(`/api/instruments/${inst.id}`);
+      done = true;
+    }, {
+      onSuccess: () => {
+        toast.success('Instrument deleted', `"${inst.code}" removed.`);
+        // No `setDeleting(false)` / dialog close on success — we navigate away,
+        // and this component unmounts.
+        navigate('/instruments');
+      },
+      onError: (err: unknown) => {
+        abandon();
+        toast.error('Delete failed', (err as { message?: string })?.message ?? 'Could not delete.');
+      },
+      onCancel: abandon,
+    });
   };
 
   const toggleEnabled = async () => {
     setToggling(true);
-    try {
-      await apiClient.put(`/api/instruments/${inst.id}`, { isActive: !inst.isActive });
-      setConfirmToggle(false);
-      void mutate();
-      toast.success(
-        inst.isActive ? 'Instrument disabled' : 'Instrument enabled',
-        inst.isActive
-          ? `${inst.code} will no longer be accepted by the broker.`
-          : `${inst.code} may report again.`,
-      );
-    } catch (err: unknown) {
-      setConfirmToggle(false);
-      toast.error('Could not change this instrument', (err as { message?: string })?.message ?? 'Nothing was changed.');
-    } finally {
-      setToggling(false);
-    }
+    // The same `UPDATE_INSTRUMENT` policy as `save` — this is a PUT on the
+    // instrument (audit 2026-10-03, SEC-7). Idempotent.
+    setReauthLabel('Update Instrument');
+    const body = { isActive: !inst.isActive };
+    let written = false;
+    await reauth.execute('UPDATE_INSTRUMENT', async (password?: string) => {
+      if (written) return;
+      if (password) await apiClient.putWithReauth(`/api/instruments/${inst.id}`, body, password);
+      else await apiClient.put(`/api/instruments/${inst.id}`, body);
+      written = true;
+    }, {
+      onSuccess: () => {
+        setConfirmToggle(false);
+        setToggling(false);
+        void mutate();
+        toast.success(
+          inst.isActive ? 'Instrument disabled' : 'Instrument enabled',
+          inst.isActive
+            ? `${inst.code} will no longer be accepted by the broker.`
+            : `${inst.code} may report again.`,
+        );
+      },
+      onError: (err: unknown) => {
+        setConfirmToggle(false);
+        setToggling(false);
+        toast.error('Could not change this instrument', (err as { message?: string })?.message ?? 'Nothing was changed.');
+      },
+      onCancel: () => { setConfirmToggle(false); setToggling(false); },
+    });
   };
 
   const stamp = (v: string | null) => (v ? `${formatDate(v)} ${formatTime(v)}` : '—');

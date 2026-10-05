@@ -7,7 +7,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
-import { apiUrl } from '@/lib/url-utils';
+import { apiClient } from '@/lib/api-client';
 import { PageHero } from '@/components/ui/page-hero';
 
 interface ValidationResult {
@@ -113,11 +113,12 @@ export function BackupRestorePage() {
     setExporting(true);
     setExportError('');
     await reauth.execute('EXPORT_BACKUP', async (password?) => {
-      const token = sessionStorage.getItem('access_token');
-      const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+      // Through the client's own header builder (audit 2026-10-03, WEB-11),
+      // never a hand-rolled fetch reading the token itself. A non-2xx throws
+      // with the server's message, which `onError` below shows.
+      const headers: Record<string, string> = {};
       if (password) headers['x-reauth-password'] = password;
-      const response = await fetch(apiUrl(`/api/backup/export?format=${selectedFormat}`), { headers });
-      if (!response.ok) throw new Error('Export failed');
+      const response = await apiClient.getRaw(`/api/backup/export?format=${selectedFormat}`, { headers });
 
       const blob = await response.blob();
       const contentDisposition = response.headers.get('Content-Disposition');
@@ -153,21 +154,11 @@ export function BackupRestorePage() {
       const formData = new FormData();
       formData.append('file', file);
 
-      const token = sessionStorage.getItem('access_token');
-      const response = await fetch(apiUrl('/api/backup/validate'), {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
-
-      const result = await response.json();
-      if (response.ok) {
-        setValidation(result);
-      } else {
-        setError(result.message || 'Validation failed');
-      }
-    } catch {
-      setError('Failed to validate backup file');
+      // `postFormData` carries the token (audit 2026-10-03, WEB-11) and throws
+      // the server's message on a non-2xx.
+      setValidation(await apiClient.postFormData<ValidationResult>('/api/backup/validate', formData));
+    } catch (e) {
+      setError((e as Error)?.message || 'Failed to validate backup file');
     } finally {
       setValidating(false);
     }
@@ -182,21 +173,22 @@ export function BackupRestorePage() {
       const formData = new FormData();
       formData.append('file', restoreFile);
 
-      const token = sessionStorage.getItem('access_token');
-      const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+      const headers: Record<string, string> = {};
       if (password) headers['x-reauth-password'] = password;
-      const response = await fetch(apiUrl('/api/backup/restore'), {
-        method: 'POST',
-        headers,
-        body: formData,
-      });
-
-      const result = await response.json();
-      if (response.ok) {
-        setRestoreResult({ success: true, message: result.message });
-      } else {
-        setRestoreResult({ success: false, message: result.message || 'Restore failed' });
+      // The token comes from the client's one header builder (audit
+      // 2026-10-03, WEB-11); a non-2xx throws with the server's message.
+      let result: { success: boolean; message: string };
+      try {
+        const body = await apiClient.postFormData<{ success?: boolean; message: string }>('/api/backup/restore', formData, headers);
+        result = { success: body.success !== false, message: body.message };
+      } catch (e) {
+        // A re-auth failure belongs to the dialog (a wrong password is corrected
+        // there), not to the result panel.
+        const code = (e as { error?: string })?.error;
+        if (code === 'REAUTH_REQUIRED' || code === 'REAUTH_FAILED') throw e;
+        result = { success: false, message: (e as Error)?.message || 'Restore failed' };
       }
+      setRestoreResult(result);
 
       if (result.success) {
         setRestoreFile(null);

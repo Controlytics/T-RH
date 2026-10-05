@@ -113,13 +113,16 @@ vi.mock('@/lib/api-client', () => ({
  * backend's 401, which this mock cannot produce, so the callback runs with no
  * password — the production path for a role that needs no re-authentication.
  */
+/** Every action the page signed under (audit 2026-10-03, SEC-7). */
+const reauthActions: string[] = [];
 vi.mock('@/hooks/use-reauth', () => ({
   useReauth: () => ({
     execute: async (
-      _action: string,
+      action: string,
       cb: (p?: string) => Promise<void>,
       opts?: { onSuccess?: () => void; onError?: (e: unknown) => void; onCancel?: () => void },
     ) => {
+      reauthActions.push(action);
       try { await cb(); opts?.onSuccess?.(); } catch (e) { opts?.onError?.(e); }
     },
     isOpen: false, password: '', error: '', isVerifying: false,
@@ -279,6 +282,15 @@ describe('SettingsPage', () => {
       expect(screen.queryByRole('dialog')).toBeNull();
       await waitFor(() => expect(put).toHaveBeenCalledWith('/api/instruments/i-1', { code: 'CWH/RDU/001-01' }));
       await waitFor(() => expect(mutateList).toHaveBeenCalled());
+    });
+
+    it('a rename alone signs under UPDATE_INSTRUMENT, not the attribute action (audit 2026-10-03, SEC-7)', async () => {
+      reauthActions.length = 0;
+      startEdit();
+      fireEvent.change(field('Instrument ID'), { target: { value: 'CWH/RDU/001-01' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+      await waitFor(() => expect(put).toHaveBeenCalledWith('/api/instruments/i-1', { code: 'CWH/RDU/001-01' }));
+      expect(reauthActions).toEqual(['UPDATE_INSTRUMENT']);
     });
 
     it('sends an Instrument ID containing an MQTT wildcard as typed — the guard was removed (operator, 2026-09-16)', async () => {

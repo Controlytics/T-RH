@@ -4,6 +4,8 @@ import useSWR from 'swr';
 import { Link } from 'react-router-dom';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { useAttributeLabels } from '@/hooks/use-attribute-labels';
 import { parseInstrumentAttributeKeys } from '@digilog/shared';
 import { Button } from '@/components/ui/button';
@@ -63,6 +65,7 @@ export function InstrumentBulkCreatePage() {
    */
   const [problemsOpen, setProblemsOpen] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const reauth = useReauth();
 
   // ONE profile for the whole upload — deliberately not a CSV column, so the
   // template and any file an operator already has on disk are unchanged.
@@ -87,26 +90,40 @@ export function InstrumentBulkCreatePage() {
     reader.readAsText(file);
   };
 
+  // Signed under CREATE_INSTRUMENT like the single form (audit 2026-10-03,
+  // SEC-7): a bulk upload is N creates, and the route challenges it the same
+  // way. The callback is idempotent — the re-auth hook REPLAYS it after a 401,
+  // and a second POST of the same CSV would reject every row as a duplicate.
   const upload = async () => {
     if (!csv.trim()) return;
     setUploading(true);
-    try {
-      const res = await apiClient.post<BulkResult>('/api/instruments/bulk', { csv, profileId });
-      setResult(res);
-      setFailure(null);
-      const problems = res.errors.length > 0 || (res.warnings?.length ?? 0) > 0;
-      setProblemsOpen(problems);
-      if (res.created.length) {
-        toast.success('Instruments created', `${res.created.length} created, ${res.errors.length} row(s) rejected.`);
-      } else {
-        toast.error('Nothing created', `All ${res.errors.length} row(s) were rejected.`);
-      }
-    } catch (err: unknown) {
-      setFailure((err as { message?: string })?.message ?? 'Could not process the CSV.');
-      setProblemsOpen(true);
-    } finally {
-      setUploading(false);
-    }
+    let res: BulkResult | null = null;
+    await reauth.execute('CREATE_INSTRUMENT', async (password?: string) => {
+      if (res) return;
+      res = password
+        ? await apiClient.postWithReauth<BulkResult>('/api/instruments/bulk', { csv, profileId }, password)
+        : await apiClient.post<BulkResult>('/api/instruments/bulk', { csv, profileId });
+    }, {
+      onSuccess: () => {
+        if (!res) return;
+        setResult(res);
+        setFailure(null);
+        const problems = res.errors.length > 0 || (res.warnings?.length ?? 0) > 0;
+        setProblemsOpen(problems);
+        if (res.created.length) {
+          toast.success('Instruments created', `${res.created.length} created, ${res.errors.length} row(s) rejected.`);
+        } else {
+          toast.error('Nothing created', `All ${res.errors.length} row(s) were rejected.`);
+        }
+        setUploading(false);
+      },
+      onError: (err: unknown) => {
+        setFailure((err as { message?: string })?.message ?? 'Could not process the CSV.');
+        setProblemsOpen(true);
+        setUploading(false);
+      },
+      onCancel: () => setUploading(false),
+    });
   };
 
   const downloadResults = () => {
@@ -291,6 +308,15 @@ export function InstrumentBulkCreatePage() {
           </div>
         </div>
       </Dialog>
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+      />
     </div>
   );
 }

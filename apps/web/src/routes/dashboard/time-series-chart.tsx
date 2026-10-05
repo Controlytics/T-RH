@@ -185,26 +185,22 @@ interface Props {
    * (`routes/instruments/chart-image.ts`).
    *
    * `trend` is the per-quantity card on `/instruments/:id/trend`, restyled to
-   * an operator reference: an axis unit label, a "Last Reading" readout, pilled
+   * an operator reference: an axis unit label, pilled
    * limit lines, a gradient area fill and an in-chart hover tooltip. EVERY one
    * of those is gated on this prop, deliberately: a "Live" pill or a download
    * button printed into a §11 report would be absurd, and this component is
    * shared with the code path that prints it.
    */
   variant?: 'plain' | 'trend';
-  /**
-   * The `trend` variant's "Last Reading" readout — the latest STORED reading,
-   * supplied by the caller.
-   *
-   * NOT read off `series`, and this is the whole reason it is a prop. When a
-   * chart interval is selected `toChartSeries` bucket-AVERAGES, so the last
-   * plotted point is a mean; printing a mean under the words "Last Reading"
-   * states a derived number as a stored one on a §11 surface. The trend page
-   * already computes this correctly for its summary strip
-   * (`latestValueForKey`), so it hands the same value here and the two cannot
-   * disagree.
+  /*
+   * `lastReading` — the `trend` variant's "Last Reading" readout — was REMOVED
+   * (audit 2026-10-03, WEB-9): its only feeder went on 2026-09-01 and no
+   * production caller had passed it since. The rule it carried is recorded on
+   * `routes/instruments/trend.tsx`: a "last reading" is taken from the RAW
+   * rows, never off a chart series, because an interval bucket-AVERAGES and
+   * a mean under the words "Last Reading" states a derived number as a
+   * stored one on a §11 surface.
    */
-  lastReading?: { value: number; decimals: number } | null;
   /**
    * A per-surface override of the DATE/TIME FORMAT for this chart's tooltip.
    *
@@ -226,9 +222,10 @@ const H = 260;
 /**
  * Plot padding, PER VARIANT.
  *
- * `trend` needs headroom for the unit label and the "Last Reading" box that sit
- * ABOVE the plot, and needs almost no right margin because it draws no direct
- * end-of-series label (the readout box replaces it).
+ * `trend` needs headroom for the unit label that sits ABOVE the plot (the
+ * "Last Reading" box that shared it went on 2026-10-03; the padding is kept so
+ * the charts do not move), and needs almost no right margin because it draws
+ * no direct end-of-series label.
  *
  * Threaded through every consumer rather than read as a module constant — the
  * plot width, the y scale, the pointer-bounds test, the drag clamp and both
@@ -253,7 +250,7 @@ const MIN_ZOOM_SPAN_MS = 60_000;
 
 export function TimeSeriesChart({
   series, envelope, unit, min, max, minText = null, maxText = null, spanMs, title, onZoom, onResetZoom,
-  variant = 'plain', lastReading = null, dateTimeFormat,
+  variant = 'plain', dateTimeFormat,
 }: Props) {
   const { formatDateTime, formatDate, formatTime } = useDatetimeFormat(dateTimeFormat);
   const [hoverX, setHoverX] = useState<number | null>(null);
@@ -643,31 +640,14 @@ export function TimeSeriesChart({
         <text x={PAD.left} y={H - 8} fontSize={10} fill="var(--chart-axis-text, #64748b)">{fmtTime(g.t0)}</text>
         <text x={W - PAD.right} y={H - 8} textAnchor="end" fontSize={10} fill="var(--chart-axis-text, #64748b)">{fmtTime(g.t1)}</text>
 
-        {/* The axis unit, top-left, and the latest STORED reading, top-right —
-            both `trend` only, both in the fixed chrome accent rather than the
-            series colour (see AXIS_ACCENT). They sit in the headroom `PADS.trend`
-            reserves, so neither overlaps the plot. */}
+        {/* The axis unit, top-left — `trend` only, in the fixed chrome accent
+            rather than the series colour (see AXIS_ACCENT). It sits in the
+            headroom `PADS.trend` reserves, so it does not overlap the plot. The
+            "Last Reading" readout that sat top-right went with its `lastReading`
+            prop (audit 2026-10-03, WEB-9). */}
         {trend && unit && (
           <text x={PAD.left - 12} y={PAD.top - 26} fontSize={12} fontWeight={700} fill={AXIS_ACCENT}>{unit}</text>
         )}
-        {trend && lastReading && (
-          <g>
-            <text x={W - PAD.right} y={PAD.top - 32} textAnchor="end" fontSize={9.5} fontWeight={600} fill="var(--chart-axis-text, #64748b)">
-              Last Reading
-            </text>
-            <rect
-              x={W - PAD.right - 108} y={PAD.top - 26} width={108} height={26} rx={6}
-              fill="#ffffff" stroke="var(--chart-grid-line, #e2e8f0)" strokeWidth={1}
-            />
-            <text
-              x={W - PAD.right - 54} y={PAD.top - 8} textAnchor="middle"
-              fontSize={13} fontWeight={700} fill={AXIS_ACCENT}
-            >
-              {`${formatDecimals(lastReading.value, lastReading.decimals) ?? '—'}${unit ? ` ${unit}` : ''}`}
-            </text>
-          </g>
-        )}
-
         {/* Series. 2px, no per-point markers — these are dense polls. */}
         {withPoints.map((s, i) => {
           const d = s.points
@@ -693,9 +673,9 @@ export function TimeSeriesChart({
               <path d={d} fill="none" stroke={s.color ?? seriesColor(i)} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
               {/* Direct label at the last point — the relief the palette's
                   low-contrast slot requires, and faster to read than a legend.
-                  Dropped in the `trend` variant, where the "Last Reading" box
-                  above states the same thing (and states it from the latest
-                  STORED reading, which a bucket-averaged last point is not). */}
+                  Dropped in the `trend` variant, whose latest-value card beside
+                  the chart states the latest STORED reading — which a
+                  bucket-averaged last point is not. */}
               {!trend && (
                 <text
                   x={W - PAD.right + 5}

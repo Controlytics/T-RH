@@ -1,7 +1,11 @@
 // Single source of truth for the API base URL. On the desktop browser this is
-// '' (same-origin). On the Capacitor tablet it is the runtime address the
-// operator set on the Server Address screen (persisted in localStorage, which
-// persists across launches in the Android WebView). See EXE-PACKAGING-PLAN §13.
+// '' (same-origin). A runtime address set on the Server Address screen is
+// persisted in localStorage and wins over the build-time VITE_API_URL.
+//
+// Storage goes through `safeStorage` (audit 2026-10-03, WEB-3): a browser that
+// blocks site data throws on the accessor, and this is read before every request.
+import { safeStorage } from './safe-storage';
+
 const STORAGE_KEY = 'digilog.serverUrl';
 
 export function normalizeServerUrl(raw: string): string {
@@ -13,10 +17,8 @@ export function normalizeServerUrl(raw: string): string {
 }
 
 export function getApiBase(): string {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) return stored;
-  } catch { /* localStorage unavailable — fall through */ }
+  const stored = safeStorage.local.get(STORAGE_KEY);
+  if (stored) return stored;
   const w = (window as any).__API_BASE__;
   if (w) return w;
   const env = (import.meta as any).env?.VITE_API_URL;
@@ -26,21 +28,19 @@ export function getApiBase(): string {
 
 export function setApiBase(url: string): string {
   const norm = normalizeServerUrl(url);
-  try { localStorage.setItem(STORAGE_KEY, norm); } catch { /* ignore */ }
+  safeStorage.local.set(STORAGE_KEY, norm);
   (window as any).__API_BASE__ = norm;
   return norm;
 }
 
 export function clearApiBase(): void {
-  try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+  safeStorage.local.remove(STORAGE_KEY);
   delete (window as any).__API_BASE__;
 }
 
 // Call once at boot, before any module reads the base, so synchronous reads of
 // window.__API_BASE__ (existing precedent) see the persisted value.
 export function initApiBaseFromStorage(): void {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored && !(window as any).__API_BASE__) (window as any).__API_BASE__ = stored;
-  } catch { /* ignore */ }
+  const stored = safeStorage.local.get(STORAGE_KEY);
+  if (stored && !(window as any).__API_BASE__) (window as any).__API_BASE__ = stored;
 }

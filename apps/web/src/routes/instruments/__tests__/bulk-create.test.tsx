@@ -28,6 +28,24 @@ vi.mock('swr', () => ({
 const post = vi.fn();
 vi.mock('@/lib/api-client', () => ({ apiClient: { post: (...a: unknown[]) => post(...a), get: vi.fn(), put: vi.fn(), delete: vi.fn() } }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: { success: vi.fn(), error: vi.fn() } }) }));
+/** Every action the upload signed under (SEC-7). Pass-through otherwise: the
+ *  callback runs with no password, the path for a role whose policy is off. */
+const reauthActions: string[] = [];
+vi.mock('@/hooks/use-reauth', () => ({
+  useReauth: () => ({
+    execute: async (
+      action: string,
+      cb: (p?: string) => Promise<void>,
+      opts?: { onSuccess?: () => void; onError?: (e: unknown) => void; onCancel?: () => void },
+    ) => {
+      reauthActions.push(action);
+      try { await cb(); await opts?.onSuccess?.(); } catch (e) { opts?.onError?.(e); }
+    },
+    isOpen: false, password: '', error: '', isVerifying: false,
+    setPassword: vi.fn(), confirm: vi.fn(), cancel: vi.fn(), needsReauth: () => false,
+  }),
+}));
+vi.mock('@/components/reauth-dialog', () => ({ ReauthDialog: () => null }));
 
 const { InstrumentBulkCreatePage } = await import('../bulk-create');
 
@@ -37,6 +55,7 @@ beforeEach(() => {
   saved.length = 0;
   LABELS.current = {};
   post.mockReset();
+  reauthActions.length = 0;
   vi.stubGlobal('URL', {
     ...URL,
     // jsdom's Blob has no `.text()`; FileReader is what it does implement.
@@ -107,6 +126,16 @@ describe('InstrumentBulkCreatePage — upload problems', () => {
     expect(within(dlg).getByText(/Colour/)).toBeInTheDocument();
     // And the summary says what still landed.
     expect(within(dlg).getByText(/1 created, 2 rejected/i)).toBeInTheDocument();
+  });
+
+  it('signs the upload under the CREATE_INSTRUMENT re-auth action, once (SEC-7)', async () => {
+    post.mockResolvedValue({ created: [{ id: 'i-1', code: 'PA-1', name: 'PA-1', token: 'T' }], errors: [], warnings: [] });
+    renderPage();
+    choose('p-1');
+    await uploadCsv('Instrument ID\nPA-1');
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(reauthActions).toEqual(['CREATE_INSTRUMENT']);
+    expect(post).toHaveBeenCalledWith('/api/instruments/bulk', { csv: 'Instrument ID\nPA-1', profileId: 'p-1' });
   });
 
   it('opens the same dialog when the request itself fails, with the reason', async () => {

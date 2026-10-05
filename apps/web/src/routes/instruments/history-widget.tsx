@@ -264,9 +264,10 @@ export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
               <tr style={{ backgroundColor: 'color-mix(in srgb, var(--theme-primary, #4f46e5) 10%, #ffffff)' }}>
                 <th scope="col" className={`${th} pl-6 text-slate-600`}>Instrument</th>
                 <th scope="col" className={`${th} text-slate-600`}>Timestamp</th>
-                {/* The two quantity colours are the dashboard's own. */}
-                <th scope="col" className={`${th} !text-center`} style={{ color: '#9a3412' }}>Temperature (°C)</th>
-                <th scope="col" className={`${th} !text-center`} style={{ color: '#166534' }}>Humidity (%RH)</th>
+                {/* The two quantity colours are the dashboard's own — the
+                    `--quantity-*` tokens in app.css (audit 2026-10-03, WEB-17). */}
+                <th scope="col" className={`${th} !text-center`} style={{ color: 'var(--quantity-temp-deep, #9a3412)' }}>Temperature (°C)</th>
+                <th scope="col" className={`${th} !text-center`} style={{ color: 'var(--quantity-rh-deep, #166534)' }}>Humidity (%RH)</th>
               </tr>
             </thead>
             <tbody>

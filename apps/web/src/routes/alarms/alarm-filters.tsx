@@ -3,6 +3,7 @@ import useSWR from 'swr';
 import { ALARM_QUADRANTS, alarmTypeOptions, type AlarmQuadrant } from './alarm-display';
 import { useAlarmTypeNames } from '@/hooks/use-failure-text';
 import { ALL_RECORDS } from '@digilog/shared';
+import { LoadError } from '@/components/ui/load-error';
 
 /**
  * The alarm list's filter bar.
@@ -80,7 +81,9 @@ export function AlarmFilters({
   // Labelled from the administered names, so renaming a type on the config
   // page renames it in the filter as well as in the table.
   const typeOptions = alarmTypeOptions(useAlarmTypeNames());
-  const { data: flData } = useSWR<{ data: FlNode[] }>('/api/functional-locations');
+  // Both picker fetches read `error` (audit 2026-10-03, WEB-6): a failed one
+  // used to leave an empty dropdown that read as "there are no blocks".
+  const { data: flData, error: flError } = useSWR<{ data: FlNode[] }>('/api/functional-locations');
 
   const blocks = flData?.data ?? [];
 
@@ -112,10 +115,11 @@ export function AlarmFilters({
   const instrumentQs = new URLSearchParams({ limit: String(ALL_RECORDS) });
   const scopeId = locationFilterId(value);
   if (scopeId) instrumentQs.set('functionalLocationId', scopeId);
-  const { data: instData } = useSWR<{ data: { id: string; code: string; name: string }[] }>(
+  const { data: instData, error: instError } = useSWR<{ data: { id: string; code: string; name: string }[] }>(
     `/api/instruments?${instrumentQs.toString()}`,
   );
   const instruments = instData?.data ?? [];
+  const pickerError = flError ?? instError;
 
   const set = <K extends keyof AlarmFilterState>(k: K, v: AlarmFilterState[K]) =>
     onChange({ ...value, [k]: v });
@@ -272,6 +276,7 @@ export function AlarmFilters({
               ))}
             </select>
           </label>
+          {pickerError && <LoadError what="the Block, Area and Instrument choices" error={pickerError} className="basis-full" />}
         </div>
       )}
     </div>

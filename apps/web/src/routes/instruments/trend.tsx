@@ -122,9 +122,10 @@ function numericRows(rows: TelemetryLongRow[]): { key: string; value: number; ts
  * hard way:** a "last reading" is taken from the RAW rows, never from a chart
  * series, because `toChartSeries` bucket-averages when an interval is selected
  * and a mean labelled "Current" is a derived number presented as a stored one.
- * That reasoning now lives in one place only — the doc comment on
- * `TimeSeriesChart`'s own `lastReading` prop (`dashboard/time-series-chart.tsx`).
- * Read it there before reinstating any last-reading readout on this page.
+ * That reasoning is recorded HERE, and here only: the `lastReading` prop on
+ * `TimeSeriesChart` that used to carry it went as dead code on 2026-10-03
+ * (audit WEB-9). Re-read this before reinstating any last-reading readout on
+ * this page.
  */
 
 /** The raw key this instrument reports a slot under, from whichever annotated
@@ -594,7 +595,11 @@ export function InstrumentTrend() {
     }
     const reportPeriod = { from: req.period.from, to: req.period.to, label: req.period.label };
 
-    try {
+    // Errors propagate as thrown: `ReportDownloadDialog`'s own catch surfaces
+    // them INSIDE the dialog and keeps it open, rather than closing on a download
+    // whose audit write never landed. (A try/catch that only rethrew stood here
+    // until 2026-10-05 — eslint no-useless-catch.)
+    {
       let outcome: 'DOWNLOADED' | 'REQUESTED';
       {
       const instrument = instrumentInfo();
@@ -741,11 +746,6 @@ export function InstrumentTrend() {
       }
       setPendingReport(null);
       toast.success(...deliveryToast(outcome));
-    } catch (e: any) {
-      // Any error rethrows so `ReportDownloadDialog`'s own
-      // catch surfaces it INSIDE the dialog and keeps it open, rather than the
-      // dialog silently closing on a download whose audit write never landed.
-      throw e;
     }
   };
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
+import { helpArticleFormSchema, helpArticleEditSchema, formFieldErrors, type FormFieldErrors } from '@digilog/shared';
 import { useToast } from '@/hooks/use-toast';
 import { useReauth } from '@/hooks/use-reauth';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
@@ -135,6 +136,8 @@ export function HelpArticlesPage() {
 
   const [selectedArticle, setSelectedArticle] = useState<HelpArticle | null>(null);
   const [form, setForm] = useState<ArticleFormData>(DEFAULT_FORM);
+  // Field errors from the form schema (audit 2026-10-03, WEB-15).
+  const [fieldErrors, setFieldErrors] = useState<FormFieldErrors>({});
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -149,14 +152,18 @@ export function HelpArticlesPage() {
   const openCreate = () => {
     setForm(DEFAULT_FORM);
     setFormError('');
+    setFieldErrors({});
     setShowCreate(true);
   };
 
   const handleCreate = async () => {
-    if (!form.key.trim() || !form.title.trim() || !form.content.trim()) {
-      setFormError('Key, Title, and Content are required.');
+    const parsed = helpArticleFormSchema.safeParse(form);
+    if (!parsed.success) {
+      setFieldErrors(formFieldErrors(parsed.error));
+      setFormError('Correct the highlighted fields.');
       return;
     }
+    setFieldErrors({});
     setSaving(true);
     setFormError('');
     await reauth.execute(
@@ -215,10 +222,13 @@ export function HelpArticlesPage() {
   };
 
   const handleEdit = async () => {
-    if (!form.title.trim()) {
-      setFormError('Title is required.');
+    const parsed = helpArticleEditSchema.safeParse(form);
+    if (!parsed.success) {
+      setFieldErrors(formFieldErrors(parsed.error));
+      setFormError('Correct the highlighted fields.');
       return;
     }
+    setFieldErrors({});
     if (!selectedArticle) return;
     setSaving(true);
     setFormError('');
@@ -574,6 +584,7 @@ export function HelpArticlesPage() {
         </DialogHeader>
 
         <ArticleFormFields
+          fieldErrors={fieldErrors}
           form={form}
           onChange={setForm}
           error={formError}
@@ -624,6 +635,7 @@ export function HelpArticlesPage() {
         </DialogHeader>
 
         <ArticleFormFields
+          fieldErrors={fieldErrors}
           form={form}
           onChange={setForm}
           error={formError}
@@ -818,10 +830,12 @@ interface ArticleFormFieldsProps {
   form: ArticleFormData;
   onChange: (form: ArticleFormData) => void;
   error: string;
+  /** Per-field messages from the form schema (audit 2026-10-03, WEB-15). */
+  fieldErrors?: FormFieldErrors;
   keyReadOnly: boolean;
 }
 
-function ArticleFormFields({ form, onChange, error, keyReadOnly }: ArticleFormFieldsProps) {
+function ArticleFormFields({ form, onChange, error, fieldErrors = {}, keyReadOnly }: ArticleFormFieldsProps) {
   const set = (patch: Partial<ArticleFormData>) => onChange({ ...form, ...patch });
 
   return (
@@ -854,6 +868,7 @@ function ArticleFormFields({ form, onChange, error, keyReadOnly }: ArticleFormFi
           // focus ring follows the site theme rather than a hardcoded emerald.
           className="ctl w-full font-mono"
         />
+        {fieldErrors.key && <p className="mt-1 text-xs text-red-600">{fieldErrors.key[0]}</p>}
         {!keyReadOnly && (
           <p className="mt-1 text-xs text-slate-400">Unique identifier used to retrieve this article in code. Use lowercase with hyphens.</p>
         )}
@@ -871,6 +886,7 @@ function ArticleFormFields({ form, onChange, error, keyReadOnly }: ArticleFormFi
           placeholder="e.g. Getting Started with Entities"
           className="ctl w-full"
         />
+        {fieldErrors.title && <p className="mt-1 text-xs text-red-600">{fieldErrors.title[0]}</p>}
       </div>
 
       {/* Category + Sort Order */}
@@ -898,6 +914,7 @@ function ArticleFormFields({ form, onChange, error, keyReadOnly }: ArticleFormFi
             onChange={(e) => set({ sortOrder: parseInt(e.target.value) || 0 })}
             className="ctl w-full"
           />
+          {fieldErrors.sortOrder && <p className="mt-1 text-xs text-red-600">{fieldErrors.sortOrder[0]}</p>}
         </div>
       </div>
 
@@ -918,6 +935,7 @@ function ArticleFormFields({ form, onChange, error, keyReadOnly }: ArticleFormFi
           rows={8}
           className="ctl w-full font-mono resize-y"
         />
+        {fieldErrors.content && <p className="mt-1 text-xs text-red-600">{fieldErrors.content[0]}</p>}
       </div>
     </div>
   );

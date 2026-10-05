@@ -1,13 +1,22 @@
 // NOTE: Prefer importing as `apiClient` using @/ alias across all files
 import { markServerContactFromResponse } from './server-contact';
 import { getApiBase } from './api-base';
+import { safeStorage } from './safe-storage';
 
 class ApiClient {
   private getToken(): string | null {
-    return sessionStorage.getItem('access_token');
+    // Through `safeStorage` (audit 2026-10-03, WEB-3): a blocked storage
+    // accessor throws, and a throw here would fail every request at once.
+    return safeStorage.session.get('access_token');
   }
 
-  private async request<T>(url: string, options: RequestInit = {}): Promise<T> {
+  /**
+   * The ONE place the Authorization header is built (audit 2026-10-03, WEB-11).
+   * `request()`, `getRaw()` and `getBlob()` all go through it, so a change to
+   * where the token lives cannot leave a hand-rolled `fetch` sending
+   * `Bearer null` — which is exactly how the photo upload 401'd until 2026-08-11.
+   */
+  private authHeaders(options: RequestInit): Record<string, string> {
     const token = this.getToken();
     const headers: Record<string, string> = {
       ...(token && { Authorization: `Bearer ${token}` }),
@@ -21,10 +30,15 @@ class ApiClient {
     if (options.body && !(options.body instanceof FormData)) {
       headers['Content-Type'] = 'application/json';
     }
+    return headers;
+  }
+
+  /** `fetch` with the shared headers and the server-contact bookkeeping; no body handling. */
+  private async send(url: string, options: RequestInit): Promise<Response> {
     const res = await fetch(`${getApiBase()}${url}`, {
       ...options,
       headers: {
-        ...headers,
+        ...this.authHeaders(options),
         ...options.headers,
       },
     });
@@ -37,6 +51,37 @@ class ApiClient {
     // bug and a proxy error, and the safer 21 CFR Part 11 posture is to
     // err toward read-only mode on sustained 5xx.
     markServerContactFromResponse(res);
+    return res;
+  }
+
+  /**
+   * A generic 401 = the session has ended: drop the token, the cached user and
+   * the single-tab keys, and send the browser to /login. Not during login
+   * itself, where a 401 is a wrong password and the form shows it.
+   */
+  private sessionEnded(url: string): void {
+    if (url.includes('/api/auth/login')) return;
+    safeStorage.session.remove('access_token');
+    // Also drop cached user + single-tab keys. Without this, the cached
+    // user kept `isAuthenticated` truthy on /login, /login auto-navigated
+    // back to /, dashboard SWR queries 401'd, and the page ping-ponged
+    // between / and /login forever.
+    safeStorage.local.remove('digilog_cached_user');
+    safeStorage.local.remove('digilog_active_tab_id');
+    safeStorage.local.remove('digilog_tab_heartbeat');
+    safeStorage.local.remove('digilog_active_user_id');
+    // The `/m/login` branch that sat here went with the Capacitor remnants
+    // (audit 2026-10-03, WEB-10): no `/m` route exists in main.tsx, so it
+    // could only ever have sent a browser to the catch-all.
+    if (!window.location.pathname.startsWith('/login')) {
+      // No `?returnUrl=` (2026-10-03): the next sign-in lands on the
+      // dashboard whatever page the session ended on. See use-auth.ts.
+      window.location.href = '/login';
+    }
+  }
+
+  private async request<T>(url: string, options: RequestInit = {}): Promise<T> {
+    const res = await this.send(url, options);
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'PARSE_ERROR', message: 'Failed to parse server response' }));
@@ -48,8 +93,8 @@ class ApiClient {
       // 2026-05-21: skip the hard redirect when we're already on the
       // change-password page. Some background calls (JWT refresh, branding
       // poll) fire while the operator is typing the new password; a 403 here
-      // would hard-reload the page and on Capacitor bounce the operator to
-      // /m/login mid-typing. Just throw and let the caller handle it.
+      // would hard-reload the page under them. Just throw and let the caller
+      // handle it.
       if (err.error === 'FORCE_PASSWORD_CHANGE' || err.error === 'PASSWORD_EXPIRED') {
         if (!window.location.pathname.startsWith('/change-password')) {
           window.location.href = '/change-password';
@@ -58,30 +103,7 @@ class ApiClient {
       }
       // Generic 401 = session expired, log out (but not during login itself)
       if (res.status === 401) {
-        if (!url.includes('/api/auth/login')) {
-          sessionStorage.removeItem('access_token');
-          localStorage.removeItem('access_token_backup');
-          // Also drop cached user + single-tab keys. Without this, the cached
-          // user kept `isAuthenticated` truthy on /login, /login auto-navigated
-          // back to /, dashboard SWR queries 401'd, and the page ping-ponged
-          // between / and /login forever.
-          localStorage.removeItem('digilog_cached_user');
-          localStorage.removeItem('digilog_active_tab_id');
-          localStorage.removeItem('digilog_tab_heartbeat');
-          localStorage.removeItem('digilog_active_user_id');
-          // Redirect to login — use mobile login for /m routes
-          const isMobile = window.location.pathname.startsWith('/m');
-          const loginPath = isMobile ? '/m/login' : '/login';
-          if (!window.location.pathname.startsWith(loginPath)) {
-            if (isMobile) {
-              window.location.href = '/m/login';
-            } else {
-              // No `?returnUrl=` (2026-10-03): the next sign-in lands on the
-              // dashboard whatever page the session ended on. See use-auth.ts.
-              window.location.href = '/login';
-            }
-          }
-        }
+        this.sessionEnded(url);
         // Attach status + code so callers (and the SWR onError 401-suppressor
         // in swr-config.ts) can recognise this as an auth failure. Without
         // these, a 401 like "Missing token" (e.g. an ungated SWR firing before
@@ -134,8 +156,35 @@ class ApiClient {
    * the profile photo uploader read the token from `localStorage`, a key
    * nothing in the app ever writes, so it sent `Bearer null` and always 401'd.
    */
-  postFormData<T>(url: string, form: FormData) {
-    return this.request<T>(url, { method: 'POST', body: form });
+  postFormData<T>(url: string, form: FormData, headers?: Record<string, string>) {
+    return this.request<T>(url, { method: 'POST', body: form, ...(headers && { headers }) });
+  }
+
+  /**
+   * A NON-JSON response — a backup archive, an image — with the shared headers
+   * (audit 2026-10-03, WEB-11). Resolves the raw `Response` so the caller can
+   * read `Content-Disposition`; a non-2xx is thrown the way `request()` throws
+   * it, and a 401 ends the session the same way. Until this existed, four
+   * hand-rolled `fetch` calls each read the token themselves.
+   */
+  async getRaw(url: string, options: RequestInit = {}): Promise<Response> {
+    const res = await this.send(url, { ...options, method: options.method ?? 'GET' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      // Re-auth errors go up untouched, as `request()` throws them, so the
+      // re-auth dialog can show a wrong password instead of logging out.
+      if (err.error === 'REAUTH_REQUIRED' || err.error === 'REAUTH_FAILED') throw err;
+      if (res.status === 401) this.sessionEnded(url);
+      const error = new Error(err.message ?? err.error ?? `Request failed: ${res.status}`);
+      (error as any).status = res.status;
+      (error as any).code = err.error;
+      throw error;
+    }
+    return res;
+  }
+
+  async getBlob(url: string, options: RequestInit = {}): Promise<Blob> {
+    return (await this.getRaw(url, options)).blob();
   }
   // 2026-05-21 fix: DELETE must carry an explicit Content-Type + body, even
   // when the route doesn't need a body. On Android, CapacitorHttp's native
@@ -219,7 +268,7 @@ class ApiClient {
       try {
         const data = await this.post<{ token?: string }>('/api/auth/refresh', {});
         if (data?.token) {
-          sessionStorage.setItem('access_token', data.token);
+          safeStorage.session.set('access_token', data.token);
           return true;
         }
         return false;

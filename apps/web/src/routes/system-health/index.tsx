@@ -4,6 +4,7 @@ import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { Button } from '@/components/ui/button';
 import { PageHero } from '@/components/ui/page-hero';
 import { SkeletonCard } from '@/components/ui/skeleton';
+import { LoadError } from '@/components/ui/load-error';
 
 interface SystemHealthData {
   os: {
@@ -12,7 +13,8 @@ interface SystemHealthData {
     arch: string;
     release: string;
     uptimeSeconds: number;
-    loadAvg: { '1m': number; '5m': number; '15m': number };
+    /** `available` is false on win32, where Node reports zeros (audit 2026-10-03, follow-up). */
+    loadAvg: { '1m': number; '5m': number; '15m': number; available?: boolean };
   };
   memory: {
     totalBytes: number;
@@ -26,10 +28,15 @@ interface SystemHealthData {
     usagePercent: number;
   };
   disk: {
+    /** The path the figures describe — the uploads root. */
+    path?: string;
     totalBytes: number;
     usedBytes: number;
     freeBytes: number;
     usagePercent: number;
+    /** False when no reader could measure the disk; the numbers are then 0 and `error` says why. */
+    available?: boolean;
+    error?: string | null;
   };
   process: {
     nodeVersion: string;
@@ -126,7 +133,8 @@ function MetricCard({
 export function SystemHealthPage() {
   const { formatTime } = useDatetimeFormat();
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const { data, isLoading, mutate } = useSWR<SystemHealthData>('/api/system-health', {
+  // `error` is read (audit 2026-10-03, WEB-6) so a 403 or 500 names itself.
+  const { data, error, isLoading, mutate } = useSWR<SystemHealthData>('/api/system-health', {
     refreshInterval: autoRefresh ? 10000 : 0,
     revalidateOnFocus: true,
   });
@@ -161,7 +169,9 @@ export function SystemHealthPage() {
   if (!data) {
     return (
       <div className="text-center py-12">
-        <p className="text-slate-500">Failed to load system health data.</p>
+        {error
+          ? <LoadError what="system health data" error={error} className="mx-auto max-w-xl text-left" />
+          : <p className="text-slate-500">Failed to load system health data.</p>}
         <Button className="mt-3"
           onClick={() => mutate()}
         >
@@ -303,17 +313,24 @@ export function SystemHealthPage() {
             </div>
             <div className="pt-2">
               <p className="text-xs text-slate-400 mb-1">Load Average</p>
-              <div className="flex gap-4 text-sm">
-                <span className="text-slate-700">
-                  <span className="text-slate-400">1m:</span> {data.os.loadAvg['1m']}
-                </span>
-                <span className="text-slate-700">
-                  <span className="text-slate-400">5m:</span> {data.os.loadAvg['5m']}
-                </span>
-                <span className="text-slate-700">
-                  <span className="text-slate-400">15m:</span> {data.os.loadAvg['15m']}
-                </span>
-              </div>
+              {/* "Unavailable", never three zeros: Node reports 0/0/0 on
+                  Windows, and a zero load on a busy server is a false reading
+                  on a health screen. The API says which (audit 2026-10-03). */}
+              {data.os.loadAvg.available === false ? (
+                <p className="text-sm text-slate-500" title="Load averages are not reported on this platform">Unavailable</p>
+              ) : (
+                <div className="flex gap-4 text-sm">
+                  <span className="text-slate-700">
+                    <span className="text-slate-400">1m:</span> {data.os.loadAvg['1m']}
+                  </span>
+                  <span className="text-slate-700">
+                    <span className="text-slate-400">5m:</span> {data.os.loadAvg['5m']}
+                  </span>
+                  <span className="text-slate-700">
+                    <span className="text-slate-400">15m:</span> {data.os.loadAvg['15m']}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </MetricCard>
@@ -328,6 +345,16 @@ export function SystemHealthPage() {
             </svg>
           }
         >
+          {/* A disk nobody could measure says so — with the reader's own
+              reason on hover — rather than drawing an empty bar over "0 B /
+              0 B", which reads as a full disk with nothing on it. */}
+          {data.disk.available === false ? (
+            <div className="space-y-1" title={data.disk.error ?? undefined}>
+              <p className="text-sm font-semibold text-slate-500">Unavailable</p>
+              {data.disk.path && <p className="text-xs text-slate-400">{data.disk.path}</p>}
+              {data.disk.error && <p className="text-xs text-amber-700">{data.disk.error}</p>}
+            </div>
+          ) : (
           <div className="space-y-3">
             <div className="flex justify-between text-sm">
               <span className="text-slate-500">Used</span>
@@ -347,6 +374,7 @@ export function SystemHealthPage() {
               </div>
             </div>
           </div>
+          )}
         </MetricCard>
 
         {/* Database */}

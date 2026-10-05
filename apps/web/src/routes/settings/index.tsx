@@ -20,6 +20,7 @@ import { type StatusTone } from '@/components/ui/status-badge';
 import { Input } from '@/components/ui/input';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { RemarkDialog } from '@/routes/instruments/remark-dialog';
+import { safeStorage } from '@/lib/safe-storage';
 
 /**
  * Settings (2026-09-08). Operator, first pass: *"in side bar add settings, in
@@ -96,10 +97,12 @@ interface Attribute {
  * here as on the readings table; everything the server does not classify
  * takes the site theme. Presentation only — `slot` is the server's call.
  */
+// The `--quantity-*` tokens (app.css), not literals (audit 2026-10-03,
+// WEB-17): ONE definition shared with the readings table's headers.
 const TILE: Record<'temperature' | 'humidity' | 'other', { bar: string; wash: string; ink: string }> = {
-  temperature: { bar: '#c2410c', wash: '#fff7ed', ink: '#9a3412' },
-  humidity: { bar: '#15803d', wash: '#f0fdf4', ink: '#166534' },
-  other: { bar: 'var(--theme-primary, #2a78d6)', wash: '#f8fafc', ink: '#0f172a' },
+  temperature: { bar: 'var(--quantity-temp, #c2410c)', wash: 'var(--quantity-temp-wash, #fff7ed)', ink: 'var(--quantity-temp-deep, #9a3412)' },
+  humidity: { bar: 'var(--quantity-rh, #15803d)', wash: 'var(--quantity-rh-wash, #f0fdf4)', ink: 'var(--quantity-rh-deep, #166534)' },
+  other: { bar: 'var(--theme-primary, #2a78d6)', wash: 'var(--surface-tint-1, #f8fafc)', ink: '#0f172a' },
 };
 
 /** An attribute with nothing stored prints "(empty)", the panel's word. */
@@ -114,12 +117,13 @@ function statusOf(r: Row, activeWindow: number): { tone: StatusTone; label: stri
     : { tone: 'warn', label: 'Not reporting' };
 }
 
+// Both through `safeStorage` (audit 2026-10-03, WEB-3) — they run during render.
 function readLastPick(): string {
-  try { return localStorage.getItem(LAST_PICK_KEY) ?? ''; } catch { return ''; }
+  return safeStorage.local.get(LAST_PICK_KEY) ?? '';
 }
 function readLastScope(): { blockId: string; areaId: string } {
   try {
-    const raw = JSON.parse(localStorage.getItem(LAST_SCOPE_KEY) ?? 'null') as unknown;
+    const raw = JSON.parse(safeStorage.local.get(LAST_SCOPE_KEY) ?? 'null') as unknown;
     if (raw && typeof raw === 'object') {
       const o = raw as Record<string, unknown>;
       return {
@@ -153,7 +157,7 @@ export function SettingsPage() {
   const scopeId = scopeIdFor(blockId, areaId);
   const rememberScope = (next: { blockId: string; areaId: string }) => {
     setScope(next);
-    try { localStorage.setItem(LAST_SCOPE_KEY, JSON.stringify(next)); } catch { /* storage unavailable */ }
+    safeStorage.local.set(LAST_SCOPE_KEY, JSON.stringify(next));
   };
   // Choosing a Block clears the Area: an Area of the previous Block is not in the new one.
   const setBlock = (id: string) => rememberScope({ blockId: id, areaId: '' });
@@ -176,7 +180,7 @@ export function SettingsPage() {
   }, [selected, picked]);
   const pick = (id: string) => {
     setPicked(id);
-    try { localStorage.setItem(LAST_PICK_KEY, id); } catch { /* storage unavailable */ }
+    safeStorage.local.set(LAST_PICK_KEY, id);
   };
 
   const { data: attrs, mutate: mutateAttrs } = useSWR<{ data: Attribute[] }>(selected ? `/api/instruments/${selected.id}/attributes` : null);
@@ -267,7 +271,12 @@ export function SettingsPage() {
     let codeDone = false;
     setBusy(true);
     reauth.execute(
-      'UPDATE_INSTRUMENT_ATTRIBUTE',
+      // The batch is signed under the ATTRIBUTE action when attributes changed;
+      // a rename alone is a PUT on the instrument and signs under
+      // `UPDATE_INSTRUMENT` (audit 2026-10-03, SEC-7). When both changed and
+      // only the instrument policy is on, the backend's 401 on the code PUT
+      // opens the dialog retroactively and the replay carries the password.
+      changes.length > 0 ? 'UPDATE_INSTRUMENT_ATTRIBUTE' : 'UPDATE_INSTRUMENT',
       async (password) => {
         for (const c of changes) {
           if (done.has(c.key)) continue;
@@ -278,7 +287,8 @@ export function SettingsPage() {
           done.add(c.key);
         }
         if (codeChanged && !codeDone) {
-          await apiClient.put(`/api/instruments/${selected.id}`, { code: newCode });
+          if (password) await apiClient.putWithReauth(`/api/instruments/${selected.id}`, { code: newCode }, password);
+          else await apiClient.put(`/api/instruments/${selected.id}`, { code: newCode });
           codeDone = true;
         }
       },

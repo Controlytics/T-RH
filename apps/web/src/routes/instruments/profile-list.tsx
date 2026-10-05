@@ -4,6 +4,8 @@ import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useCan } from '@/hooks/use-can';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { themeGradient, themeGradientBr } from '@/lib/theme-styles';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,6 +41,9 @@ interface Profile {
 export function InstrumentProfileListPage() {
   const { data, mutate, isLoading } = useSWR<{ data: Profile[] }>('/api/instrument-profiles');
   const { toast } = useToast();
+  // `DELETE_INSTRUMENT_PROFILE` is an admin-configurable re-auth action
+  // (audit 2026-10-03, SEC-7); the server checks it first on DELETE.
+  const reauth = useReauth();
   const can = useCan();
   const canCreate = can('instruments.create');
   const canDelete = can('instruments.delete');
@@ -69,15 +74,22 @@ export function InstrumentProfileListPage() {
   };
 
   const remove = async (p: Profile) => {
-    try {
-      await apiClient.delete(`/api/instrument-profiles/${p.id}`);
-      mutate();
-      toast.success('Profile deleted', `"${p.name}" was removed.`);
-    } catch (e) {
+    // Idempotent: the hook replays the callback with the password after a 401.
+    let done = false;
+    await reauth.execute('DELETE_INSTRUMENT_PROFILE', async (password?: string) => {
+      if (done) return;
+      if (password) await apiClient.deleteWithReauth(`/api/instrument-profiles/${p.id}`, password);
+      else await apiClient.delete(`/api/instrument-profiles/${p.id}`);
+      done = true;
+    }, {
+      onSuccess: () => {
+        mutate();
+        toast.success('Profile deleted', `"${p.name}" was removed.`);
+      },
       // The backend refuses a populated profile with the COUNT and a next step.
       // Surfacing its message verbatim beats inventing a vaguer one here.
-      toast.error('Could not delete profile', (e as Error)?.message ?? 'Unknown error');
-    }
+      onError: (e: unknown) => toast.error('Could not delete profile', (e as Error)?.message ?? 'Unknown error'),
+    });
   };
 
   return (
@@ -196,6 +208,17 @@ export function InstrumentProfileListPage() {
           ))}
         </div>
       )}
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Delete Instrument Profile"
+      />
     </div>
   );
 }

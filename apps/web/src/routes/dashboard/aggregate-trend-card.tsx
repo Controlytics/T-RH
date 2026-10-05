@@ -1,6 +1,7 @@
 import useSWR from 'swr';
 import { TimeSeriesChart } from './time-series-chart';
 import { Skeleton } from '@/components/ui/skeleton';
+import { LoadError } from '@/components/ui/load-error';
 import {
   derivedNote, limitNote, shouldDrawBand, sparseMessage, peakReporting,
   type AggregateBounds, type AggregatePoint,
@@ -104,7 +105,9 @@ export function AggregateTrendCard({
   if (functionalLocationId) qs.set('functionalLocationId', functionalLocationId);
   if (directOnly) qs.set('functionalLocationDirect', 'true');
 
-  const { data, isLoading } = useSWR<AggregateBody>(
+  // `error` is read (audit 2026-10-03, WEB-6): a failed fetch must say so, not
+  // read as "Trend data is unavailable" as if there were none.
+  const { data, error, isLoading } = useSWR<AggregateBody>(
     `/api/instruments/telemetry-aggregate?${qs.toString()}`,
     // Matches the other live dashboard surfaces: polling, not a socket. There is
     // no browser-facing push channel in this fork.
@@ -180,6 +183,8 @@ export function AggregateTrendCard({
             spanMs={spanMs}
           />
         </div>
+      ) : error ? (
+        <LoadError what="trend data" error={error} />
       ) : (
         <div className="rounded-xl border border-slate-200/70 p-6 text-sm text-slate-500">
           Trend data is unavailable.

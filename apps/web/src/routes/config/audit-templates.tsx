@@ -4,12 +4,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { LoadError } from '@/components/ui/load-error';
 import { apiClient } from '@/lib/api-client';
 import { AUDIT_TEMPLATE_DEFAULTS, AUDIT_TEMPLATE_CATEGORIES } from '@digilog/shared';
 import type { AuditTemplateDefinition } from '@digilog/shared';
 
 export function AuditTemplatesConfigPage() {
-  const { data: saved, mutate } = useSWR<Record<string, string>>('/api/config/audit-templates');
+  // `error` is read (audit 2026-10-03, WEB-6): a failed fetch used to leave the
+  // spinner below turning forever.
+  const { data: saved, error, mutate } = useSWR<Record<string, string>>('/api/config/audit-templates');
   const [templates, setTemplates] = useState<Record<string, string> | null>(null);
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
@@ -78,6 +81,7 @@ export function AuditTemplatesConfigPage() {
   }, [templates, saved]);
 
   if (!currentTemplates) {
+    if (error) return <LoadError what="audit text templates" error={error} />;
     return (
       <div className="flex items-center justify-center p-12">
         <svg className="w-8 h-8 animate-spin text-indigo-500" fill="none" viewBox="0 0 24 24">

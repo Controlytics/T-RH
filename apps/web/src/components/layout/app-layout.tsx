@@ -13,6 +13,7 @@ import { Header } from './header';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
 import useSWR from 'swr';
+import { safeStorage } from '@/lib/safe-storage';
 
 /**
  * Where the sidebar's collapsed state lives.
@@ -26,13 +27,10 @@ import useSWR from 'swr';
 const SIDEBAR_COLLAPSED_KEY = 'compliance-core.sidebarCollapsed';
 
 function readCollapsedPreference(): boolean {
-  // Wrapped: a browser set to block site data throws on ACCESS, not on read, and
-  // an exception here would take the whole application shell down with it.
-  try {
-    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1';
-  } catch {
-    return false;
-  }
+  // Through `safeStorage`: a browser set to block site data throws on ACCESS,
+  // not on read, and an exception here would take the whole application shell
+  // down with it. Since audit 2026-10-03 (WEB-3) that guard lives in ONE place.
+  return safeStorage.local.get(SIDEBAR_COLLAPSED_KEY) === '1';
 }
 
 export function AppLayout() {
@@ -43,11 +41,9 @@ export function AppLayout() {
   const toggleCollapsed = () => {
     setSidebarCollapsed(prev => {
       const next = !prev;
-      try {
-        localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? '1' : '0');
-      } catch {
-        // Preference not persisted; the toggle still works for this session.
-      }
+      // A failed write is a preference not persisted; the toggle still works
+      // for this session.
+      safeStorage.local.set(SIDEBAR_COLLAPSED_KEY, next ? '1' : '0');
       return next;
     });
   };

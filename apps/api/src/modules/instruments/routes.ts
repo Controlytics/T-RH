@@ -1575,6 +1575,12 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    // The same e-signature the single create carries (audit 2026-10-03,
+    // SEC-7; found 2026-10-05 by the web sweep): a bulk upload is N creates,
+    // and a policy that challenged one but not a hundred would be bypassed by
+    // the CSV form. FIRST, so `_currentPassword` never reaches the parser.
+    const { ok: reauthOk } = await enforceReauth('CREATE_INSTRUMENT', req, reply);
+    if (!reauthOk) return;
     const parsed = bulkCreateInstrumentsSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });

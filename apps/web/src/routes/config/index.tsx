@@ -4,6 +4,7 @@ import useSWR from 'swr';
 import { useAuth } from '@/hooks/use-auth';
 import { PageHero } from '@/components/ui/page-hero';
 import { SuperAdminApiAccessCard } from '@/components/super-admin-api-access';
+import { LoadError } from '@/components/ui/load-error';
 import { canAccessConfigModule } from './can-access-module';
 
 /**
@@ -24,7 +25,7 @@ import { canAccessConfigModule } from './can-access-module';
 function ConfigCard({
   card, compact = false,
 }: {
-  card: { title: string; description: string; href: string; reauth?: boolean; icon: ReactNode; gradient: string };
+  card: { title: string; description: string; href: string; reauth?: boolean; icon: ReactNode };
   /** The denser layout used by the four-up Super Admin grid. */
   compact?: boolean;
 }) {
@@ -35,10 +36,10 @@ function ConfigCard({
     >
       <div className={compact ? 'space-y-3' : 'flex items-start gap-3.5'}>
         {/* UI v3 (2026-09-21): ONE medallion for every card — the theme band.
-            `card.gradient` stays in the card data unused: the nineteen
-            per-card gradients made the icons compete with the status colours
-            that carry meaning, which is the same reason PageHeader gave up
-            its per-page gradients. */}
+            The per-card `gradient` the data carried unused since then was
+            deleted (audit 2026-10-03, WEB-9): the nineteen per-card gradients
+            made the icons compete with the status colours that carry meaning,
+            which is the same reason PageHeader gave up its per-page gradients. */}
         <span
           className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white shadow-[var(--elev-1)]"
           style={{ background: 'var(--band-gradient)' }}
@@ -124,7 +125,6 @@ const configCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
       </svg>
     ),
-    gradient: 'from-blue-500 to-indigo-600',
   },
   {
     title: 'Date/Time Format',
@@ -136,7 +136,6 @@ const configCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
       </svg>
     ),
-    gradient: 'from-purple-500 to-pink-600',
   },
   {
     title: 'Backup & Restore',
@@ -148,7 +147,6 @@ const configCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
       </svg>
     ),
-    gradient: 'from-emerald-500 to-teal-600',
   },
   {
     title: 'User ID Format',
@@ -160,7 +158,6 @@ const configCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2" />
       </svg>
     ),
-    gradient: 'from-teal-500 to-emerald-600',
   },
 ];
 
@@ -184,7 +181,6 @@ const superAdminCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
       </svg>
     ),
-    gradient: 'from-emerald-500 to-teal-600',
   },
   {
     title: 'Instrument Attributes',
@@ -195,7 +191,6 @@ const superAdminCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
       </svg>
     ),
-    gradient: 'from-sky-500 to-cyan-600',
   },
   {
     // The Layout Designer (2026-09-22) replaced the Floorplans editor at the
@@ -210,7 +205,6 @@ const superAdminCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
       </svg>
     ),
-    gradient: 'from-indigo-500 to-blue-600',
   },
   {
     title: 'Telemetry Keys',
@@ -221,7 +215,6 @@ const superAdminCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12h4l3-9 4 18 3-9h4" />
       </svg>
     ),
-    gradient: 'from-teal-500 to-cyan-600',
   },
   {
     title: 'Instrument Limit Alarms',
@@ -232,7 +225,6 @@ const superAdminCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2a2 2 0 01-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
       </svg>
     ),
-    gradient: 'from-rose-500 to-orange-600',
   },
   {
     title: 'Inactivity Alarms',
@@ -243,7 +235,6 @@ const superAdminCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.143 17.082a24.248 24.248 0 003.844.148m-3.844-.148a23.856 23.856 0 01-5.455-1.31 8.964 8.964 0 002.3-5.542m3.155 6.852a3 3 0 005.667 1.97m1.965-2.277L21 21m-4.225-4.225a23.81 23.81 0 003.536-1.003A8.967 8.967 0 0118 9.75V9A6 6 0 006.53 6.53m10.245 10.245L6.53 6.53M3 3l3.53 3.53" />
       </svg>
     ),
-    gradient: 'from-slate-500 to-slate-700',
   },
   {
     title: 'RS485 Sensor Failure Alarms',
@@ -254,7 +245,6 @@ const superAdminCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
       </svg>
     ),
-    gradient: 'from-amber-500 to-rose-600',
   },
   {
     title: 'Sensor Range Alarms',
@@ -265,7 +255,6 @@ const superAdminCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
       </svg>
     ),
-    gradient: 'from-orange-500 to-amber-600',
   },
   {
     title: 'Alarm Type Names',
@@ -277,7 +266,6 @@ const superAdminCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 6h.008v.008H6V6z" />
       </svg>
     ),
-    gradient: 'from-sky-500 to-indigo-600',
   },
   {
     // Every field here is also editable in place, from a pencil in each
@@ -294,7 +282,6 @@ const superAdminCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
       </svg>
     ),
-    gradient: 'from-violet-500 to-fuchsia-600',
   },
   {
     // ONE card for both report configurations (2026-10-01, operator: "combine
@@ -309,7 +296,6 @@ const superAdminCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
       </svg>
     ),
-    gradient: 'from-emerald-500 to-teal-600',
   },
   {
     // 2026-10-01: each instrument's Temp / Humid Off set corrects its readings
@@ -323,7 +309,20 @@ const superAdminCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
       </svg>
     ),
-    gradient: 'from-amber-500 to-orange-600',
+  },
+  {
+    // 2026-10-05 (audit 2026-10-03, DATA-9): the telemetry partition schedule
+    // — months created ahead, and whether / after how long old months are
+    // dropped. The worker read this row for months with no def behind it, so
+    // dropping could only be switched on by editing the database by hand.
+    title: 'Telemetry Retention',
+    description: 'How many months of readings are kept, and how far ahead their monthly storage is prepared',
+    href: '/config/dynamic/telemetry-retention',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+      </svg>
+    ),
   },
   {
     title: 'Alarm Webhooks',
@@ -334,7 +333,6 @@ const superAdminCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5.636 5.636a9 9 0 000 12.728m12.728 0a9 9 0 000-12.728M8.464 8.464a5 5 0 000 7.072m7.072 0a5 5 0 000-7.072M13 12a1 1 0 11-2 0 1 1 0 012 0z" />
       </svg>
     ),
-    gradient: 'from-orange-500 to-amber-600',
   },
   {
     title: 'Configuration Access',
@@ -345,7 +343,6 @@ const superAdminCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
       </svg>
     ),
-    gradient: 'from-indigo-500 to-purple-600',
   },
   {
     title: 'Branding & Dashboard',
@@ -356,7 +353,6 @@ const superAdminCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
       </svg>
     ),
-    gradient: 'from-violet-500 to-fuchsia-600',
   },
   {
     title: 'Role & Access Configuration',
@@ -367,7 +363,6 @@ const superAdminCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
       </svg>
     ),
-    gradient: 'from-violet-500 to-purple-600',
   },
   {
     title: 'Display Settings',
@@ -378,7 +373,6 @@ const superAdminCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6h16M4 10h16M4 14h16M4 18h10" />
       </svg>
     ),
-    gradient: 'from-cyan-500 to-blue-600',
   },
 
   {
@@ -390,7 +384,6 @@ const superAdminCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
       </svg>
     ),
-    gradient: 'from-green-500 to-emerald-600',
   },
   {
     title: 'Help Articles',
@@ -401,7 +394,6 @@ const superAdminCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     ),
-    gradient: 'from-emerald-500 to-teal-600',
   },
   // 'Alarm Columns' config card removed 2026-05-17 (alarm subsystem retired).
   
@@ -414,7 +406,6 @@ const superAdminCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
       </svg>
     ),
-    gradient: "from-amber-500 to-orange-600",
   },
   {
     title: "Notification Channels",
@@ -425,7 +416,6 @@ const superAdminCards = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
       </svg>
     ),
-    gradient: "from-blue-500 to-indigo-600",
   },
 ];
 
@@ -433,7 +423,11 @@ export function ConfigIndexPage() {
   const { user } = useAuth();
 
   // Auto-discovered config modules from registry
-  const { data: manifest } = useSWR<Array<{
+  // Both `error`s are read (audit 2026-10-03, WEB-6): a failed manifest fetch
+  // silently dropped every auto-discovered module from the page, and a failed
+  // access-matrix fetch hid every card from a non-admin — both read as "nothing
+  // here" rather than "could not load".
+  const { data: manifest, error: manifestError } = useSWR<Array<{
     moduleKey: string; moduleName: string; description: string;
     icon: string; category: string; sortOrder: number;
     requiredRole: string | null; hasCustomPage: boolean;
@@ -443,10 +437,11 @@ export function ConfigIndexPage() {
   // Configuration access matrix — { [moduleKey]: [roleNames] }
   // If a module has an entry, only listed roles (plus SUPER_ADMIN) see it.
   // If a module is NOT in the matrix, it remains visible to all (backwards compat).
-  const { data: accessMatrix } = useSWR<Record<string, string[]>>(
+  const { data: accessMatrix, error: accessMatrixError } = useSWR<Record<string, string[]>>(
     '/api/config/access-matrix',
     { revalidateOnMount: true, dedupingInterval: 5000 },
   );
+  const loadError = manifestError ?? accessMatrixError;
 
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
 
@@ -500,6 +495,8 @@ export function ConfigIndexPage() {
         title="System Configuration"
         crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Configuration' }]}
       />
+
+      {loadError && <LoadError what="the configuration modules" error={loadError} />}
 
       <ConfigGroup
         title="Security & General Settings"

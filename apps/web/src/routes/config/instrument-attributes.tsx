@@ -8,6 +8,8 @@ import {
 import { ATTRIBUTE_LABELS_URL } from '@/hooks/use-attribute-labels';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Toggle } from '@/components/ui/toggle';
@@ -145,6 +147,9 @@ const toRows = (keys: string[], labels: AttributeLabels, hidden: SettingsHidden)
 
 export function InstrumentAttributesConfigPage() {
   const { toast } = useToast();
+  // `UPDATE_INSTRUMENT_PROFILE` is an admin-configurable re-auth action
+  // (audit 2026-10-03, SEC-7); the server checks it first on the profile PUT.
+  const reauth = useReauth();
   const { data: profileList, mutate: mutateProfiles } = useSWR<{ data: Profile[] }>('/api/instrument-profiles');
   // The SUPER_ADMIN editor endpoint for the display-name map (this page is
   // SUPER_ADMIN); every other screen reads the narrow-slice route instead.
@@ -357,7 +362,19 @@ export function InstrumentAttributesConfigPage() {
       const keys = normalised;
       if (keysDirty) {
         // The list is written ON the profile. There is no shared list to write to.
-        await apiClient.put(`/api/instrument-profiles/${target}`, { attributeKeys: keys, ...(reason ? { reason } : {}) });
+        // Through the re-auth hook; the sequence below waits for the hook's own
+        // outcome (the dialog, when the policy is on, resolves it later). The
+        // callback is idempotent — the hook replays it with the password.
+        const body = { attributeKeys: keys, ...(reason ? { reason } : {}) };
+        let done = false;
+        await new Promise<void>((resolve, reject) => {
+          void reauth.execute('UPDATE_INSTRUMENT_PROFILE', async (password?: string) => {
+            if (done) return;
+            if (password) await apiClient.putWithReauth(`/api/instrument-profiles/${target}`, body, password);
+            else await apiClient.put(`/api/instrument-profiles/${target}`, body);
+            done = true;
+          }, { onSuccess: resolve, onError: reject, onCancel: () => reject({ error: 'REAUTH_CANCELLED' }) });
+        });
         setRemovalRemarkOpen(false);
         await mutateUsage();
       }
@@ -389,7 +406,11 @@ export function InstrumentAttributesConfigPage() {
         `The ${selectedProfile?.name} form now asks for ${kept} attribute${kept === 1 ? '' : 's'}.`,
       );
     } catch (err: unknown) {
-      toast.error('Could not save', (err as { message?: string })?.message ?? 'The attribute keys were not changed.');
+      // A cancelled password prompt is not an error: nothing was written and the
+      // operator chose to stop.
+      if ((err as { error?: string })?.error !== 'REAUTH_CANCELLED') {
+        toast.error('Could not save', (err as { message?: string })?.message ?? 'The attribute keys were not changed.');
+      }
     } finally {
       setSaving(false);
     }
@@ -582,6 +603,16 @@ export function InstrumentAttributesConfigPage() {
         </Button>
       </div>
 
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Update Instrument Profile"
+      />
       <RemarkDialog
         open={removalRemarkOpen}
         attributeKey=""

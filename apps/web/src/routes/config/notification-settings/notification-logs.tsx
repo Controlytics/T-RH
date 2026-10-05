@@ -8,6 +8,7 @@ import { usePaginationConfig } from '../../../hooks/use-pagination-config';
 import { Button } from '@/components/ui/button';
 import { PageHero } from '@/components/ui/page-hero';
 import { EmptyState } from '@/components/ui/empty-state';
+import { LoadError } from '@/components/ui/load-error';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 
 interface LogEntry {
@@ -52,7 +53,9 @@ export function NotificationLogsPage() {
   if (status) queryParams.set('status', status);
   if (search) queryParams.set('search', search);
 
-  const { data, mutate } = useSWR(`/api/notification-settings/logs?${queryParams}`);
+  // `error` is read (audit 2026-10-03, WEB-6): a failed fetch must not render
+  // "No notification logs found".
+  const { data, error, mutate } = useSWR(`/api/notification-settings/logs?${queryParams}`);
   const { data: stats } = useSWR('/api/notification-settings/logs/stats');
 
   const logs: LogEntry[] = data?.data ?? [];
@@ -161,7 +164,10 @@ export function NotificationLogsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {logs.length === 0 && (
+              {error && (
+                <TableRow><TableCell colSpan={7} className="px-4 py-4"><LoadError what="notification logs" error={error} /></TableCell></TableRow>
+              )}
+              {!error && logs.length === 0 && (
                 <TableRow><TableCell colSpan={7} className="px-4 py-2"><EmptyState compact title="No notification logs found" /></TableCell></TableRow>
               )}
               {logs.map((log) => (

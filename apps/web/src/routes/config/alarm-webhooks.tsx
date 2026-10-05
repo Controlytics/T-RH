@@ -9,6 +9,7 @@ import {
 } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
 import { useCan } from '@/hooks/use-can';
+import { useRowKeys } from '@/hooks/use-row-keys';
 import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { Button } from '@/components/ui/button';
@@ -639,6 +640,8 @@ function TargetDialog({
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<Draft>(initial ?? emptyDraft);
+  // Stable keys for the header rows (audit 2026-10-03, WEB-14).
+  const headerKeys = useRowKeys(draft.headerRows.length);
   const [touched, setTouched] = useState(false);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
 
@@ -747,7 +750,7 @@ function TargetDialog({
             <span className={labelCls}>Headers</span>
             <div className="space-y-2">
               {draft.headerRows.map((row, i) => (
-                <div key={i} className="flex gap-2">
+                <div key={headerKeys.at(i)} className="flex gap-2">
                   <input
                     className={field}
                     aria-label={`Header ${i + 1} name`}
@@ -760,7 +763,7 @@ function TargetDialog({
                     value={row.value}
                     onChange={(e) => set('headerRows', draft.headerRows.map((r, j) => (j === i ? { ...r, value: e.target.value } : r)))}
                   />
-                  <Button variant="ghost" size="sm" onClick={() => set('headerRows', draft.headerRows.filter((_, j) => j !== i))}>
+                  <Button variant="ghost" size="sm" onClick={() => { headerKeys.remove(i); set('headerRows', draft.headerRows.filter((_, j) => j !== i)); }}>
                     Remove
                   </Button>
                 </div>

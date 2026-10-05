@@ -67,6 +67,7 @@ afterAll(async () => {
     invalidateReauthCache();
   }
   await prisma.instrument.deleteMany({ where: { id: { in: made } } });
+  await prisma.instrument.deleteMany({ where: { code: { startsWith: `RG-${s}-BULK` } } });
   await prisma.instrumentProfile.deleteMany({ where: { name: { startsWith: `RG-${s}` } } });
   await app.close();
 });
@@ -83,6 +84,19 @@ describe('instrument registry mutations carry a configurable e-signature', () =>
     const ok = await app.inject({ method: 'POST', url: '/api/instruments', headers: { ...auth, ...reauth }, payload: payload(`RG-${s}-A`) });
     expect(ok.statusCode).toBe(201);
     made.push(ok.json().id);
+  });
+
+  it('POST /api/instruments/bulk: gated under CREATE_INSTRUMENT like the single create', async () => {
+    const csv = `Instrument ID
+RG-${s}-BULK-1`;
+    const refused = await app.inject({ method: 'POST', url: '/api/instruments/bulk', headers: auth, payload: { csv, profileId } });
+    expect(refused.statusCode).toBe(401);
+    expect(refused.json()).toMatchObject({ error: 'REAUTH_REQUIRED', action: 'CREATE_INSTRUMENT' });
+    expect(await prisma.instrument.count({ where: { code: `RG-${s}-BULK-1` } })).toBe(0);
+
+    const ok = await app.inject({ method: 'POST', url: '/api/instruments/bulk', headers: { ...auth, ...reauth }, payload: { csv, profileId } });
+    expect(ok.statusCode, ok.body).toBe(200);
+    expect(await prisma.instrument.count({ where: { code: `RG-${s}-BULK-1` } })).toBe(1);
   });
 
   it('a wrong password is refused and nothing is created', async () => {

@@ -3,6 +3,7 @@ import useSWR from 'swr';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../lib/api-client';
 import { clearServerContact } from '../lib/server-contact';
+import { safeStorage } from '../lib/safe-storage';
 
 interface User {
   id: string;
@@ -45,12 +46,16 @@ function isNetworkError(err: any): boolean {
 
 export function useAuth() {
   const navigate = useNavigate();
-  const getToken = () => sessionStorage.getItem('access_token');
+  // Through `safeStorage` (audit 2026-10-03, WEB-3): this runs DURING RENDER,
+  // and a browser that blocks site data throws on the storage accessor itself.
+  // A bare `sessionStorage.getItem` here took the whole shell down to the root
+  // error boundary on such a browser.
+  const getToken = () => safeStorage.session.get('access_token');
 
   // Cache user data for offline use
   const getCachedUser = (): User | undefined => {
     try {
-      const cached = localStorage.getItem('digilog_cached_user');
+      const cached = safeStorage.local.get('digilog_cached_user');
       return cached ? JSON.parse(cached) : undefined;
     } catch { return undefined; }
   };
@@ -60,7 +65,7 @@ export function useAuth() {
     {
       fallbackData: getCachedUser(),
       onSuccess: (data) => {
-        if (data) localStorage.setItem('digilog_cached_user', JSON.stringify(data));
+        if (data) safeStorage.local.set('digilog_cached_user', JSON.stringify(data));
       },
     },
   );
@@ -74,7 +79,7 @@ export function useAuth() {
       password,
       ...(force && { force }),
     });
-    sessionStorage.setItem('access_token', res.token);
+    safeStorage.session.set('access_token', res.token);
 
     // The offline-replay grant mint that used to live here was removed with the
     // offline-replay subsystem (commit cbcb913). `POST /api/auth/offline-grant`
@@ -104,9 +109,11 @@ export function useAuth() {
     } catch {
       // ignore
     }
-    sessionStorage.removeItem('access_token');
-    localStorage.removeItem('access_token_backup');
-    localStorage.removeItem('digilog_cached_user');
+    safeStorage.session.remove('access_token');
+    // `access_token_backup` is no longer removed here (audit 2026-10-03,
+    // WEB-10): nothing in this fork ever wrote it — it was the Capacitor APK's
+    // key, and the only two references in the tree were its two removals.
+    safeStorage.local.remove('digilog_cached_user');
     // W3: clear the last-server-contact timestamp on logout. Otherwise a
     // shared workstation could inherit a stale timestamp from the previous
     // user, making the W4 hard-cutoff blocker disagree with reality on the
@@ -114,11 +121,11 @@ export function useAuth() {
     // first apiClient call (e.g. POST /api/auth/login) reseeds it.
     clearServerContact();
     // Clean up single-tab localStorage keys
-    const myTabId = sessionStorage.getItem('digilog_tab_id');
-    if (myTabId && localStorage.getItem('digilog_active_tab_id') === myTabId) {
-      localStorage.removeItem('digilog_active_tab_id');
-      localStorage.removeItem('digilog_tab_heartbeat');
-      localStorage.removeItem('digilog_active_user_id');
+    const myTabId = safeStorage.session.get('digilog_tab_id');
+    if (myTabId && safeStorage.local.get('digilog_active_tab_id') === myTabId) {
+      safeStorage.local.remove('digilog_active_tab_id');
+      safeStorage.local.remove('digilog_tab_heartbeat');
+      safeStorage.local.remove('digilog_active_user_id');
     }
     await mutate(undefined, false);
     navigate('/login', { replace: true });
@@ -134,11 +141,11 @@ export function useAuth() {
 
     const handleBeforeUnload = () => {
       // Clean up single-tab localStorage keys
-      const myTabId = sessionStorage.getItem('digilog_tab_id');
-      if (myTabId && localStorage.getItem('digilog_active_tab_id') === myTabId) {
-        localStorage.removeItem('digilog_active_tab_id');
-        localStorage.removeItem('digilog_tab_heartbeat');
-        localStorage.removeItem('digilog_active_user_id');
+      const myTabId = safeStorage.session.get('digilog_tab_id');
+      if (myTabId && safeStorage.local.get('digilog_active_tab_id') === myTabId) {
+        safeStorage.local.remove('digilog_active_tab_id');
+        safeStorage.local.remove('digilog_tab_heartbeat');
+        safeStorage.local.remove('digilog_active_user_id');
       }
     };
 
@@ -168,10 +175,9 @@ export function useAuth() {
     // change-password screen with forcePasswordChange=true. The server
     // blocks /api/auth/refresh for fpc:true users (it's not in
     // PASSWORD_CHANGE_ALLOWED → 403 FORCE_PASSWORD_CHANGE). The api-client
-    // 403 handler then hard-redirects to /change-password, which on Capacitor
-    // tabletkicks in main.tsx's mount-time redirect and bounces the operator
-    // to /m/login — mid-typing. Skipping the refresh is correct: the operator
-    // is about to change their password anyway; extending the JWT here is
+    // 403 handler then hard-redirects to /change-password — a reload under the
+    // operator mid-typing. Skipping the refresh is correct: the operator is
+    // about to change their password anyway; extending the JWT here is
     // pointless.
     if (user?.forcePasswordChange) return;
     const REFRESH_INTERVAL = 30 * 60 * 1000; // 30 minutes

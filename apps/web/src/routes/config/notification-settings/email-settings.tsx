@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import useSWR from 'swr';
+import { BRANDING_TAB_TITLE_DEFAULT } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
@@ -152,7 +153,8 @@ function EmailTab() {
   const { data: oauth2Status, mutate: mutateOAuth2Status } = useSWR<OAuth2Status>('/api/notification-settings/email/oauth2/status', { revalidateOnMount: true, dedupingInterval: 0 });
 
   const defaults: EmailConfig = {
-    host: '', port: 587, secure: false, username: '', password: '', fromEmail: '', fromName: 'DigiLog',
+    // The product's name, not upstream "DigiLog" (audit 2026-10-03, WEB-16).
+    host: '', port: 587, secure: false, username: '', password: '', fromEmail: '', fromName: BRANDING_TAB_TITLE_DEFAULT,
     enabled: false, smtpProvider: 'custom', authType: 'basic',
     oauth2Provider: 'microsoft', clientId: '', clientSecret: '', providerTenantId: '', refreshToken: '',
     tokenUrl: '', scope: '', connectionTimeout: 10000, socketTimeout: 15000,
@@ -295,7 +297,7 @@ function EmailTab() {
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">From Name</label>
-              <Input {...register('fromName')} placeholder="DigiLog" />
+              <Input {...register('fromName')} placeholder={BRANDING_TAB_TITLE_DEFAULT} />
             </div>
           </div>
         </div>

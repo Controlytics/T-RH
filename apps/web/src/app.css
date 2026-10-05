@@ -649,8 +649,9 @@ table {
      take the colour as the message. Colour never travels alone. */
   --chart-limit-high: #15803d;
   --chart-limit-low: #dc2626;
-  /* The trend variant's chrome accent — the axis unit label and the "Last
-     Reading" readout. Deliberately ONE colour on both charts, so it cannot be
+  /* The trend variant's chrome accent — the axis unit label (the "Last
+     Reading" readout that shared it went 2026-10-03, audit WEB-9).
+     Deliberately ONE colour on both charts, so it cannot be
      mistaken for series identity the way a per-quantity colour on text would
      be (see SERIES_COLORS: text wears ink, the line carries identity). */
   --chart-axis-accent: #2563eb;
@@ -659,6 +660,20 @@ table {
   --chart-value-label: #334155;
   --chart-crosshair: #94a3b8;
   --chart-selection: #334155;
+
+  /* The two QUANTITY hues — temperature burnt orange, humidity green — that the
+     readings table's column headers (`.tv-h-temp` / `.tv-h-rh` below), the
+     dashboard alarms panel, the Settings tiles and the Data Report history
+     widget all share (audit 2026-10-03, WEB-17). ONE definition, read with a
+     literal fallback like the chart tokens. FIXED, not themed, for the same
+     reason as `--chart-limit-line`: a Ruby site must not read humidity in red
+     — the hue IS the quantity, on every preset. */
+  --quantity-temp: #c2410c;
+  --quantity-temp-deep: #9a3412;
+  --quantity-temp-wash: #fff7ed;
+  --quantity-rh: #15803d;
+  --quantity-rh-deep: #166534;
+  --quantity-rh-wash: #f0fdf4;
 }
 
 /* ===========================================================================
@@ -695,8 +710,8 @@ table {
 /* Header row 1 — a gradient per column group, lightest end still >= 4.5:1. */
 .tv-h-id     { background: linear-gradient(135deg, #1e40af, #2563eb); color: #fff; }
 .tv-h-loc    { background: linear-gradient(135deg, #115e59, #0f766e); color: #fff; }
-.tv-h-temp   { background: linear-gradient(135deg, #9a3412, #c2410c); color: #fff; }
-.tv-h-rh     { background: linear-gradient(135deg, #166534, #15803d); color: #fff; }
+.tv-h-temp   { background: linear-gradient(135deg, var(--quantity-temp-deep, #9a3412), var(--quantity-temp, #c2410c)); color: #fff; }
+.tv-h-rh     { background: linear-gradient(135deg, var(--quantity-rh-deep, #166534), var(--quantity-rh, #15803d)); color: #fff; }
 .tv-h-status { background: linear-gradient(135deg, #5b21b6, #6d28d9); color: #fff; }
 .tv-h-asof   { background: linear-gradient(135deg, #075985, #0369a1); color: #fff; }
 .tv-h-trend  { background: linear-gradient(135deg, #1e3a8a, #1e40af); color: #fff; }

@@ -28,6 +28,24 @@ vi.mock('@/lib/api-client', () => ({
 vi.mock('@/hooks/use-toast', () => ({
   useToast: () => ({ toast: { success: vi.fn(), error: vi.fn() } }),
 }));
+/** Every action the screen signed under (audit 2026-10-03, SEC-7). Pass-through
+ *  otherwise, as the Attributes panel test does: the callback runs with no
+ *  password — the path for a role whose policy is off. */
+const reauthActions: string[] = [];
+vi.mock('@/hooks/use-reauth', () => ({
+  useReauth: () => ({
+    execute: async (
+      action: string,
+      cb: (p?: string) => Promise<void>,
+      opts?: { onSuccess?: () => void; onError?: (e: unknown) => void; onCancel?: () => void },
+    ) => {
+      reauthActions.push(action);
+      try { await cb(); await opts?.onSuccess?.(); } catch (e) { opts?.onError?.(e); }
+    },
+    isOpen: false, password: '', error: '', isVerifying: false,
+    setPassword: vi.fn(), confirm: vi.fn(), cancel: vi.fn(), needsReauth: () => false,
+  }),
+}));
 
 const { GatewayPanel } = await import('../gateway-panel');
 
@@ -51,6 +69,15 @@ describe('GatewayPanel — unlink confirmation', () => {
     // The write goes to the CHILD, not the gateway — a PUT against gw-1 here
     // would silently make the gateway a child of itself.
     await waitFor(() => expect(put).toHaveBeenCalledWith('/api/instruments/c-1', { gatewayId: null }));
+  });
+
+  it('signs the unlink under UPDATE_INSTRUMENT — a PUT on the child (audit 2026-10-03, SEC-7)', async () => {
+    reauthActions.length = 0;
+    render(<GatewayPanel instrumentId="gw-1" canEdit />);
+    fireEvent.click(screen.getByRole('button', { name: /^unlink$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^unlink instrument$/i }));
+    await waitFor(() => expect(put).toHaveBeenCalledWith('/api/instruments/c-1', { gatewayId: null }));
+    expect(reauthActions).toEqual(['UPDATE_INSTRUMENT']);
   });
 
   it('unlinks nothing when cancelled', async () => {

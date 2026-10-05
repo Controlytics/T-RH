@@ -6,6 +6,7 @@ import { formatSetPoint, outOfSpec, faultWord, boundText, NOT_AVAILABLE, type Se
 import { useSensorWords } from '@/hooks/use-failure-text';
 import { usePanelToolbarSlot } from './panel-card';
 import { formatDecimals } from '@digilog/shared';
+import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import {
   useTelemetryOverview,
   type OverviewRow,
@@ -318,6 +319,10 @@ export function TelemetryTable({ functionalLocationId, directOnly, trail }: {
   // The administered word for a failed sensor. One hook, so the table, the
   // tiles and the Alarms page cannot show three different words for one fault.
   const sensorWords = useSensorWords();
+  // The administered date/time format and SITE timezone for the "as of"
+  // tooltip (audit 2026-10-03, WEB-12) — it was `toLocaleString()`, the
+  // workstation's zone, the one remaining such call outside the formatter.
+  const { formatDateTime } = useDatetimeFormat();
   const toolbarSlot = usePanelToolbarSlot();
   const { rows, isLoading, error } = useTelemetryOverview({ functionalLocationId, directOnly });
   const [sort, setSort] = useState<SortKey>('code');
@@ -706,7 +711,7 @@ export function TelemetryTable({ functionalLocationId, directOnly, trail }: {
                       changes on every poll for no information gained. */}
                   <td
                     className={`tv-cell ${CELL} text-slate-600`}
-                    title={asOf ? new Date(asOf).toLocaleString() : 'This instrument has never reported'}
+                    title={asOf ? formatDateTime(asOf) : 'This instrument has never reported'}
                   >
                     <span className="flex items-center justify-center gap-1.5 text-slate-600">
                       <svg aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -1,5 +1,6 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { BRANDING_TAB_TITLE_DEFAULT } from '@digilog/shared';
 import { apiClient } from './api-client';
 import { getApiBase } from './api-base';
 
@@ -57,7 +58,10 @@ async function loadLogo(): Promise<{ data: string; w: number; h: number } | null
 
 async function loadBranding(): Promise<{ companyName: string; appName: string }> {
   let companyName = 'Controlytics AI Pvt Ltd';
-  let appName = 'DigiLog';
+  // The shared product default, never the upstream "DigiLog" literal (audit
+  // 2026-10-03, WEB-16): a fresh install prints this in every PDF header
+  // until Branding is saved.
+  let appName = BRANDING_TAB_TITLE_DEFAULT;
   // Base identity from Branding (public endpoint).
   try {
     const data = await fetch(`${getApiBase()}/api/config/branding`).then((r) => r.json());
@@ -78,11 +82,10 @@ async function loadBranding(): Promise<{ companyName: string; appName: string }>
  *  role decides which signature LABEL is used (config → Report Signatories). */
 async function loadCurrentUser(): Promise<{ username: string | null; role: string | null }> {
   try {
-    const base = getApiBase();
-    const token = sessionStorage.getItem('access_token');
-    const res = await fetch(`${base}/api/auth/me`, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined);
-    if (!res.ok) return { username: null, role: null };
-    const data = await res.json();
+    // Through `apiClient` (audit 2026-10-03, WEB-11), not a hand-rolled fetch
+    // reading the token itself — the ONE header builder, so a change to where
+    // the token lives cannot silently blank the footer stamp.
+    const data = await apiClient.get<any>('/api/auth/me');
     const u = data?.user ?? data;
     return { username: u?.username || null, role: u?.role || null };
   } catch { return { username: null, role: null }; }

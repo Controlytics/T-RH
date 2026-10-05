@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import useSWR from 'swr';
 import { coerceSensorOffsetConfig, isOffsetAttributeKey } from '@digilog/shared';
+import { safeStorage } from '../lib/safe-storage';
 
 /**
  * Which attribute keys are SENSOR OFFSETS (2026-10-01) — so an offset's value
@@ -16,7 +17,7 @@ export function useOffsetKeys(): (key: string) => boolean {
   // The signed-in user from the SAME cached `/api/auth/me` request `useAuth`
   // makes — read directly so this hook needs no router (it renders inside
   // panels and forms that `useAuth`'s navigation would otherwise tie to one).
-  const hasToken = (() => { try { return !!sessionStorage.getItem('access_token'); } catch { return false; } })();
+  const hasToken = !!safeStorage.session.get('access_token');
   const { data: user } = useSWR<{ role?: string }>(hasToken ? '/api/auth/me' : null);
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const { data } = useSWR<unknown>(isSuperAdmin ? '/api/config/dynamic/sensor-offsets' : null);

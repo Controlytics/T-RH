@@ -14,8 +14,8 @@ describe('brandingConfigSchema', () => {
     const result = brandingConfigSchema.safeParse({});
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.appName).toBe('DigiLog');
-      expect(result.data.logoText).toBe('DL');
+      expect(result.data.appName).toBe('T&RH-Monitoring');
+      expect(result.data.logoText).toBe('TRH');
       expect(result.data.primaryColor).toBe('#1e3a5f');
     }
   });

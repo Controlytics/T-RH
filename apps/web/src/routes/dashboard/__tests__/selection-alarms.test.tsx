@@ -347,6 +347,21 @@ describe('SelectionAlarms — acknowledging is a gated §11 signature', () => {
     expect(screen.getByRole('button', { name: /acknowledge/i })).toBeInTheDocument();
   });
 
+  it('pins the action cell to the right edge, painted in the ROW\'s own colour (audit 2026-10-03, WEB-7)', () => {
+    // Eleven nowrap columns overflow a panel and the only horizontal scrollbar
+    // is at the table's foot, so an unpinned Acknowledge was reachable only by
+    // scrolling down, then right, with no cue. The cell is sticky like the
+    // Alarms page's; `bg-inherit` because the `.alarm-grid` zebra sits on the
+    // <tr> — a colour of the cell's own would paint over it.
+    const { container } = renderWith([active]);
+    const cell = screen.getByRole('button', { name: /acknowledge/i }).closest('td')!;
+    for (const cls of ['sticky', 'right-0', 'bg-inherit']) expect(cell.classList.contains(cls)).toBe(true);
+    const ths = container.querySelectorAll('thead th');
+    const last = ths[ths.length - 1];
+    expect(last.classList.contains('sticky')).toBe(true);
+    expect(last.classList.contains('right-0')).toBe(true);
+  });
+
   it('HIDES it when the role does not hold alarms.acknowledge', () => {
     // The other direction, and the one a hardcoded `() => true` mock cannot see.
     // Hiding it is presentation — the server's 403 is the control — but a button

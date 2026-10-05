@@ -2,9 +2,14 @@ import { useState } from 'react';
 import { AttributeValueInput } from '@/components/attribute-value-input';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import useSWR from 'swr';
-import { parseInstrumentAttributeKeys, placementColumnFor, ALL_RECORDS_PARAM } from '@digilog/shared';
+import {
+  parseInstrumentAttributeKeys, placementColumnFor, ALL_RECORDS_PARAM,
+  instrumentCreateFormSchema, formFieldErrors, type FormFieldErrors,
+} from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { useAttributeLabels } from '@/hooks/use-attribute-labels';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,9 +44,18 @@ export function InstrumentCreatePage() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { labelFor } = useAttributeLabels();
+  // `CREATE_INSTRUMENT` is an admin-configurable re-auth action since the
+  // 2026-10-03 audit (SEC-7); the server checks it FIRST on POST. Through the
+  // shared hook so a policy switched on prompts for the password instead of
+  // surfacing a raw REAUTH_REQUIRED toast. Ships OFF.
+  const reauth = useReauth();
   const [saving, setSaving] = useState(false);
   const [created, setCreated] = useState<CreatedInstrument | null>(null);
   const [form, setForm] = useState({ code: '' });
+  // Field errors from the form schema (audit 2026-10-03, WEB-15) — named
+  // beside the field, where a bare `required` attribute or a generic toast
+  // did not. The server still validates.
+  const [fieldErrors, setFieldErrors] = useState<FormFieldErrors>({});
   const [isGateway, setIsGateway] = useState(false);
   /**
    * Which gateway this instrument reports through. Optional — most instruments
@@ -110,63 +124,79 @@ export function InstrumentCreatePage() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const parsed = instrumentCreateFormSchema.safeParse({ code: form.code, profileId });
+    if (!parsed.success) { setFieldErrors(formFieldErrors(parsed.error)); return; }
+    setFieldErrors({});
     setSaving(true);
-    try {
-      const code = form.code.trim();
-      // No rule on the code (2026-09-16, operator: "remove instrument id
-      // restriction popup") — see `codeSchema` in `@digilog/shared` for what
-      // that costs on the wire. Sent as typed.
-      const payload: Record<string, unknown> = { name: code, code, profileId };
-      if (isGateway) payload.isGateway = true;
-      // A gateway cannot itself sit behind a gateway — the backend rejects that
-      // as NESTED_GATEWAY — so the picker is hidden in gateway mode and the value
-      // is not sent even if one was chosen before the checkbox was ticked.
-      if (!isGateway && gatewayId) payload.gatewayId = gatewayId;
+    const code = parsed.data.code;
+    // No rule on the code (2026-09-16, operator: "remove instrument id
+    // restriction popup") — see `codeSchema` in `@digilog/shared` for what
+    // that costs on the wire. Sent as typed.
+    const payload: Record<string, unknown> = { name: code, code, profileId };
+    if (isGateway) payload.isGateway = true;
+    // A gateway cannot itself sit behind a gateway — the backend rejects that
+    // as NESTED_GATEWAY — so the picker is hidden in gateway mode and the value
+    // is not sent even if one was chosen before the checkbox was ticked.
+    if (!isGateway && gatewayId) payload.gatewayId = gatewayId;
 
-      // Block / Area / Location are configured keys like any other, but they
-      // are real COLUMNS on the instrument — the Instruments list filters on
-      // them. Routed here rather than written as attribute rows, which would
-      // look identical on screen and quietly empty those filters. Everything
-      // else becomes an attribute below.
-      const attributeEntries: Array<[string, string]> = [];
-      for (const key of attributeKeys) {
-        const value = (attrs[key] ?? '').trim();
-        // Send only what was filled. Posting '' would store an empty string
-        // where the schema means "not recorded".
-        if (!value) continue;
-        const column = placementColumnFor(key);
-        if (column) payload[column] = value;
-        else attributeEntries.push([key, value]);
+    // Block / Area / Location are configured keys like any other, but they
+    // are real COLUMNS on the instrument — the Instruments list filters on
+    // them. Routed here rather than written as attribute rows, which would
+    // look identical on screen and quietly empty those filters. Everything
+    // else becomes an attribute below.
+    const attributeEntries: Array<[string, string]> = [];
+    for (const key of attributeKeys) {
+      const value = (attrs[key] ?? '').trim();
+      // Send only what was filled. Posting '' would store an empty string
+      // where the schema means "not recorded".
+      if (!value) continue;
+      const column = placementColumnFor(key);
+      if (column) payload[column] = value;
+      else attributeEntries.push([key, value]);
+    }
+
+    // IDEMPOTENT callback: the re-auth hook REPLAYS it with the password after
+    // a 401, and a replay must not register the instrument twice or re-post an
+    // attribute it already wrote.
+    let res: CreatedInstrument | null = null;
+    const written = new Set<string>();
+    const failed: string[] = [];
+    await reauth.execute('CREATE_INSTRUMENT', async (password?: string) => {
+      if (!res) {
+        res = password
+          ? await apiClient.postWithReauth<CreatedInstrument>('/api/instruments', payload, password)
+          : await apiClient.post<CreatedInstrument>('/api/instruments', payload);
       }
-
-      const res = await apiClient.post<CreatedInstrument>('/api/instruments', payload);
-
       // Attributes are separate writes — there is no bulk endpoint, and each is
       // separately audited. The instrument EXISTS by now, so a failure here is
       // reported without discarding it: the operator keeps the registration and
       // the token, and can add the missing attribute from the detail page.
-      const failed: string[] = [];
       for (const [key, value] of attributeEntries) {
+        if (written.has(key)) continue;
         try {
           await apiClient.post(`/api/instruments/${res.id}/attributes`, { key, value });
         } catch {
           failed.push(key);
         }
+        written.add(key);
       }
-      if (failed.length) {
-        toast.error(
-          'Instrument created, some attributes were not saved',
-          `${failed.join(', ')} could not be saved. Add them from the instrument's Attributes panel.`,
-        );
-      }
-
-      setCreated(res);
-    } catch (err: unknown) {
-      const message = (err as { message?: string })?.message ?? 'Could not create the instrument.';
-      toast.error('Create failed', message);
-    } finally {
-      setSaving(false);
-    }
+    }, {
+      onSuccess: () => {
+        if (failed.length) {
+          toast.error(
+            'Instrument created, some attributes were not saved',
+            `${failed.join(', ')} could not be saved. Add them from the instrument's Attributes panel.`,
+          );
+        }
+        setCreated(res);
+        setSaving(false);
+      },
+      onError: (err: unknown) => {
+        toast.error('Create failed', (err as { message?: string })?.message ?? 'Could not create the instrument.');
+        setSaving(false);
+      },
+      onCancel: () => setSaving(false),
+    });
   };
 
   return (
@@ -190,12 +220,13 @@ export function InstrumentCreatePage() {
               <label className="block space-y-1">
                 <span className="text-sm font-medium text-slate-700">Profile *</span>
                 <select
-                  required value={profileId} onChange={(e) => changeProfile(e.target.value)}
+                  value={profileId} onChange={(e) => changeProfile(e.target.value)}
                   className="ctl w-full"
                 >
                   <option value="">Select a profile…</option>
                   {profiles?.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
+                {fieldErrors.profileId && <p className="mt-1 text-xs text-red-600">{fieldErrors.profileId[0]}</p>}
               </label>
             )}
             <label className="block space-y-1">
@@ -207,7 +238,10 @@ export function InstrumentCreatePage() {
                   browser pattern refused `/`, which 100 of 101 codes here
                   carry; the MQTT wildcard guard that replaced it went the same
                   day, consequence stated in `@digilog/shared`'s `codeSchema`. */}
-              <Input required value={form.code} onChange={set('code')} />
+              {/* No `required` either: the schema names the omission beside the
+                  field, the same wording on every browser. */}
+              <Input value={form.code} onChange={set('code')} aria-invalid={fieldErrors.code ? true : undefined} />
+              {fieldErrors.code && <p className="mt-1 text-xs text-red-600">{fieldErrors.code[0]}</p>}
             </label>
             <label className="flex items-start gap-2 text-sm text-slate-700">
               <input
@@ -300,6 +334,17 @@ export function InstrumentCreatePage() {
           </Button>
         </div>
       </form>
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Create Instrument"
+      />
 
       {created && (
         <TokenDialog

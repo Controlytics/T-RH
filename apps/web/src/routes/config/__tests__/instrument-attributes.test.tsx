@@ -58,6 +58,24 @@ vi.mock('@/lib/api-client', () => ({
 vi.mock('@/hooks/use-toast', () => ({
   useToast: () => ({ toast: { success: vi.fn(), error: vi.fn() } }),
 }));
+/** Every action the screen signed under (audit 2026-10-03, SEC-7). Pass-through
+ *  otherwise, as the Attributes panel test does: the callback runs with no
+ *  password — the path for a role whose policy is off. */
+const reauthActions: string[] = [];
+vi.mock('@/hooks/use-reauth', () => ({
+  useReauth: () => ({
+    execute: async (
+      action: string,
+      cb: (p?: string) => Promise<void>,
+      opts?: { onSuccess?: () => void; onError?: (e: unknown) => void; onCancel?: () => void },
+    ) => {
+      reauthActions.push(action);
+      try { await cb(); await opts?.onSuccess?.(); } catch (e) { opts?.onError?.(e); }
+    },
+    isOpen: false, password: '', error: '', isVerifying: false,
+    setPassword: vi.fn(), confirm: vi.fn(), cancel: vi.fn(), needsReauth: () => false,
+  }),
+}));
 
 const { InstrumentAttributesConfigPage } = await import('../instrument-attributes');
 
@@ -180,6 +198,18 @@ describe('InstrumentAttributesConfigPage — profile picker', () => {
     await waitFor(() => expect(put).toHaveBeenCalledWith(
       '/api/instrument-profiles/p2', { attributeKeys: 'Firmware Rev' },
     ));
+  });
+
+  it('signs the profile PUT under UPDATE_INSTRUMENT_PROFILE (audit 2026-10-03, SEC-7)', async () => {
+    reauthActions.length = 0;
+    renderPage();
+    selectTarget('p2');
+    fireEvent.change(keyField(1), { target: { value: 'Firmware Rev' } });
+    save();
+    await waitFor(() => expect(put).toHaveBeenCalledWith(
+      '/api/instrument-profiles/p2', { attributeKeys: 'Firmware Rev' },
+    ));
+    expect(reauthActions).toEqual(['UPDATE_INSTRUMENT_PROFILE']);
   });
 
   it('never writes the KEYS to the retired global config row', async () => {

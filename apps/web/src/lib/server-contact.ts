@@ -27,17 +27,17 @@
  * notifier.
  */
 
+import { safeStorage } from './safe-storage';
+
 const STORAGE_KEY = 'digilog_last_server_contact';
 
 /** Internal helper — persist the timestamp. */
 function emit(timestampMs: number) {
-  try {
-    localStorage.setItem(STORAGE_KEY, String(timestampMs));
-  } catch {
-    // localStorage may be unavailable in private-mode or quota-exhausted
-    // environments. Nothing else depends on this write succeeding, so a
-    // failure is simply a timestamp that will not survive a reload.
-  }
+  // localStorage may be unavailable in private-mode or quota-exhausted
+  // environments. Nothing else depends on this write succeeding, so a
+  // failure is simply a timestamp that will not survive a reload. The guard
+  // is `safeStorage`'s (audit 2026-10-03, WEB-3).
+  safeStorage.local.set(STORAGE_KEY, String(timestampMs));
 }
 
 /**
@@ -75,11 +75,7 @@ export function markServerContactFromResponse(res: { status: number }): void {
  * blocker inherited from the previous session's stale timestamp).
  */
 export function clearServerContact(): void {
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    /* ignore */
-  }
+  safeStorage.local.remove(STORAGE_KEY);
 }
 
 

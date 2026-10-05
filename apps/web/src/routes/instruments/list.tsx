@@ -13,6 +13,7 @@ import { Toolbar } from '@/components/ui/toolbar';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { SkeletonRows } from '@/components/ui/skeleton';
+import { LoadError } from '@/components/ui/load-error';
 
 /**
  * The instruments register, laid out around the question it is actually opened
@@ -130,7 +131,10 @@ export function InstrumentListPage() {
   // "Showing 1–10 of 15" over an empty table.
   if (profileId) params.set('profileId', profileId);
 
-  const { data, isLoading } = useSWR<ListResponse>(`/api/instruments?${params}`);
+  // `error` is read (audit 2026-10-03, WEB-6): without it a 500 or a
+  // visibility-scope 403 rendered "No instruments registered yet" — a sentence
+  // asserting nothing exists, to someone who merely could not read the list.
+  const { data, error, isLoading } = useSWR<ListResponse>(`/api/instruments?${params}`);
   const { data: profile } = useSWR<{ id: string; name: string; description: string | null }>(
     profileId ? `/api/instrument-profiles/${profileId}` : null,
   );
@@ -220,7 +224,12 @@ export function InstrumentListPage() {
               <tr><td colSpan={3} className="px-4 py-4"><SkeletonRows rows={4} columns={3} /></td></tr>
             )}
 
-            {!isLoading && rows.length === 0 && (
+            {/* The failure line, never the empty state, on a failed fetch. */}
+            {!isLoading && error && (
+              <tr><td colSpan={3} className="px-4 py-4"><LoadError what="instruments" error={error} /></td></tr>
+            )}
+
+            {!isLoading && !error && rows.length === 0 && (
               <TableRow>
                 <TableCell colSpan={3} className="py-14 text-center">
                   <div

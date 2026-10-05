@@ -4,11 +4,17 @@ import { type BrandingConfig, BRANDING_TAB_TITLE_DEFAULT } from '@digilog/shared
 import { getThemeById, applyTheme, DEFAULT_THEME_ID } from '@/lib/themes';
 import { applyDocumentIdentity } from '@/lib/document-identity';
 
-// Default branding values
+// Default branding values.
+//
+// The product's own words, not upstream DigiLog's (audit 2026-10-03, WEB-16):
+// these print in the sidebar, the header and the login card on a fresh install
+// until Branding is saved. `appName` is the ONE shared default
+// (`BRANDING_TAB_TITLE_DEFAULT`), so the tab and the sidebar cannot ship two
+// names. `logoText` is its initials.
 export const defaultBranding: BrandingConfig = {
-  appName: 'DigiLog',
-  appTagline: '21 CFR Part 11 Compliant Digital Logbook',
-  logoText: 'DL',
+  appName: BRANDING_TAB_TITLE_DEFAULT,
+  appTagline: '21 CFR Part 11 Compliant Monitoring',
+  logoText: 'TRH',
   logoUrl: '/logo.jpg', // Controlytics logo
   // The browser tab. The default is the SHARED constant, never a literal — the
   // only hand-kept copy is index.html's static <title>, which is read before any

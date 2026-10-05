@@ -93,7 +93,9 @@ export async function submitReportForReview(input: {
     : apiClient.post<ReviewSummary>('/api/report-reviews', body);
 }
 
-export async function fetchReview(id: string): Promise<ReviewFull> {
+// Module-private (audit 2026-10-03, WEB-9): `downloadApproved` below is its only
+// caller; nothing outside this file imported it.
+async function fetchReview(id: string): Promise<ReviewFull> {
   return apiClient.get<ReviewFull>(`/api/report-reviews/${id}`);
 }
 

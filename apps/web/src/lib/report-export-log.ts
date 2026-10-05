@@ -50,23 +50,8 @@ export async function logReportExport(input: ReportExportLogInput): Promise<void
   }
 }
 
-/**
- * Fail-OPEN variant for operational reports on the offline-first tablet: record
- * the export, but if logging can't reach the server (e.g. offline), warn and
- * STILL allow the download — these reports export from already-loaded data and
- * must not be blocked by connectivity. (The Audit Trail export uses the strict
- * `logReportExport` — fail-closed — because it already needs the server anyway.)
- */
-export async function logReportExportOrWarn(
-  input: ReportExportLogInput,
-  warn: (title: string, message: string) => void,
-): Promise<void> {
-  try {
-    await logReportExport(input);
-  } catch (e: any) {
-    warn(
-      'Not recorded in audit trail',
-      `This download couldn't be recorded in the audit trail (${e?.message ?? 'offline?'}), but the file was still generated.`,
-    );
-  }
-}
+// `logReportExportOrWarn` — the fail-OPEN variant for the offline-first tablet —
+// was REMOVED (audit 2026-10-03, WEB-9): it had no caller, and every download in
+// the product now goes through `lib/report-delivery.ts`, which logs BEFORE it
+// saves (fail-closed). A governed download that proceeds when the record could
+// not be written is not something this product offers any more.

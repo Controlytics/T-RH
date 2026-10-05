@@ -4,6 +4,8 @@ import useSWR from 'swr';
 import { apiClient } from '../../lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
+import { useRowKeys } from '@/hooks/use-row-keys';
+import { ldapConfigFormSchema, formFieldErrors, type FormFieldErrors } from '@digilog/shared';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
 import { PageHero } from '@/components/ui/page-hero';
@@ -75,10 +77,22 @@ export default function LdapConfigPage() {
   const reauth = useReauth();
 
   const [config, setConfig] = useState<LdapConfig>(DEFAULTS);
+  // Stable keys for the two editable lists (audit 2026-10-03, WEB-14).
+  const groupKeys = useRowKeys(config.requiredGroups.length);
+  const mappingKeys = useRowKeys(config.roleMappings.length);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [saveMsg, setSaveMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  // Field errors from the form schema (audit 2026-10-03, WEB-15). The one
+  // that matters most: a server URL without `ldap://` or `ldaps://` never
+  // binds, and until now nothing on this page said so.
+  const [fieldErrors, setFieldErrors] = useState<FormFieldErrors>({});
+  const validate = (): boolean => {
+    const parsed = ldapConfigFormSchema.safeParse(config);
+    setFieldErrors(parsed.success ? {} : formFieldErrors(parsed.error));
+    return parsed.success;
+  };
 
   useEffect(() => {
     // Array fields are re-defaulted explicitly: a config row saved before these
@@ -102,6 +116,7 @@ export default function LdapConfigPage() {
   // UPDATE_LOGIN_SECURITY) so the audit trail makes the source-of-trust
   // change explicit.
   const handleSave = () => {
+    if (!validate()) { setSaveMsg({ type: 'error', text: 'Correct the highlighted fields.' }); return; }
     setSaving(true);
     setSaveMsg(null);
     reauth.execute(
@@ -126,6 +141,7 @@ export default function LdapConfigPage() {
   };
 
   const handleTest = async () => {
+    if (!validate()) { setTestResult({ success: false, message: 'Correct the highlighted fields.' }); return; }
     setTesting(true);
     setTestResult(null);
     try {
@@ -148,6 +164,7 @@ export default function LdapConfigPage() {
   };
 
   const removeRoleMapping = (index: number) => {
+    mappingKeys.remove(index);
     updateField('roleMappings', config.roleMappings.filter((_, i) => i !== index));
   };
 
@@ -160,6 +177,7 @@ export default function LdapConfigPage() {
   };
 
   const removeRequiredGroup = (index: number) => {
+    groupKeys.remove(index);
     updateField('requiredGroups', config.requiredGroups.filter((_, i) => i !== index));
   };
 
@@ -221,12 +239,14 @@ export default function LdapConfigPage() {
               <label className="block text-sm font-medium text-slate-700 mb-1">Server URL <span className="text-red-500">*</span></label>
               <input value={config.serverUrl} onChange={e => updateField('serverUrl', e.target.value)} placeholder="ldaps://ad.company.com:636"
                 className="ctl w-full font-mono" />
+              {fieldErrors['serverUrl'] && <p className="mt-1 text-xs text-red-600">{fieldErrors['serverUrl'][0]}</p>}
               <p className="text-xs text-slate-400 mt-1">Use ldaps:// for secure connection (port 636) or ldap:// for plain (port 389)</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Bind DN <span className="text-red-500">*</span></label>
               <input value={config.bindDN} onChange={e => updateField('bindDN', e.target.value)} placeholder="CN=svc_digilog,OU=Service Accounts,DC=company,DC=com"
                 className="ctl w-full font-mono" />
+              {fieldErrors['bindDN'] && <p className="mt-1 text-xs text-red-600">{fieldErrors['bindDN'][0]}</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Bind Password <span className="text-red-500">*</span></label>
@@ -239,6 +259,7 @@ export default function LdapConfigPage() {
               <label className="block text-sm font-medium text-slate-700 mb-1">Connection Timeout (ms)</label>
               <input type="number" value={config.connectionTimeout} onChange={e => updateField('connectionTimeout', Number(e.target.value))}
                 className="ctl w-full" />
+              {fieldErrors['connectionTimeout'] && <p className="mt-1 text-xs text-red-600">{fieldErrors['connectionTimeout'][0]}</p>}
             </div>
             <div className="flex items-end pb-1">
               <label className="flex items-center gap-2 cursor-pointer">
@@ -281,11 +302,13 @@ export default function LdapConfigPage() {
             <label className="block text-sm font-medium text-slate-700 mb-1">Search Base DN <span className="text-red-500">*</span></label>
             <input value={config.searchBase} onChange={e => updateField('searchBase', e.target.value)} placeholder="OU=Users,DC=company,DC=com"
               className="ctl w-full font-mono" />
+              {fieldErrors['searchBase'] && <p className="mt-1 text-xs text-red-600">{fieldErrors['searchBase'][0]}</p>}
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Search Filter</label>
             <input value={config.searchFilter} onChange={e => updateField('searchFilter', e.target.value)} placeholder="(sAMAccountName={{username}})"
               className="ctl w-full font-mono" />
+              {fieldErrors['searchFilter'] && <p className="mt-1 text-xs text-red-600">{fieldErrors['searchFilter'][0]}</p>}
             <p className="text-xs text-slate-400 mt-1">Use {'{{username}}'} as placeholder for the login username</p>
             <p className="text-xs text-slate-500 mt-1.5">
               To restrict sign-in to one Active Directory group, add a <span className="font-mono">memberOf</span> clause:
@@ -303,6 +326,7 @@ export default function LdapConfigPage() {
               <label className="block text-sm font-medium text-slate-700 mb-1">Username Attribute</label>
               <input value={config.usernameAttribute} onChange={e => updateField('usernameAttribute', e.target.value)}
                 className="ctl w-full font-mono" />
+              {fieldErrors['usernameAttribute'] && <p className="mt-1 text-xs text-red-600">{fieldErrors['usernameAttribute'][0]}</p>}
               <p className="text-xs text-slate-400 mt-1">AD: sAMAccountName, OpenLDAP: uid</p>
             </div>
             <div>
@@ -388,9 +412,9 @@ export default function LdapConfigPage() {
             </div>
           ) : (
             config.requiredGroups.map((group, i) => (
-              <div key={i} className="flex items-center gap-3">
+              <div key={groupKeys.at(i)} className="flex items-center gap-3">
                 <input value={group} onChange={e => updateRequiredGroup(i, e.target.value)} placeholder="CN=DigiLog-Users,OU=Groups,DC=company,DC=com"
-                  className="ctl flex-1 font-mono" />
+                  className={`ctl flex-1 font-mono ${fieldErrors[`requiredGroups.${i}`] ? 'border-red-400' : ''}`} aria-invalid={fieldErrors[`requiredGroups.${i}`] ? true : undefined} />
                 <Button variant="ghost" size="icon" onClick={() => removeRequiredGroup(i)}>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                 </Button>
@@ -432,10 +456,10 @@ export default function LdapConfigPage() {
             <p className="text-sm text-slate-400 text-center py-4">No group mappings configured. Users will be assigned the default role.</p>
           ) : (
             config.roleMappings.map((mapping, i) => (
-              <div key={i} className="flex items-center gap-3">
+              <div key={mappingKeys.at(i)} className="flex items-center gap-3">
                 <div className="flex-1">
                   <input value={mapping.ldapGroup} onChange={e => updateRoleMapping(i, 'ldapGroup', e.target.value)} placeholder="CN=Admins,OU=Groups,DC=company,DC=com"
-                    className="ctl w-full font-mono" />
+                    className={`ctl w-full font-mono ${fieldErrors[`roleMappings.${i}`] ? 'border-red-400' : ''}`} aria-invalid={fieldErrors[`roleMappings.${i}`] ? true : undefined} />
                 </div>
                 <svg className="w-5 h-5 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
                 <select value={mapping.role} onChange={e => updateRoleMapping(i, 'role', e.target.value)}

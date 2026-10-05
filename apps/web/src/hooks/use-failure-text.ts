@@ -46,10 +46,8 @@ export function useSensorWords(): SensorWords {
   };
 }
 
-/** Back-compat for callers that only need the RS485 word. */
-export function useFailureText(): string {
-  return useSensorWords().failure;
-}
+// `useFailureText()` — the one-word back-compat wrapper — was REMOVED (audit
+// 2026-10-03, WEB-9): every caller had moved to `useSensorWords().failure`.
 
 /**
  * What each kind of alarm is CALLED, from Config → Alarm Type Names.

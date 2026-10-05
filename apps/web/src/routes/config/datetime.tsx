@@ -38,6 +38,11 @@ export function DatetimeConfigPage() {
     await reauth.execute('UPDATE_DATETIME_CONFIG', async (password?) => {
       if (password) await apiClient.putWithReauth('/api/config/datetime', formData, password);
       else await apiClient.put('/api/config/datetime', formData);
+      // BOTH keys (audit 2026-10-03, WEB-13): this page fetches
+      // `/api/config/datetime`, every formatter reads `/current`. Revalidating
+      // only the second left this form's own cache stale — masked until now by
+      // `reset(formData)` and `revalidateOnMount`.
+      mutate('/api/config/datetime');
       mutate('/api/config/datetime/current');
       setSuccess('Date/time format updated successfully');
       reset(formData);

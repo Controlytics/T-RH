@@ -25,7 +25,7 @@ import {
 import {
   AlarmTableHead, Th, Stack, UnitLine, AlarmTableMessage, AlarmTableSizeProvider, alarmRowClass,
   AlarmInstrumentCell, AlarmTypeCell, AlarmLocationCell, AlarmTimeCell, AlarmClearedValueCell,
-  AlarmValueCell, AlarmLimitCell, AlarmStatusCell, AlarmAckByCell,
+  AlarmValueCell, AlarmLimitCell, AlarmStatusCell, AlarmAckByCell, ALARM_BANNER_SOLID,
 } from '@/routes/alarms/alarm-table';
 
 /**
@@ -285,19 +285,24 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
                 <Th className="tv-h-rh"><Stack>Cleared</Stack><Stack>Value</Stack><UnitLine>(°C / %RH)</UnitLine></Th>
                 <Th className="tv-h-status">Status</Th>
                 <Th className="tv-h-trend"><Stack>Acknowledged</Stack><Stack>by</Stack></Th>
-                {/* The action column, unlabelled as on the Alarms page.
-                    **NOT sticky, and the reason is not the column count.** That
-                    page pins its action cell because twelve columns overflow a
-                    laptop; nine can overflow a narrow panel just as easily, so
-                    that argument would point the other way here. What decides it
-                    is the TINT: a sticky cell must carry an OPAQUE background or
-                    the rows scroll through it, and this panel sits on the
-                    operator's chosen PanelCard colour — the same reason the
-                    wrapper below is transparent rather than `bg-white`. A white
-                    stripe pinned down the right edge would paint over the tint
-                    that change exists to show. The panel scrolls sideways
-                    instead. */}
-                <Th className="tv-h-trend" />
+                {/* The action column, unlabelled as on the Alarms page — and
+                    STICKY, as there (audit 2026-10-03, WEB-7). It was pinned
+                    nowhere until then: eleven nowrap columns overflow a panel,
+                    the only horizontal scrollbar is at the FOOT of the table
+                    under up to 25 rows, so the one action on the panel was
+                    reachable by scrolling down, then right, with no cue.
+
+                    The objection that kept it unpinned — a sticky cell needs an
+                    opaque background and this panel is transparent over the
+                    operator's tint — stopped holding on 2026-09-25, when the
+                    `.alarm-grid` zebra (app.css) started painting every BODY
+                    row white / slate-50 anyway. The cell therefore takes the
+                    ROW's own background (`bg-inherit`: the zebra, the hover),
+                    never a colour of its own, so it paints over nothing the
+                    rows do not already paint over; the header cell takes the
+                    band's solid end colour, exactly as the Alarms page's does.
+                    The wrapper below stays transparent. */}
+                <Th className="sticky right-0 shadow-[-8px_0_8px_-8px_rgba(15,23,42,0.25)]" style={ALARM_BANNER_SOLID} />
               </tr>
             </AlarmTableHead>
             <tbody>
@@ -343,7 +348,10 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
                       gate — so a role without the permission is not shown a
                       button the server will refuse. Hiding it is presentation;
                       the server's 403 is the control. */}
-                  <td className="whitespace-nowrap px-4 py-3 text-right">
+                  {/* `bg-inherit`: the row's zebra / hover colour, see the
+                      header note. The `.alarm-grid` zebra sits on the <tr>, and
+                      a cell background of its own would hide it. */}
+                  <td className="sticky right-0 whitespace-nowrap bg-inherit px-4 py-3 text-right shadow-[-8px_0_8px_-8px_rgba(15,23,42,0.15)]">
                     {needsAcknowledgement(a) && can('alarms.acknowledge') && (
                       <Button variant="outline" className="font-bold" onClick={() => { setDialogError(''); setTarget(a); }}>
                         Acknowledge

@@ -212,21 +212,8 @@ describe('TrendChartCard chart chrome', () => {
     expect(within(header).getByText('Temperature Trend')).toBeInTheDocument();
   });
 
-  it('shows the latest STORED reading, which is not the last plotted point', () => {
-    // 23.1 is the last point drawn; 22.8 is the latest stored reading the page
-    // resolved. They differ whenever a chart interval bucket-AVERAGES, and
-    // printing the mean under "Last Reading" states a derived number as a
-    // stored one.
-    renderCard({}, (
-      <TimeSeriesChart
-        variant="trend" title="Temperature Trend" unit="°C" spanMs={3_600_000}
-        series={[series([22.4, 23.1])]}
-        lastReading={{ value: 22.8, decimals: 1 }}
-      />
-    ));
-    expect(screen.getByText('22.8 °C')).toBeInTheDocument();
-    expect(screen.queryByText('23.1 °C')).toBeNull();
-  });
+  // The "shows the latest STORED reading" case went with the `lastReading`
+  // prop (audit 2026-10-03, WEB-9) — nothing had fed it since 2026-09-01.
 });
 
 describe('TrendChartCard — the header wears the site band (2026-09-25)', () => {

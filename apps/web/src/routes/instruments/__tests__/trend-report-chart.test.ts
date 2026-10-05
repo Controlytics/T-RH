@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { BRANDING_TAB_TITLE_DEFAULT } from '@digilog/shared';
 import { renderTrendReport, renderDataReport, type TrendChartSection } from '../trend-report';
 import { summariseSlot, withServerSummary } from '../trend-summary';
 import { scheduleRows } from '../data-report';
@@ -556,9 +557,9 @@ describe('the trend report shows the trend', () => {
     // The branding fetch is unavailable here, so the app name would be the
     // shipped default. The trend report still prints it; this one must not.
     const data = await renderDataReport(dataInput({ returned: 2, total: 2 }));
-    expect(pdfText(data)).not.toMatch(/\bDigiLog\b/);
+    expect(pdfText(data)).not.toContain(BRANDING_TAB_TITLE_DEFAULT); // the shipped name is the ONE shared constant since 2026-10-05 (WEB-16)
     const { text } = await capture(baseInput());
-    expect(text).toMatch(/\bDigiLog\b/);
+    expect(text).toContain(BRANDING_TAB_TITLE_DEFAULT);
   });
 
   it('keeps the parameter block labels on one line at the larger size', async () => {

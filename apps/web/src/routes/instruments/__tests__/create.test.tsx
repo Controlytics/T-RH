@@ -55,6 +55,24 @@ const errorToast = vi.fn();
 vi.mock('@/hooks/use-toast', () => ({
   useToast: () => ({ toast: { success: vi.fn(), error: errorToast } }),
 }));
+/** Every action the screen signed under (audit 2026-10-03, SEC-7). Pass-through
+ *  otherwise, as the Attributes panel test does: the callback runs with no
+ *  password — the path for a role whose policy is off. */
+const reauthActions: string[] = [];
+vi.mock('@/hooks/use-reauth', () => ({
+  useReauth: () => ({
+    execute: async (
+      action: string,
+      cb: (p?: string) => Promise<void>,
+      opts?: { onSuccess?: () => void; onError?: (e: unknown) => void; onCancel?: () => void },
+    ) => {
+      reauthActions.push(action);
+      try { await cb(); await opts?.onSuccess?.(); } catch (e) { opts?.onError?.(e); }
+    },
+    isOpen: false, password: '', error: '', isVerifying: false,
+    setPassword: vi.fn(), confirm: vi.fn(), cancel: vi.fn(), needsReauth: () => false,
+  }),
+}));
 
 const { InstrumentCreatePage } = await import('../create');
 
@@ -151,6 +169,15 @@ describe('InstrumentCreatePage — the trimmed form', () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith(
       '/api/instruments', expect.objectContaining({ code: 'PROBE-A1', name: 'PROBE-A1' }),
     ));
+  });
+
+  it('signs the registration under the CREATE_INSTRUMENT re-auth action (audit 2026-10-03, SEC-7)', async () => {
+    reauthActions.length = 0;
+    renderPage();
+    fillId('PROBE-A1');
+    submit();
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/instruments', expect.anything()));
+    expect(reauthActions).toEqual(['CREATE_INSTRUMENT']);
   });
 
   // Block / Area / Location are configured keys like any other — one Attributes

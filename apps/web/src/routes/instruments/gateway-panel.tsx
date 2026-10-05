@@ -2,6 +2,8 @@ import { useState } from 'react';
 import useSWR, { mutate as globalMutate } from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,6 +20,11 @@ interface ChildInstrument { id: string; code: string; name: string; isActive: bo
  */
 export function GatewayPanel({ instrumentId, canEdit }: { instrumentId: string; canEdit: boolean }) {
   const { toast } = useToast();
+  // Link and unlink are PUTs on the CHILD instrument, so they fall under the
+  // admin-configurable `UPDATE_INSTRUMENT` re-auth action (audit 2026-10-03,
+  // SEC-7); the server checks it first. Through the shared hook, idempotent
+  // callbacks — it replays them with the password after a 401.
+  const reauth = useReauth();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [linkingId, setLinkingId] = useState<string | null>(null);
   // The child awaiting unlink confirmation. Holds the whole row, not the id:
@@ -46,35 +53,52 @@ export function GatewayPanel({ instrumentId, canEdit }: { instrumentId: string; 
     ]);
   };
 
+  /** ONE PUT on the child, with the password when the hook supplies one. */
+  const putChild = (childId: string, body: { gatewayId: string | null }) => {
+    let written = false;
+    return async (password?: string) => {
+      if (written) return;
+      if (password) await apiClient.putWithReauth(`/api/instruments/${childId}`, body, password);
+      else await apiClient.put(`/api/instruments/${childId}`, body);
+      written = true;
+    };
+  };
+
   const link = async (childId: string) => {
     setLinkingId(childId);
-    try {
-      await apiClient.put(`/api/instruments/${childId}`, { gatewayId: instrumentId });
-      await refreshAfterLink();
-      void mutateEligible();
-      toast.success('Instrument linked', 'It will now report through this gateway.');
-    } catch (err: unknown) {
-      toast.error('Link failed', (err as { message?: string })?.message ?? 'Could not link the instrument.');
-    } finally {
-      setLinkingId(null);
-    }
+    await reauth.execute('UPDATE_INSTRUMENT', putChild(childId, { gatewayId: instrumentId }), {
+      onSuccess: async () => {
+        await refreshAfterLink();
+        void mutateEligible();
+        setLinkingId(null);
+        toast.success('Instrument linked', 'It will now report through this gateway.');
+      },
+      onError: (err: unknown) => {
+        setLinkingId(null);
+        toast.error('Link failed', (err as { message?: string })?.message ?? 'Could not link the instrument.');
+      },
+      onCancel: () => setLinkingId(null),
+    });
   };
 
   const unlink = async (child: ChildInstrument) => {
     setLinkingId(child.id);
-    try {
-      await apiClient.put(`/api/instruments/${child.id}`, { gatewayId: null });
-      // Closed only once the request settles — closing first would leave the
-      // operator looking at a row that is still linked if the call failed.
-      setPendingUnlink(null);
-      await refreshAfterLink();
-      toast.success('Instrument unlinked', `"${child.code}" no longer reports through this gateway.`);
-    } catch (err: unknown) {
-      setPendingUnlink(null);
-      toast.error('Unlink failed', (err as { message?: string })?.message ?? 'Could not unlink the instrument.');
-    } finally {
-      setLinkingId(null);
-    }
+    await reauth.execute('UPDATE_INSTRUMENT', putChild(child.id, { gatewayId: null }), {
+      onSuccess: async () => {
+        // Closed only once the request settles — closing first would leave the
+        // operator looking at a row that is still linked if the call failed.
+        setPendingUnlink(null);
+        await refreshAfterLink();
+        setLinkingId(null);
+        toast.success('Instrument unlinked', `"${child.code}" no longer reports through this gateway.`);
+      },
+      onError: (err: unknown) => {
+        setPendingUnlink(null);
+        setLinkingId(null);
+        toast.error('Unlink failed', (err as { message?: string })?.message ?? 'Could not unlink the instrument.');
+      },
+      onCancel: () => { setPendingUnlink(null); setLinkingId(null); },
+    });
   };
 
   return (
@@ -169,6 +193,17 @@ export function GatewayPanel({ instrumentId, canEdit }: { instrumentId: string; 
         busy={pendingUnlink !== null && linkingId === pendingUnlink.id}
         onConfirm={() => { if (pendingUnlink) void unlink(pendingUnlink); }}
         onClose={() => setPendingUnlink(null)}
+      />
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Update Instrument"
       />
     </Card>
   );

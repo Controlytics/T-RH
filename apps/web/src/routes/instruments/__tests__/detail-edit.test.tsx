@@ -48,9 +48,20 @@ vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: { success: vi.fn
 vi.mock('@/hooks/use-datetime-format', () => ({
   useDatetimeFormat: () => ({ formatDate: (v: string) => v, formatTime: () => '', formatDateTime: (v: string) => v }),
 }));
+/** Every action the screen signed under (audit 2026-10-03, SEC-7). Pass-through
+ *  otherwise, as the Attributes panel test does: the callback runs with no
+ *  password — the path for a role whose policy is off. */
+const reauthActions: string[] = [];
 vi.mock('@/hooks/use-reauth', () => ({
   useReauth: () => ({
-    execute: async (_a: string, cb: (p?: string) => Promise<void>) => { await cb(); },
+    execute: async (
+      action: string,
+      cb: (p?: string) => Promise<void>,
+      opts?: { onSuccess?: () => void; onError?: (e: unknown) => void; onCancel?: () => void },
+    ) => {
+      reauthActions.push(action);
+      try { await cb(); await opts?.onSuccess?.(); } catch (e) { opts?.onError?.(e); }
+    },
     isOpen: false, password: '', error: '', isVerifying: false,
     setPassword: vi.fn(), confirm: vi.fn(), cancel: vi.fn(), needsReauth: () => false,
   }),
@@ -120,6 +131,16 @@ describe('instrument detail — Details edit form', () => {
     await waitFor(() => expect(put).toHaveBeenCalledWith('/api/instruments/i-1', {
       code: 'CWH/RDU/001-01', isGateway: false,
     }));
+  });
+
+  it('signs the save under the UPDATE_INSTRUMENT re-auth action (audit 2026-10-03, SEC-7)', async () => {
+    reauthActions.length = 0;
+    renderPage();
+    startEdit();
+    fireEvent.click(within(details()).getByRole('checkbox', { name: /is gateway/i }));
+    fireEvent.click(within(details()).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(put).toHaveBeenCalled());
+    expect(reauthActions).toEqual(['UPDATE_INSTRUMENT']);
   });
 
   it('Cancel discards the draft', () => {

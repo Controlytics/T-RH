@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { safeStorage } from '../lib/safe-storage';
 
 const TAB_ID_KEY = 'digilog_active_tab_id'; // in localStorage - shared across tabs
 const TAB_HEARTBEAT_KEY = 'digilog_tab_heartbeat'; // in localStorage
@@ -7,12 +8,17 @@ const SESSION_TAB_ID_KEY = 'digilog_tab_id'; // in sessionStorage - unique per t
 const HEARTBEAT_INTERVAL = 1000; // 1 second
 const HEARTBEAT_TIMEOUT = 3000; // 3 seconds - if no heartbeat, tab is considered dead
 
-// Get or create a tab ID that persists across page refreshes but is unique per browser tab
+// Get or create a tab ID that persists across page refreshes but is unique per browser tab.
+// Called from `useRef(getTabId())` DURING RENDER, so it goes through `safeStorage`
+// (audit 2026-10-03, WEB-3): a blocked storage accessor must not throw here. With
+// storage unavailable every render mints a fresh id, which only means this tab
+// cannot be told apart from itself across a refresh — the single-tab guard then
+// errs towards "another tab" rather than crashing.
 function getTabId(): string {
-  let tabId = sessionStorage.getItem(SESSION_TAB_ID_KEY);
+  let tabId = safeStorage.session.get(SESSION_TAB_ID_KEY);
   if (!tabId) {
     tabId = Math.random().toString(36).substring(2, 15) + '_' + Date.now();
-    sessionStorage.setItem(SESSION_TAB_ID_KEY, tabId);
+    safeStorage.session.set(SESSION_TAB_ID_KEY, tabId);
   }
   return tabId;
 }
@@ -43,9 +49,9 @@ export function useSingleTab(isAuthenticated: boolean, currentUserId?: string, c
     }
 
     const myTabId = tabId.current;
-    const activeTabId = localStorage.getItem(TAB_ID_KEY);
-    const lastHeartbeat = localStorage.getItem(TAB_HEARTBEAT_KEY);
-    const activeUserData = localStorage.getItem(TAB_USER_KEY);
+    const activeTabId = safeStorage.local.get(TAB_ID_KEY);
+    const lastHeartbeat = safeStorage.local.get(TAB_HEARTBEAT_KEY);
+    const activeUserData = safeStorage.local.get(TAB_USER_KEY);
 
     // If there's an active tab with a different ID
     if (activeTabId && activeTabId !== myTabId) {
@@ -72,10 +78,10 @@ export function useSingleTab(isAuthenticated: boolean, currentUserId?: string, c
     }
 
     // No active tab or other tab is dead - claim this tab as active
-    localStorage.setItem(TAB_ID_KEY, myTabId);
-    localStorage.setItem(TAB_HEARTBEAT_KEY, Date.now().toString());
+    safeStorage.local.set(TAB_ID_KEY, myTabId);
+    safeStorage.local.set(TAB_HEARTBEAT_KEY, Date.now().toString());
     if (currentUserId && currentUsername) {
-      localStorage.setItem(TAB_USER_KEY, JSON.stringify({
+      safeStorage.local.set(TAB_USER_KEY, JSON.stringify({
         userId: currentUserId,
         username: currentUsername,
         tabId: myTabId,
@@ -89,12 +95,12 @@ export function useSingleTab(isAuthenticated: boolean, currentUserId?: string, c
   // Send heartbeat to indicate this tab is still active
   const sendHeartbeat = useCallback(() => {
     const myTabId = tabId.current;
-    const activeTabId = localStorage.getItem(TAB_ID_KEY);
+    const activeTabId = safeStorage.local.get(TAB_ID_KEY);
     if (activeTabId === myTabId) {
-      localStorage.setItem(TAB_HEARTBEAT_KEY, Date.now().toString());
+      safeStorage.local.set(TAB_HEARTBEAT_KEY, Date.now().toString());
       // Also update user data in case it wasn't set
       if (currentUserId && currentUsername) {
-        localStorage.setItem(TAB_USER_KEY, JSON.stringify({
+        safeStorage.local.set(TAB_USER_KEY, JSON.stringify({
           userId: currentUserId,
           username: currentUsername,
           tabId: myTabId,
@@ -106,10 +112,10 @@ export function useSingleTab(isAuthenticated: boolean, currentUserId?: string, c
   // Claim this tab as the active one (force takeover)
   const claimActiveTab = useCallback(() => {
     const myTabId = tabId.current;
-    localStorage.setItem(TAB_ID_KEY, myTabId);
-    localStorage.setItem(TAB_HEARTBEAT_KEY, Date.now().toString());
+    safeStorage.local.set(TAB_ID_KEY, myTabId);
+    safeStorage.local.set(TAB_HEARTBEAT_KEY, Date.now().toString());
     if (currentUserId && currentUsername) {
-      localStorage.setItem(TAB_USER_KEY, JSON.stringify({
+      safeStorage.local.set(TAB_USER_KEY, JSON.stringify({
         userId: currentUserId,
         username: currentUsername,
         tabId: myTabId,
@@ -121,11 +127,11 @@ export function useSingleTab(isAuthenticated: boolean, currentUserId?: string, c
 
   // Release the active tab claim (on logout or unmount)
   const releaseTab = useCallback(() => {
-    const activeTabId = localStorage.getItem(TAB_ID_KEY);
+    const activeTabId = safeStorage.local.get(TAB_ID_KEY);
     if (activeTabId === tabId.current) {
-      localStorage.removeItem(TAB_ID_KEY);
-      localStorage.removeItem(TAB_HEARTBEAT_KEY);
-      localStorage.removeItem(TAB_USER_KEY);
+      safeStorage.local.remove(TAB_ID_KEY);
+      safeStorage.local.remove(TAB_HEARTBEAT_KEY);
+      safeStorage.local.remove(TAB_USER_KEY);
     }
   }, []);
 
@@ -176,10 +182,10 @@ export function useSingleTab(isAuthenticated: boolean, currentUserId?: string, c
       if (document.visibilityState === 'visible' && isAuthenticated && !isDuplicateTab) {
         // Tab became visible, refresh our claim
         const myTabId = tabId.current;
-        localStorage.setItem(TAB_ID_KEY, myTabId);
-        localStorage.setItem(TAB_HEARTBEAT_KEY, Date.now().toString());
+        safeStorage.local.set(TAB_ID_KEY, myTabId);
+        safeStorage.local.set(TAB_HEARTBEAT_KEY, Date.now().toString());
         if (currentUserId && currentUsername) {
-          localStorage.setItem(TAB_USER_KEY, JSON.stringify({
+          safeStorage.local.set(TAB_USER_KEY, JSON.stringify({
             userId: currentUserId,
             username: currentUsername,
             tabId: myTabId,
@@ -206,9 +212,9 @@ export function useSingleTab(isAuthenticated: boolean, currentUserId?: string, c
  */
 export function checkExistingUserSession(): ActiveSessionInfo | null {
   const myTabId = getTabId(); // Get this tab's ID
-  const activeTabId = localStorage.getItem(TAB_ID_KEY);
-  const lastHeartbeat = localStorage.getItem(TAB_HEARTBEAT_KEY);
-  const activeUserData = localStorage.getItem(TAB_USER_KEY);
+  const activeTabId = safeStorage.local.get(TAB_ID_KEY);
+  const lastHeartbeat = safeStorage.local.get(TAB_HEARTBEAT_KEY);
+  const activeUserData = safeStorage.local.get(TAB_USER_KEY);
 
   if (!activeTabId || !lastHeartbeat || !activeUserData) {
     return null;
@@ -223,9 +229,9 @@ export function checkExistingUserSession(): ActiveSessionInfo | null {
   const timeSinceHeartbeat = Date.now() - parseInt(lastHeartbeat, 10);
   if (timeSinceHeartbeat >= HEARTBEAT_TIMEOUT) {
     // Session is dead, clean up
-    localStorage.removeItem(TAB_ID_KEY);
-    localStorage.removeItem(TAB_HEARTBEAT_KEY);
-    localStorage.removeItem(TAB_USER_KEY);
+    safeStorage.local.remove(TAB_ID_KEY);
+    safeStorage.local.remove(TAB_HEARTBEAT_KEY);
+    safeStorage.local.remove(TAB_USER_KEY);
     return null;
   }
 

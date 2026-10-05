@@ -1,5 +1,88 @@
 # Changelog
 
+## [Unreleased] - Audit fixes, batch 16: one door to web storage, a failed fetch says so, dead web code out, client-side form schemas, the product's own name as the shipped default (2026-10-05)
+
+Closes WEB-3, WEB-6, WEB-7, WEB-8, WEB-9, WEB-10, WEB-11, WEB-12, WEB-13,
+WEB-14, WEB-15, WEB-16 and WEB-17 of
+`docs/audit/2026-10-03-technical-audit.md`; WEB-18 is closed as a
+non-defect (below).
+
+- **`lib/safe-storage.ts` is the ONE door to `localStorage` /
+  `sessionStorage`** (lib 21 → **22**). Every access — the auth hook, the
+  single-tab hook, the API client, the API base, server-contact, the app
+  layout, the Settings page, the offset-keys hook — goes through it, and the
+  ACCESSOR itself is inside the try: under a block-site-data policy the
+  property throws, and the shell white-screened before it rendered.
+  Mutation-checked (a bare accessor fails the shell test).
+- **A failed fetch no longer renders as an empty state.** New
+  `components/ui/load-error.tsx` (`role="alert"`, "Could not load {what}.
+  {message}"); seven pages destructure SWR's `error` and show it —
+  instruments list, aggregate trend card, System Health, Audit Templates (a
+  spinner forever until now), notification logs, the Configuration page
+  (manifest AND access-matrix: a failed matrix hid every card from a
+  non-admin), alarm filters. Mutation-checked.
+- **The dashboard alarms panel's Acknowledge cell is sticky**, inheriting
+  the row's own zebra colour (`bg-inherit`), so the panel stays transparent
+  — the earlier objection ("a sticky cell needs an opaque background") no
+  longer held once the `.alarm-grid` zebra painted every row.
+- **Dead code out, with importer counts recorded in the report**:
+  `alarm-rule-dialog.tsx` + its test (config pages 23 → **22** — it was
+  counted though never a page), `logReportExportOrWarn`, `useFailureText`,
+  `ACTIVE_QUADRANTS`, `TimeSeriesChart.lastReading`, the 26 unused
+  `card.gradient` entries, the `/m/login` branch, the `window.Capacitor`
+  redirect and both `access_token_backup` removals. `fetchReview` is
+  module-private; `reviewSignatures` is KEPT (an internal caller and its own
+  unit test — the audit's claim about its CLAUDE.md line was wrong).
+- **`apiClient.getRaw()` / `getBlob()` on one `authHeaders()` builder**;
+  the PDF report's user lookup and the Backup page's export / validate /
+  restore use them instead of raw `fetch` — re-auth errors now reach the
+  dialog (a REAUTH_FAILED on restore used to land in the result panel as a
+  plain failure). The telemetry table's as-of tooltip uses the site
+  formatter; the Date & Time page revalidates both its keys.
+- **`hooks/use-row-keys.ts`** (hooks 25 → **26**) gives the LDAP, webhook
+  and notification-rule row editors stable keys — React re-mounted every
+  row on delete, losing focus and in-progress input.
+- **Client-side zod schemas for four admin forms** in
+  `packages/shared/src/schemas/admin-forms.ts` (shared schemas 7 → **8**):
+  LDAP (`ldap(s)://`, required-when-enabled), notification rules and
+  templates, help articles, instrument create (non-empty + profile only —
+  the "no rule on the ID" decision stands). Wired with `safeParse` + per-field
+  errors, NOT `zodResolver`: none of the four is a react-hook-form form.
+- **The shipped product name is the product's own, everywhere it is
+  defaulted**: `brandingConfigSchema` in `@digilog/shared` now defaults
+  `appName` to `BRANDING_TAB_TITLE_DEFAULT` (`T&RH-Monitoring`), `logoText`
+  to `TRH`, the tagline to "21 CFR Part 11 Compliant Monitoring" — these
+  are what the API serves on a fresh install before Branding is saved. The
+  web's own fallbacks (`use-branding`, `pdf-report`, email settings) read
+  the same constant. An install that has saved Branding is unaffected.
+- **Six `--quantity-*` colour tokens** in `app.css` are the ONE definition
+  of the temperature / humidity hues the readings table, the Settings tiles
+  and the history widget share; the permissions tab and the boot spinner
+  read theme tokens. The quantity hues are deliberately NOT themed — they
+  are vocabulary, the `--chart-limit-line` rule.
+- **Notification rules: three `alert()` calls replaced by toasts** (a modal
+  alert blocks the tab; every other outcome on the page is a toast). The
+  trend page's try/catch that only rethrew is gone (eslint
+  `no-useless-catch`, the one pre-existing lint error).
+- **WEB-18 closed as a non-defect**: SWR 2.4.0 already skips polling while
+  the document is hidden (`refreshWhenHidden` is unset everywhere), so no
+  visibility hook was added; the non-SWR timers (single-tab heartbeat, JWT
+  refresh) must NOT pause — a hidden tab is still the session.
+- **Follow-ups from batch 14, on the web side**: System Health renders
+  `disk.available === false` / `loadAvg.available === false` as
+  "Unavailable" with the reader's error in a tooltip — never a zero bar.
+  **Every instrument and profile write runs through `useReauth().execute`**
+  under its SEC-7 action — create (`CREATE_INSTRUMENT`, single AND bulk —
+  the bulk route had no gate at all until the web sweep found it; it has one
+  now, pinned by the gates e2e), detail save / toggle (`UPDATE_INSTRUMENT`),
+  delete (`DELETE_INSTRUMENT`), gateway link / unlink, the Settings rename
+  (whose code PUT was a bare `put` inside the attribute batch and would have
+  looped on the replay once the policy was on), profile save
+  (`UPDATE_INSTRUMENT_PROFILE`) and delete (`DELETE_INSTRUMENT_PROFILE`) —
+  with idempotent callbacks and a `ReauthDialog` where the page had none.
+  One test per screen asserts the action. Profile CREATE is not wrapped: the
+  server enforces no action on it.
+
 ## [Unreleased] - Audit fixes, batch 17: every user / role / request write is one transaction with its audit row, dates validated, redaction races closed, inactive roles grant nothing, notification visibility as data, reasons on the regulated writes, ended sessions end now (2026-10-05)
 
 Closes API-7, API-12, API-13, API-14, API-15, API-16, API-18, the users /

@@ -19,7 +19,14 @@ vi.mock('swr', () => ({
 vi.mock('@/hooks/use-can', () => ({ useCan: () => () => true }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: { success: vi.fn(), error: vi.fn() } }) }));
 vi.mock('@/hooks/use-datetime-format', () => ({
-  useDatetimeFormat: () => ({ formatDateTime: (d: string) => d, formatDate: (d: string) => d, formatTime: (d: string) => d }),
+  // The page hands `formatDate` a DATE for anything older than a week (the
+  // fixture's createdAt ages past that), so the mock must return a string for
+  // either input — a Date returned as-is is not a valid React child.
+  useDatetimeFormat: () => ({
+    formatDateTime: (d: string | Date) => String(d),
+    formatDate: (d: string | Date) => (d instanceof Date ? d.toISOString() : d),
+    formatTime: (d: string | Date) => String(d),
+  }),
 }));
 vi.mock('@/hooks/use-pagination-config', () => ({
   usePaginationConfig: () => [25, 50, 100],
