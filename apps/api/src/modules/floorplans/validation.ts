@@ -183,6 +183,54 @@ export function roomGeometry(room: Pick<RoomInput, 'x' | 'y' | 'w' | 'h' | 'poin
   return room.points ? boundingBox(room.points) : { x: room.x, y: room.y, w: room.w, h: room.h };
 }
 
+// ─── The 2D layer, written by the Layout Designer (2026-10-05) ────────────────
+// Until then `annotations` was written only by the trace scripts through
+// Prisma; this schema is what lets the designer author the same shape through
+// the plan routes. Plan units 0..1; counts bounded so a runaway client cannot
+// store megabytes on a row the dashboard reads on every load.
+const unit = z.number().min(0).max(1);
+const boxSchema = z.object({
+  x: unit, y: unit, w: z.number().positive().max(1), h: z.number().positive().max(1),
+}).strict().refine((b) => b.x + b.w <= 1 + 1e-9 && b.y + b.h <= 1 + 1e-9, { message: 'The box leaves the plan.' });
+const segmentSchema = z.object({ x1: unit, y1: unit, x2: unit, y2: unit }).strict()
+  .refine((s) => s.x1 !== s.x2 || s.y1 !== s.y2, { message: 'A segment needs two different ends.' });
+const labelSchema = z.object({ x: unit, y: unit, text: z.string().trim().min(1).max(60) }).strict();
+// Drawn by the trace scripts only; validated as "an array of objects" so a
+// traced plan's PUT from the designer carries them through unchanged.
+const passthrough = z.array(z.record(z.unknown())).max(500);
+
+export const annotationsSchema = z.object({
+  style: z.enum(['standard', 'architectural']).optional(),
+  columns: z.array(boxSchema).max(500).optional(),
+  windows: z.array(boxSchema).max(500).optional(),
+  equipment: z.array(boxSchema).max(500).optional(),
+  walls: z.array(segmentSchema).max(500).optional(),
+  labels: z.array(labelSchema).max(200).optional(),
+  floor: z.object({
+    group: z.string().trim().min(1).max(60), label: z.string().trim().min(1).max(60), order: z.number().int().min(0).max(99),
+  }).strict().nullable().optional(),
+  north: z.number().min(0).lt(360).nullable().optional(),
+  hvac: passthrough.optional(), water: passthrough.optional(), airflow: passthrough.optional(),
+}).strict();
+export type FloorplanAnnotations = z.infer<typeof annotationsSchema>;
+
+/**
+ * What the audit row records for the layer: the style, a COUNT per array,
+ * floor and north. The arrays themselves are hundreds of coordinates nobody
+ * can diff on a §11 record; the counts say what changed and the row stays
+ * readable.
+ */
+export function annotationsSummary(a: unknown): Record<string, unknown> | null {
+  if (!a || typeof a !== 'object') return null;
+  const o = a as Record<string, unknown>;
+  const n = (k: string) => (Array.isArray(o[k]) ? (o[k] as unknown[]).length : 0);
+  return {
+    style: typeof o.style === 'string' ? o.style : 'standard',
+    columns: n('columns'), windows: n('windows'), walls: n('walls'), equipment: n('equipment'), labels: n('labels'),
+    floor: o.floor ?? null, north: typeof o.north === 'number' ? o.north : null,
+  };
+}
+
 export const floorplanSchema = z.object({
   name: z.string().trim().min(1).max(120),
   // NULL = a plan drawn from a blank canvas (Layout Designer, 2026-09-22); the
@@ -192,6 +240,9 @@ export const floorplanSchema = z.object({
   imageHeight: z.number().int().min(1).max(20000),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().min(0).max(9999).optional(),
+  // Omitted = the column is left untouched (the `doors` rule); given = replaced
+  // whole. `null` is refused: a client that meant "untouched" must not clear it.
+  annotations: annotationsSchema.optional(),
 });
 
 export const floorplanUpdateSchema = floorplanSchema.partial();

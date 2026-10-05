@@ -6,7 +6,7 @@ import { buildContext } from '../../lib/build-context.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
-import { validateRoomPayload, roomGeometry, validateLinkPayload, floorplanSchema, floorplanUpdateSchema, type RoomDoor, type LinkInput } from './validation.js';
+import { validateRoomPayload, roomGeometry, validateLinkPayload, floorplanSchema, floorplanUpdateSchema, annotationsSummary, type RoomDoor, type LinkInput } from './validation.js';
 import { sharedEdges, rectanglePoints, type Point, type Polygon } from '@digilog/shared';
 import { getRoomHistory, HISTORY_WINDOWS, type HistoryWindow } from './room-history.js';
 import { resolveVisibility } from '../instruments/visibility.js';
@@ -287,7 +287,9 @@ export default async function floorplanRoutes(app: FastifyInstance) {
 
     try {
       const plan = await prisma.floorplan.create({
-        data: { ...parsed.data, createdBy: ctx.userId, updatedBy: ctx.userId },
+        // The validated layer is a plain JSON object; zod's optional inner keys
+        // type as `| undefined`, which Prisma's JSON input type refuses in TS only.
+        data: { ...parsed.data, annotations: parsed.data.annotations as Prisma.InputJsonValue | undefined, createdBy: ctx.userId, updatedBy: ctx.userId },
       });
       await auditLog({
         userId: ctx.userId, userRole: ctx.userRole,
@@ -297,6 +299,7 @@ export default async function floorplanRoutes(app: FastifyInstance) {
           name: plan.name, imagePath: plan.imagePath,
           imageWidth: plan.imageWidth, imageHeight: plan.imageHeight,
           isActive: plan.isActive, sortOrder: plan.sortOrder,
+          annotations: annotationsSummary(plan.annotations),
         },
         signatureMeaning: `Floorplan "${plan.name}" created`,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
@@ -340,14 +343,16 @@ export default async function floorplanRoutes(app: FastifyInstance) {
     try {
       const after = await prisma.floorplan.update({
         where: { id },
-        data: { ...parsed.data, updatedBy: ctx.userId },
+        data: { ...parsed.data, annotations: parsed.data.annotations as Prisma.InputJsonValue | undefined, updatedBy: ctx.userId },
       });
       await auditLog({
         userId: ctx.userId, userRole: ctx.userRole,
         action: 'FLOORPLAN_UPDATED',
         targetType: 'floorplan', targetId: id,
-        beforeValue: { name: before.name, isActive: before.isActive, sortOrder: before.sortOrder },
-        afterValue: { name: after.name, isActive: after.isActive, sortOrder: after.sortOrder },
+        // The 2D layer as a SUMMARY (style, counts, floor, north — 2026-10-05):
+        // the arrays are hundreds of coordinates nobody can diff on a §11 row.
+        beforeValue: { name: before.name, isActive: before.isActive, sortOrder: before.sortOrder, annotations: annotationsSummary(before.annotations) },
+        afterValue: { name: after.name, isActive: after.isActive, sortOrder: after.sortOrder, annotations: annotationsSummary(after.annotations) },
         signatureMeaning: `Floorplan "${after.name}" updated`,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       });
