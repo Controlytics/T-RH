@@ -15,7 +15,8 @@ import { continuationBase } from '@/routes/dashboard/floorplan-view';
 import { DesignerCanvas, roomPolygon } from './canvas';
 import { RoomPropertiesPanel, LinkPropertiesPanel, EMPTY_FORM, type RoomForm, type InstrumentRow } from './properties-panel';
 import { reduce, initialState, closedPolygon, type Tool } from './tools';
-import { CANVAS_PRESETS, type DesignerPlan, type DesignerRoom } from './types';
+import { CANVAS_PRESETS, normaliseAnnotations, isArchitectural, SCRIPT_DRAWN_PLANS, type DesignerAnnotations, type DesignerPlan, type DesignerRoom } from './types';
+import { PlanPropertiesPanel } from './plan-panel';
 import { limitChanges, numOrNull } from './room-limits';
 import { RemarkDialog, type RemarkChange } from '@/routes/instruments/remark-dialog';
 
@@ -39,12 +40,20 @@ import { RemarkDialog, type RemarkChange } from '@/routes/instruments/remark-dia
 interface PlanList { data: DesignerPlan[] }
 
 
-const TOOLS: { id: Tool; label: string; hint: string }[] = [
+const BASE_TOOLS: { id: Tool; label: string; hint: string }[] = [
   { id: 'select', label: 'Select', hint: 'Click a room to select it; drag to move; drag a corner to reshape; double-click a wall to add a corner' },
   { id: 'room', label: 'Draw room', hint: 'Click corner by corner; Enter or click the first corner to close; Escape to discard; Shift for straight walls' },
   { id: 'corridor', label: 'Draw corridor', hint: 'As Draw room, graded Corridor' },
   { id: 'door', label: 'Door', hint: 'Click a wall of a room to place a door' },
   { id: 'link', label: 'Link', hint: 'Click one room, then another: an opening if they share a wall, else a connector' },
+];
+/** The 2D layer's tools (2026-10-05) — shown only on a 2D plan; the standard drawing shows none of what they draw. */
+const STRUCTURE_TOOLS: { id: Tool; label: string; hint: string }[] = [
+  { id: 'column', label: 'Column', hint: 'Drag a box: a structural column, hatched on the floor' },
+  { id: 'equipment', label: 'Equipment', hint: 'Drag a box: fixed plant, outlined on the floor' },
+  { id: 'window', label: 'Window', hint: 'Click two points along a wall: a window set into it' },
+  { id: 'wall', label: 'Wall stub', hint: 'Click two points: a partition the rooms do not describe' },
+  { id: 'label', label: 'Label', hint: 'Click where a text label goes, then type it in the panel' },
 ];
 
 export function LayoutDesignerPage() {
@@ -82,6 +91,11 @@ export function LayoutDesignerPage() {
   const selectedRoom = plan?.rooms.find((r) => r.id === selectedRoomId) ?? null;
   const selectedLinkId = state.selection?.kind === 'link' ? state.selection.linkId : null;
   const selectedLink = selectedLinkId ? plan?.links.find((l) => l.id === selectedLinkId) ?? null : null;
+  // The 2D layer (2026-10-05): held whole, saved whole.
+  const annotations = useMemo(() => normaliseAnnotations(plan?.annotations), [plan]);
+  const arch = isArchitectural(plan);
+  const tools = arch ? [...BASE_TOOLS, ...STRUCTURE_TOOLS] : BASE_TOOLS;
+  const selectedStructure = state.selection?.kind === 'structure' ? state.selection : null;
 
   // The panel follows the selection; membership from the detail response.
   useEffect(() => {
@@ -118,6 +132,12 @@ export function LayoutDesignerPage() {
   const post = <T,>(url: string, body: unknown, password?: string) => (password ? apiClient.postWithReauth<T>(url, body, password) : apiClient.post<T>(url, body));
   const del = (url: string, password?: string) => (password ? apiClient.deleteWithReauth(url, password) : apiClient.delete(url));
 
+  /** The ONE write of the 2D layer: the whole object, replaced (the `doors` rule). */
+  const saveAnnotations = (next: DesignerAnnotations, done: { title: string; message?: string } | null, onDone?: () => void) => {
+    if (!plan) return;
+    run('UPDATE_FLOORPLAN', async (pw) => { await put(`/api/floorplans/${plan.id}`, { annotations: next }, pw); }, done, onDone);
+  };
+
   const roomBody = (room: DesignerRoom, f: RoomForm, points: Polygon | null) => {
     const pts = points ?? room.points;
     const box = pts ? boundingBox(pts) : { x: room.x, y: room.y, w: room.w, h: room.h };
@@ -139,11 +159,12 @@ export function LayoutDesignerPage() {
   const createPlan = () => {
     if (!newPlan || !newPlan.name.trim()) { toast.error('Name required', 'Give the plan a name.'); return; }
     const preset = CANVAS_PRESETS.find((p) => p.key === newPlan.preset) ?? CANVAS_PRESETS[0];
-    const body = { name: newPlan.name.trim(), imagePath: null, imageWidth: preset.width, imageHeight: preset.height };
+    // A NEW plan is 2D (2026-10-05): the style the operator chose; Standard is a switch away on the Plan panel.
+    const body = { name: newPlan.name.trim(), imagePath: null, imageWidth: preset.width, imageHeight: preset.height, annotations: { style: 'architectural' as const } };
     run('UPDATE_FLOORPLAN', async (pw) => {
       const made = await post<{ id: string }>('/api/floorplans', body, pw);
       setPlanId(made.id);
-    }, { title: 'Plan created', message: `"${body.name}" is a blank ${preset.label.toLowerCase()} canvas. Draw rooms on it.` }, () => setNewPlan(null));
+    }, { title: 'Plan created', message: `"${body.name}" is a blank ${preset.label.toLowerCase()} canvas in the 2D style. Draw rooms on it.` }, () => setNewPlan(null));
   };
 
   // Delete the whole plan (2026-10-01, operator: "add delete option in layout
@@ -428,7 +449,7 @@ export function LayoutDesignerPage() {
         <div className="grid gap-4 lg:grid-cols-[11rem_minmax(0,1fr)]">
           {/* Toolbar */}
           <div className="flex flex-row flex-wrap gap-1 lg:flex-col" role="toolbar" aria-label="Tools">
-            {TOOLS.map((t) => (
+            {tools.map((t) => (
               <Button
                 key={t.id}
                 variant={state.tool === t.id ? 'default' : 'outline'}
@@ -493,12 +514,19 @@ export function LayoutDesignerPage() {
                   ? `${state.drawing.length} corner${state.drawing.length === 1 ? '' : 's'} — Enter or click the first corner to close, Escape to discard.`
                   : state.tool === 'link' && state.linkFrom
                     ? `Linking from ${codeOf(state.linkFrom)} — click the second room.`
-                    : TOOLS.find((t) => t.id === state.tool)?.hint}
+                    : tools.find((t) => t.id === state.tool)?.hint}
             </p>
           </div>
         </div>
       )}
 
+      {plan && !pending && !selectedRoom && !selectedLink && !selectedStructure && (
+        <PlanPropertiesPanel
+          planName={plan.name} annotations={annotations} saving={saving}
+          scriptDrawn={SCRIPT_DRAWN_PLANS.includes(plan.name)}
+          onSave={(next) => saveAnnotations(next, { title: 'Plan saved', message: `${plan.name}: ${next.style === 'architectural' ? '2D architectural' : 'standard'} style.` })}
+        />
+      )}
       {plan && pending && (
         <RoomPropertiesPanel
           mode="new" form={form} setForm={setForm} instruments={instruments} roomOfInstrument={roomOfInstrument}
