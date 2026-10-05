@@ -15,8 +15,9 @@ import { continuationBase } from '@/routes/dashboard/floorplan-view';
 import { DesignerCanvas, roomPolygon } from './canvas';
 import { RoomPropertiesPanel, LinkPropertiesPanel, EMPTY_FORM, type RoomForm, type InstrumentRow } from './properties-panel';
 import { reduce, initialState, closedPolygon, type Tool } from './tools';
-import { CANVAS_PRESETS, normaliseAnnotations, isArchitectural, SCRIPT_DRAWN_PLANS, type DesignerAnnotations, type DesignerPlan, type DesignerRoom } from './types';
+import { CANVAS_PRESETS, normaliseAnnotations, isArchitectural, SCRIPT_DRAWN_PLANS, type DesignerAnnotations, type DesignerPlan, type DesignerRoom, type StructureLayer } from './types';
 import { PlanPropertiesPanel } from './plan-panel';
+import { StructurePropertiesPanel, type StructureElement } from './structure-panel';
 import { limitChanges, numOrNull } from './room-limits';
 import { RemarkDialog, type RemarkChange } from '@/routes/instruments/remark-dialog';
 
@@ -136,6 +137,19 @@ export function LayoutDesignerPage() {
   const saveAnnotations = (next: DesignerAnnotations, done: { title: string; message?: string } | null, onDone?: () => void) => {
     if (!plan) return;
     run('UPDATE_FLOORPLAN', async (pw) => { await put(`/api/floorplans/${plan.id}`, { annotations: next }, pw); }, done, onDone);
+  };
+  const addStructure = (layer: StructureLayer, element: StructureElement) => {
+    const next = { ...annotations, [layer]: [...annotations[layer], element] } as DesignerAnnotations;
+    saveAnnotations(next, null, () => dispatch({ type: 'select', selection: { kind: 'structure', layer, index: annotations[layer].length } }));
+  };
+  const updateStructure = (layer: StructureLayer, index: number, element: StructureElement) => {
+    const list = [...annotations[layer]] as StructureElement[];
+    list[index] = element;
+    saveAnnotations({ ...annotations, [layer]: list } as DesignerAnnotations, null);
+  };
+  const removeStructure = (layer: StructureLayer, index: number) => {
+    const list = (annotations[layer] as StructureElement[]).filter((_, i) => i !== index);
+    saveAnnotations({ ...annotations, [layer]: list } as DesignerAnnotations, { title: 'Element removed' }, () => dispatch({ type: 'select', selection: null }));
   };
 
   const roomBody = (room: DesignerRoom, f: RoomForm, points: Polygon | null) => {
@@ -358,6 +372,8 @@ export function LayoutDesignerPage() {
 
   const deleteSelection = () => {
     if (!state.selection) return;
+    // A structure element first: the Delete key takes the element, never a room selected beside it.
+    if (state.selection.kind === 'structure') { removeStructure(state.selection.layer, state.selection.index); return; }
     if (state.selection.kind === 'link') deleteLink();
     else if (state.selection.kind === 'corner' && selectedRoom) {
       const poly = roomPolygon(selectedRoom);
@@ -381,6 +397,7 @@ export function LayoutDesignerPage() {
     : state.selection.kind === 'room' ? `room ${selectedRoom?.code ?? ''}`
     : state.selection.kind === 'corner' ? `corner ${state.selection.index + 1} of ${selectedRoom?.code ?? ''}`
     : state.selection.kind === 'door' ? `door ${state.selection.index + 1} of ${selectedRoom?.code ?? ''}`
+    : state.selection.kind === 'structure' ? `${state.selection.layer.replace(/s$/, '')} ${state.selection.index + 1}`
     : selectedLink ? `${selectedLink.kind === 'OPENING' ? 'opening' : 'connector'} ${codeOfSafe(selectedLink.fromRoomId)} ↔ ${codeOfSafe(selectedLink.toRoomId)}` : 'link';
 
   const tracingSrc = plan?.imagePath ? `${getApiBase()}${plan.imagePath}` : null;
@@ -506,6 +523,10 @@ export function LayoutDesignerPage() {
               onCornerChange={saveGeometry}
               onPlaceDoor={placeDoor}
               onLink={createLink}
+              annotations={annotations}
+              arch={arch}
+              onAddStructure={addStructure}
+              onMoveStructure={updateStructure}
             />
             <p className="text-xs text-slate-500" role="status">
               {state.message
@@ -547,6 +568,17 @@ export function LayoutDesignerPage() {
         <LinkPropertiesPanel
           link={selectedLink} fromCode={codeOf(selectedLink.fromRoomId)} toCode={codeOf(selectedLink.toRoomId)}
           saving={saving} onChange={updateLink} onDelete={deleteLink} onCancel={() => dispatch({ type: 'select', selection: null })}
+        />
+      )}
+
+      {plan && selectedStructure && annotations[selectedStructure.layer][selectedStructure.index] && (
+        <StructurePropertiesPanel
+          layer={selectedStructure.layer} index={selectedStructure.index}
+          element={annotations[selectedStructure.layer][selectedStructure.index] as StructureElement}
+          saving={saving}
+          onChange={(el) => updateStructure(selectedStructure.layer, selectedStructure.index, el)}
+          onDelete={() => removeStructure(selectedStructure.layer, selectedStructure.index)}
+          onCancel={() => dispatch({ type: 'select', selection: null })}
         />
       )}
 

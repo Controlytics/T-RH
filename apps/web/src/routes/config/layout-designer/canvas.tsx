@@ -1,12 +1,16 @@
 import { useRef, useState, type Dispatch, type PointerEvent as ReactPointerEvent } from 'react';
 import {
-  rectanglePoints, sharedEdges, centroid, pointInPolygon,
+  rectanglePoints, sharedEdges, centroid, pointInPolygon, segmentOnEdge,
   type Point, type Polygon, type SharedEdge,
 } from '@digilog/shared';
 import { polygonWalls, polygonDoorPlacements, doorToEdgeOpening, type RoomDoor } from '@/routes/dashboard/room-geometry';
 import { snapPoint, nearestEdgePoint, SNAP_TOL, GRID } from './snapping';
-import type { DesignerAction, DesignerState } from './tools';
-import { DESIGNER_FILL, DOOR_WIDTH, MAX_DOORS, type DesignerLink, type DesignerPlan, type DesignerRoom } from './types';
+import { isBoxTool, isSegmentTool, type DesignerAction, type DesignerState } from './tools';
+import {
+  DESIGNER_FILL, DOOR_WIDTH, MAX_DOORS, WINDOW_DEPTH,
+  type DesignerAnnotations, type DesignerLink, type DesignerPlan, type DesignerRoom,
+  type StructureBox, type StructureLabel, type StructureLayer, type StructureSegment,
+} from './types';
 
 /**
  * The drawing surface of the Layout Designer: an SVG in a 1000-wide viewBox
@@ -35,7 +39,13 @@ export interface CanvasProps {
   onCornerChange: (roomId: string, points: Polygon) => void;
   onPlaceDoor: (roomId: string, door: RoomDoor) => void;
   onLink: (fromId: string, toId: string, shared: SharedEdge | null) => void;
+  /** The 2D layer (2026-10-05): drawn, and edited through these two callbacks; the page writes the whole object. */
+  annotations: DesignerAnnotations;
+  arch: boolean;
+  onAddStructure: (layer: StructureLayer, element: StructureBox | StructureSegment | StructureLabel) => void;
+  onMoveStructure: (layer: StructureLayer, index: number, element: StructureBox | StructureSegment | StructureLabel) => void;
 }
+type StructureEl = StructureBox | StructureSegment | StructureLabel;
 
 const r6 = (n: number) => Math.round(n * 1e6) / 1e6;
 
@@ -46,12 +56,20 @@ export function roomPolygon(room: Pick<DesignerRoom, 'x' | 'y' | 'w' | 'h' | 'po
 export function DesignerCanvas({
   plan, state, dispatch, pending, tracingSrc, guideOpacity, showGrid,
   onClosePolygon, onMoveRoom, onCornerChange, onPlaceDoor, onLink,
+  annotations, arch, onAddStructure, onMoveStructure,
 }: CanvasProps) {
   const vbH = Math.round((VB_W * plan.imageHeight) / plan.imageWidth);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [hover, setHover] = useState<Point | null>(null);
   /** A room or corner being dragged, with its preview outline. */
   const [drag, setDrag] = useState<{ kind: 'move' | 'corner'; roomId: string; index?: number; origin: Point; start: Polygon; preview: Polygon; moved: boolean } | null>(null);
+  /** A box being dragged out by a box tool, or a structure element being moved (2026-10-05). */
+  const [sdrag, setSdrag] = useState<
+    | { kind: 'box'; layer: 'columns' | 'equipment'; from: Point; to: Point }
+    | { kind: 'move'; layer: StructureLayer; index: number; origin: Point; start: StructureEl; preview: StructureEl; moved: boolean }
+    | null
+  >(null);
+  const boxTool = isBoxTool(state.tool), segmentTool = isSegmentTool(state.tool);
 
   const toPlan = (e: { clientX: number; clientY: number }): Point => {
     const el = svgRef.current;
@@ -75,6 +93,37 @@ export function DesignerCanvas({
   const onBackgroundDown = (e: ReactPointerEvent<SVGSVGElement>) => {
     if (e.button !== 0) return;
     const raw = toPlan(e);
+    if (boxTool) {
+      const p = snapPoint(raw, [], { grid: showGrid });
+      setSdrag({ kind: 'box', layer: state.tool === 'column' ? 'columns' : 'equipment', from: p, to: p });
+      (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+      return;
+    }
+    if (segmentTool) {
+      const d = state.drawing ?? [];
+      if (d.length === 0) { dispatch({ type: 'addCorner', point: raw }); return; }
+      const snapped = segmentOnEdge(d[0], raw, plan.rooms.map(roomPolygon));
+      const a = snapped.a, b = snapped.b;
+      if (state.tool === 'window') {
+        // A window is stored as the thin box the traces store: along the
+        // segment, WINDOW_DEPTH deep, centred on the wall line.
+        const horizontal = Math.abs(b.x - a.x) >= Math.abs(b.y - a.y);
+        const box = horizontal
+          ? { x: r6(Math.min(a.x, b.x)), y: r6(a.y - WINDOW_DEPTH / 2), w: r6(Math.abs(b.x - a.x)), h: WINDOW_DEPTH }
+          : { x: r6(a.x - WINDOW_DEPTH / 2), y: r6(Math.min(a.y, b.y)), w: WINDOW_DEPTH, h: r6(Math.abs(b.y - a.y)) };
+        if (box.w <= 0 || box.h <= 0) { dispatch({ type: 'flash', message: 'A window needs two different points.' }); return; }
+        onAddStructure('windows', box);
+      } else {
+        if (a.x === b.x && a.y === b.y) { dispatch({ type: 'flash', message: 'A wall stub needs two different points.' }); return; }
+        onAddStructure('walls', { x1: a.x, y1: a.y, x2: b.x, y2: b.y });
+      }
+      dispatch({ type: 'cancel' });
+      return;
+    }
+    if (state.tool === 'label') {
+      onAddStructure('labels', { x: r6(raw.x), y: r6(raw.y), text: 'Label' });
+      return;
+    }
     if (drawingTool) {
       const d = state.drawing ?? [];
       // A click on the first corner closes the outline.
@@ -89,6 +138,17 @@ export function DesignerCanvas({
 
   const onMove = (e: ReactPointerEvent<SVGSVGElement>) => {
     const raw = toPlan(e);
+    if (sdrag?.kind === 'box') { setSdrag({ ...sdrag, to: snapPoint(raw, [], { grid: showGrid }) }); return; }
+    if (sdrag?.kind === 'move') {
+      const dx = raw.x - sdrag.origin.x, dy = raw.y - sdrag.origin.y;
+      const s = sdrag.start as unknown as Record<string, number | string>;
+      const preview: Record<string, number | string> = { ...s };
+      for (const k of ['x', 'x1', 'x2']) if (typeof s[k] === 'number') preview[k] = r6(Math.min(1, Math.max(0, (s[k] as number) + dx)));
+      for (const k of ['y', 'y1', 'y2']) if (typeof s[k] === 'number') preview[k] = r6(Math.min(1, Math.max(0, (s[k] as number) + dy)));
+      setSdrag({ ...sdrag, preview: preview as unknown as StructureEl, moved: Math.abs(dx) > 1e-6 || Math.abs(dy) > 1e-6 });
+      return;
+    }
+    if (segmentTool && state.drawing?.length) setHover(raw);
     if (drawingTool) {
       const d = state.drawing ?? [];
       const last = d.length ? d[d.length - 1] : null;
@@ -111,6 +171,19 @@ export function DesignerCanvas({
   };
 
   const onUp = () => {
+    if (sdrag?.kind === 'box') {
+      const d = sdrag; setSdrag(null);
+      const x = Math.min(d.from.x, d.to.x), y = Math.min(d.from.y, d.to.y);
+      const w = r6(Math.abs(d.to.x - d.from.x)), h = r6(Math.abs(d.to.y - d.from.y));
+      if (w < GRID / 2 || h < GRID / 2) { dispatch({ type: 'flash', message: 'Drag out a box to place it.' }); return; }
+      onAddStructure(d.layer, { x: r6(x), y: r6(y), w, h });
+      return;
+    }
+    if (sdrag?.kind === 'move') {
+      const d = sdrag; setSdrag(null);
+      if (d.moved) onMoveStructure(d.layer, d.index, d.preview);
+      return;
+    }
     if (!drag) return;
     const d = drag;
     setDrag(null);
@@ -123,6 +196,7 @@ export function DesignerCanvas({
   const onRoomDown = (e: ReactPointerEvent<SVGGElement>, room: DesignerRoom) => {
     if (e.button !== 0) return;
     if (drawingTool) return; // the background handler draws through rooms
+    if (boxTool || segmentTool || state.tool === 'label') return; // the structure tools draw through rooms too
     e.stopPropagation();
     if (state.tool === 'link') {
       if (!state.linkFrom) { dispatch({ type: 'linkFirst', roomId: room.id }); return; }
@@ -155,6 +229,14 @@ export function DesignerCanvas({
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
   };
 
+  const onStructureDown = (e: ReactPointerEvent<SVGElement>, layer: StructureLayer, index: number, el: StructureEl) => {
+    if (e.button !== 0 || state.tool !== 'select') return;
+    e.stopPropagation();
+    dispatch({ type: 'select', selection: { kind: 'structure', layer, index } });
+    setSdrag({ kind: 'move', layer, index, origin: toPlan(e), start: el, preview: el, moved: false });
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+  };
+
   const onCornerDown = (e: ReactPointerEvent<SVGCircleElement>, room: DesignerRoom, index: number) => {
     if (e.button !== 0) return;
     e.stopPropagation();
@@ -180,7 +262,7 @@ export function DesignerCanvas({
       data-testid="designer-canvas"
       viewBox={`0 0 ${VB_W} ${vbH}`}
       className="h-auto w-full select-none rounded-xl border border-slate-300 bg-white"
-      style={{ cursor: drawingTool ? 'crosshair' : state.tool === 'door' ? 'copy' : state.tool === 'link' ? 'alias' : 'default', touchAction: 'none' }}
+      style={{ cursor: drawingTool || boxTool || segmentTool || state.tool === 'label' ? 'crosshair' : state.tool === 'door' ? 'copy' : state.tool === 'link' ? 'alias' : 'default', touchAction: 'none' }}
       onPointerDown={onBackgroundDown}
       onPointerMove={onMove}
       onPointerUp={onUp}
@@ -225,8 +307,12 @@ export function DesignerCanvas({
               fill={isSelected ? '#dbeafe' : isLinkFrom ? '#ede9fe' : DESIGNER_FILL[room.grade ?? ''] ?? '#ffffff'}
               stroke="none"
             />
+            {/* The 2D look (2026-10-05): a navy wall with a light core, the dashboard's own; the standard look is unchanged. */}
             {walls.map((s, i) => (
-              <line key={`w${i}`} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke={isSelected ? '#2563eb' : '#1f2937'} strokeWidth={2.5} />
+              <line key={`w${i}`} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke={isSelected ? '#2563eb' : arch ? '#1e293b' : '#1f2937'} strokeWidth={arch ? 7 : 2.5} strokeLinecap={arch ? 'square' : undefined} />
+            ))}
+            {arch && walls.map((s, i) => (
+              <line key={`wi${i}`} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke="#e2e8f0" strokeWidth={2.2} strokeLinecap="square" pointerEvents="none" />
             ))}
             {doors.map(({ i, p: d }) => {
               const doorSelected = state.selection?.kind === 'door' && state.selection.roomId === room.id && state.selection.index === i;
@@ -244,8 +330,8 @@ export function DesignerCanvas({
                 >
                   {/* A wide transparent stroke over the opening: the hit area. */}
                   <line x1={d.start.x1} y1={d.start.y1} x2={d.start.x2} y2={d.start.y2} stroke="transparent" strokeWidth={12} />
-                  <line x1={d.leaf.x1} y1={d.leaf.y1} x2={d.leaf.x2} y2={d.leaf.y2} stroke={ink} strokeWidth={doorSelected ? 2.4 : 1.6} pointerEvents="none" />
-                  <path d={d.arc} fill="none" stroke={ink} strokeWidth={1} strokeDasharray="3 2" pointerEvents="none" />
+                  <line x1={d.leaf.x1} y1={d.leaf.y1} x2={d.leaf.x2} y2={d.leaf.y2} stroke={ink} strokeWidth={doorSelected ? 2.4 : arch ? 2.5 : 1.6} pointerEvents="none" />
+                  <path d={d.arc} fill="none" stroke={ink} strokeWidth={arch ? 1.3 : 1} strokeDasharray={arch ? '4 3' : '3 2'} pointerEvents="none" />
                 </g>
               );
             })}
@@ -316,6 +402,48 @@ export function DesignerCanvas({
           />
         );
       })}
+
+      {/* The 2D structure layer (2026-10-05): columns, windows, wall stubs, equipment, labels — selectable and draggable with the Select tool. */}
+      <g data-testid="ld-structure">
+        {annotations.walls.map((s, i) => {
+          const el = sdrag?.kind === 'move' && sdrag.layer === 'walls' && sdrag.index === i ? (sdrag.preview as StructureSegment) : s;
+          const sel = state.selection?.kind === 'structure' && state.selection.layer === 'walls' && state.selection.index === i;
+          return (
+            <g key={`sw${i}`} data-testid={`structure-walls-${i}`} data-structure="wall" onPointerDown={(e) => onStructureDown(e, 'walls', i, s)} style={{ cursor: state.tool === 'select' ? 'move' : undefined }}>
+              <line x1={el.x1 * VB_W} y1={el.y1 * vbH} x2={el.x2 * VB_W} y2={el.y2 * vbH} stroke="transparent" strokeWidth={12} />
+              <line x1={el.x1 * VB_W} y1={el.y1 * vbH} x2={el.x2 * VB_W} y2={el.y2 * vbH} stroke={sel ? '#2563eb' : '#1e293b'} strokeWidth={arch ? 7 : 2.5} strokeLinecap="butt" pointerEvents="none" />
+              {arch && <line x1={el.x1 * VB_W} y1={el.y1 * vbH} x2={el.x2 * VB_W} y2={el.y2 * vbH} stroke="#e2e8f0" strokeWidth={2.2} strokeLinecap="butt" pointerEvents="none" />}
+            </g>
+          );
+        })}
+        {(['windows', 'columns', 'equipment'] as const).map((layer) => annotations[layer].map((b, i) => {
+          const el = sdrag?.kind === 'move' && sdrag.layer === layer && sdrag.index === i ? (sdrag.preview as StructureBox) : b;
+          const sel = state.selection?.kind === 'structure' && state.selection.layer === layer && state.selection.index === i;
+          const look = layer === 'windows' ? { fill: '#e0f2fe', stroke: '#0369a1' } : layer === 'columns' ? { fill: '#cbd5e1', stroke: '#1e293b' } : { fill: '#ffffff', stroke: '#1e293b' };
+          return (
+            <rect key={`${layer}${i}`} data-testid={`structure-${layer}-${i}`} data-structure={layer === 'windows' ? 'window' : layer === 'columns' ? 'column' : 'equipment'}
+              x={el.x * VB_W} y={el.y * vbH} width={el.w * VB_W} height={el.h * vbH}
+              fill={look.fill} stroke={sel ? '#2563eb' : look.stroke} strokeWidth={sel ? 2.4 : 1.5}
+              onPointerDown={(e) => onStructureDown(e, layer, i, b)} style={{ cursor: state.tool === 'select' ? 'move' : undefined }} />
+          );
+        }))}
+        {annotations.labels.map((l, i) => {
+          const el = sdrag?.kind === 'move' && sdrag.layer === 'labels' && sdrag.index === i ? (sdrag.preview as StructureLabel) : l;
+          const sel = state.selection?.kind === 'structure' && state.selection.layer === 'labels' && state.selection.index === i;
+          return (
+            <text key={`lb${i}`} data-testid={`structure-labels-${i}`} data-structure="label" x={el.x * VB_W} y={el.y * vbH} textAnchor="middle" fontSize={8} fill={sel ? '#2563eb' : '#334155'} letterSpacing="0.04em"
+              onPointerDown={(e) => onStructureDown(e, 'labels', i, l)} style={{ cursor: state.tool === 'select' ? 'move' : undefined }}>{el.text}</text>
+          );
+        })}
+        {sdrag?.kind === 'box' && (
+          <rect x={Math.min(sdrag.from.x, sdrag.to.x) * VB_W} y={Math.min(sdrag.from.y, sdrag.to.y) * vbH}
+            width={Math.abs(sdrag.to.x - sdrag.from.x) * VB_W} height={Math.abs(sdrag.to.y - sdrag.from.y) * vbH}
+            fill="#bfdbfe" fillOpacity={0.5} stroke="#2563eb" strokeWidth={1.5} strokeDasharray="4 3" pointerEvents="none" />
+        )}
+        {segmentTool && state.drawing?.length === 1 && hover && (
+          <line x1={state.drawing[0].x * VB_W} y1={state.drawing[0].y * vbH} x2={hover.x * VB_W} y2={hover.y * vbH} stroke="#2563eb" strokeWidth={1.5} strokeDasharray="4 3" pointerEvents="none" />
+        )}
+      </g>
 
       {/* A room drawn but not yet named. */}
       {pending && (
