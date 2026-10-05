@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   ALARM_REPORT_HEAD, ALARM_REPORT_LEGEND, NOT_APPLICABLE, BOUND_NOT_SHOWN, EXTRA_COLUMNS,
-  scopePairs, uomFor, setPoints, reportRows, truncationNote, reportSeedPeriod,
+  periodPairs, uomFor, setPoints, reportRows, truncationNote, reportSeedPeriod,
   reportLevel, reportHead, columnWidths, scopeTableRows,
   scopeColumnStyles, CONTENT_WIDTH_MM, buildAlarmsReport, hiddenLimitColumns,
 } from '../alarms-report';
@@ -63,32 +63,14 @@ describe('the reference layout', () => {
     ]);
   });
 
-  it('pairs scope against period, so the two print as two columns', () => {
-    const pairs = scopePairs(
-      { blockName: 'CWH Block', areaName: '', locationName: '', instrumentLabel: 'CWH/RDU/046-00' },
-      { from: '2026-05-27T16:00:00.000Z', to: '2026-05-28T16:00:00.000Z' },
-      fmt,
-    );
-    // `addKeyValue(pairs, 2)` lays these two per row: scope left, period right.
-    expect(pairs.map(([k]) => k)).toEqual([
-      'Block', 'Start Date', 'Area', 'Start Time',
-      'Location', 'End Date', 'Inst ID', 'End Time',
-    ]);
-    expect(pairs[0][1]).toBe('CWH Block');
-    expect(pairs[1][1]).toBe('2026-05-27');
-    expect(pairs[3][1]).toBe('16:00');
-  });
-
-  it('prints a dash, never an empty cell, for a field nobody filtered', () => {
-    // The reference leaves them blank; a blank on paper reads as a rendering
-    // fault, with no other state to check it against.
-    const pairs = scopePairs(
-      { blockName: '', areaName: '  ', locationName: '', instrumentLabel: '' },
-      { from: '2026-05-27T16:00:00.000Z', to: '2026-05-28T16:00:00.000Z' },
-      fmt,
-    );
-    expect(pairs[0][1]).toBe('-');
-    expect(pairs[2][1]).toBe('-');
+  it('prints the PERIOD only — start on one row, end on the next (operator, 2026-10-05)', () => {
+    // "in all alarms report dont show block,area,location and instrument id in
+    // header, only show start date,start time,end date and end time". The scope
+    // is stated by the table's own columns when it varies (see `reportHead`).
+    const pairs = periodPairs({ from: '2026-05-27T16:00:00.000Z', to: '2026-05-28T16:00:00.000Z' }, fmt);
+    expect(pairs.map(([k]) => k)).toEqual(['Start Date', 'Start Time', 'End Date', 'End Time']);
+    expect(pairs.map(([, v]) => v)).toEqual(['2026-05-27', '16:00', '2026-05-28', '16:00']);
+    for (const [k] of pairs) expect(['Block', 'Area', 'Location', 'Inst ID']).not.toContain(k);
   });
 });
 
@@ -435,29 +417,25 @@ describe('the parameter block is a TABLE, one line per field', () => {
    * It was `addKeyValue`, which stacks a grey caption ABOVE its value — two lines
    * per field, unruled.
    */
-  const pairs = () => scopePairs(
-    { blockName: 'CWH Block', areaName: 'QC 3', locationName: 'GC Room', instrumentLabel: 'CWH/RDU/046-00' },
-    { from: '2026-05-27T16:00:00.000Z', to: '2026-05-28T16:00:00.000Z' },
-    fmt,
-  );
+  const pairs = () => periodPairs({ from: '2026-05-27T16:00:00.000Z', to: '2026-05-28T16:00:00.000Z' }, fmt);
 
   it('puts label and value in ONE row, four cells wide', () => {
     const rows = scopeTableRows(pairs());
-    expect(rows[0]).toEqual(['Block :', 'CWH Block', 'Start Date :', '2026-05-27']);
+    expect(rows[0]).toEqual(['Start Date :', '2026-05-27', 'Start Time :', '16:00']);
   });
 
   it('keeps the colon on the LABEL cell', () => {
     // A third column of colons would be ruled like data and would take width from
     // the values on a portrait page.
-    expect(scopeTableRows(pairs())[0][0]).toBe('Block :');
+    expect(scopeTableRows(pairs())[0][0]).toBe('Start Date :');
     expect(scopeTableRows(pairs())[0][1]).not.toContain(':');
   });
 
-  it('folds the eight fields into four rows', () => {
+  it('folds the four period fields into two rows', () => {
     const rows = scopeTableRows(pairs());
-    expect(rows).toHaveLength(4);
+    expect(rows).toHaveLength(2);
     expect(rows.every((r) => r.length === 4)).toBe(true);
-    expect(rows.map((r) => r[0])).toEqual(['Block :', 'Area :', 'Location :', 'Inst ID :']);
+    expect(rows.map((r) => r[0])).toEqual(['Start Date :', 'End Date :']);
   });
 
   it('PADS an odd trailing field rather than short-rowing it', () => {

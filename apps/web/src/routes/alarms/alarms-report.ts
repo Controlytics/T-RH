@@ -8,7 +8,10 @@ import { alarmTypeText, triggeredText, type AlarmRow, type AlarmDisplayTexts } f
  *
  * That document's shape, transcribed from its own text: a two-column parameter
  * block (Block / Area / Location / Inst ID against Start Date / Start Time / End
- * Date / End Time), then a seven-column table — DATE, TIME, DESCRIPTION, UOM, PV
+ * Date / End Time — **the scope half was REMOVED on 2026-10-05**, operator: "in
+ * all alarms report dont show block,area,location and instrument id in header,
+ * only show start date,start time,end date and end time"; the period half is
+ * what prints, two per row), then a seven-column table — DATE, TIME, DESCRIPTION, UOM, PV
  * VALUE, HIGH SET POINT VALUE, LOW SET POINT VALUE — then a legend
  * ("PV Value : Present Value", "UOM : Units of Measurement") and the end block:
  * Printed By, Printed Date & Time, Remarks.
@@ -172,21 +175,21 @@ export interface AlarmReportFormatters {
 const orDash = (v: string) => (v.trim() ? v.trim() : '-');
 
 /**
- * The parameter block, in the reference's own order and pairing.
+ * The parameter block: the PERIOD only — Start Date / Start Time on one row,
+ * End Date / End Time on the next.
  *
- * `addKeyValue(pairs, 2)` lays these out two per row, which reproduces the
- * reference's two columns: scope on the left, period on the right.
+ * Until 2026-10-05 it paired the reference's scope column (Block / Area /
+ * Location / Inst ID) against the period column. The operator removed the scope
+ * half ("dont show block,area,location and instrument id in header"): the
+ * scope is already stated by the table itself — the Instrument ID, Area and
+ * Location COLUMNS appear exactly when they vary across the rows (`reportHead`)
+ * — so the header repeated what the rows say. `AlarmReportScope` still drives
+ * those columns; it is just no longer printed up here.
  */
-export function scopePairs(
-  scope: AlarmReportScope,
-  period: AlarmReportPeriod,
-  fmt: AlarmReportFormatters,
-): [string, string][] {
+export function periodPairs(period: AlarmReportPeriod, fmt: AlarmReportFormatters): [string, string][] {
   return [
-    ['Block', orDash(scope.blockName)], ['Start Date', fmt.formatDate(period.from)],
-    ['Area', orDash(scope.areaName)], ['Start Time', fmt.formatTime(period.from)],
-    ['Location', orDash(scope.locationName)], ['End Date', fmt.formatDate(period.to)],
-    ['Inst ID', orDash(scope.instrumentLabel)], ['End Time', fmt.formatTime(period.to)],
+    ['Start Date', fmt.formatDate(period.from)], ['Start Time', fmt.formatTime(period.from)],
+    ['End Date', fmt.formatDate(period.to)], ['End Time', fmt.formatTime(period.to)],
   ];
 }
 
@@ -410,7 +413,7 @@ export function buildAlarmsReport(
   // A limit column no row can fill is not printed (2026-09-07).
   const hidden = hiddenLimitColumns(opts.rows);
   doc.addTable({
-    body: scopeTableRows(scopePairs(opts.scope, opts.period, opts.fmt)),
+    body: scopeTableRows(periodPairs(opts.period, opts.fmt)),
     columnStyles: scopeColumnStyles(),
   });
 

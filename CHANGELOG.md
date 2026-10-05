@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased] - Alarms report: the header prints the period only (2026-10-05)
+
+Operator: "in all alarms report dont show block,area,location and instrument
+id in header, only show start date,start time,end date and end time".
+
+- **The Alarms page report's parameter block is now Start Date / Start Time
+  on one row and End Date / End Time on the next.** The reference document's
+  scope half (Block / Area / Location / Inst ID) is gone from the header:
+  `periodPairs()` replaces `scopePairs()` in `routes/alarms/alarms-report.ts`.
+  The scope is still stated where it varies — the table's Instrument ID /
+  Area / Location COLUMNS appear exactly as before (`reportHead`), driven by
+  the same `AlarmReportScope`; only the header line that repeated them went.
+  `scopeTableRows` is unchanged (two rows of four cells now, not four).
+  The trend page's per-instrument alarms widget report has its own layout
+  and did not carry these fields. No count moved.
+
 ## [Unreleased] - Audit fixes, batch 18: the documentation describes this fork — counts re-derived, the APK / RFID / tablet remnants gone, the dossier dated, the API reference a pointer, Node pinned, one-shot scripts marked (2026-10-05)
 
 Closes DOCS-1, DOCS-4, DOCS-5, DOCS-6, DOCS-7, DOCS-8, DOCS-9, DOCS-10,
