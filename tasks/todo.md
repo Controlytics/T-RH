@@ -88,9 +88,9 @@ MEDIUM/LOW sweeps (per module, after the HIGHs):
 - [x] S2 API mediums/lows — api-b half (SEC-3, SEC-7, API-17, API-19, API-20 subset, DATA-11 + Layout Designer reason) commit `22dd58a`; api-a half (7, 12–16, 18, 20 rest, DATA-13 + the session-cache eviction and the Permissions-tab reason gate) commit `4d1e936`. `e2e/instruments.test.ts` re-run alone: 39/39 (the 6 reds were cross-process contention)
 - [x] S3 data mediums/lows (6, 7, 9, 10, 14, 15, 16, 18 + API-19 report-reviews) — commit `7015818`; DATA-8 in S4, DATA-11 in S2b, DATA-13 in S6, DATA-17 in F12
 - [x] S4 security mediums/lows 4, 5, 6 + DATA-8 — commit `c0faa0e` (SEC-3 / SEC-7 are in the api-b sweep)
-- [~] S5 web mediums/lows (3, 6–17; 18 closed as non-defect) + System Health flags + SEC-7 prompts + bulk-create gate — verified per file; full web run in progress; COMMIT PENDING
-- [~] S6 docs (1, 4–13, 15, 16, 18–23) + counts re-derived + stale verify-route refs — COMMIT PENDING after S5
-- [ ] Final: full web + api + shared test runs, tsc, CHANGELOG, memory
+- [x] S5 web mediums/lows (3, 6–17; 18 closed as non-defect) + System Health flags + SEC-7 prompts + bulk-create gate — commit `3ff8d7c`; full web run 141 files one at a time, all exit 0 (two pre-existing time-bomb/default assertions fixed)
+- [x] S6 docs (1, 4–13, 15, 16, 18–23) + counts re-derived + stale verify-route refs — commit `8738373`
+- [~] Final: web full run DONE (141/141); api full run one file at a time IN PROGRESS; tsc/lint clean on both; CHANGELOG batches 12–18 written; memory ledger updated; the operator decides on push
 
 - [x] Fix order in §3 of the report: partitions at boot + batch-loss dead letter → role-config privilege check + required scope body → backup verifier/secrets → seed permission reset → user_role width + central signature bound → FL PUT serializer → visibility on attribute read + writes → public admin-request attribution → alarm double-clear + range coercion → reauth strip/lockout → SA password boxes, `/` and `/users` guards, chart axis format
 - [ ] Operator decisions needed: untrack the dangling `.claude/worktrees/ui-redesign-stage2` gitlink; whether instrument WRITE routes are meant to be unscoped; hard-delete default off in installer env
