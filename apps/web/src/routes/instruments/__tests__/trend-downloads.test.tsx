@@ -501,7 +501,7 @@ describe('trend page downloads', () => {
   /**
    * The fallback the lead asked to see proven. On a real browser this branch
    * should never fire; if it does, the report must still be a usable §11 record
-   * — a stated reason, the period summary and the readings — rather than a gap
+   * — a stated reason and the readings — rather than a gap
    * where the picture should be, which reads as "no data".
    */
   it('still produces a report, saying why, when the chart cannot be rasterised', async () => {
@@ -513,7 +513,8 @@ describe('trend page downloads', () => {
     expect(saved).toHaveLength(1);
     expect(lastPdfText()).toMatch(/could not be rendered by this browser/);
     // ...and the record itself is still there.
-    expect(lastPdfText()).toMatch(/period summary/);
+    expect(lastPdfText()).toMatch(/Readings/);
+    expect(lastPdfText()).not.toMatch(/period summary/);
     expect(logged[0].reportType).toBe('Instrument Trend \u2014 Temperature');
   });
 

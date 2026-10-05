@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { BRANDING_TAB_TITLE_DEFAULT } from '@digilog/shared';
 import { renderTrendReport, renderDataReport, renderAlarmsReport, type TrendChartSection } from '../trend-report';
-import { summariseSlot, withServerSummary } from '../trend-summary';
 import { scheduleRows } from '../data-report';
 
 vi.mock('@/lib/api-client', () => ({
@@ -52,7 +51,6 @@ const drawnChart: TrendChartSection = {
   title: 'Temperature',
   image: { dataUrl: PNG, width: 1800, height: 520 },
   unavailableReason: '',
-  summary: summariseSlot(readings, 't', 'Temperature', '°C', 1, 18, 25),
 };
 
 type Input = Parameters<typeof renderTrendReport>[0];
@@ -120,7 +118,7 @@ describe('the trend report shows the trend', () => {
 
   it('draws NO chart image when the slot had nothing to plot', async () => {
     const { images } = await capture(baseInput({
-      charts: [{ title: 'Temperature', image: null, summary: null, unavailableReason: 'No readings in this period, so there is nothing to plot.' }],
+      charts: [{ title: 'Temperature', image: null, unavailableReason: 'No readings in this period, so there is nothing to plot.' }],
     }));
     expect(images.filter((a) => a[0] === PNG)).toHaveLength(0);
   });
@@ -157,8 +155,8 @@ describe('the trend report shows the trend', () => {
   it('keeps the readings table beneath the chart — the chart is the picture, the table is the record', async () => {
     const { report } = await capture(baseInput());
     const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x);
-    // Two now: the period summary, then the readings.
-    expect(tables).toHaveLength(2);
+    // ONE table (operator, 2026-10-05: "in trend repots remove period summary table"): the readings.
+    expect(tables).toHaveLength(1);
     const readingsTable = tables.find((t: any) => t.head[0] === 'Timestamp')!;
     expect(readingsTable.head).toEqual(['Timestamp', 'Temperature (°C)']);
     expect(readingsTable.body).toEqual([
@@ -167,13 +165,20 @@ describe('the trend report shows the trend', () => {
     ]);
   });
 
+  it('prints NO period summary table (operator, 2026-10-05: "in trend repots remove period summary table")', async () => {
+    const { report, text } = await capture(baseInput());
+    const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x);
+    expect(tables.map((t: any) => t.head[0])).toEqual(['Timestamp']);
+    expect(text).not.toMatch(/period summary/i);
+    expect(text).not.toMatch(/Out of limit/);
+  });
+
   it('prints the reason for a missing picture, wrapped, rather than leaving a gap that reads as no data', async () => {
     const { text } = await capture(baseInput({
       charts: [{
         title: 'Temperature',
         image: null,
-        summary: null,
-        unavailableReason: 'The chart could not be rendered by this browser. The summary and the readings below still describe this period.',
+        unavailableReason: 'The chart could not be rendered by this browser. The readings below still describe this period.',
       }],
     }));
     expect(text).toMatch(/Temperature/);
@@ -183,55 +188,14 @@ describe('the trend report shows the trend', () => {
     expect(text).toMatch(/still describe this period/);
   });
 
-  it('prints the period summary under the chart', async () => {
-    const { report } = await capture(baseInput());
-    const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x);
-    const summary = tables.find((t: any) => t.head[0] === 'Temperature — period summary')!;
-    expect(summary).toBeTruthy();
-    const byLabel = Object.fromEntries(summary.body.map((r: string[]) => [r[0], r[1]]));
-    expect(byLabel['Readings']).toBe('3');
-    expect(byLabel['Minimum']).toBe('22.4 °C');
-    expect(byLabel['Maximum']).toBe('26.9 °C');
-    expect(byLabel['Mean']).toBe('23.9 °C');
-    expect(byLabel['First reading']).toContain('22.4');
-    expect(byLabel['Last reading']).toContain('26.9');
-    // One of the three readings is above the 25 limit.
-    expect(byLabel['Out of limit']).toBe('1 of 3 readings (33.3%)');
-    expect(byLabel['— below / above limit']).toBe('0 below 18.0  /  1 above 25.0');
-  });
-
-  it('says "not assessed" rather than "0 out of spec" when no limits are set', async () => {
-    // Zero would read as a clean period. Nothing was checked, which is
-    // a different claim entirely and the one a §11 reader needs.
-    const { report } = await capture(baseInput({
-      charts: [{
-        ...drawnChart,
-        summary: summariseSlot(readings, 't', 'Temperature', '°C', 1, null, null),
-      }],
-    }));
-    const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x);
-    const summary = tables.find((t: any) => t.head[0] === 'Temperature — period summary')!;
-    const byLabel = Object.fromEntries(summary.body.map((r: string[]) => [r[0], r[1]]));
-    expect(byLabel['Out of limit']).toMatch(/Not assessed/);
-    expect(summary.body.map((r: string[]) => r[0])).not.toContain('— below / above limit');
-    // And no extremes: an extreme prints only for a bound in force (operator,
-    // 2026-09-07, "same in trends page also"), the Data Report's rule.
-    expect(summary.body.map((r: string[]) => r[0])).not.toContain('Minimum');
-    expect(summary.body.map((r: string[]) => r[0])).not.toContain('Maximum');
-  });
-
   it('states its own coverage when the period holds more than the report received', async () => {
     const { text } = await capture(baseInput({ coverage: { returned: 500, total: 7646 } }));
     expect(text).toMatch(/REPRESENTATIVE SAMPLE/);
     expect(text).toMatch(/500 of the 7,646 stored values/);
     // Scoped to the two blocks that ARE sampled...
     expect(text).toMatch(/the chart and the readings table below/);
-    // ...and saying exactly which figures below are over the whole period and
-    // which are not. Since 2026-08-27 that is every figure in the summary
-    // EXCEPT the first/last pair, which the sampler preserves verbatim.
-    expect(text).toMatch(/readings count, minimum, maximum, mean and out-of-limit counts are all/);
-    expect(text).toMatch(/computed over EVERY reading in the period, not over this sample/);
-    expect(text).toMatch(/Only its first and last readings are read from this sample/);
+    // ...and no longer naming a period summary — there is none (2026-10-05).
+    expect(text).not.toMatch(/period summary/i);
   });
 
   it('offers a remedy that exists — not the Time Series report, which samples identically', async () => {
@@ -265,126 +229,22 @@ describe('the trend report shows the trend', () => {
     expect(text).not.toMatch(/readings table below hold 500/);
   });
 
-  it('does NOT claim the report covers only the most recent portion of the period', async () => {
-    // It did say exactly that, and it was true while the fetch used `limit=` and
-    // the server answered ORDER BY ts DESC. Under `points=` the rows are spread
-    // across the whole period, so that sentence became a false statement about
-    // the document's own coverage — in a signed §11 record, worse than the
-    // truncation it was written to disclose.
-    const { text } = await capture(baseInput({ coverage: { returned: 500, total: 7646 } }));
-    expect(text).not.toMatch(/INCOMPLETE PERIOD/);
-    expect(text).not.toMatch(/most recent/);
-    expect(text).not.toMatch(/portion only/);
-  });
-
   it('says nothing about coverage when the report holds the whole period', async () => {
     const { text } = await capture(baseInput({ coverage: { returned: 3, total: 3 } }));
     expect(text).not.toMatch(/REPRESENTATIVE SAMPLE/);
-  });
-
-  it('says "no limit set" for an absent bound, never "0 below —"', async () => {
-    // The instrument declares a high limit and no low one. A "0 below" here
-    // claims the readings were checked against a low limit and passed; nothing
-    // was checked. `?? 0` in the renderer used to produce exactly that.
-    const { report } = await capture(baseInput({
-      charts: [{
-        ...drawnChart,
-        summary: withServerSummary(
-          summariseSlot(readings, 't', 'Temperature', '°C', 1, null, 25),
-          {
-            numericCount: 3, min: 22.4, max: 26.9, avg: 23.933333,
-            belowCount: null, aboveCount: 1, outOfSpecCount: 1,
-            limitMin: null, limitMax: 25,
-          },
-        ),
-      }],
-    }));
-    const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x);
-    const summary = tables.find((t: any) => t.head[0] === 'Temperature — period summary')!;
-    const byLabel = Object.fromEntries(summary.body.map((r: string[]) => [r[0], r[1]]));
-    // The absent side is NOT narrated ("no low limit set — not assessed" until
-    // 2026-09-07): a bound not in force is not shown at all, the Data Report's
-    // rule applied here at the operator's "same in trends page also". The
-    // Minimum goes with it; the Maximum stays.
-    expect(byLabel['— below / above limit']).toBe('1 above 25.0');
-    expect(byLabel['Maximum']).toBe('26.9 °C');
-    expect(summary.body.map((r: string[]) => r[0])).not.toContain('Minimum');
-    // And the total says what it was assessed against, so half an assessment
-    // is not printed as a whole one.
-    expect(byLabel['Out of limit']).toBe('1 of 3 readings (33.3%) — against the high limit only');
-  });
-
-  it('prints the SERVER\'s whole-range figures, not the sampled ones', async () => {
-    // The three `readings` above are the sample the report was built from; the
-    // period holds 2,500 readings and nine breaches the sampler did not draw.
-    // Counted over the sample this block would say "0 out of limit".
-    const { report } = await capture(baseInput({
-      charts: [{
-        ...drawnChart,
-        summary: withServerSummary(
-          summariseSlot(readings, 't', 'Temperature', '°C', 1, 18, 25),
-          {
-            numericCount: 2500, min: 17.0, max: 99.9, avg: 20.2,
-            belowCount: 2, aboveCount: 7, outOfSpecCount: 9,
-            limitMin: 18, limitMax: 25,
-          },
-        ),
-      }],
-      coverage: { returned: 3, total: 2500 },
-    }));
-    const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x);
-    const summary = tables.find((t: any) => t.head[0] === 'Temperature — period summary')!;
-    const byLabel = Object.fromEntries(summary.body.map((r: string[]) => [r[0], r[1]]));
-    expect(byLabel['Readings']).toBe('2,500');
-    expect(byLabel['Out of limit']).toBe('9 of 2,500 readings (0.4%)');
-    expect(byLabel['— below / above limit']).toBe('2 below 18.0  /  7 above 25.0');
-    // THE EXTREMES COME FROM THE RANGE TOO (2026-08-27). The sample's own
-    // maximum is 26.9 °C, which would print directly above "7 above 25.0" — a
-    // maximum below a limit the same block reports seven breaches of. The
-    // printed maximum must be the range's, so a reader who cannot see the
-    // readings can reconcile the two figures.
-    expect(byLabel['Maximum']).toBe('99.9 °C');
-    expect(byLabel['Minimum']).toBe('17.0 °C');
-    expect(byLabel['Mean']).toBe('20.2 °C');
-    // `first`/`last` stay row-derived — labelled claims about two instants,
-    // each with its own timestamp, which the endpoint cannot supply.
-    expect(byLabel['First reading']).toContain('22.4');
   });
 
   // Operator, 2026-10-03: "text is included in limits … show that text in
   // reports and show max and min values". The server sends the attribute's
   // text beside the bound it counted against; the line quotes the text, the
   // extremes still print.
-  it('quotes a bound\'s own text on the below / above line and keeps the extremes', async () => {
-    const { report } = await capture(baseInput({
-      charts: [{
-        ...drawnChart,
-        summary: withServerSummary(
-          summariseSlot(readings, 't', 'Temperature', '°C', 1, 18, 27),
-          {
-            numericCount: 2500, min: 17.0, max: 99.9, avg: 20.2,
-            belowCount: 2, aboveCount: 7, outOfSpecCount: 9,
-            limitMin: 18, limitMax: 27, limitMinText: null, limitMaxText: '27 (For Reference)',
-          },
-        ),
-      }],
-      coverage: { returned: 3, total: 2500 },
-    }));
-    const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x);
-    const summary = tables.find((t: any) => t.head[0] === 'Temperature — period summary')!;
-    const byLabel = Object.fromEntries(summary.body.map((r: string[]) => [r[0], r[1]]));
-    expect(byLabel['— below / above limit']).toBe('2 below 18.0  /  7 above 27 (For Reference)');
-    expect(byLabel['Maximum']).toBe('99.9 °C');
-    expect(byLabel['Minimum']).toBe('17.0 °C');
-  });
-
   it('labels the table as averaged when it holds averaged points, and points at the raw record', async () => {
     const { report, text } = await capture(baseInput({ tableIsAveraged: true, averagedLabel: '5 minutes' }));
     const titles = report.getSnapshot().sections.map((x: any) => x.title).filter(Boolean);
     expect(titles).toContain('Averaged readings — the same points plotted above, not stored readings');
     expect(text).toMatch(/the chart AND the table below are AVERAGED over 5 minutes/);
-    // The summary must be exempted in words, because it is NOT averaged.
-    expect(text).toMatch(/period summary is NOT averaged/);
+    // No period summary to exempt any more (2026-10-05); the note must not name one.
+    expect(text).not.toMatch(/period summary/i);
     expect(text).toMatch(/Instrument Time Series report/);
   });
 
@@ -396,7 +256,7 @@ describe('the trend report shows the trend', () => {
 
   it('says in the subtitle what this report is, and where the raw record lives', async () => {
     const { report } = await capture(baseInput());
-    expect(report.getSnapshot().subtitle).toMatch(/Chart and period summary/);
+    expect(report.getSnapshot().subtitle).toMatch(/Chart and readings/);
     expect(report.getSnapshot().subtitle).toMatch(/Instrument Time Series report/);
   });
 
@@ -453,7 +313,6 @@ describe('the trend report shows the trend', () => {
     expect(text).toMatch(/REPRESENTATIVE SAMPLE/);
     expect(text).toMatch(/500 of the 7,646 stored values/);
     expect(text).toMatch(/Every row below is a stored, unaveraged reading/);
-    expect(text).toMatch(/computed over EVERY reading in the period/);
   });
 
   it('says nothing about coverage on a Data Report that holds the period', async () => {

@@ -7,7 +7,6 @@ import {
 } from '@/routes/alarms/alarm-display';
 import type { TableRow } from './trend-series';
 import type { ChartImage } from './chart-image';
-import type { SlotSummary } from './trend-summary';
 import {
   scopeColumnStyles, scopeTableRows, instrumentAlarmsHeaderPairs, CONTENT_WIDTH_MM,
   type AlarmReportScope, type AlarmReportFormatters,
@@ -89,15 +88,11 @@ export interface TrendChartSection {
   image: ChartImage | null;
   /** Why there is no picture. Printed verbatim when `image` is null. */
   unavailableReason: string;
-  /** Never computed from the averaged points plotted above it. Its readings
-   *  count, extremes, mean AND out-of-limit counts all come from the server's
-   *  aggregate over EVERY reading in the range (`withServerSummary`), so a
-   *  sampled chart can neither understate the number of excursions here nor
-   *  print a maximum below a limit it reports breaches of. Only `first`/`last`
-   *  describe the rows the report was built from, and those are two labelled
-   *  instants the sampler preserves verbatim.
-   *  `null` when the slot had no readings in the period. */
-  summary: SlotSummary | null;
+  // The per-slot PERIOD SUMMARY table that sat under each chart until
+  // 2026-10-05 (readings count, extremes, mean, first / last, out-of-limit
+  // counts) was removed at the operator's "in trend repots remove period
+  // summary table". The whole-range figures it printed are still computed by
+  // the server (`getRangeSummary`) and still print on the Data Report.
 }
 
 /**
@@ -193,99 +188,6 @@ function addChart(report: ReportDoc, section: TrendChartSection): void {
   report.addImage(section.image.dataUrl, w, h);
 }
 
-/** A number at the slot's own resolved precision, or an em dash. */
-function num(v: number | null | undefined, decimals: number): string {
-  return v == null ? '—' : (formatDecimals(v, decimals) ?? '—');
-}
-
-/**
- * One slot's period statistics, under its chart.
- *
- * Out-of-spec is stated in READINGS, and the wording says so. Converting
- * samples into a duration means assuming what happened between them, and the
- * gap left by an instrument that went offline is exactly where that assumption
- * is worst — it would attribute a value to a stretch with no record at all.
- */
-function addSummary(report: ReportDoc, summary: SlotSummary, formatDateTime: (d: string) => string): void {
-  // NOTE ON POPULATIONS. `Readings`, `Minimum`, `Maximum`, `Mean` and the
-  // out-of-limit figures are ALL over every reading in the period, computed in
-  // SQL — one population throughout (see `withServerSummary`). `Minimum` and
-  // `Maximum` print only for a bound in force (2026-09-07), the same rule as
-  // the Data Report's extremes row; the per-side assessment line below is
-  // gated on the bound AND its count, so on the no-server-summary fallback a
-  // Minimum can print while its assessment is withheld — that is the count
-  // being unknown, not the extreme. The exception is
-  // the first/last pair, which is read from the rows the report holds: those two
-  // are claims about two specific INSTANTS, each printed with its own timestamp,
-  // not claims about the range, so a range minimum below both of them is
-  // expected rather than a contradiction. Before 2026-08-27 the extremes were
-  // row-derived, which let a sampled `Maximum 24.8 °C` print directly above
-  // `3 readings above 25.0` — arithmetically impossible on a signed record.
-  const d = summary.decimals;
-  // An extreme prints ONLY for a bound in force (operator, 2026-09-07: "if
-  // Enable_Humid_NLT is disabled then dont show RH min … if nmt is disabled
-  // then dont show max … in all data reports", then "same in trends page also").
-  // `limitMin` / `limitMax` arrive from `telemetry-overview`, which already
-  // withholds a switched-off bound, so their presence IS "in force" — the same
-  // test `dataReportParameterRows` makes. No bound at all → neither extreme.
-  const hasLow = boundInForce(summary.limitMin);
-  const hasHigh = boundInForce(summary.limitMax);
-  const rows: string[][] = [
-    ['Readings', summary.count.toLocaleString()],
-    ...(hasLow ? [['Minimum', `${num(summary.min, d)} ${summary.unit}`]] : []),
-    ...(hasHigh ? [['Maximum', `${num(summary.max, d)} ${summary.unit}`]] : []),
-    ['Mean', `${num(summary.mean, d)} ${summary.unit}`],
-    ['First reading', `${num(summary.first.value, d)} ${summary.unit}  —  ${formatDateTime(summary.first.ts)}`],
-    ['Last reading', `${num(summary.last.value, d)} ${summary.unit}  —  ${formatDateTime(summary.last.ts)}`],
-  ];
-
-  if (summary.outOfSpecCount === null) {
-    // NOT "0 out of spec". No limits are set, so nothing was checked, and a
-    // zero here would read as a clean period rather than an unjudged one.
-    rows.push(['Out of limit', 'Not assessed — no limits are set for this slot']);
-  } else {
-    const pct = summary.count > 0 ? (summary.outOfSpecCount / summary.count) * 100 : 0;
-    // ONE definition of "this side was assessed", used by both the qualifier
-    // and the per-side text below. Two conditions that can disagree would print
-    // "no low limit set" on one line and a two-sided assessment on the line
-    // above it — and they DO diverge if either the count or the bound is null
-    // on its own, which is reachable on the fallback path where no server
-    // summary is available and `summariseSlot`'s own zero stands.
-    const lowAssessed = summary.belowCount !== null && summary.limitMin != null;
-    const highAssessed = summary.aboveCount !== null && summary.limitMax != null;
-    // Which bounds this figure was assessed against, when only one exists. The
-    // total is a real count either way, but "3 of 2,500 readings" under a
-    // heading saying "Out of limit" reads as a full two-sided assessment, and
-    // half an assessment presented as a whole one overstates what was checked.
-    const only = !lowAssessed ? ' — against the high limit only'
-      : !highAssessed ? ' — against the low limit only' : '';
-    rows.push([
-      'Out of limit',
-      `${summary.outOfSpecCount.toLocaleString()} of ${summary.count.toLocaleString()} readings (${pct.toFixed(1)}%)${only}`,
-    ]);
-    // Per SIDE, because a bound can be absent on its own. A missing low limit
-    // printed as "0 below —" claims the readings were checked against a low
-    // limit and passed; nothing was checked at all. The `?? 0` that used to be
-    // here was exactly that defect — which is why the null has to survive all
-    // the way into the words rather than being coalesced away one line short.
-    // An absent side is NOT narrated either ("no low limit set — not assessed"
-    // until 2026-09-07): a bound not in force is not shown, and the qualifier
-    // on the total above already says which side was assessed.
-    // The bound prints its attribute's own text when it carries one
-    // (`27 (For Reference)`), else the number — the same rule as every set
-    // point (operator, 2026-10-03).
-    const bound = (v: number | null, text: string | null | undefined) =>
-      (typeof text === 'string' && text.trim() ? text : num(v, d));
-    const sides = [
-      lowAssessed ? `${(summary.belowCount ?? 0).toLocaleString()} below ${bound(summary.limitMin, summary.limitMinText)}` : null,
-      highAssessed ? `${(summary.aboveCount ?? 0).toLocaleString()} above ${bound(summary.limitMax, summary.limitMaxText)}` : null,
-    ].filter((s): s is string => s !== null);
-    if (sides.length) rows.push(['— below / above limit', sides.join('  /  ')]);
-  }
-
-  report.addTable({ head: [`${summary.label} — period summary`, 'Value'], body: rows });
-}
-
 /**
  * The trend widget as a report: the CHART the operator saw, with its in-spec
  * band, and the readings table beneath it.
@@ -311,7 +213,7 @@ export async function renderTrendReport(input: TrendReportInput): Promise<Report
     // wide period it is not the complete record either — and no report from
     // this page prints more than MAX_REPORT_ROWS rows regardless. What is
     // actually true of it is that it is UNAVERAGED.
-    subtitle: `${input.instrument.code} — ${input.slotLabel}. Chart and period summary. `
+    subtitle: `${input.instrument.code} — ${input.slotLabel}. Chart and readings. `
       + `The Instrument Time Series report covers the same readings unaveraged.`,
     reportKey: 'instrument-trend',
     formatDateTime: input.formatDateTime,
@@ -340,10 +242,7 @@ export async function renderTrendReport(input: TrendReportInput): Promise<Report
       `REPRESENTATIVE SAMPLE: this report was built from ${input.coverage.returned.toLocaleString()} of the `
       + `${input.coverage.total.toLocaleString()} stored values across all keys that ${input.period.label} holds. `
       + `They are selected ACROSS THE WHOLE PERIOD — this is not a recent portion of it — so the chart and the `
-      + `readings table below preserve the shape of the record without printing every stored reading. The period `
-      + `summary below is NOT affected: its readings count, minimum, maximum, mean and out-of-limit counts are all `
-      + `computed over EVERY reading in the period, not over this sample. Only its first and last readings are read `
-      + `from this sample, and the sample keeps the period's first and last stored readings exactly. To print every `
+      + `readings table below preserve the shape of the record without printing every stored reading. To print every `
       + `stored reading, NARROW THE PERIOD — no report from this page prints more than `
       + `${MAX_REPORT_ROWS.toLocaleString()} rows, and the Instrument Time Series report is built from the same `
       + `sample as this one.`,
@@ -359,22 +258,14 @@ export async function renderTrendReport(input: TrendReportInput): Promise<Report
     addNote(
       report,
       `Note: the chart AND the table below are AVERAGED over ${input.averagedLabel}. Each point and each row is `
-      + `the mean of the readings in its bucket, not a stored reading. The period summary is NOT averaged — it is `
-      + `computed from the stored readings, so a brief excursion that averaging smooths away still appears there. `
+      + `the mean of the readings in its bucket, not a stored reading. `
       + `For the same period UNAVERAGED, use the Instrument Time Series report — it prints stored readings rather `
       + `than bucket means. It is built from the same sample as this report, and states its own coverage.`,
       'red',
     );
   }
 
-  for (const section of input.charts) {
-    addChart(report, section);
-    if (section.summary) {
-      addSummary(report, section.summary, input.formatDateTime);
-    } else {
-      addNote(report, `No ${section.title.toLowerCase()} readings in this period, so there is nothing to summarise.`, 'muted');
-    }
-  }
+  for (const section of input.charts) addChart(report, section);
 
   addCapNotice(report, capped, shown.length, total, input.period);
   report.addSectionTitle(

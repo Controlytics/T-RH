@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased] - Trend report: the period summary table is gone (2026-10-05)
+
+Operator: "in trend repots remove period summary table".
+
+- **The Instrument Trend report (Temperature / Humidity) no longer prints
+  the per-slot period summary table** under its chart — readings count,
+  minimum, maximum, mean, first / last reading, out-of-limit counts. The
+  report is now the chart and the readings table. The subtitle reads "Chart
+  and readings"; the coverage and averaging notes no longer name a summary.
+- **`routes/instruments/trend-summary.ts` and its test are deleted** — the
+  summary was its only consumer. The server's whole-range figures are
+  unchanged and still print on the Data Report's Max / Min row
+  (`slotExtremes` over the same `summaries`); `ServerSlotSummary` lives in
+  `data-report-fetch.ts`. `TrendChartSection` lost its `summary` field.
+  Root `CLAUDE.md`'s trend-page bullet carries the dated note. No count
+  moved (lib 22, hooks 26 — the module was a route file).
+
 ## [Unreleased] - Reports: the header block is ruled dark (2026-10-05)
 
 Operator: "make all the reports headers tables lines into dark".

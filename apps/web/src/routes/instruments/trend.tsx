@@ -30,7 +30,7 @@ import {
 } from '@/routes/alarms/alarm-display';
 import { useTrendPeriod, useInstrumentTrend, TREND_PRESETS, TABLE_PAGE_SIZE, type TelemetryLongRow } from './use-trend-data';
 import { toChartSeries, toTableRows, toTableRowsWithErrors, rawCountForKey, type TableRow as PivotRow } from './trend-series';
-import { summariseSlot, withServerSummary, type ServerSlotSummary } from './trend-summary';
+import type { ServerSlotSummary } from './data-report-fetch';
 import { intervalLabel } from './chart-interval-note';
 import {
   renderTrendReport, renderDataReport, renderAlarmsReport,
@@ -516,43 +516,15 @@ export function InstrumentTrend() {
     rows: { key: string; value: number; ts: string }[],
     reportSpanMs: number,
     color: string,
-    serverSummaries: Record<string, ServerSlotSummary> | undefined,
     // The attribute's own text for each bound, printed beside the limit
     // line in the number's place (operator, 2026-10-03).
     texts: { min?: string | null; max?: string | null } = {},
   ): Promise<{ section: TrendChartSection; plotted: { ts: string; value: number }[] }> => {
-    // The summary is computed from `rows` (the report's own STORED readings,
-    // never the averaged points the chart plots): the minimum of a set of
-    // means is not the minimum of the record, and an excursion that
-    // averaging smoothed away must not vanish from the one block of the
-    // report a §11 reader treats as authoritative.
-    //
-    // `rows` is a SAMPLED subset of the period (LTTB-downsampled to
-    // MAX_SERIES_POINTS per key), so every figure computed from it is a
-    // figure over the sample. `withServerSummary` replaces every one the
-    // server computed over the whole range — the readings count, minimum,
-    // maximum, mean and the three out-of-limit counts — and keeps only
-    // `first`/`last`, which are value+timestamp PAIRS the endpoint does not
-    // return and which the sampler preserves verbatim at the range's
-    // endpoints.
-    //
-    // The limits passed here are the screen's (from the overview payload) and
-    // are what `summariseSlot` would judge against; the PRINTED bounds and
-    // counts both come from the server's own resolution instead, so the
-    // report cannot quote a count from one answer and a limit from another.
-    const summary = key
-      ? withServerSummary(
-        summariseSlot(rows, key, title, unit, decimals, min, max),
-        serverSummaries?.[key],
-      )
-      : null;
-
     if (!key) {
       return {
         section: {
           title,
           image: null,
-          summary: null,
           unavailableReason: `This instrument reports no ${title.toLowerCase()} key, so there is no series to plot.`,
         },
         plotted: [],
@@ -564,7 +536,7 @@ export function InstrumentTrend() {
     const series = { ...toChartSeries(rows, key, decimals, title, period.intervalMs), color };
     if (series.points.length === 0) {
       return {
-        section: { title, image: null, summary, unavailableReason: 'No readings in this period, so there is nothing to plot.' },
+        section: { title, image: null, unavailableReason: 'No readings in this period, so there is nothing to plot.' },
         plotted: [],
       };
     }
@@ -575,10 +547,9 @@ export function InstrumentTrend() {
       section: {
         title,
         image,
-        summary,
         unavailableReason: image
           ? ''
-          : 'The chart could not be rendered by this browser. The summary and the readings below still describe this period.',
+          : 'The chart could not be rendered by this browser. The readings below still describe this period.',
       },
       plotted: series.points,
     };
@@ -627,7 +598,6 @@ export function InstrumentTrend() {
           const r = await chartSectionFor(
             'Temperature', '°C', tempKey, tempDecimals,
             trend.overview?.limits?.tempMin, trend.overview?.limits?.tempMax, rows, reportSpanMs, TEMP_COLOR,
-            fetched.summaries,
             { min: trend.overview?.limitText?.tempMin, max: trend.overview?.limitText?.tempMax },
           );
           charts.push(r.section);
@@ -637,7 +607,6 @@ export function InstrumentTrend() {
           const r = await chartSectionFor(
             'Humidity', '%RH', humidKey, humidDecimals,
             trend.overview?.limits?.rhMin, trend.overview?.limits?.rhMax, rows, reportSpanMs, HUMID_COLOR,
-            fetched.summaries,
             { min: trend.overview?.limitText?.rhMin, max: trend.overview?.limitText?.rhMax },
           );
           charts.push(r.section);

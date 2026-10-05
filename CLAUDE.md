@@ -1923,10 +1923,11 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
     quoting the bucket count would understate what the range was read from.
   - **Out-of-limit counts and the readings count come from SQL over the WHOLE
     range** (`telemetry.repository.ts:getRangeSummary`), never from the plotted
-    subset, so a sampled chart cannot understate an excursion. Which figures
-    the signed PDF swaps for the server's and which stay row-derived is decided
-    in ONE place — `routes/instruments/trend-summary.ts:withServerSummary` —
-    and the reasoning is written beside it. Read it there, not from here.
+    subset, so a sampled chart cannot understate an excursion. **The trend
+    PDF's per-slot period summary table — and `trend-summary.ts`, whose only
+    consumer it was — were REMOVED on 2026-10-05** (operator: "in trend repots
+    remove period summary table"); the server's whole-range figures still
+    print on the Data Report (`slotExtremes` over the same `summaries`).
   - **Zoom REFETCHES; it does not magnify.** Drag-selecting a span sets a
     custom range and requests it fresh, so zooming into a sampled 30-day view
     reveals the true raw readings for the narrower window. Magnifying the
