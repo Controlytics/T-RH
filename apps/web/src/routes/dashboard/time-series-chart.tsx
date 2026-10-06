@@ -192,6 +192,12 @@ interface Props {
    * shared with the code path that prints it.
    */
   variant?: 'plain' | 'trend';
+  /**
+   * The viewBox HEIGHT. Defaults per variant (`CHART_HEIGHTS`); the trend
+   * report's raster names the trend height so the printed chart is the shape
+   * of the one on screen.
+   */
+  height?: number;
   /*
    * `lastReading` — the `trend` variant's "Last Reading" readout — was REMOVED
    * (audit 2026-10-03, WEB-9): its only feeder went on 2026-09-01 and no
@@ -217,7 +223,13 @@ interface Props {
 }
 
 const W = 900;
-const H = 260;
+/**
+ * The viewBox height, PER VARIANT. The dashboard's charts (plain) are 260; the
+ * trend page's are taller (operator, 2026-10-06: "increase trend view height
+ * more") — the plot is the page's whole subject there, and at 260 a day's
+ * excursion was a few pixels tall in a card the width of the screen.
+ */
+export const CHART_HEIGHTS = { plain: 260, trend: 420 } as const;
 
 /**
  * Plot padding, PER VARIANT.
@@ -250,8 +262,9 @@ const MIN_ZOOM_SPAN_MS = 60_000;
 
 export function TimeSeriesChart({
   series, envelope, unit, min, max, minText = null, maxText = null, spanMs, title, onZoom, onResetZoom,
-  variant = 'plain', dateTimeFormat,
+  variant = 'plain', dateTimeFormat, height,
 }: Props) {
+  const H = height ?? CHART_HEIGHTS[variant];
   const { formatDateTime, formatDate, formatTime } = useDatetimeFormat(dateTimeFormat);
   const [hoverX, setHoverX] = useState<number | null>(null);
   /** Drag in progress, in viewBox x — null when not dragging. */
@@ -303,7 +316,7 @@ export function TimeSeriesChart({
     const sy = (v: number) => PAD.top + plotH - ((v - scale.min) / (scale.max - scale.min)) * plotH;
 
     return { t0, t1, scale, plotW, plotH, sx, sy };
-  }, [withPoints, envelope, min, max, PAD]);
+  }, [withPoints, envelope, min, max, PAD, H]);
 
   if (withPoints.length === 0) {
     // A chart with axes and no line reads as "flat". Say nothing is here.

@@ -21,7 +21,7 @@ import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { useTrendWidgets } from '@/hooks/use-trend-widgets';
 import { WidgetSettingsButton } from './widget-settings-button';
 import { formatSetPoint } from '@/routes/dashboard/set-point';
-import { TimeSeriesChart, SERIES_COLORS } from '@/routes/dashboard/time-series-chart';
+import { TimeSeriesChart, SERIES_COLORS, CHART_HEIGHTS } from '@/routes/dashboard/time-series-chart';
 import {
   triggeredText, statusText, alarmTypeText, limitText, clearedText,
   mapStatusTextsResponse, mapInactivityTextsResponse,
@@ -542,6 +542,8 @@ export function InstrumentTrend() {
     }
     const image = await renderChartToPng({
       title, unit, spanMs: reportSpanMs, min, max, minText: texts.min, maxText: texts.max, series: [series],
+      // The printed chart is the shape of the one on screen (the trend height).
+      height: CHART_HEIGHTS.trend,
     });
     return {
       section: {

@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased] - Trend page: the charts are taller (2026-10-06)
+
+Operator: "increase trend view height more".
+
+- **`TimeSeriesChart`'s viewBox height is PER VARIANT** — `CHART_HEIGHTS`
+  `{ plain: 260, trend: 420 }` in `routes/dashboard/time-series-chart.tsx`,
+  and a `height` prop names one outright. The trend page's Temperature and
+  Humidity charts (variant `trend`) are 420 units tall on a 900 width, up
+  from 260 — at a card the width of the screen that is roughly 500 px of
+  plot instead of 320. The dashboard's trend panel and the room detail's
+  charts (variant `plain`) are unchanged at 260. The geometry (`plotH`, the
+  `sy` scale, the band, the drag rectangle, the two x-axis labels at
+  `H - 8`) all read the one `H`, so nothing else moved.
+- **The trend REPORT's chart is the same shape**: `trend.tsx` passes
+  `height: CHART_HEIGHTS.trend` to `renderChartToPng` (`ChartImageInput`
+  gained `height`), so the printed chart is 182 mm by about 85 mm instead
+  of 53 mm on a page that now holds nothing but the header block and the
+  chart. Pinned by three new `time-series-chart.test.tsx` cases (plain stays
+  260; trend is `CHART_HEIGHTS.trend` and taller; a named height moves the
+  x-axis labels to its foot); the seven other chart and trend suites pass
+  unchanged. Checked at 1,100 px in headless Chrome with the built
+  stylesheet. No count moved.
+
 ## [Unreleased] - Trend report: no sample note; every report header bolds only its labels (2026-10-06)
 
 Operator, pasting the trend report's "REPRESENTATIVE SAMPLE: this report was

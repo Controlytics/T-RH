@@ -32,6 +32,8 @@ export interface ChartImage {
 }
 
 export interface ChartImageInput {
+  /** The viewBox height to draw at — the trend page passes the trend height. */
+  height?: number;
   title: string;
   unit: string;
   spanMs: number;
