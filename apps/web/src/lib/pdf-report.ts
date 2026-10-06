@@ -326,11 +326,13 @@ export function normaliseSnapshot(v: unknown): ReportSnapshot {
 /**
  * ONE header block for EVERY report (operator, 2026-10-05: "make all reports
  * header table same only dont put any differences like table lines and font
- * styles bold everything"): a headless table — the Block / Area / … form at
- * the top of a report — prints at THIS size with every cell bold and dark
- * rules, whatever typography the report prints its records at. It is the
- * Data Report's record size, so that report's header did not move and the
- * others grew to match it.
+ * styles bold everything"; then 2026-10-06: "in all reports headers values
+ * should be not bold, only key should bold"): a headless table — the Block /
+ * Area / … form at the top of a report — prints at THIS size with dark rules,
+ * its LABEL columns (the even ones: `Block :`, `Start Date :`) bold and its
+ * VALUE columns regular, whatever typography the report prints its records
+ * at. It is the Data Report's record size, so that report's header did not
+ * move and the others grew to match it.
  */
 export const HEADER_BLOCK_PT = 10;
 
@@ -645,14 +647,18 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       theme: 'grid',
       margin: { left: GUTTER_MM, right: GUTTER_MM },
       // A HEADLESS table is the report's header block (the Block / Area / …
-      // form at the top): ONE style on every report — dark rules, every cell
-      // bold, HEADER_BLOCK_PT (operator, 2026-10-05, twice: "make all the
-      // reports headers tables lines into dark", then "make all reports header
-      // table same … bold everything"). A headed table is records and keeps
-      // the report's own typography and the light rule.
+      // form at the top): ONE style on every report — dark rules,
+      // HEADER_BLOCK_PT, the label columns bold and the value columns regular
+      // (operator, 2026-10-05: "make all the reports headers tables lines into
+      // dark", "make all reports header table same"; 2026-10-06: "values
+      // should be not bold, only key should bold"). The weight is decided in
+      // `didParseCell` below by COLUMN PARITY — the form is always
+      // label / value / label / value — so a caller's `columnStyles` cannot
+      // make one report's header differ from the next. A headed table is
+      // records and keeps the report's own typography and the light rule.
       styles: opts.head
         ? { fontSize: t.tablePt, cellPadding: 2.5, lineColor: COLORS.border, lineWidth: 0.2, textColor: COLORS.text, overflow: 'linebreak' }
-        : { fontSize: HEADER_BLOCK_PT, fontStyle: 'bold', cellPadding: 2.5, lineColor: COLORS.dark, lineWidth: 0.2, textColor: COLORS.text, overflow: 'linebreak' },
+        : { fontSize: HEADER_BLOCK_PT, cellPadding: 2.5, lineColor: COLORS.dark, lineWidth: 0.2, textColor: COLORS.text, overflow: 'linebreak' },
       headStyles: { fillColor: opts.headColor ?? COLORS.primary, textColor: COLORS.white, fontStyle: 'bold', fontSize: t.tableHeadPt, halign: t.tableHeadAlign },
       // Zebra striping reads as "these are records"; a parameter block is a
       // form, and striping it makes the reader look for a fifth row.
@@ -673,11 +679,12 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       // objects, so `body` stays plain strings and the snapshot above stays
       // re-renderable. (Spans ARE handed over as cell objects — that is
       // autotable's own shape for them, and the snapshot keeps it verbatim.)
-      ...(opts.bold ? {
-        didParseCell: (d: any) => {
-          if (d.section === 'body' && opts.bold![d.row.index]?.[d.column.index]) d.cell.styles.fontStyle = 'bold';
-        },
-      } : {}),
+      didParseCell: (d: any) => {
+        if (d.section !== 'body') return;
+        // Header block: label columns bold, value columns regular — see above.
+        if (!opts.head) d.cell.styles.fontStyle = d.column.index % 2 === 0 ? 'bold' : 'normal';
+        if (opts.bold?.[d.row.index]?.[d.column.index]) d.cell.styles.fontStyle = 'bold';
+      },
     });
     y = (doc as any).lastAutoTable.finalY + 5;
   };

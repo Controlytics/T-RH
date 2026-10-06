@@ -222,33 +222,10 @@ export async function renderTrendReport(input: TrendReportInput): Promise<Report
 
   // Coverage first, above everything it qualifies. What the chart and the table
   // are drawn from has to be the first thing read, not a footnote under them.
-  if (input.coverage.total > input.coverage.returned) {
-    addNote(
-      report,
-      // "stored values across all keys", not "readings": this count spans every
-      // key the instrument sent, while each summary below counts ONE slot. Two
-      // numbers in the same units that cannot be reconciled would read as a
-      // contradiction rather than as the different measures they are. It is a
-      // claim about what this report was BUILT FROM, for the same reason —
-      // attributing an all-keys number to a Temperature-only table would be a
-      // count of a population that table does not hold.
-      //
-      // And the remedy it offers is one that exists. It used to end "or use the
-      // Instrument Time Series report", which calls the SAME sampled fetch:
-      // whenever this note prints because LTTB sampled, that report sampled too,
-      // so the sentence was false in essentially every instance it appeared.
-      // Narrowing the period is the remedy that actually works, bounded by
-      // MAX_REPORT_ROWS, which no report from this page exceeds.
-      `REPRESENTATIVE SAMPLE: this report was built from ${input.coverage.returned.toLocaleString()} of the `
-      + `${input.coverage.total.toLocaleString()} stored values across all keys that ${input.period.label} holds. `
-      + `They are selected ACROSS THE WHOLE PERIOD — this is not a recent portion of it — so the chart below preserves `
-      + `the shape of the record without plotting every stored reading. For the readings themselves, NARROW THE PERIOD `
-      + `and use the Instrument Time Series report — no report from this page prints more than `
-      + `${MAX_REPORT_ROWS.toLocaleString()} rows, and the Instrument Time Series report is built from the same `
-      + `sample as this one.`,
-      'red',
-    );
-  }
+  // No sample disclosure on this report (operator, 2026-10-06: "remove this
+  // text in trend reports"). The chart is still drawn from the server's
+  // whole-period LTTB sample, and `coverage` still rides on the input and the
+  // snapshot; the Data Report keeps its own note.
 
   // The same disclosure `ChartIntervalNote` makes on screen, in the same words
   // (`intervalLabel` is the one source for the bucket's name). A printed record

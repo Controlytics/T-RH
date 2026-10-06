@@ -1,5 +1,33 @@
 # Changelog
 
+## [Unreleased] - Trend report: no sample note; every report header bolds only its labels (2026-10-06)
+
+Operator, pasting the trend report's "REPRESENTATIVE SAMPLE: this report was
+built from 4,106 of the 4,116 stored values …" paragraph: "remove this text
+in trend reports and also in all reports headers values should be not bold,
+only key should bold".
+
+- **The Instrument Trend report prints NO sample disclosure.** The red
+  "REPRESENTATIVE SAMPLE … NARROW THE PERIOD …" note under the header block
+  is gone from `renderTrendReport` (`trend-report.ts`). The chart is still
+  drawn from the server's whole-period LTTB sample and `coverage` still rides
+  on the input and the snapshot; only the words went. **The Data Report keeps
+  its own sample note** — it is a different report, and the operator named
+  the trend report. Three `trend-report-chart` cases that pinned the wording
+  became one that pins its absence (29 pass).
+- **Every report's header block bolds its LABEL columns and prints its VALUES
+  regular.** `pdf-report.ts` `addTable`: a headless table's weight is decided
+  in `didParseCell` by COLUMN PARITY (the form is always
+  label / value / label / value, and a spanning value cell sits at column 1),
+  so a caller's `columnStyles` cannot make one report's header differ from
+  the next; `fontStyle: 'bold'` left the headless `styles`. Dark rules and
+  `HEADER_BLOCK_PT` are as before. `pdf-report-rules.test.ts` now asserts
+  `['bold', 'normal', 'bold', 'normal']`, the same with a caller bolding a
+  value column, and `['bold', 'normal']` for the Interval span (7 pass);
+  `pdf-report-snapshot`, `trend-downloads`, `alarms-page` and
+  `generate-report-card` pass unchanged. Checked on a rendered page. No
+  count moved.
+
 ## [Unreleased] - Instrument detail: the rejected payload shows in full (2026-10-06)
 
 Operator, reading why a device's data was being refused: "and also show

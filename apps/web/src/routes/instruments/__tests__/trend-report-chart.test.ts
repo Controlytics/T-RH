@@ -203,27 +203,14 @@ describe('the trend report shows the trend', () => {
     expect(text).toMatch(/still describe this period/);
   });
 
-  it('states its own coverage when the period holds more than the report received', async () => {
+  it('prints NO sample disclosure, even when the period holds more than the report received', async () => {
+    // Operator, 2026-10-06, pasting the paragraph: "remove this text in trend
+    // reports". The chart is still the server's whole-period sample and
+    // `coverage` still rides on the snapshot; the words are gone.
     const { text } = await capture(baseInput({ coverage: { returned: 500, total: 7646 } }));
-    expect(text).toMatch(/REPRESENTATIVE SAMPLE/);
-    expect(text).toMatch(/500 of the 7,646 stored values/);
-    // Scoped to the one block that IS sampled...
-    expect(text).toMatch(/the chart below preserves the shape of the record/);
-    expect(text).not.toMatch(/readings table/);
-    // ...and no longer naming a period summary — there is none (2026-10-05).
-    expect(text).not.toMatch(/period summary/i);
-  });
-
-  it('offers a remedy that exists — not the Time Series report, which samples identically', async () => {
-    // The Time Series branch calls the SAME `points=` fetch this report does, so
-    // whenever this note prints because the sampler sampled, that report sampled
-    // too. "Use the Instrument Time Series report for every stored reading" was
-    // therefore false in essentially every instance it appeared — the same
-    // defect class as the coverage claim, displaced onto the remedy.
-    const { text } = await capture(baseInput({ coverage: { returned: 500, total: 7646 } }));
-    expect(text).toMatch(/NARROW THE PERIOD/);
-    expect(text).toMatch(/Instrument Time Series report is built from the same sample as this one/);
-    expect(text).not.toMatch(/narrow the period or use the Instrument Time Series report/);
+    expect(text).not.toMatch(/REPRESENTATIVE SAMPLE/);
+    expect(text).not.toMatch(/NARROW THE PERIOD/);
+    expect(text).not.toMatch(/stored values across all keys/);
   });
 
   it('does not call the Time Series report the complete raw record anywhere', async () => {
@@ -234,15 +221,6 @@ describe('the trend report shows the trend', () => {
     // What IS true of it: unaveraged, and sampled the same way.
     expect(text).toMatch(/same period UNAVERAGED/);
     expect(text).toMatch(/built from the same sample as this report/);
-  });
-
-  it('attributes the all-keys count to the FETCH, not to a single-slot table', async () => {
-    // `coverage.returned` spans every key, while a Temperature-only report's
-    // table holds one slot's points. Saying "the table below holds 500 of 7,646"
-    // is a count of a population that table does not have.
-    const { text } = await capture(baseInput({ coverage: { returned: 500, total: 7646 } }));
-    expect(text).toMatch(/this report was built from 500 of the 7,646 stored values across all keys/);
-    expect(text).not.toMatch(/readings table below hold 500/);
   });
 
   it('says nothing about coverage when the report holds the whole period', async () => {
