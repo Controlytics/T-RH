@@ -283,20 +283,13 @@ describe('the trend report shows the trend', () => {
     return last ? { bold: last[1] === '2', size: Number(last[2]) } : null;
   };
 
-  it('states its own coverage on the Data Report when it was built from a sample', async () => {
-    // At Raw the rows come down the sampled chart path; a period wider than the
-    // sample must say so IN the report, and must say the extremes above are not
-    // the sample's.
+  it('prints NO sample disclosure on the Data Report, even when built from a sample', async () => {
+    // Operator, 2026-10-06: "remove that note in data report also".
     const report = await renderDataReport(dataInput({ returned: 500, total: 7646 }));
     const text = pdfText(report);
-    expect(text).toMatch(/REPRESENTATIVE SAMPLE/);
-    expect(text).toMatch(/500 of the 7,646 stored values/);
-    expect(text).toMatch(/Every row below is a stored, unaveraged reading/);
-  });
-
-  it('says nothing about coverage on a Data Report that holds the period', async () => {
-    const report = await renderDataReport(dataInput({ returned: 2, total: 2 }));
-    expect(pdfText(report)).not.toMatch(/REPRESENTATIVE SAMPLE/);
+    expect(text).not.toMatch(/REPRESENTATIVE SAMPLE/);
+    expect(text).not.toMatch(/stored values across all keys/);
+    expect(text).not.toMatch(/computed over EVERY reading/);
   });
 
   it('is laid out to the Data Report reference — parameter block, four columns, legend', async () => {
@@ -504,28 +497,6 @@ describe('the trend report shows the trend', () => {
     ]);
   });
 
-  // The REPRESENTATIVE SAMPLE disclosure names only the extremes that print
-  // (2026-09-07 review). The note said "Temp. Max / Min and RH Max / Min above are computed over
-  // EVERY reading" unconditionally, while `extremesRow` omits an extreme whose
-  // bound is not in force — a signed statement about cells that are not there.
-  it('mentions the Max / Min cells that print, and nothing about absent ones', async () => {
-    const both = dataInput({ returned: 2, total: 5 });
-    const rhOff = { ...both, rh: { ...both.rh, min: null, max: null } };
-    const r1 = await renderDataReport(rhOff);
-    const note1 = (r1.getSnapshot().sections as any[]).find((s) => s.kind === 'note' && /REPRESENTATIVE SAMPLE/.test(s.text))!;
-    expect(note1.text).toContain('Temp. Max / Min above');
-    expect(note1.text).not.toContain('RH Max');
-    const nmtOnly = { ...both, temp: { ...both.temp, min: null }, rh: { ...both.rh, min: null, max: null } };
-    const r2 = await renderDataReport(nmtOnly);
-    const note2 = (r2.getSnapshot().sections as any[]).find((s) => s.kind === 'note' && /REPRESENTATIVE SAMPLE/.test(s.text))!;
-    expect(note2.text).toContain('Temp. Max above');
-    expect(note2.text).not.toContain('Min');
-    const none = { ...both, temp: { ...both.temp, min: null, max: null }, rh: { ...both.rh, min: null, max: null } };
-    const r3 = await renderDataReport(none);
-    const note3 = (r3.getSnapshot().sections as any[]).find((s) => s.kind === 'note' && /REPRESENTATIVE SAMPLE/.test(s.text))!;
-    expect(note3.text).not.toMatch(/Max|Min/);
-    expect(note3.text).toContain('REPRESENTATIVE SAMPLE');
-  });
 });
 
 /**

@@ -1,4 +1,3 @@
-import { boundInForce } from '@/routes/dashboard/set-point';
 import { createReport, type ReportDoc, type NoteColor } from '@/lib/pdf-report';
 import {
   alarmTypeText, triggeredText, limitText, clearedText, statusText,
@@ -328,22 +327,6 @@ export async function renderDataReport(input: DataReportInput): Promise<ReportDo
 }
 
 /**
- * The sentence in the sample disclosure that names the Max / Min cells — ONLY
- * the ones that print. The extremes row omits a slot's cells when no bound is
- * in force (`extremesRow`), and a signed note about cells that are not there is
- * the stale-disclosure defect this file already fixed once (2026-08-27).
- */
-export function extremesSentence(input: Pick<DataReportInput, 'temp' | 'rh'>): string {
-  const cells: string[] = [];
-  for (const [name, s] of [['Temp.', input.temp], ['RH', input.rh]] as const) {
-    const parts = [boundInForce(s.max) ? 'Max' : null, boundInForce(s.min) ? 'Min' : null].filter((p): p is string => p !== null);
-    if (parts.length) cells.push(`${name} ${parts.join(' / ')}`);
-  }
-  if (cells.length === 0) return '';
-  return `${cells.join(' and ')} above ${cells.length === 1 && !cells[0].includes('/') ? 'is' : 'are'} computed over EVERY reading in the period, not over this sample. `;
-}
-
-/**
  * The Data Report for SEVERAL instruments — the Data Report page's Generate
  * Data Report card (an Area's instruments, or a hand-picked set). Each
  * instrument is on its own page with the SAME parameter block and table as its
@@ -397,18 +380,9 @@ function addDataReportSection(report: ReportDoc, section: PreparedDataSection): 
     }),
     columnStyles: scopeColumnStyles(CONTENT_WIDTH_MM, DATA_REPORT_LABEL_MM),
   });
-  if (input.coverage.total > input.coverage.returned) {
-    addNote(
-      report,
-      `REPRESENTATIVE SAMPLE: this report was built from ${input.coverage.returned.toLocaleString()} of the `
-      + `${input.coverage.total.toLocaleString()} stored values across all keys that ${input.period.label} holds, selected `
-      + `ACROSS THE WHOLE PERIOD rather than taken from its most recent portion. Every row below is a stored, `
-      + `unaveraged reading, but these are NOT every stored reading in the period. ${extremesSentence(input)}`
-      + `To print every stored reading, narrow the period or select an interval — no report from this page prints `
-      + `more than ${MAX_REPORT_ROWS.toLocaleString()} rows.`,
-      'red',
-    );
-  }
+  // No sample disclosure here either (operator, 2026-10-06: "remove that note
+  // in data report also"). The rows are still the server's whole-period
+  // sample and `coverage` still rides on the input and the snapshot.
   addCapNotice(report, capped, shown.length, total, input.period);
   report.addTable({
     head: DATA_REPORT_HEAD,

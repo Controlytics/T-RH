@@ -11,10 +11,11 @@ only key should bold".
   "REPRESENTATIVE SAMPLE … NARROW THE PERIOD …" note under the header block
   is gone from `renderTrendReport` (`trend-report.ts`). The chart is still
   drawn from the server's whole-period LTTB sample and `coverage` still rides
-  on the input and the snapshot; only the words went. **The Data Report keeps
-  its own sample note** — it is a different report, and the operator named
-  the trend report. Three `trend-report-chart` cases that pinned the wording
-  became one that pins its absence (29 pass).
+  on the input and the snapshot; only the words went. **The Data Report's own
+  sample note went next** (operator, minutes later: "remove that note in data
+  report also"), and `extremesSentence` — the helper only that note used —
+  with it. Five `trend-report-chart` cases that pinned the two wordings
+  became two that pin their absence (27 pass).
 - **Every report's header block bolds its LABEL columns and prints its VALUES
   regular.** `pdf-report.ts` `addTable`: a headless table's weight is decided
   in `didParseCell` by COLUMN PARITY (the form is always
