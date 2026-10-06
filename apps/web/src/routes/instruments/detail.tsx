@@ -21,6 +21,7 @@ import { TokenDialog } from './token-dialog';
 import { GatewayPanel } from './gateway-panel';
 import { TokenPanel } from './token-panel';
 import { AttributesPanel } from './attributes-panel';
+import { RejectedPayloadsCard, type DeadLetter } from './rejected-payloads';
 import { SkeletonCard } from '@/components/ui/skeleton';
 import { PageHero } from '@/components/ui/page-hero';
 
@@ -68,7 +69,6 @@ function readingText(r: Reading): string {
   }
   return JSON.stringify(r.value);
 }
-interface DeadLetter { id: string; transport: string; reason: string; rawPayload: string | null; receivedAt: string }
 
 export function InstrumentDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -558,33 +558,7 @@ export function InstrumentDetailPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Rejected payloads ({dead?.total ?? 0})</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {/* The answer to "the device says it is sending but nothing appears" */}
-          {!dead?.data?.length ? (
-            <p className="text-sm text-slate-500">Nothing rejected — every payload this device sent was accepted.</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow><TableHead>When</TableHead><TableHead>Transport</TableHead><TableHead>Reason</TableHead><TableHead>Payload</TableHead></TableRow>
-              </TableHeader>
-              <TableBody>
-                {dead.data.map((d) => (
-                  <TableRow key={d.id}>
-                    <TableCell className="text-sm">{stamp(d.receivedAt)}</TableCell>
-                    <TableCell className="text-xs">{d.transport}</TableCell>
-                    <TableCell className="text-sm text-red-700">{d.reason}</TableCell>
-                    <TableCell className="max-w-xs truncate font-mono text-xs text-slate-500">{d.rawPayload ?? '—'}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+      <RejectedPayloadsCard dead={dead} />
         </div>
 
         <AttributesPanel instrumentId={inst.id} profileId={inst.profileId} canEdit={can('instruments.edit')} />

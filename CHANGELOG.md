@@ -1,5 +1,33 @@
 # Changelog
 
+## [Unreleased] - Instrument detail: the rejected payload shows in full (2026-10-06)
+
+Operator, reading why a device's data was being refused: "and also show
+rejected payload fully in instruments page", then "rejected pay load table
+was not enough payload is cutting not showing fully".
+
+- **The Payload cell of the Rejected payloads card prints the WHOLE
+  payload**, wrapped on any character, with no height cap. It was
+  `max-w-xs truncate`: one line of a 100-device gateway batch showed and the
+  device codes it named - the thing the reason refers to - were hidden. The
+  server stored and sent all of it (up to 4,000 characters); only the cell
+  cut it. A **Formatted** button on each row opens the payload pretty-printed
+  as JSON (anything else as sent) with the reason and time in the dialog's
+  header and a Copy button. The card is its own component now,
+  `routes/instruments/rejected-payloads.tsx`, so it is tested bare: 7 cases in
+  `__tests__/rejected-payloads.test.tsx` (the last device of a 100-device
+  batch is in the cell; no `truncate` / `max-w-` class; the formatted view;
+  the non-JSON fallback; no button for a row with no payload). Checked in
+  headless Chrome with the built stylesheet at the detail column's width. No
+  count moved.
+- **What the operator was looking at, for the record:** the device connected
+  as `CWH/RDU/001-00` had switched from a flat reading to a gateway-style
+  `{"devices":[…]}` batch; that instrument is a CHILD of `IOTGW01`, not a
+  gateway, so `ingest-core.ts` dead-letters it as `NOT_A_GATEWAY`. Every
+  value in those batches was `"NA"` and three of the codes named
+  (`CWH/RDU/001-01`, `emf-001`, `testdevice1`) do not exist. Device
+  configuration, not code; nothing in the ingest path changed.
+
 ## [Unreleased] - Reports: ONE header block for every report (2026-10-05)
 
 Operator: "make all reports header table same only dont put any differences
