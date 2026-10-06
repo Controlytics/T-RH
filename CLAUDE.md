@@ -11,9 +11,9 @@ at `cbcb913` and is superseded by the System Stats below for every count;
 re-derive any count from live code before repeating it.
 
 ## Repository
-- **Remote:** github.com/sivamunnangi1211/TRH_GGP.git (`git remote -v`, 2026-08-20).
+- **Remote:** github.com/Controlytics/T-RH.git, remote name `trh` — **the ONLY push target since 2026-10-06** (operator: "from now on push to the new repo only"). `origin` = github.com/sivamunnangi1211/TRH_GGP.git is the OLD remote, frozen at that date; the AWS server's clone and `scripts/aws/provision-ubuntu.sh` `REPO_SSH` still point at it and must be repointed (new deploy key) before the next deploy, or `deploy-to-aws.bat` ships stale code. `remote.pushDefault = trh` and `data-layer` tracks `trh/data-layer` in this checkout.
   The `pankajexa/21cfrlogbook` remote recorded here was upstream DigiLog's.
-- **Active branch:** `data-injection`. There is no `main`; `final-user-management`
+- **Active branch:** `data-layer` (this line said `data-injection` until 2026-10-06 — stale since 2026-08-29). There is no `main`; `final-user-management`
   is a FROZEN backup — do not commit to it.
 
 ## Monorepo Structure
