@@ -399,9 +399,14 @@ export function truncationNote(shown: number, total: number): string | null {
  */
 export function columnWidths(level: ReportLevel, hidden: ReadonlySet<LimitColumn> = NO_HIDDEN): Record<number, { cellWidth: number | 'wrap' }> {
   const head = reportHead(level, hidden);
+  // Re-measured 2026-10-07 for the 9pt body / 9.5pt bold heads and 1.6mm side
+  // padding: DATE holds `2026-10-06` on one line (it wrapped at 17); the
+  // limit and PV columns hold their widest WORD (`LIMIT`, `VALUE`), which is
+  // all a heading that wraps between words needs. The 7mm freed goes to the
+  // columns that carry words — Area, Location, Description.
   const narrow: Record<string, number> = {
-    DATE: 17, TIME: 12, UOM: 12,
-    'PV VALUE': 16, 'HIGH LIMIT': 18, 'LOW LIMIT': 18,
+    DATE: 20, TIME: 12, UOM: 11,
+    'PV VALUE': 15, 'HIGH LIMIT': 14, 'LOW LIMIT': 14,
   };
   const out: Record<number, { cellWidth: number | 'wrap' }> = {};
   /**

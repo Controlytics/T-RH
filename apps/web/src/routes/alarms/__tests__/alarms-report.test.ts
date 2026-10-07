@@ -313,12 +313,12 @@ describe('columnWidths', () => {
     // would cap DESCRIPTION on one level and DATE on another.
     const forBlock = columnWidths('block');
     const dateAt = reportHead('block').indexOf('DATE');
-    expect(forBlock[dateAt]).toEqual({ cellWidth: 17 });
+    expect(forBlock[dateAt]).toEqual({ cellWidth: 20 }); // 17 until 2026-10-07: the 9pt date wrapped
     expect(forBlock[reportHead('block').indexOf('DESCRIPTION')]).toBeUndefined();
   });
 
   it('caps DATE at index 0 when nothing is prefixed', () => {
-    expect(columnWidths('instrument')[0]).toEqual({ cellWidth: 17 });
+    expect(columnWidths('instrument')[0]).toEqual({ cellWidth: 20 });
   });
 });
 
@@ -471,7 +471,7 @@ describe('the Instrument ID column is never broken', () => {
   it('leaves the short fixed columns pinned', () => {
     // The two rules coexist: only the ID is content-sized.
     const styles = columnWidths('block');
-    expect(styles[reportHead('block').indexOf('DATE')]).toEqual({ cellWidth: 17 });
+    expect(styles[reportHead('block').indexOf('DATE')]).toEqual({ cellWidth: 20 });
   });
 
   it('adds no ID style at the level that has no ID column', () => {
@@ -560,7 +560,7 @@ describe('a switched-off bound prints NOTHING, and a limit column nobody can fil
     const row = reportRows([off()], fmt, undefined, 'instrument', hidden)[0];
     expect(row).toHaveLength(head.length);
     expect(row[head.indexOf('HIGH LIMIT')]).toBe('27.0');
-    expect(columnWidths('instrument', hidden)[head.indexOf('HIGH LIMIT')]).toEqual({ cellWidth: 18 });
+    expect(columnWidths('instrument', hidden)[head.indexOf('HIGH LIMIT')]).toEqual({ cellWidth: 14 });
     expect(columnWidths('instrument', hidden)[head.length]).toBeUndefined();
   });
 

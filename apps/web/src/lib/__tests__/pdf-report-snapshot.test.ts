@@ -63,7 +63,10 @@ describe('ReportSnapshot v2', () => {
     expect(snap.version).toBe(2);
     expect(snap.reportType).toBe('Instrument Time Series');
     expect(snap.title).toBe('Temperature and RH Data Report');
-    expect(snap.config).toEqual({ legend: chrome.legend, typography: chrome.typography, showAppName: false });
+    // The WHOLE resolved scale is frozen (2026-10-07), so a replay prints at the
+    // sizes reviewed even after the shared default moves.
+    const { DEFAULT_TYPOGRAPHY } = await import('../pdf-report');
+    expect(snap.config).toEqual({ legend: chrome.legend, typography: { ...DEFAULT_TYPOGRAPHY, ...chrome.typography }, showAppName: false });
     expect(snap.sections.map((s) => s.kind)).toEqual(['table', 'note', 'image', 'page-break', 'pairs', 'table']);
     // A title followed by a table rides on the table (as before); one followed
     // by a pairs block rides on the pairs block.
@@ -153,6 +156,34 @@ describe('ReportSnapshot v2', () => {
     // The end block is painted at FINALISATION (save / toBlobUrl), not before.
     approved.save('lines.pdf');
     expect(pageTexts(approved.doc).join(' ')).toContain('Printed By: someone');
+  });
+
+  it('a snapshot stored before 2026-10-07 replays at the scale it was reviewed at, not the new default', async () => {
+    // Before 2026-10-07 a snapshot froze only the keys its report OVERRODE.
+    // Merged over today's larger, bold default it would re-flow a document an
+    // approver already signed; its gaps are filled from the frozen legacy scale.
+    const { LEGACY_TYPOGRAPHY_2026_10_06 } = await import('../pdf-report');
+    const old = {
+      version: 2 as const, reportType: 'Alarms', title: 'ALARM REPORT', orientation: 'portrait' as const,
+      config: { typography: { tablePt: 9 } },
+      sections: [
+        { kind: 'table' as const, head: [], body: [['Start Date :', '2026-10-06', 'End Date :', '2026-10-06']] },
+        { kind: 'table' as const, head: ['DATE', 'TIME'], body: [['2026-10-06', '00:00']] },
+      ],
+    };
+    const replay = await renderSnapshotToPdf(normaliseSnapshot(old), { formatDateTime });
+    const stream = (replay.doc.internal as any).pages.filter(Boolean).flat().join('\n');
+    const at = stream.indexOf('(ALARM REPORT) Tj');
+    const tf = [...stream.slice(0, at).matchAll(/\/F(\d) ([\d.]+) Tf/g)].pop()!;
+    expect(tf[1]).toBe('1'); // regular, as it was
+    expect(Number(tf[2])).toBe(LEGACY_TYPOGRAPHY_2026_10_06.titlePt);
+    const records = (replay.doc as any).lastAutoTable;
+    const cell = Object.values(records.body[0].cells)[0] as any;
+    expect(cell.styles.fontSize).toBe(9); // its own override survives
+    expect(cell.styles.cellPadding).toEqual({ top: 2.5, bottom: 2.5, left: LEGACY_TYPOGRAPHY_2026_10_06.cellPadX, right: LEGACY_TYPOGRAPHY_2026_10_06.cellPadX });
+    // ...and a NEW snapshot carries its whole scale, so it is immune to the next change.
+    const fresh = (await build()).getSnapshot();
+    expect(Object.keys(fresh.config.typography ?? {}).sort()).toEqual(Object.keys(LEGACY_TYPOGRAPHY_2026_10_06).sort());
   });
 
   it('normaliseSnapshot accepts only version 2', () => {

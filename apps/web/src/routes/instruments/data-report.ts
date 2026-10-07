@@ -81,13 +81,15 @@ export const DATA_REPORT_TITLE = 'Temperature and RH Data Report';
  * the keys named here move; everything else keeps `DEFAULT_TYPOGRAPHY`.
  */
 export const DATA_REPORT_TYPOGRAPHY = {
-  companyPt: 18,
-  appNamePt: 11,
-  titlePt: 15,
-  labelPt: 10,
-  tablePt: 10,
-  tableHeadPt: 10.5,
-  smallprintPt: 9,
+  // Raised a step on 2026-10-07 with the shared scale (operator: "improve
+  // text in reports, bold and increase size"); still above it everywhere.
+  companyPt: 21,
+  appNamePt: 12,
+  titlePt: 17,
+  labelPt: 11,
+  tablePt: 11,
+  tableHeadPt: 11.5,
+  smallprintPt: 10,
   headingWeight: 'bold',
   tableHeadAlign: 'center',
 } as const;

@@ -201,6 +201,19 @@ export interface ReportTypography {
   smallprintPt: number;
   /** Weight of the company name, app name and title. */
   headingWeight: 'normal' | 'bold';
+  /** The header block (headless table) size — ONE for every report; see
+   *  {@link HEADER_BLOCK_PT}. Carried here so a stored snapshot replays at
+   *  the size it was signed at. */
+  headerBlockPt: number;
+  /** `addNote` text. */
+  notePt: number;
+  /** Weight of the section pills, notes, Remarks / Printed lines and the
+   *  signature table's body (2026-10-07). */
+  labelWeight: 'normal' | 'bold';
+  /** Left / right padding of a RECORDS table cell, in mm. Vertical padding
+   *  is fixed; narrowing the sides is what lets a larger type fit ten
+   *  portrait columns without breaking words. */
+  cellPadX: number;
   /** Horizontal alignment of table HEADING cells. Body cells take their own
    *  `columnStyles`; a heading centred over a left-aligned column reads as
    *  belonging to the next one, so this is a per-report choice, not a default. */
@@ -331,12 +344,48 @@ export function normaliseSnapshot(v: unknown): ReportSnapshot {
  * Area / … form at the top of a report — prints at THIS size with dark rules,
  * its LABEL columns (the even ones: `Block :`, `Start Date :`) bold and its
  * VALUE columns regular, whatever typography the report prints its records
- * at. It is the Data Report's record size, so that report's header did not
- * move and the others grew to match it.
+ * at. Raised 10 → 11 on 2026-10-07 with the rest of the scale.
  */
-export const HEADER_BLOCK_PT = 10;
+export const HEADER_BLOCK_PT = 11;
 
+/**
+ * Raised again on 2026-10-07 (operator: "improve text in reports, bold and
+ * increase size"): every size up a step, and the company name, title, column
+ * heads, section pills, notes and end-block lines BOLD. **Record cells stay
+ * regular** — a BOLD body cell is how a reading that crossed its limit, and the
+ * `Error` / `OL` words, are marked; a body printed bold throughout would erase
+ * that §11 signal silently. The header block keeps labels bold, values regular.
+ *
+ * `tablePt` 9 is what the alarm report's ten portrait columns hold with
+ * `cellPadX` narrowed to 1.6mm (was 2.5mm each side, 50mm of a 182mm row).
+ */
 export const DEFAULT_TYPOGRAPHY: ReportTypography = {
+  companyPt: 19,
+  appNamePt: 11,
+  titlePt: 15,
+  subtitlePt: 10,
+  sectionPt: 12,
+  labelPt: 10.5,
+  tablePt: 9,
+  tableHeadPt: 9.5,
+  smallprintPt: 9.5,
+  headingWeight: 'bold',
+  tableHeadAlign: 'left',
+  headerBlockPt: HEADER_BLOCK_PT,
+  notePt: 9.5,
+  labelWeight: 'bold',
+  cellPadX: 1.6,
+};
+
+/**
+ * The scale every report printed at until 2026-10-07, FROZEN. A stored
+ * snapshot (a pending request, an approved report) recorded only the keys its
+ * report OVERRODE, and replayed them over whatever `DEFAULT_TYPOGRAPHY` was at
+ * replay time — so raising the default would have re-flowed every document an
+ * approver already reviewed. Snapshots written since record the WHOLE resolved
+ * scale; an older one fills its gaps from this. Never edit these numbers.
+ */
+export const LEGACY_TYPOGRAPHY_2026_10_06: ReportTypography = {
   companyPt: 16,
   appNamePt: 10,
   titlePt: 13,
@@ -348,6 +397,10 @@ export const DEFAULT_TYPOGRAPHY: ReportTypography = {
   smallprintPt: 8,
   headingWeight: 'normal',
   tableHeadAlign: 'left',
+  headerBlockPt: 10,
+  notePt: 8,
+  labelWeight: 'normal',
+  cellPadX: 2.5,
 };
 
 /**
@@ -365,6 +418,13 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
   const t: ReportTypography = { ...DEFAULT_TYPOGRAPHY, ...config.typography };
   const headingFont = () => doc.setFont('helvetica', t.headingWeight);
   const normalFont = () => doc.setFont('helvetica', 'normal');
+  // Section pills, notes and the end-block lines (bold since 2026-10-07).
+  const labelFont = () => doc.setFont('helvetica', t.labelWeight);
+  // Every fixed spacing below was written for the legacy sizes; each is scaled
+  // by its own font against that size, so the legacy scale lays out exactly as
+  // before and a larger one gets room for its larger text.
+  const kLabel = t.labelPt / 9;
+  const kSection = t.sectionPt / 11;
   // Labels configured for the generator's role (reportKey -> label), if any.
   const sig = me.role ? (signatories ?? {})[me.role] : undefined;
   const printedAt = config.formatDateTime(new Date().toISOString());
@@ -442,7 +502,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     doc.setFontSize(t.subtitlePt); doc.setTextColor(...COLORS.muted);
     const lines = doc.splitTextToSize(config.subtitle, pw - 28);
     doc.text(lines, 14, y);
-    y += lines.length * 4 + 2;
+    y += lines.length * 4 * (t.subtitlePt / 9) + 2;
   }
 
   // Thin separator
@@ -496,6 +556,8 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     // Line heights follow the sizes (3.6mm and 4.5mm at the defaults).
     const legendLineH = t.smallprintPt * 0.45;
     const sigLineH = t.labelPt * 0.5;
+    // Measured in the font it is drawn in, or a bold legend overruns its wrap.
+    labelFont();
     doc.setFontSize(t.smallprintPt);
     const legendText = legendItems.length
       ? 'Legend:   ' + legendItems.map((l) => `${l.abbr} = ${l.meaning}`).join('      ')
@@ -524,7 +586,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       sigLines = [`${sigLabel}: ${me.username ?? '-'}`];
     }
 
-    const remarksH = 4 + 22 + 3;                         // label + box + gap
+    const remarksH = 4 * kLabel + 22 + 3;                // label + box + gap
     const legendH = legendLines.length ? legendLines.length * legendLineH + 3 : 0;
     const printedH = sigTable ? 4 + SIG_TABLE_H : 4 + sigLines.length * sigLineH;
     const blockH = remarksH + legendH + printedH;
@@ -537,14 +599,16 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
 
     let by = top;
     // Remarks — empty bordered box for handwriting
+    labelFont();
     doc.setFontSize(t.labelPt); doc.setTextColor(...COLORS.primary);
-    doc.text('Remarks:', 14, by + 3);
-    by += 4;
+    doc.text('Remarks:', 14, by + 3 * kLabel);
+    by += 4 * kLabel;
     doc.setDrawColor(...COLORS.border); doc.setLineWidth(0.3);
     doc.rect(14, by, pw - 28, 22);
     by += 22 + 3;
     // Legend (abbreviation key) — only when the report passes one
     if (legendLines.length) {
+      labelFont();
       doc.setFontSize(t.smallprintPt); doc.setTextColor(...COLORS.muted);
       doc.text(legendLines, 14, by + 2.5);
       by += legendLines.length * legendLineH + 3;
@@ -553,6 +617,8 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     doc.setDrawColor(...COLORS.border); doc.setLineWidth(0.2);
     doc.line(14, by, pw - 14, by);
     doc.setFontSize(t.labelPt); doc.setTextColor(...COLORS.text);
+    labelFont();
+    const printedW = doc.getTextWidth(`Printed Date & Time: ${printedAt}`);
     if (sigTable) {
       // The table: signers across the top, Name / Role / Date & Time down the
       // left. It takes the left of the line; Printed Date & Time keeps the
@@ -560,7 +626,10 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       autoTable(doc, {
         startY: by + 2,
         margin: { left: 14, right: 14 },
-        tableWidth: Math.max(90, pw - 28 - 64),
+        // Clear of the Printed Date & Time line beside it, measured in the
+        // font it prints in (bold and larger since 2026-10-07); never wider
+        // than the 64mm gap it always left.
+        tableWidth: Math.max(90, Math.min(pw - 28 - 64, pw - 28 - printedW - 6)),
         head: [['', ...sigTable.map((c) => c.label)]],
         body: [
           ['Name', ...sigTable.map((c) => c.name)],
@@ -573,10 +642,13 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
         columnStyles: { 0: { fontStyle: 'bold', cellWidth: 30 } },
       });
     } else {
+      labelFont();
       sigLines.forEach((line, i) => doc.text(line, 14, by + sigLineH + i * sigLineH));
     }
+    labelFont();
     doc.setFontSize(t.labelPt); doc.setTextColor(...COLORS.text);
     doc.text(`Printed Date & Time: ${printedAt}`, pw - 14, by + sigLineH, { align: 'right' });
+    normalFont();
   };
 
   const checkPageBreak = (needed: number) => {
@@ -600,10 +672,12 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     flushTitle();
     checkPageBreak(10);
     doc.setFillColor(...COLORS.headerBg);
-    doc.roundedRect(14, y - 1, pw - 28, 7, 1, 1, 'F');
+    doc.roundedRect(14, y - 1, pw - 28, 7 * kSection, 1, 1, 'F');
+    labelFont();
     doc.setFontSize(t.sectionPt); doc.setTextColor(...COLORS.primary);
-    doc.text(text, 17, y + 4);
-    y += 10;
+    doc.text(text, 17, y + 4 * kSection);
+    normalFont();
+    y += 3 + 7 * kSection;
     pendingTitle = text;
   };
 
@@ -611,12 +685,16 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
   const addNote = (text: string, color: NoteColor = 'text') => {
     flushTitle();
     snapSections.push({ kind: 'note', text, color });
+    // Font set BEFORE the split: the wrap width is measured in the current font.
+    labelFont();
+    doc.setFontSize(t.notePt);
     const lines = doc.splitTextToSize(text, pw - GUTTER_MM * 2) as string[];
-    checkPageBreak(lines.length * 4 + 4);
-    doc.setFontSize(8);
+    const noteLineH = t.notePt * 0.5;
+    checkPageBreak(lines.length * noteLineH + 4);
     doc.setTextColor(...NOTE_COLORS[color]);
     doc.text(lines, GUTTER_MM, y);
-    y += lines.length * 4 + 4;
+    normalFont();
+    y += lines.length * noteLineH + 4;
     doc.setTextColor(...COLORS.text);
   };
 
@@ -657,8 +735,8 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       // make one report's header differ from the next. A headed table is
       // records and keeps the report's own typography and the light rule.
       styles: opts.head
-        ? { fontSize: t.tablePt, cellPadding: 2.5, lineColor: COLORS.border, lineWidth: 0.2, textColor: COLORS.text, overflow: 'linebreak' }
-        : { fontSize: HEADER_BLOCK_PT, cellPadding: 2.5, lineColor: COLORS.dark, lineWidth: 0.2, textColor: COLORS.text, overflow: 'linebreak' },
+        ? { fontSize: t.tablePt, cellPadding: { top: 2.5, bottom: 2.5, left: t.cellPadX, right: t.cellPadX }, lineColor: COLORS.border, lineWidth: 0.2, textColor: COLORS.text, overflow: 'linebreak' }
+        : { fontSize: t.headerBlockPt, cellPadding: 2.5, lineColor: COLORS.dark, lineWidth: 0.2, textColor: COLORS.text, overflow: 'linebreak' },
       headStyles: { fillColor: opts.headColor ?? COLORS.primary, textColor: COLORS.white, fontStyle: 'bold', fontSize: t.tableHeadPt, halign: t.tableHeadAlign },
       // Zebra striping reads as "these are records"; a parameter block is a
       // form, and striping it makes the reader look for a fifth row.
@@ -697,7 +775,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     let row = 0;
     for (let i = 0; i < pairs.length; i++) {
       const col = i % columns;
-      if (col === 0 && i > 0) { row++; y += 10; }
+      if (col === 0 && i > 0) { row++; y += 10 * kLabel; }
       if (col === 0) checkPageBreak(11);
       const x = 14 + col * colW;
       // The LABEL stays a step below its VALUE: this block is read for the values
@@ -706,9 +784,9 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       doc.setFontSize(t.smallprintPt); doc.setTextColor(...COLORS.muted);
       doc.text(pairs[i][0], x, y);
       doc.setFontSize(t.labelPt + 1); doc.setTextColor(...COLORS.text);
-      doc.text(pairs[i][1] || '-', x, y + 4.5);
+      doc.text(pairs[i][1] || '-', x, y + 4.5 * kLabel);
     }
-    y += 13;
+    y += 13 * kLabel;
   };
 
   // The end block and footers go on exactly once, whichever output is asked for
@@ -730,7 +808,9 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
         title: config.title,
         subtitle: config.subtitle,
         orientation: config.orientation,
-        config: { legend: config.legend, typography: config.typography, showAppName: config.showAppName },
+        // The WHOLE resolved scale, not just the overrides: a replay must print
+        // at the sizes this was reviewed at, whatever the default becomes.
+        config: { legend: config.legend, typography: { ...t }, showAppName: config.showAppName },
         sections: snapSections,
       };
     },
@@ -757,7 +837,9 @@ export async function renderSnapshotToPdf(
     orientation: snapshot.orientation,
     reportKey: snapshot.reportType || undefined,
     legend: snapshot.config?.legend,
-    typography: snapshot.config?.typography,
+    // A snapshot from before 2026-10-07 holds only its overrides; its gaps
+    // are the scale it was signed at, not today's default.
+    typography: { ...LEGACY_TYPOGRAPHY_2026_10_06, ...snapshot.config?.typography },
     showAppName: snapshot.config?.showAppName,
     formatDateTime: opts.formatDateTime,
     signatures: opts.signatures,

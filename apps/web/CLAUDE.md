@@ -629,7 +629,7 @@ rebuilt to an operator reference image.
   its limit, and the `Error` / `OL` words, print BOLD (`addTable`'s `bold`
   grid). Max/Min print the server's whole-range extremes. Its typography is its
   own (`DATA_REPORT_TYPOGRAPHY` — bigger, bold headings, centred column heads,
-  no app-name line); every other report keeps `DEFAULT_TYPOGRAPHY`. The interval
+  no app-name line); every other report keeps `DEFAULT_TYPOGRAPHY` (bold, raised 2026-10-07; a stored snapshot replays at its frozen scale). The interval
   is chosen IN the download dialog (`showInterval`), seeded from the page. The
   audit type is unchanged (`Instrument Time Series`); the filename is
   `data-report-…`. It prints the Location ATTRIBUTE; the Instrument Trend PDF

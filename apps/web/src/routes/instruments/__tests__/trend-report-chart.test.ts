@@ -239,9 +239,10 @@ describe('the trend report shows the trend', () => {
   });
 
   it('keeps the SHARED chrome at its defaults — the Data Report opts up, the others do not move', async () => {
-    // The Data Report's larger, bolder scale is per-report (2026-09-05). A
-    // report that names no typography must print exactly as before: regular
-    // weight (`/F1`) at the default size, headings left-aligned.
+    // The Data Report's larger scale is per-report (2026-09-05). A report
+    // that names no typography prints at the shared default — which has been
+    // BOLD (`/F2`) since 2026-10-07 (operator: "improve text in reports, bold
+    // and increase size").
     const { DEFAULT_TYPOGRAPHY } = await import('@/lib/pdf-report');
     const { report } = await capture(baseInput());
     const stream = (report.doc.internal.pages as string[][]).filter(Boolean).flat().join('\n');
@@ -249,7 +250,7 @@ describe('the trend report shows the trend', () => {
     expect(at).toBeGreaterThan(0);
     const tokens = [...stream.slice(0, at).matchAll(/\/F(\d) ([\d.]+) Tf/g)];
     const last = tokens[tokens.length - 1];
-    expect(last[1]).toBe('1');
+    expect(last[1]).toBe('2');
     expect(Number(last[2])).toBe(DEFAULT_TYPOGRAPHY.companyPt);
     // The only table left is the headless header block, which prints at the
     // ONE header size every report shares (2026-10-05), not this report's

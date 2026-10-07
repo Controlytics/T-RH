@@ -79,7 +79,7 @@ describe('one header block for every report', () => {
     const cells = Object.values((report.doc as any).lastAutoTable.body[0].cells) as any[];
     expect(weightOf(cells)).toEqual(['bold', 'normal', 'bold', 'normal']);
     for (const c of cells) expect(c.styles.fontSize).toBe(HEADER_BLOCK_PT);
-    expect(HEADER_BLOCK_PT).toBe(10);
+    expect(HEADER_BLOCK_PT).toBe(11); // 10 until 2026-10-07
   });
 
   it("a spanning value cell (the Data Report's lone Interval row) is regular too", async () => {

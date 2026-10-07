@@ -1,5 +1,47 @@
 # Changelog
 
+## [Unreleased] - Reports: larger, bolder text on every PDF (2026-10-07)
+
+Operator: "improve text in reports,bold and increase size". Applied to EVERY
+PDF report (Alarms page, Instrument Alarms, Instrument Trend, Data Report /
+Time Series, Audit Trail) in one change, because the header blocks were made
+identical across reports on 2026-10-05.
+
+- **The shared scale went up a step and turned bold** (`DEFAULT_TYPOGRAPHY` in
+  `lib/pdf-report.ts`): company 16 -> 19pt, title 13 -> 15, section pills
+  11 -> 12, labels 9 -> 10.5, record cells 8 -> 9, column heads 8.5 -> 9.5,
+  footer / legend 8 -> 9.5, notes 8 -> 9.5. The company name, title, section
+  pills, notes, legend, Remarks label and Printed lines are bold. The header
+  block (`HEADER_BLOCK_PT`) is 10 -> 11pt, still labels bold and values
+  regular (the 2026-10-06 rule).
+- **Record cells stay REGULAR on purpose.** A bold body cell is how a reading
+  that crossed its limit, and the `Error` / `OL` words, are marked; printing
+  every cell bold would erase that signal on a §11 record.
+- **The Data Report's own scale went up with it** (`DATA_REPORT_TYPOGRAPHY`:
+  company 21, title 17, record cells 11, heads 11.5) and stays above the
+  shared one.
+- **Records tables lost side padding to pay for the larger type**: 2.5mm ->
+  1.6mm each side (`cellPadX`). The alarm report's fixed columns were
+  re-measured (`columnWidths`: DATE 17 -> 20, UOM 12 -> 11, PV 16 -> 15,
+  HIGH / LOW LIMIT 18 -> 14). Words like `Microbiology`, `LOCATION` and
+  `DESCRIPTION` no longer break mid-word, which they already did at 8pt.
+- **Fixed spacings scale with their font** (section pill, subtitle and note
+  line height, key-value rows, Remarks label), each anchored so the old sizes
+  lay out exactly as before. The signature table now measures the Printed
+  Date & Time line beside it instead of assuming a 64mm gap.
+- **Stored reports keep the size they were reviewed at.** A snapshot used to
+  freeze only its report's overrides and replay them over the CURRENT default,
+  so this change would have re-flowed every pending and approved report.
+  `getSnapshot()` now freezes the whole resolved scale, and
+  `renderSnapshotToPdf` fills an older snapshot's gaps from
+  `LEGACY_TYPOGRAPHY_2026_10_06`. Pinned by a new `pdf-report-snapshot` case,
+  mutation-checked (dropping the fallback fails it).
+- Tests re-pointed for the spec change: `pdf-report-rules` (header 11pt),
+  `pdf-report-snapshot` (resolved scale), `alarms-report` (four widths),
+  `trend-report-chart` (the default company line is bold). All 17 report test
+  files pass one at a time; web tsc clean. Every report kind was rendered to
+  PNG before and after and inspected. No count moved.
+
 ## [Unreleased] - Trend page: the charts are taller (2026-10-06)
 
 Operator: "increase trend view height more".
