@@ -27,7 +27,7 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
 PHASE="${1:-}"
-REPO_SSH="${REPO_SSH:-git@github.com:sivamunnangi1211/TRH_GGP.git}"
+REPO_SSH="${REPO_SSH:-git@github.com:Controlytics/T-RH.git}"   # Controlytics/T-RH since 2026-10-06; the live server was cloned from sivamunnangi1211/TRH_GGP and needs `git remote set-url` + a deploy key on the new repo
 BRANCH="${BRANCH:-data-layer}"
 PUBLIC_IP="${PUBLIC_IP:-13.204.15.17}"
 ENV_PARAM="${ENV_PARAM:-/compliance-core/ubuntu/digilog.env}"

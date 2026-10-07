@@ -24,7 +24,14 @@ APP=/opt/digilog/app
 SERVICE=digilog-api.service
 ENV_FILE=/etc/digilog/digilog.env
 export PATH="/opt/digilog/node/bin:$PATH"
-export GIT_SSH_COMMAND="ssh -i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new"
+# The repo moved to Controlytics/T-RH on 2026-10-06. GitHub refuses one deploy
+# key on two repos, and id_ed25519 is still registered on the old one, so the
+# live box carries a second key for the new repo. IdentitiesOnly: ssh must not
+# offer the old key first — GitHub would accept it and then refuse the repo.
+# A freshly provisioned box has only id_ed25519, registered on T-RH directly.
+DEPLOY_KEY=/root/.ssh/id_ed25519
+[ -f /root/.ssh/id_ed25519_trh ] && DEPLOY_KEY=/root/.ssh/id_ed25519_trh
+export GIT_SSH_COMMAND="ssh -i $DEPLOY_KEY -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
 
 BRANCH=""; FORCE=0; SKIP_INSTALL=0
 while [ $# -gt 0 ]; do

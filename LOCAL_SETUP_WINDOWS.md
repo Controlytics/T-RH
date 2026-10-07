@@ -45,7 +45,7 @@ MQTT via EMQX, MQTTS, downlinks, the child roster, RTC sync) are the part root
 ## 2. Clone the Repository
 
 ```bash
-git clone https://github.com/sivamunnangi1211/TRH_GGP.git compliance-core
+git clone https://github.com/Controlytics/T-RH.git compliance-core
 cd compliance-core
 git checkout data-layer
 ```
@@ -1224,7 +1224,7 @@ npm install && npm run build -w @digilog/shared && npx turbo build --force
 
 | Field | Value |
 |-------|-------|
-| Repository | https://github.com/sivamunnangi1211/TRH_GGP.git |
+| Repository | https://github.com/Controlytics/T-RH.git (since 2026-10-06; sivamunnangi1211/TRH_GGP is the frozen old remote) |
 | Working branch | `data-layer` |
 | Frozen backup | `final-user-management` — do not commit to it |
 
