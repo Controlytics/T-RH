@@ -26,8 +26,11 @@ identical across reports on 2026-10-05.
   HIGH / LOW LIMIT 18 -> 14). Words like `Microbiology`, `LOCATION` and
   `DESCRIPTION` no longer break mid-word, which they already did at 8pt.
 - **Fixed spacings scale with their font** (section pill, subtitle and note
-  line height, key-value rows, Remarks label), each anchored so the old sizes
-  lay out exactly as before. The signature table now measures the Printed
+  line height, key-value rows, Remarks label), each anchored to the old shared
+  sizes, which therefore lay out exactly as before. One knowing exception: an
+  older Data Report snapshot froze `labelPt` 10, so on replay its Remarks label
+  and box sit about 0.4mm lower than when it was reviewed. No table, value or
+  page break moves. The signature table now measures the Printed
   Date & Time line beside it instead of assuming a 64mm gap.
 - **Stored reports keep the size they were reviewed at.** A snapshot used to
   freeze only its report's overrides and replay them over the CURRENT default,

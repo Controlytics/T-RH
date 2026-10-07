@@ -420,9 +420,11 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
   const normalFont = () => doc.setFont('helvetica', 'normal');
   // Section pills, notes and the end-block lines (bold since 2026-10-07).
   const labelFont = () => doc.setFont('helvetica', t.labelWeight);
-  // Every fixed spacing below was written for the legacy sizes; each is scaled
-  // by its own font against that size, so the legacy scale lays out exactly as
-  // before and a larger one gets room for its larger text.
+  // Every fixed spacing below was written for the legacy SHARED sizes; each is
+  // scaled by its own font against that size, so the legacy shared scale lays
+  // out exactly as before and a larger one gets room for its larger text. (An
+  // older Data Report snapshot froze labelPt 10, so its Remarks label replays
+  // ~0.4mm lower; no table or value moves.)
   const kLabel = t.labelPt / 9;
   const kSection = t.sectionPt / 11;
   // Labels configured for the generator's role (reportKey -> label), if any.
