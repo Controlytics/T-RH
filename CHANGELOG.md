@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased] - Swagger: the intro text describes this application (2026-10-07)
+
+Operator: "fix the swagger intro text". `apps/api/src/lib/swagger.ts` still
+carried upstream DigiLog's introduction.
+
+- **Title** `DigiLog API` -> `T&RH-Monitoring API`; a one-paragraph summary of
+  what the API covers.
+- **Removed a false claim**: "First login will require password change". The
+  seed sets `forcePasswordChange: false`. The text now says there is no shipped
+  default password.
+- **Added what a caller actually meets**: the single-session 409
+  `SESSION_CONFLICT`, re-authentication by `x-reauth-password` header or
+  `_currentPassword` (401 `REAUTH_REQUIRED` without it), and that `/docs` needs
+  a bearer token on a production server.
+- **Roles table kept, reworded**: the six roles are the SEEDED defaults and are
+  administered, so a running installation may differ. 403 for a missing
+  permission, 404 for an instrument outside scope.
+- **Tags re-derived from the routes**: 30 entries, one per tag a route carries.
+  `Entities` (no routes) went; Instruments, Floorplans, Alarms, Alarm Webhooks,
+  Report Reviews, Functional Locations, Ingest and twelve others gained a
+  description. Checked against the served `/docs/json`: no declared tag is
+  unused and no used tag is undeclared. API tsc clean. No count moved.
+
 ## [Unreleased] - Reports: larger, bolder text on every PDF (2026-10-07)
 
 Operator: "improve text in reports,bold and increase size". Applied to EVERY
