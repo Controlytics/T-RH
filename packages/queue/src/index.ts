@@ -8,11 +8,13 @@ export {
   notificationJobSchema,
   notificationEventJobSchema,
   alarmWebhookJobSchema,
+  notificationRetryJobSchema,
 } from './schemas.js';
 export type {
   NotificationJob,
   NotificationEventJob,
   AlarmWebhookJob,
+  NotificationRetryJob,
 } from './schemas.js';
 
 export { getProducer, getRunnerOptions, closeProducer } from './connection.js';
