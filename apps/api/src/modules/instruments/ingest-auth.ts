@@ -23,6 +23,28 @@ export function invalidateIngestAuthCache(instrumentId?: string): void {
   for (const [k, v] of cache) if (v.identity.id === instrumentId) cache.delete(k);
 }
 
+/**
+ * Re-check a LONG-LIVED connection before each message (audit 2026-10-12): the
+ * WS and TCP listeners resolve the token once at authentication, and an open
+ * socket used to keep storing readings after its instrument was deactivated,
+ * its token revoked or replaced, or the instrument deleted (orphan rows — the
+ * telemetry tables have no FK). Goes through the same cache as every other
+ * resolution, which the deactivate / token / delete / rename routes invalidate
+ * at once, so the cost per message is a map lookup.
+ *
+ * Returns the CURRENT identity (a rename updates the code) or null when the
+ * connection must be closed: the token no longer resolves, or resolves to a
+ * different instrument than the one this connection authenticated as.
+ */
+export async function reauthorizeConnection(
+  token: string,
+  connectedAs: IngestIdentity,
+): Promise<IngestIdentity | null> {
+  const current = await resolveInstrumentByToken(token);
+  if (!current || current.id !== connectedAs.id) return null;
+  return current;
+}
+
 export async function resolveInstrumentByToken(token: string): Promise<IngestIdentity | null> {
   if (!token) return null;
 

@@ -1,6 +1,6 @@
 import net from 'node:net';
 import { LineFramer } from './line-framer.js';
-import { resolveInstrumentByToken, type IngestIdentity } from '../ingest-auth.js';
+import { resolveInstrumentByToken, reauthorizeConnection, type IngestIdentity } from '../ingest-auth.js';
 import { ingestPayload } from '../ingest-core.js';
 import { logger } from '../../../lib/logger.js';
 
@@ -131,6 +131,8 @@ export async function startTcpListener(
 
     const framer = new LineFramer();
     let identity: IngestIdentity | null = null;
+    /** The token this socket authenticated with — re-checked before every line. */
+    let authToken = '';
     // Serialises this socket's own processing. Without it, 'data' keeps firing
     // while an `await ingestPayload` is in flight, so one chatty device issues
     // unbounded concurrent writes in nondeterministic order.
@@ -237,6 +239,7 @@ export async function startTcpListener(
               return;
             }
             identity = resolved;
+            authToken = token;
             clearTimeout(authDeadline);
             // Only NOW does an inactivity timer make sense: the peer has
             // proved who it is, and silence from here means a dead device
@@ -249,6 +252,16 @@ export async function startTcpListener(
             });
             continue;
           }
+
+          // Revocation must reach an OPEN socket (audit 2026-10-12): deactivated,
+          // token revoked or replaced, or deleted since it authenticated → the
+          // line is not stored and the socket is closed. Cached, so cheap.
+          const current = await reauthorizeConnection(authToken, identity);
+          if (!current) {
+            kill('closing socket — credential revoked, or instrument deactivated or deleted', { code: identity.code });
+            return;
+          }
+          identity = current;
 
           const outcome = await ingestPayload({
             identity, raw: Buffer.from(line, 'utf8'), transport: 'tcp',

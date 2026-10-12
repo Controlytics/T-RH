@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import WebSocket from 'ws';
 import type { FastifyInstance } from 'fastify';
-import { buildApp } from './test-helper.js';
+import { buildApp, loginAs, ADMIN_PASSWORD } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 import { fixtureProfileId } from '../test-support/fixture-profile.js';
 import { generateToken, hashToken, tokenPrefix } from '../modules/instruments/token.js';
@@ -279,5 +279,62 @@ describe('WebSocket ingest listener', () => {
     // ACCEPTING but waits on open sockets, and a telemetry connection never
     // ends on its own). If @fastify/websocket's preClose hook ever stops
     // terminating them, this file hangs instead of silently passing.
+  });
+});
+
+/**
+ * Audit 2026-10-12 (brief finding 2): an OPEN connection kept storing readings
+ * after its instrument was deactivated, its token regenerated, or the
+ * instrument deleted. Driven through the REAL routes, so what is proven is that
+ * each route's cache invalidation reaches a connection already open.
+ */
+describe('WebSocket ingest — revocation reaches an OPEN connection', () => {
+  let auth: Record<string, string>;
+  beforeAll(async () => { auth = { authorization: `Bearer ${await loginAs(mainApp)}` }; });
+
+  /** The close code if the server shut it within 3 s, else 'still open'. */
+  const within = (p: Promise<number>) => Promise.race([p, sleep(3000).then(() => 'still open' as const)]);
+
+  async function authed(code: string): Promise<{ id: string; ws: WebSocket }> {
+    const x = await mkInstrument(code);
+    const ws = await open(mainApp, { authorization: `Bearer ${x.token}` });
+    ws.send(JSON.stringify({ before: 1 }));
+    await waitFor(async () => (await latestKeys(x.id)).some((r) => r.key === 'before'));
+    return { id: x.id, ws };
+  }
+
+  it('DEACTIVATE (PUT isActive:false) closes the connection and stores nothing more', async () => {
+    const { id, ws } = await authed(`WSRV1-${S}`);
+    const shut = closedCode(ws);
+    const res = await mainApp.inject({ method: 'PUT', url: `/api/instruments/${id}`, headers: auth, payload: { isActive: false } });
+    expect(res.statusCode).toBe(200);
+    ws.send(JSON.stringify({ after: 2 }));
+    await expect(within(shut)).resolves.toBe(4403);
+    expect((await latestKeys(id)).map((r) => r.key)).toEqual(['before']);
+  });
+
+  it('REGENERATE-TOKEN closes the connection that holds the old token', async () => {
+    const { id, ws } = await authed(`WSRV2-${S}`);
+    const shut = closedCode(ws);
+    const res = await mainApp.inject({
+      method: 'POST', url: `/api/instruments/${id}/regenerate-token`,
+      headers: { ...auth, 'x-reauth-password': ADMIN_PASSWORD },
+    });
+    expect(res.statusCode).toBe(200);
+    ws.send(JSON.stringify({ after: 2 }));
+    await expect(within(shut)).resolves.toBe(4403);
+    expect((await latestKeys(id)).map((r) => r.key)).toEqual(['before']);
+  });
+
+  it('DELETE closes the connection and writes no orphan rows', async () => {
+    const { id, ws } = await authed(`WSRV3-${S}`);
+    const shut = closedCode(ws);
+    const res = await mainApp.inject({ method: 'DELETE', url: `/api/instruments/${id}`, headers: auth });
+    expect(res.statusCode).toBe(200);
+    // Whatever the delete itself left behind, nothing NEW may land.
+    await prisma.$executeRaw`DELETE FROM instrument_telemetry_latest WHERE instrument_id = ${id}`;
+    ws.send(JSON.stringify({ after: 2 }));
+    await expect(within(shut)).resolves.toBe(4403);
+    expect(await latestKeys(id)).toEqual([]);
   });
 });
