@@ -54,6 +54,27 @@ export async function assertRoleWithinCallerPrivilege(
   }
 }
 
+/**
+ * No role other than SUPER_ADMIN may sit at or above SUPER_ADMIN's hierarchy
+ * level (application review 2026-10-12, finding 8). The schema allowed 1..10
+ * while SUPER_ADMIN is seeded at 6, and every "may X manage Y" rule compares
+ * the numbers — so a custom role created at 7 (only a SUPER_ADMIN could, as
+ * `assertRoleWithinCallerPrivilege` caps everyone else below their own level)
+ * outranked SUPER_ADMIN everywhere a number was compared. Enforced for EVERY
+ * caller, SUPER_ADMIN included. SUPER_ADMIN's level is read, not assumed.
+ */
+async function assertBelowSuperAdmin(hierarchyLevel: number | undefined, roleName: string) {
+  if (hierarchyLevel === undefined || roleName === 'SUPER_ADMIN') return;
+  const top = await roleRepository.findByName('SUPER_ADMIN');
+  const ceiling = top?.hierarchyLevel ?? 6;
+  if (hierarchyLevel >= ceiling) {
+    throw new ValidationError(
+      `Hierarchy level must be below Super Admin's (${ceiling})`,
+      { fieldErrors: { hierarchyLevel: [`Must be less than ${ceiling}`] } },
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Zod schemas
 // ---------------------------------------------------------------------------
@@ -183,6 +204,7 @@ export const roleService = {
     }
 
     await assertRoleWithinCallerPrivilege(ctx, { hierarchyLevel: parsed.data.hierarchyLevel, permissions: parsed.data.permissions });
+    await assertBelowSuperAdmin(parsed.data.hierarchyLevel, parsed.data.name);
 
     // The row and its audit row commit together (audit 2026-10-03, API-7).
     const role = await prisma.$transaction(async (tx) => {
@@ -231,6 +253,11 @@ export const roleService = {
       { hierarchyLevel: parsed.data.hierarchyLevel, permissions: parsed.data.permissions },
       { name: existing.name, hierarchyLevel: (existing as any).hierarchyLevel, permissions: ((existing as any).permissions as string[]) ?? [] },
     );
+    // Only a CHANGE of level is checked, so a legacy row already above the
+    // ceiling can still have its label edited (the Roles page echoes the level).
+    if (parsed.data.hierarchyLevel !== existing.hierarchyLevel) {
+      await assertBelowSuperAdmin(parsed.data.hierarchyLevel, existing.name);
+    }
 
     const { reason: rawReason, ...fields } = parsed.data;
     const existingPerms = ((existing as any).permissions as string[]) ?? [];

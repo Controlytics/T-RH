@@ -558,6 +558,13 @@ export const authService = {
       return;
     }
 
+    // A DISABLED account gets the same silent answer (application review
+    // 2026-10-12, finding 3). Its request could only ever be approved by
+    // re-enabling it as a side effect — which the reset no longer does — or sit
+    // in the queue inviting an admin to; and answering differently would be
+    // an account-state oracle on a public endpoint.
+    if (user.status === 'DISABLED') return;
+
     const existingRequest = await authRepository.findPendingResetRequest(user.id);
     if (existingRequest) return 'pending';
 
