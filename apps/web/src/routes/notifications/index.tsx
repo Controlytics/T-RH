@@ -38,6 +38,9 @@ const typeColors: Record<string, string> = {
   ROLE_CHANGED: 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white',
   PASSWORD_EXPIRY_WARNING: 'bg-gradient-to-r from-amber-500 to-orange-500 text-white',
   PASSWORD_EXPIRED_NOTICE: 'bg-gradient-to-r from-red-500 to-rose-500 text-white',
+  // Rule-driven in-app alarm notifications (storable since 2026-10-12).
+  ALARM_RAISED: 'bg-gradient-to-r from-red-600 to-rose-600 text-white',
+  ALARM_CLEARED: 'bg-gradient-to-r from-emerald-500 to-green-600 text-white',
 };
 
 const typeIcons: Record<string, React.ReactNode> = {
@@ -94,6 +97,17 @@ const typeIcons: Record<string, React.ReactNode> = {
   PASSWORD_EXPIRED_NOTICE: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M5.07 19H18.93a2 2 0 001.74-3L13.74 4a2 2 0 00-3.48 0L3.34 16a2 2 0 001.73 3z" />
+    </svg>
+  ),
+  // A bell for a raised alarm, a bell with a tick for one that cleared.
+  ALARM_RAISED: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+    </svg>
+  ),
+  ALARM_CLEARED: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
   ),
 };
@@ -496,7 +510,7 @@ export function NotificationsPage() {
                   className="ctl-check"
                 />
               </div>
-              <div className={`p-3 rounded-xl ${typeColors[notification.type] ?? 'bg-slate-500 text-white'} shadow-[var(--elev-2)]`}>
+              <div data-testid={`notification-icon-${notification.type}`} className={`p-3 rounded-xl ${typeColors[notification.type] ?? 'bg-slate-500 text-white'} shadow-[var(--elev-2)]`}>
                 {typeIcons[notification.type] ?? (
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />

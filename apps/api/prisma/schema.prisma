@@ -314,6 +314,10 @@ enum NotificationType {
   // Password expiry warnings — per-user daily warning window + expiry notice (2026-07-08)
   PASSWORD_EXPIRY_WARNING
   PASSWORD_EXPIRED_NOTICE
+  // Rule-driven in-app alarm notifications — the dispatcher stores the rule's
+  // event type here (migration 20261012140000_notification_type_alarm_events).
+  ALARM_RAISED
+  ALARM_CLEARED
 }
 
 model Notification {
