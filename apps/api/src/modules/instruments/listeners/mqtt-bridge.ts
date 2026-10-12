@@ -570,9 +570,13 @@ export async function startMqttBridge(
  * and EMQX consults the auth hook only at CONNECT — and neither does a CODE
  * reassigned to another instrument while the old device's session (client id
  * = the old code) is still connected: its messages arrive on the new owner's
- * topic and are attributed to it. Closing either gap needs the broker to drop
- * the session (EMQX REST `DELETE /api/v5/clients/{clientid}`); this project
- * has no EMQX API client or credentials, so it is not done here.
+ * topic and are attributed to it. Both are closed AT THE BROKER, not here: the
+ * routes call `kickMqttClient` (../broker-kick.ts, EMQX REST
+ * `DELETE /api/v5/clients/{clientid}`) after a token change, deactivate,
+ * delete or code change, so the device must reconnect and the auth hook
+ * judges it again. That needs EMQX_API_KEY / EMQX_API_SECRET; without them
+ * (an install provisioned before 2026-10-12) the gap is open again and the
+ * API warns once.
  */
 async function lookupByCode(code: string): Promise<IngestIdentity | null> {
   // `code` is a plain unique text column, so any string is a legal lookup and

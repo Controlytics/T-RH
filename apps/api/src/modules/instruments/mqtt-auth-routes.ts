@@ -17,7 +17,9 @@ import { resolveInstrumentByToken } from './ingest-auth.js';
  * `invalidateIngestAuthCache(id)`, which drops the entry the moment the operator
  * acts. The 10 s window only exists for a credential revoked by some path that
  * forgets to invalidate. Already-connected sessions are not affected by either —
- * EMQX only consults this hook at CONNECT (see the broker-side note below).
+ * EMQX only consults this hook at CONNECT (see the broker-side note below) —
+ * which is why the revoking routes also KICK the session at the broker
+ * (`broker-kick.ts`, 2026-10-12): the device reconnects and lands here again.
  *
  * ─── The topic-authorisation half, which this endpoint is one leg of ─────────
  * Authenticating the CONNECT does NOT stop a connected device publishing to
