@@ -8,6 +8,8 @@ import { buildContext } from '../../lib/build-context.js';
 import { auditLog } from '../../lib/audit.js';
 import { NotFoundError } from '../../lib/errors.js';
 import { dispatchNotification } from '../notification-delivery/notification-dispatcher.js';
+import { hiddenRolesFor } from '../users/user.service.js';
+import { errorResponses } from '../../lib/error-schemas.js';
 
 export const EVENT_TYPE_META: Record<string, { label: string; module: string; variables: string[] }> = {
   DEVICE_ONLINE:        { label: 'Device Online',         module: 'devices',    variables: ['deviceName', 'deviceId', 'timestamp'] },
@@ -34,6 +36,46 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
       value: key,
       ...meta,
     }));
+  });
+
+  // GET /api/notification-rules/recipient-users — the USER recipient picker.
+  //
+  // The page used to read `/api/users`, which needs USER_READ, so an administrator
+  // who may manage notification rules but not users got an EMPTY picker. This is
+  // gated exactly like rule management (CONFIG_UPDATE — the permission on POST /
+  // PUT here) and returns only what a picker needs: id, username, display name of
+  // ENABLED users. It hides the accounts `GET /api/users` hides from the caller
+  // (`hiddenRolesFor`, the ONE list), so it can never show more than the users page.
+  // Registered before `/:id`, which would otherwise take the path segment as an id.
+  app.get('/recipient-users', {
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    schema: {
+      tags: ['Notification Rules'],
+      summary: 'Enabled users a notification rule can name as a recipient (picker fields only)',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            data: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: { id: { type: 'string' }, username: { type: 'string' }, fullName: { type: 'string' } },
+              },
+            },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const hidden = hiddenRolesFor(req.user?.role);
+    const data = await prisma.user.findMany({
+      where: { status: 'ENABLED', ...(hidden.length > 0 ? { role: { notIn: hidden } } : {}) },
+      select: { id: true, username: true, fullName: true },
+      orderBy: { fullName: 'asc' },
+    });
+    return { data };
   });
 
   // GET /api/notification-rules — list all rules

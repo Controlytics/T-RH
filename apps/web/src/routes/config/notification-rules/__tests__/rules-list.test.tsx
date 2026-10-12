@@ -52,4 +52,13 @@ describe('Notification Rules — the saved rules are listed', () => {
     expect(requested).toContain('/api/roles/active');
     expect(requested).not.toContain('/api/roles');
   });
+
+  // `/api/users` needs USER_READ, so a rule manager without it got an empty USER
+  // picker. The rules tab reads the narrow, rule-manager-gated route instead.
+  it('reads recipient users from /api/notification-rules/recipient-users, not /api/users', async () => {
+    const { NotificationRulesPage } = await import('../index');
+    render(<MemoryRouter><NotificationRulesPage /></MemoryRouter>);
+    expect(requested).toContain('/api/notification-rules/recipient-users');
+    expect(requested.filter((k) => k.startsWith('/api/users'))).toEqual([]);
+  });
 });

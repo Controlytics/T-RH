@@ -29,6 +29,8 @@ interface NotificationRule {
 interface UserGroup { id: string; name: string; description?: string; isActive: boolean; memberCount: number; createdAt: string }
 interface GroupMember { id: string; userId: string; user?: { id: string; username: string; fullName: string; email: string; role: string } }
 interface UserOption { id: string; username: string; fullName: string; email: string; role: string }
+/** GET /api/notification-rules/recipient-users — picker fields only. */
+interface RecipientUser { id: string; username: string; fullName: string }
 interface Template { id: string; name: string; channel: string; subject?: string; bodyTemplate: string; isActive: boolean }
 
 interface LogEntry {
@@ -202,8 +204,12 @@ function RulesTab() {
   const { data: eventTypes } = useSWR<EventTypeMeta[]>('/api/notification-rules/event-types', { revalidateOnMount: true, dedupingInterval: 0 });
   const { data: groups } = useSWR<UserGroup[]>('/api/user-groups', { revalidateOnMount: true, dedupingInterval: 0 });
   const { data: templates } = useSWR<Template[]>('/api/notification-settings/templates', { revalidateOnMount: true, dedupingInterval: 0 });
-  const { data: usersData } = useSWR<{ data: UserOption[] }>(`/api/users?${ALL_RECORDS_PARAM}&status=ENABLED`);
-  const users = (usersData?.data ?? []).filter((u: UserOption) => u.username !== 'superadmin');
+  // The recipient USER picker reads the rule module's own narrow route: `/api/users`
+  // needs USER_READ, so a rule manager without it got an EMPTY picker (2026-10-12).
+  // The server returns only ENABLED users the caller may see (it hides the
+  // accounts the users page hides), so nothing is filtered here.
+  const { data: usersData } = useSWR<{ data: RecipientUser[] }>('/api/notification-rules/recipient-users');
+  const users = usersData?.data ?? [];
   const { data: rolesData } = useSWR<Array<{ name: string; displayName: string }>>(
     // `/active`, not `/api/roles`: the latter is ROLE_MANAGE-only and 403'd for a
     // CONFIG_READ operator on this page. `/active` is the dropdown list.
@@ -449,7 +455,7 @@ function RulesTab() {
                     className="ctl ctl-sm flex-1"
                   >
                     <option value="">Select user...</option>
-                    {users.map((u: UserOption) => <option key={u.id} value={u.id}>{u.fullName} ({u.username})</option>)}
+                    {users.map((u: RecipientUser) => <option key={u.id} value={u.id}>{u.fullName} ({u.username})</option>)}
                   </select>
                 )}
 
