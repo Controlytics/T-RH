@@ -133,6 +133,54 @@ describe('notification config PUT — audit secret masking (L136)', () => {
     expect((row!.afterValue as any).senderId).toBe('E2EIN');
   });
 
+  /**
+   * Audit 2026-10-12 #6 — GET /sms masked twilioAuthToken / vonageApiSecret only.
+   * The http-gateway's header VALUES (bearer tokens) and the API key in its URL
+   * query (MSG91 `authkey=`, Plivo, Kaleyra…) went to every CONFIG_READ holder in
+   * plain text. Masked now, with mask-means-keep on save.
+   */
+  it('GET /sms masks gateway header values and URL query values; a round-trip PUT keeps them', async () => {
+    const MASK = '••••••••';
+    const url = 'https://gw.example/send?authkey=E2E-URL-SECRET&mobiles={phone}&message={message}&route=4';
+    const put1 = await app.inject({
+      method: 'PUT', url: '/api/notification-settings/sms', headers: auth(),
+      payload: {
+        provider: 'http-gateway', enabled: false,
+        httpGatewayUrl: url,
+        httpGatewayMethod: 'GET',
+        httpGatewayHeaders: { Authorization: 'Bearer E2E-GW-BEARER' },
+      },
+    });
+    expect(put1.statusCode).toBe(200);
+
+    const got = await app.inject({ method: 'GET', url: '/api/notification-settings/sms', headers: auth() });
+    expect(got.statusCode).toBe(200);
+    const body = got.json();
+    expect(JSON.stringify(body)).not.toContain('E2E-URL-SECRET');
+    expect(JSON.stringify(body)).not.toContain('E2E-GW-BEARER');
+    expect(body.httpGatewayHeaders).toEqual({ Authorization: MASK });
+    // Names and the {phone}/{message} placeholders stay readable.
+    expect(body.httpGatewayUrl).toBe(`https://gw.example/send?authkey=${MASK}&mobiles={phone}&message={message}&route=${MASK}`);
+
+    // The screen sends back exactly what it was given, with one unrelated change.
+    const put2 = await app.inject({
+      method: 'PUT', url: '/api/notification-settings/sms', headers: auth(),
+      payload: { ...body, senderId: 'CHANGED' },
+    });
+    expect(put2.statusCode).toBe(200);
+    const stored = (await prisma.systemConfig.findUnique({ where: { configKey: 'notification-sms' } }))!.configValue as any;
+    expect(stored.httpGatewayUrl).toBe(url);
+    expect(stored.httpGatewayHeaders).toEqual({ Authorization: 'Bearer E2E-GW-BEARER' });
+    expect(stored.senderId).toBe('CHANGED');
+
+    // A mask for a query key with nothing stored cannot be resolved: refused, not stored as bullets.
+    const bad = await app.inject({
+      method: 'PUT', url: '/api/notification-settings/sms', headers: auth(),
+      payload: { ...body, httpGatewayUrl: `https://gw.example/send?newkey=${MASK}` },
+    });
+    expect(bad.statusCode).toBe(400);
+  });
+
   // The aggravating half of the finding: the PUT handlers substitute the REAL
   // stored secrets back into `body` when the client echoes the mask sentinel
   // (which the GET always returns). So an admin editing one unrelated field
