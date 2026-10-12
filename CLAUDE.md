@@ -31,7 +31,7 @@ verified `ls` 2026-08-20. There is no mobile app, RFID, offline sync or
 Capacitor build; requests assuming them are describing upstream DigiLog.
 
 ## Local Dev Environment (Windows)
-The app runs ONLY on local Windows for development. There is no live EC2 / Linux production environment to push to.
+Development runs on local Windows. A live AWS deployment exists since 2026-09 (Ubuntu 24.04 EC2 + RDS at https://13.204.15.17; runbook `docs/deployment-methods/aws-ubuntu-instance.md`; deploy = push to `trh` + `deploy-to-aws.bat`). This line said there was no live EC2 until 2026-10-12.
 **Customer installers exist for BOTH platforms (2026-09-09):** Windows `Setup.exe`
 (`scripts/build-installer.ps1`, Inno Setup) and an Ubuntu/Debian `.deb`
 (`scripts/linux/build-deb.sh`, built by `.github/workflows/build-deb.yml` on a

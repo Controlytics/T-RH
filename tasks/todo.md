@@ -94,3 +94,15 @@ MEDIUM/LOW sweeps (per module, after the HIGHs):
 
 - [x] Fix order in §3 of the report: partitions at boot + batch-loss dead letter → role-config privilege check + required scope body → backup verifier/secrets → seed permission reset → user_role width + central signature bound → FL PUT serializer → visibility on attribute read + writes → public admin-request attribution → alarm double-clear + range coercion → reauth strip/lockout → SA password boxes, `/` and `/users` guards, chart axis format
 - [ ] Operator decisions needed: untrack the dangling `.claude/worktrees/ui-redesign-stage2` gitlink; whether instrument WRITE routes are meant to be unscoped; hard-delete default off in installer env
+
+## 2026-10-12 — fix every finding in docs/audit/2026-10-12-application-review.md
+Six fixers in worktrees (own test DB each: compliance_core_db_test_{auth,alarms,audit,ingest,floor}); lead merges, owns registries/CHANGELOG/counts, then deps + full test run + deploy.
+- [ ] Floorplans/FL/draw scripts (item 1 first: room limits carried)
+- [ ] Alarms/notifications/webhooks (items 2, 3 + mediums)
+- [ ] Auth/users/roles/LDAP (items 4, 5 + mediums, SEC-8)
+- [ ] Audit/reports/config/backup (item 8 + mediums; hard-delete default = operator decision)
+- [ ] Instruments/ingest (item 9 = operator decision + mediums)
+- [ ] Web outside floorplans (items 6, 7 + mediums)
+- [ ] Lead: build-deb prisma generate, deploy rollback ordering, bat text, doc drift
+- [ ] Lead: deps (fastify, adm-zip, sanitize-html, nodemailer), full serial test run, CHANGELOG, counts
+- [ ] Deploy to AWS; hand operator the post-deploy writes
