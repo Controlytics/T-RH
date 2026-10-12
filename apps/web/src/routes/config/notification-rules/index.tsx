@@ -194,13 +194,21 @@ export function NotificationRulesPage() {
 
 // ─── Rules Tab ────────────────────────────────────────────────────────
 function RulesTab() {
-  const { data: rules, mutate } = useSWR<NotificationRule[]>('/api/notification-rules', { revalidateOnMount: true, dedupingInterval: 0 });
+  // The server answers `{ data, total }` (notification-rules/routes.ts GET /).
+  // Read as a bare array until 2026-10-12, which made every saved rule invisible
+  // behind the empty state (audit 2026-10-12, finding 1).
+  const { data: rulesRes, mutate } = useSWR<{ data: NotificationRule[]; total: number }>('/api/notification-rules', { revalidateOnMount: true, dedupingInterval: 0 });
+  const rules = rulesRes?.data;
   const { data: eventTypes } = useSWR<EventTypeMeta[]>('/api/notification-rules/event-types', { revalidateOnMount: true, dedupingInterval: 0 });
   const { data: groups } = useSWR<UserGroup[]>('/api/user-groups', { revalidateOnMount: true, dedupingInterval: 0 });
   const { data: templates } = useSWR<Template[]>('/api/notification-settings/templates', { revalidateOnMount: true, dedupingInterval: 0 });
   const { data: usersData } = useSWR<{ data: UserOption[] }>(`/api/users?${ALL_RECORDS_PARAM}&status=ENABLED`);
   const users = (usersData?.data ?? []).filter((u: UserOption) => u.username !== 'superadmin');
-  const { data: rolesData } = useSWR<Array<{ name: string; displayName: string }>>('/api/roles', { revalidateOnMount: true, dedupingInterval: 0 });
+  const { data: rolesData } = useSWR<Array<{ name: string; displayName: string }>>(
+    // `/active`, not `/api/roles`: the latter is ROLE_MANAGE-only and 403'd for a
+    // CONFIG_READ operator on this page. `/active` is the dropdown list.
+    '/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 },
+  );
   const roles = (rolesData ?? []).filter(r => r.name !== 'SUPER_ADMIN');
 
   const [editing, setEditing] = useState<Partial<NotificationRule> | null>(null);
