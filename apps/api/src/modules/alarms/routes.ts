@@ -1,5 +1,7 @@
 import { type FastifyInstance } from 'fastify';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
+import { loadAlarmTypeNames, alarmDisplayName } from './load-type-names.js';
 import { auditLog } from '../../lib/audit.js';
 import { buildContext } from '../../lib/build-context.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
@@ -319,57 +321,83 @@ export default async function alarmRoutes(app: FastifyInstance) {
         : reply.code(400).send({ error: refusal.code, message: refusal.message, field: refusal.field });
     }
 
-    // Claimed with `acknowledgedAt: null` IN THE WHERE, so two simultaneous requests cannot
-    // both pass the check above and have the second overwrite the first signature. The
-    // check above still runs first, because it produces the message that names who signed.
-    const claim = await prisma.alarm.updateMany({
-      where: { id, acknowledgedAt: null },
-      data: { acknowledgedAt: new Date(), acknowledgedBy: ctx.userId, acknowledgeReason: reason.trim() },
-    });
-    if (claim.count === 0) {
-      const won = await prisma.alarm.findUnique({ where: { id }, select: { acknowledgedAt: true, acknowledgedBy: true } });
-      if (!won?.acknowledgedAt) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Alarm not found.' });
-      return reply.code(409).send({
-        error: 'ALREADY_ACKNOWLEDGED',
-        message: (validateAcknowledgement(won, reason) as { message: string }).message,
+    // The claim, the re-read and the audit row are ONE transaction (audit 2026-10-12
+    // #10). They were three separate writes, so an audit insert that failed left the
+    // alarm SIGNED with no ALARM_ACKNOWLEDGED row — the one outcome §11 cannot
+    // tolerate here. Now a failed audit write rolls the signature back with it.
+    type AckOutcome =
+      | { kind: 'not_found' }
+      | { kind: 'conflict'; message: string }
+      | { kind: 'ok'; updated: Prisma.AlarmGetPayload<{ include: { instrument: { select: { code: true; name: true } } } }> };
+    const outcome: AckOutcome = await prisma.$transaction(async (tx) => {
+      // Claimed with `acknowledgedAt: null` IN THE WHERE, so two simultaneous requests cannot
+      // both pass the check above and have the second overwrite the first signature. The
+      // check above still runs first, because it produces the message that names who signed.
+      const claim = await tx.alarm.updateMany({
+        where: { id, acknowledgedAt: null },
+        data: { acknowledgedAt: new Date(), acknowledgedBy: ctx.userId, acknowledgeReason: reason.trim() },
       });
-    }
-    // `name` as well as `code`: the webhook enqueue below passes `instrumentName`, and
-    // every evaluator site already does. Omitting it here made `${instrumentName}`
-    // render the NAME on RAISED/CLEARED and the CODE on ACKNOWLEDGED for one alarm
-    // (build-variables.ts falls back to the code), against the design's promise that
-    // the payload, the email and the dashboard quote one excursion identically.
-    const updated = await prisma.alarm.findUniqueOrThrow({
-      where: { id },
-      include: { instrument: { select: { code: true, name: true } } },
+      if (claim.count === 0) {
+        const won = await tx.alarm.findUnique({ where: { id }, select: { acknowledgedAt: true, acknowledgedBy: true } });
+        if (!won?.acknowledgedAt) return { kind: 'not_found' as const };
+        return {
+          kind: 'conflict' as const,
+          message: (validateAcknowledgement(won, reason) as { message: string }).message,
+        };
+      }
+      // `name` as well as `code`: the webhook enqueue below passes `instrumentName`, and
+      // every evaluator site already does. Omitting it here made `${instrumentName}`
+      // render the NAME on RAISED/CLEARED and the CODE on ACKNOWLEDGED for one alarm
+      // (build-variables.ts falls back to the code), against the design's promise that
+      // the payload, the email and the dashboard quote one excursion identically.
+      const updated = await tx.alarm.findUniqueOrThrow({
+        where: { id },
+        include: { instrument: { select: { code: true, name: true } } },
+      });
+
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole,
+        action: 'ALARM_ACKNOWLEDGED',
+        targetType: 'Alarm', targetId: id,
+        // `name` is what the audit trail's {targetName} placeholder reads, and the
+        // "<code> / <metric>" shape matches the rows already in the trail.
+        afterValue: {
+          name: `${updated.instrument?.code ?? updated.instrumentId} / ${updated.metric}`,
+          instrumentId: updated.instrumentId,
+          state: updated.state,
+          // KEPT when severity left every display and config surface on 2026-09-01.
+          // This is an audit `afterValue` — the §11 snapshot of the row as it stood
+          // at the moment it was signed for — and the column still exists and still
+          // carries meaningful history on the 148 alarms raised before that date.
+          // Narrowing what an audit record captures is a reduction in the regulated
+          // evidence, which is the opposite of what removing a config surface is for.
+          severity: updated.severity,
+          triggeredValue: updated.triggeredValue,
+          raisedAt: updated.raisedAt.toISOString(),
+        },
+        // Reason goes in BOTH: the column is what the audit detail view shows, and the
+        // signature meaning is the §11.50 statement of what was signed.
+        reason: reason.trim(),
+        signatureMeaning: clampSignature(`Acknowledged alarm on ${updated.instrument?.code ?? updated.instrumentId} (${updated.metric}) — ${reason.trim()}`),
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
+      return { kind: 'ok' as const, updated };
     });
 
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'ALARM_ACKNOWLEDGED',
-      targetType: 'Alarm', targetId: id,
-      // `name` is what the audit trail's {targetName} placeholder reads, and the
-      // "<code> / <metric>" shape matches the rows already in the trail.
-      afterValue: {
-        name: `${updated.instrument?.code ?? updated.instrumentId} / ${updated.metric}`,
-        instrumentId: updated.instrumentId,
-        state: updated.state,
-        // KEPT when severity left every display and config surface on 2026-09-01.
-        // This is an audit `afterValue` — the §11 snapshot of the row as it stood
-        // at the moment it was signed for — and the column still exists and still
-        // carries meaningful history on the 148 alarms raised before that date.
-        // Narrowing what an audit record captures is a reduction in the regulated
-        // evidence, which is the opposite of what removing a config surface is for.
-        severity: updated.severity,
-        triggeredValue: updated.triggeredValue,
-        raisedAt: updated.raisedAt.toISOString(),
-      },
-      // Reason goes in BOTH: the column is what the audit detail view shows, and the
-      // signature meaning is the §11.50 statement of what was signed.
-      reason: reason.trim(),
-      signatureMeaning: clampSignature(`Acknowledged alarm on ${updated.instrument?.code ?? updated.instrumentId} (${updated.metric}) — ${reason.trim()}`),
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
-    });
+    if (outcome.kind === 'not_found') return reply.code(404).send({ error: 'NOT_FOUND', message: 'Alarm not found.' });
+    if (outcome.kind === 'conflict') return reply.code(409).send({ error: 'ALREADY_ACKNOWLEDGED', message: outcome.message });
+    const { updated } = outcome;
+
+    // Named and described exactly as the RAISED payload for this alarm was (audit
+    // 2026-10-12 #12): the administered alarm-type name for its source, and the
+    // condition frozen on its snapshot. `ruleSnapshot.name` existed only on the
+    // removed RULE alarms, so every acknowledgement went out as `ruleName: ""`.
+    const typeNames = await loadAlarmTypeNames();
+    const frozenDescription = updated.ruleSnapshot
+      && typeof updated.ruleSnapshot === 'object'
+      && !Array.isArray(updated.ruleSnapshot)
+      ? (updated.ruleSnapshot as Record<string, unknown>).description
+      : undefined;
 
     // AFTER the atomic claim (updateMany with acknowledgedAt: null in the WHERE), so
     // the loser of two simultaneous acknowledgements fires nothing. Never throws.
@@ -382,8 +410,9 @@ export default async function alarmRoutes(app: FastifyInstance) {
       instrumentCode: updated.instrument?.code ?? null,
       instrumentName: updated.instrument?.name ?? null,
       metric: updated.metric,
-      ruleName: (updated.ruleSnapshot as { name?: string } | null)?.name ?? '',
-      condition: describeSnapshot(updated.ruleSnapshot),
+      ruleName: alarmDisplayName(typeNames, updated.source, updated.metric, updated.limitKind),
+      condition: (typeof frozenDescription === 'string' && frozenDescription)
+        || describeSnapshot(updated.ruleSnapshot),
       triggeredValue: updated.triggeredValue,
       decimals: decimalsFromSnapshot(updated.ruleSnapshot),
       raisedAt: updated.raisedAt,
