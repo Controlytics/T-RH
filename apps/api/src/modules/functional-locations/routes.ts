@@ -10,6 +10,7 @@ import { buildTree, locationPath, resolveLocationIds, type FlNode, type Location
 import { isInstrumentReporting } from '@digilog/shared';
 import { loadActiveWindowMinutes } from '../instruments/telemetry-overview.js';
 import { resolveVisibility, withVisibility, type ScopeWhere } from '../instruments/visibility.js';
+import { roleHasPermission } from '../../plugins/rbac.js';
 
 /**
  * Functional Locations — the authoritative Block > Area grouping of instruments.
@@ -164,9 +165,21 @@ export default async function functionalLocationRoutes(app: FastifyInstance) {
       },
     },
   }, async (req) => {
-    const { where: visibility } = await resolveVisibility(buildContext(req));
+    const ctx = buildContext(req);
+    const { where: visibility } = await resolveVisibility(ctx);
     const [nodes, counts] = await Promise.all([loadNodes(), loadOwnCounts(visibility)]);
-    return { data: buildTree(nodes, counts) };
+    const tree = buildTree(nodes, counts);
+    // A caller here on INSTRUMENT_READ alone (Settings, Data Report, the trend
+    // PDF) is not a location administrator: it is told only the locations that
+    // hold an instrument it may see — directly, or in one of a Block's Areas —
+    // plus that Area's Block, never the rest of the plant's structure
+    // (follow-up to review finding 7). The counts are already scoped above.
+    if (await roleHasPermission(ctx.userRole, 'FUNCTIONAL_LOCATION_READ')) return { data: tree };
+    return {
+      data: tree
+        .filter((b) => b.totalCount > 0)
+        .map((b) => ({ ...b, children: b.children.filter((a) => a.totalCount > 0) })),
+    };
   });
 
   // GET /linkable-instruments — EVERY instrument with its current location.

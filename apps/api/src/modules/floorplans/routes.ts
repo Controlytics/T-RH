@@ -9,7 +9,8 @@ import { sanitizeStrings } from '../../lib/sanitize.js';
 import { validateRoomPayload, roomGeometry, validateLinkPayload, floorplanSchema, floorplanUpdateSchema, annotationsSummary, type RoomDoor, type LinkInput } from './validation.js';
 import { sharedEdges, rectanglePoints, type Point, type Polygon } from '@digilog/shared';
 import { getRoomHistory, HISTORY_WINDOWS, type HistoryWindow } from './room-history.js';
-import { resolveVisibility } from '../instruments/visibility.js';
+import { resolveVisibility, withVisibility } from '../instruments/visibility.js';
+import { roleHasPermission } from '../../plugins/rbac.js';
 import { REDRAW_ROOM_SELECT, REDRAW_LINK_SELECT, carriedLimits, deleteLinksAudited } from './redraw.js';
 
 /**
@@ -282,7 +283,7 @@ export default async function floorplanRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async () => {
+  }, async (req) => {
     const data = await prisma.floorplan.findMany({
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       include: {
@@ -290,7 +291,31 @@ export default async function floorplanRoutes(app: FastifyInstance) {
         links: { select: linkSelect, orderBy: { createdAt: 'asc' } },
       },
     });
-    return { data };
+    // A DASHBOARD reader without CONFIG_READ gets every room's GEOMETRY (the
+    // floor must still draw) but a room's limits only when it holds an
+    // instrument the caller may see, and a room's identity (code, label) is
+    // withheld when every instrument in it is out of scope — on the generated
+    // plans the room code IS the instrument code (follow-up to finding 5).
+    const ctx = buildContext(req);
+    if (await roleHasPermission(ctx.userRole, 'CONFIG_READ')) return { data };
+    const { where: visibility } = await resolveVisibility(ctx);
+    const [placed, seen] = await Promise.all([
+      prisma.instrument.findMany({ where: { roomId: { not: null } }, select: { roomId: true } }),
+      prisma.instrument.findMany({ where: withVisibility({ roomId: { not: null } }, visibility) as never, select: { roomId: true } }),
+    ]);
+    const occupied = new Set(placed.map((i) => i.roomId));
+    const visible = new Set(seen.map((i) => i.roomId));
+    const noLimits = { tempMin: null, tempMax: null, rhMin: null, rhMax: null };
+    return {
+      data: data.map((plan) => ({
+        ...plan,
+        rooms: plan.rooms.map((r) => {
+          if (visible.has(r.id)) return r;
+          if (occupied.has(r.id)) return { ...r, ...noLimits, code: '', label: null };
+          return { ...r, ...noLimits };
+        }),
+      })),
+    };
   });
 
   app.get('/:id', {
