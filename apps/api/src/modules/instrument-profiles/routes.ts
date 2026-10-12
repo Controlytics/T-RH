@@ -17,6 +17,18 @@ import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { resolveVisibility, withVisibility, type ScopeWhere } from '../instruments/visibility.js';
 import { loadAttributeAccess, refuseAttributeWrite, needsReauth } from '../instruments/attribute-access.js';
 
+/**
+ * The database refusing a profile delete because instruments still reference
+ * it. `instruments.profile_id` is ON DELETE RESTRICT, which Postgres reports as
+ * 23001 and Prisma surfaces as an UNKNOWN request error with no `P2003` code —
+ * so the constraint is matched by name (pinned against the real error in
+ * instrument-profiles.e2e.test.ts).
+ */
+export function isProfileInUseError(err: unknown): boolean {
+  if ((err as { code?: string })?.code === 'P2003') return true;
+  return /instruments_profile_id_fkey/.test((err as { message?: string })?.message ?? '');
+}
+
 /** Thrown inside the cascade's transaction to roll it back: a carrier is out of the caller's scope. */
 class OutOfScope extends Error {
   constructor() { super('OUT_OF_SCOPE'); this.name = 'OutOfScope'; }
@@ -659,7 +671,7 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
       // An instrument created in the profile after the count above: the
       // foreign key (ON DELETE RESTRICT) refuses the delete. The same answer
       // as the pre-check, never a raw 500.
-      if ((err as { code?: string })?.code === 'P2003') {
+      if (isProfileInUseError(err)) {
         return reply.code(409).send({
           error: 'PROFILE_NOT_EMPTY',
           message: `"${row.name}" still contains instruments. Move or delete them before deleting the profile.`,

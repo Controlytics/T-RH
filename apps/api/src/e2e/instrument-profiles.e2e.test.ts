@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp, ADMIN_PASSWORD } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 import { Prisma } from '@prisma/client';
+import { isProfileInUseError } from '../modules/instrument-profiles/routes.js';
 
 /**
  * Instrument profiles — a named container for instruments.
@@ -264,6 +265,13 @@ describe('DELETE /api/instrument-profiles/:id', () => {
     await prisma.instrument.create({ data: { name: 'IPT-D', code: 'IPT-D', profileId: p.id } });
 
     await expect(prisma.instrumentProfile.delete({ where: { id: p.id } })).rejects.toThrow();
+    // ...with an error the DELETE route recognises and answers 409
+    // PROFILE_NOT_EMPTY, for an instrument that joins the profile between the
+    // route's count and its delete. (ON DELETE RESTRICT surfaces as an
+    // UNKNOWN request error with no Prisma code, not P2003 — pinned here.)
+    const err = await prisma.instrumentProfile.delete({ where: { id: p.id } }).catch((e: unknown) => e);
+    expect(isProfileInUseError(err)).toBe(true);
+    expect(isProfileInUseError(new Error('connection terminated'))).toBe(false);
   });
 });
 
