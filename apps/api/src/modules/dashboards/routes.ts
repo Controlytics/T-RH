@@ -21,27 +21,34 @@ import { auditLog } from '../../lib/audit.js';
 export default async function dashboardRoutes(app: FastifyInstance) {
 
 
-  // Helper: check if user can see a dashboard
-  async function canAccessDashboard(req: FastifyRequest, dashboardId: string): Promise<boolean> {
+  /**
+   * The ONE rule for which dashboards a caller may see, used by the list AND
+   * by every per-dashboard read (audit 2026-10-12 finding 10: the list showed a
+   * non-admin with no assignments every active dashboard while `GET /:id` 404'd
+   * each of them, and `GET /:id` served soft-deleted dashboards the list hid).
+   * Active only; SUPER_ADMIN / ADMIN see all of them; anyone else sees the ones
+   * assigned to them or their role — or, with no assignment at all, every
+   * active one (the list's long-standing documented behaviour).
+   */
+  async function visibleDashboardWhere(req: FastifyRequest): Promise<{ isActive: true; id?: { in: string[] } }> {
     const role = req.user.role;
-    if (role === 'SUPER_ADMIN') return true;
-
-    const dashboard = await prisma.dashboard.findFirst({ where: { id: dashboardId } });
-    if (!dashboard) return false;
-
-    if (role === 'ADMIN') return true;
-
-    // Check assignment
-    const assignment = await prisma.dashboardAssignment.findFirst({
+    if (role === 'SUPER_ADMIN' || role === 'ADMIN') return { isActive: true };
+    const assignments = await prisma.dashboardAssignment.findMany({
       where: {
-        dashboardId,
         OR: [
           { assigneeType: 'USER', userId: req.user.sub },
           { assigneeType: 'ROLE', roleValue: role },
         ],
       },
+      select: { dashboardId: true },
     });
-    return !!assignment;
+    const ids = assignments.map((a) => a.dashboardId);
+    return ids.length > 0 ? { isActive: true, id: { in: ids } } : { isActive: true };
+  }
+
+  async function canAccessDashboard(req: FastifyRequest, dashboardId: string): Promise<boolean> {
+    const where = await visibleDashboardWhere(req);
+    return (await prisma.dashboard.count({ where: { AND: [where, { id: dashboardId }] } })) > 0;
   }
 
   // ─── LIST DASHBOARDS (user's visible dashboards) ───────
@@ -60,29 +67,7 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { page = 1, limit = 20 } = req.query as any;
-    const role = req.user.role;
-    let where: any = { isActive: true };
-
-    if (role === 'SUPER_ADMIN' || role === 'ADMIN') {
-      // No filter — see all dashboards
-    } else {
-      // Check for explicit dashboard assignments
-      const assignments = await prisma.dashboardAssignment.findMany({
-        where: {
-          OR: [
-            { assigneeType: 'USER', userId: req.user.sub },
-            { assigneeType: 'ROLE', roleValue: role },
-          ],
-        },
-        select: { dashboardId: true },
-      });
-      const ids = assignments.map(a => a.dashboardId);
-      if (ids.length > 0) {
-        // User has explicit assignments — show only those
-        where = { id: { in: ids }, isActive: true };
-      }
-      // If no assignments — user passed permission check, show all active dashboards
-    }
+    const where = await visibleDashboardWhere(req);
 
     const [data, total] = await Promise.all([
       prisma.dashboard.findMany({
@@ -142,27 +127,29 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     preHandler: [app.requirePermission('DASHBOARD_CREATE')],
   }, async (req, reply) => {
     const body = req.body as any;
-    // If setting as default, unset other defaults
-    if (body.isDefault) {
-      await prisma.dashboard.updateMany({ where: { isDefault: true }, data: { isDefault: false } });
-    }
-
-    const dashboard = await prisma.dashboard.create({
-      data: {
-        title: body.title,
-        description: body.description,
-        layout: body.layout || {},
-        isDefault: body.isDefault || false,
-        createdBy: req.user.sub,
-      },
-    });
-
-    await auditLog({
-      userId: req.user.username, userRole: req.user.role,
-      action: 'DASHBOARD_CREATED', targetType: 'dashboard', targetId: dashboard.id,
-      afterValue: { title: dashboard.title },
-      ipAddress: req.ip, userAgent: req.headers['user-agent'],
-      sessionId: req.user.sessionId,
+    // The change and its audit row in ONE transaction.
+    const dashboard = await prisma.$transaction(async (tx) => {
+      // If setting as default, unset other defaults
+      if (body.isDefault) {
+        await tx.dashboard.updateMany({ where: { isDefault: true }, data: { isDefault: false } });
+      }
+      const row = await tx.dashboard.create({
+        data: {
+          title: body.title,
+          description: body.description,
+          layout: body.layout || {},
+          isDefault: body.isDefault || false,
+          createdBy: req.user.sub,
+        },
+      });
+      await auditLog({
+        userId: req.user.username, userRole: req.user.role,
+        action: 'DASHBOARD_CREATED', targetType: 'dashboard', targetId: row.id,
+        afterValue: { title: row.title, isDefault: row.isDefault },
+        ipAddress: req.ip, userAgent: req.headers['user-agent'],
+        sessionId: req.user.sessionId,
+      }, tx);
+      return row;
     });
 
     return reply.code(201).send(dashboard);
@@ -318,8 +305,11 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     },
     preHandler: [app.requirePermission('DASHBOARD_MANAGE')],
   }, async (req, reply) => {
-    const { widgetId } = req.params as { widgetId: string };
-    await prisma.dashboardWidget.delete({ where: { id: widgetId } });
+    // The widget must be THIS dashboard's: the route used to delete any widget
+    // by id, through any dashboard's URL (audit 2026-10-12 finding 10).
+    const { id, widgetId } = req.params as { id: string; widgetId: string };
+    const { count } = await prisma.dashboardWidget.deleteMany({ where: { id: widgetId, dashboardId: id } });
+    if (count === 0) return reply.code(404).send({ error: 'Widget not found' });
     return { success: true };
   });
 
@@ -349,13 +339,20 @@ export default async function dashboardRoutes(app: FastifyInstance) {
       },
     },
     preHandler: [app.requirePermission('DASHBOARD_MANAGE')],
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { id } = req.params as { id: string };
     const { positions } = req.body as { positions: Array<{ widgetId: string; x: number; y: number; w: number; h: number }> };
-    await Promise.all(positions.map(p =>
+    // Every widget named must be THIS dashboard's, or nothing moves (the route
+    // used to move any widget by id, and 500 on an unknown one).
+    const owned = await prisma.dashboardWidget.count({ where: { dashboardId: id, id: { in: [...new Set(positions.map((p) => p.widgetId))] } } });
+    if (owned !== new Set(positions.map((p) => p.widgetId)).size) {
+      return reply.code(404).send({ error: 'Widget not found on this dashboard' });
+    }
+    await prisma.$transaction(positions.map((p) =>
       prisma.dashboardWidget.update({
         where: { id: p.widgetId },
         data: { position: { x: p.x, y: p.y, w: p.w, h: p.h } },
-      })
+      }),
     ));
     return { success: true, updated: positions.length };
   });
@@ -385,6 +382,14 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const body = req.body as any;
 
+    // A dashboard that does not exist was a foreign-key error (500), and an
+    // assignment naming nobody was stored and matched no one.
+    const dashboard = await prisma.dashboard.findFirst({ where: { id }, select: { id: true } });
+    if (!dashboard) return reply.code(404).send({ error: 'Dashboard not found' });
+    if ((body.assigneeType === 'USER' && !body.userId) || (body.assigneeType === 'ROLE' && !body.roleValue)) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'A USER assignment needs userId; a ROLE assignment needs roleValue.' });
+    }
+
     const assignment = await prisma.dashboardAssignment.create({
       data: {
         dashboardId: id,
@@ -409,9 +414,11 @@ export default async function dashboardRoutes(app: FastifyInstance) {
       },
     },
     preHandler: [app.requirePermission('DASHBOARD_ASSIGN')],
-  }, async (req) => {
-    const { assignmentId } = req.params as { assignmentId: string };
-    await prisma.dashboardAssignment.delete({ where: { id: assignmentId } });
+  }, async (req, reply) => {
+    // THIS dashboard's assignment only (the route deleted any by id).
+    const { dashboardId, assignmentId } = req.params as { dashboardId: string; assignmentId: string };
+    const { count } = await prisma.dashboardAssignment.deleteMany({ where: { id: assignmentId, dashboardId } });
+    if (count === 0) return reply.code(404).send({ error: 'Assignment not found' });
     return { success: true };
   });
 
