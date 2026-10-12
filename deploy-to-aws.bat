@@ -39,14 +39,18 @@ if "%BRANCH%"=="final-user-management" (
     pause & exit /b 1
 )
 
-git ls-remote --exit-code --heads origin "%BRANCH%" >nul 2>&1
+REM The laptop pushes to "trh" (Controlytics/T-RH) since 2026-10-06; "origin" here is the
+REM FROZEN old repo. The server's own "origin" is T-RH, so trh is what it deploys.
+set "REMOTE=trh"
+git ls-remote --exit-code --heads %REMOTE% "%BRANCH%" >nul 2>&1
 if errorlevel 1 (
-    echo   REFUSED: origin has no branch "%BRANCH%". Push it first:  git push -u origin %BRANCH%
+    echo   REFUSED: %REMOTE% has no branch "%BRANCH%". Push it first:  git push -u %REMOTE% %BRANCH%
     pause & exit /b 1
 )
-for /f "delims=" %%n in ('git rev-list --count "origin/%BRANCH%..%BRANCH%" 2^>nul') do set "UNPUSHED=%%n"
+git fetch -q %REMOTE% "%BRANCH%" >nul 2>&1
+for /f "delims=" %%n in ('git rev-list --count "%REMOTE%/%BRANCH%..%BRANCH%" 2^>nul') do set "UNPUSHED=%%n"
 if not "%UNPUSHED%"=="" if not "%UNPUSHED%"=="0" (
-    echo   WARNING: %BRANCH% has %UNPUSHED% commit^(s^) not on origin. The server deploys ORIGIN.
+    echo   WARNING: %BRANCH% has %UNPUSHED% commit^(s^) not on %REMOTE%. The server deploys what is on GitHub.
 )
 
 echo.
