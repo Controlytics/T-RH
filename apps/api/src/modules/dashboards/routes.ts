@@ -19,6 +19,16 @@ import { auditLog } from '../../lib/audit.js';
  * future/feature-dashboards.md.
  */
 export default async function dashboardRoutes(app: FastifyInstance) {
+  /** Who, on every audit row this module writes (the create's existing shape). */
+  const who = (req: FastifyRequest) => ({
+    userId: req.user.username, userRole: req.user.role,
+    ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
+  });
+  /** A dashboard / widget on an audit row; `name` is what the trail's {targetName} reads. */
+  const dashboardAudit = (d: { title: string; description: string | null; isDefault: boolean; isActive: boolean }) =>
+    ({ name: d.title, description: d.description, isDefault: d.isDefault, isActive: d.isActive });
+  const widgetAudit = (w: { title: string; widgetType: string; dashboardId: string; position: unknown; refreshInterval: number | null }, dashboardTitle?: string) =>
+    ({ name: w.title, widgetType: w.widgetType, dashboardId: w.dashboardId, ...(dashboardTitle ? { dashboard: dashboardTitle } : {}), position: w.position, refreshInterval: w.refreshInterval });
 
 
   /**
@@ -184,12 +194,18 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     const existing = await prisma.dashboard.findFirst({ where: { id } });
     if (!existing) return reply.code(404).send({ error: 'Dashboard not found' });
 
-    if (body.isDefault) {
-      await prisma.dashboard.updateMany({ where: { isDefault: true, id: { not: id } }, data: { isDefault: false } });
-    }
-
-    const dashboard = await prisma.dashboard.update({ where: { id }, data: body });
-    return dashboard;
+    return prisma.$transaction(async (tx) => {
+      if (body.isDefault) {
+        await tx.dashboard.updateMany({ where: { isDefault: true, id: { not: id } }, data: { isDefault: false } });
+      }
+      const dashboard = await tx.dashboard.update({ where: { id }, data: body });
+      await auditLog({
+        ...who(req), action: 'DASHBOARD_UPDATED', targetType: 'dashboard', targetId: id,
+        beforeValue: dashboardAudit(existing), afterValue: dashboardAudit(dashboard),
+        signatureMeaning: `Dashboard "${dashboard.title}" updated`,
+      }, tx);
+      return dashboard;
+    });
   });
 
   // ─── DELETE DASHBOARD ──────────────────────────────────
@@ -205,7 +221,14 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     const existing = await prisma.dashboard.findFirst({ where: { id } });
     if (!existing) return reply.code(404).send({ error: 'Dashboard not found' });
 
-    await prisma.dashboard.update({ where: { id }, data: { isActive: false } });
+    await prisma.$transaction(async (tx) => {
+      await tx.dashboard.update({ where: { id }, data: { isActive: false } });
+      await auditLog({
+        ...who(req), action: 'DASHBOARD_DELETED', targetType: 'dashboard', targetId: id,
+        beforeValue: dashboardAudit(existing),
+        signatureMeaning: `Dashboard "${existing.title}" deleted`,
+      }, tx);
+    });
     return { success: true };
   });
 
@@ -239,16 +262,24 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     const dashboard = await prisma.dashboard.findFirst({ where: { id } });
     if (!dashboard) return reply.code(404).send({ error: 'Dashboard not found' });
 
-    const widget = await prisma.dashboardWidget.create({
-      data: {
-        dashboardId: id,
-        widgetType: body.widgetType,
-        title: body.title,
-        config: body.config || {},
-        position: body.position || { x: 0, y: 0, w: 4, h: 3 },
-        dataSource: body.dataSource || {},
-        refreshInterval: body.refreshInterval ?? 30,
-      },
+    const widget = await prisma.$transaction(async (tx) => {
+      const row = await tx.dashboardWidget.create({
+        data: {
+          dashboardId: id,
+          widgetType: body.widgetType,
+          title: body.title,
+          config: body.config || {},
+          position: body.position || { x: 0, y: 0, w: 4, h: 3 },
+          dataSource: body.dataSource || {},
+          refreshInterval: body.refreshInterval ?? 30,
+        },
+      });
+      await auditLog({
+        ...who(req), action: 'DASHBOARD_WIDGET_CREATED', targetType: 'dashboard_widget', targetId: row.id,
+        afterValue: widgetAudit(row, dashboard.title),
+        signatureMeaning: `Widget "${row.title}" added to dashboard "${dashboard.title}"`,
+      }, tx);
+      return row;
     });
 
     return reply.code(201).send(widget);
@@ -288,8 +319,15 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     const widget = await prisma.dashboardWidget.findFirst({ where: { id: widgetId, dashboardId: id } });
     if (!widget) return reply.code(404).send({ error: 'Widget not found' });
 
-    const updated = await prisma.dashboardWidget.update({ where: { id: widgetId }, data: body });
-    return updated;
+    return prisma.$transaction(async (tx) => {
+      const updated = await tx.dashboardWidget.update({ where: { id: widgetId }, data: body });
+      await auditLog({
+        ...who(req), action: 'DASHBOARD_WIDGET_UPDATED', targetType: 'dashboard_widget', targetId: widgetId,
+        beforeValue: widgetAudit(widget), afterValue: widgetAudit(updated),
+        signatureMeaning: `Widget "${updated.title}" updated`,
+      }, tx);
+      return updated;
+    });
   });
 
   // ─── DELETE WIDGET ─────────────────────────────────────
@@ -308,8 +346,18 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     // The widget must be THIS dashboard's: the route used to delete any widget
     // by id, through any dashboard's URL (audit 2026-10-12 finding 10).
     const { id, widgetId } = req.params as { id: string; widgetId: string };
-    const { count } = await prisma.dashboardWidget.deleteMany({ where: { id: widgetId, dashboardId: id } });
-    if (count === 0) return reply.code(404).send({ error: 'Widget not found' });
+    const removed = await prisma.$transaction(async (tx) => {
+      const widget = await tx.dashboardWidget.findFirst({ where: { id: widgetId, dashboardId: id } });
+      if (!widget) return false;
+      await tx.dashboardWidget.delete({ where: { id: widgetId } });
+      await auditLog({
+        ...who(req), action: 'DASHBOARD_WIDGET_DELETED', targetType: 'dashboard_widget', targetId: widgetId,
+        beforeValue: widgetAudit(widget),
+        signatureMeaning: `Widget "${widget.title}" removed`,
+      }, tx);
+      return true;
+    });
+    if (!removed) return reply.code(404).send({ error: 'Widget not found' });
     return { success: true };
   });
 
@@ -348,12 +396,18 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     if (owned !== new Set(positions.map((p) => p.widgetId)).size) {
       return reply.code(404).send({ error: 'Widget not found on this dashboard' });
     }
-    await prisma.$transaction(positions.map((p) =>
-      prisma.dashboardWidget.update({
-        where: { id: p.widgetId },
-        data: { position: { x: p.x, y: p.y, w: p.w, h: p.h } },
-      }),
-    ));
+    await prisma.$transaction(async (tx) => {
+      const dashboard = await tx.dashboard.findUniqueOrThrow({ where: { id }, select: { title: true } });
+      for (const p of positions) {
+        await tx.dashboardWidget.update({ where: { id: p.widgetId }, data: { position: { x: p.x, y: p.y, w: p.w, h: p.h } } });
+      }
+      // One row for the arrangement: a drag moves many widgets at once.
+      await auditLog({
+        ...who(req), action: 'DASHBOARD_UPDATED', targetType: 'dashboard', targetId: id,
+        afterValue: { name: dashboard.title, layout: positions },
+        signatureMeaning: `Dashboard "${dashboard.title}" layout changed (${positions.length} widget(s))`,
+      }, tx);
+    });
     return { success: true, updated: positions.length };
   });
 
@@ -384,19 +438,27 @@ export default async function dashboardRoutes(app: FastifyInstance) {
 
     // A dashboard that does not exist was a foreign-key error (500), and an
     // assignment naming nobody was stored and matched no one.
-    const dashboard = await prisma.dashboard.findFirst({ where: { id }, select: { id: true } });
+    const dashboard = await prisma.dashboard.findFirst({ where: { id }, select: { id: true, title: true } });
     if (!dashboard) return reply.code(404).send({ error: 'Dashboard not found' });
     if ((body.assigneeType === 'USER' && !body.userId) || (body.assigneeType === 'ROLE' && !body.roleValue)) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'A USER assignment needs userId; a ROLE assignment needs roleValue.' });
     }
 
-    const assignment = await prisma.dashboardAssignment.create({
-      data: {
-        dashboardId: id,
-        assigneeType: body.assigneeType,
-        userId: body.userId || null,
-        roleValue: body.roleValue || null,
-      },
+    const assignment = await prisma.$transaction(async (tx) => {
+      const row = await tx.dashboardAssignment.create({
+        data: {
+          dashboardId: id,
+          assigneeType: body.assigneeType,
+          userId: body.userId || null,
+          roleValue: body.roleValue || null,
+        },
+      });
+      await auditLog({
+        ...who(req), action: 'DASHBOARD_ASSIGNED', targetType: 'dashboard', targetId: id,
+        afterValue: { name: dashboard.title, assignmentId: row.id, assigneeType: row.assigneeType, userId: row.userId, roleValue: row.roleValue },
+        signatureMeaning: `Dashboard "${dashboard.title}" assigned to ${row.assigneeType === 'ROLE' ? `role ${row.roleValue}` : `user ${row.userId}`}`,
+      }, tx);
+      return row;
     });
 
     return reply.code(201).send(assignment);
@@ -417,8 +479,18 @@ export default async function dashboardRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     // THIS dashboard's assignment only (the route deleted any by id).
     const { dashboardId, assignmentId } = req.params as { dashboardId: string; assignmentId: string };
-    const { count } = await prisma.dashboardAssignment.deleteMany({ where: { id: assignmentId, dashboardId } });
-    if (count === 0) return reply.code(404).send({ error: 'Assignment not found' });
+    const removed = await prisma.$transaction(async (tx) => {
+      const row = await tx.dashboardAssignment.findFirst({ where: { id: assignmentId, dashboardId }, include: { dashboard: { select: { title: true } } } });
+      if (!row) return false;
+      await tx.dashboardAssignment.delete({ where: { id: assignmentId } });
+      await auditLog({
+        ...who(req), action: 'DASHBOARD_UNASSIGNED', targetType: 'dashboard', targetId: dashboardId,
+        beforeValue: { name: row.dashboard.title, assignmentId: row.id, assigneeType: row.assigneeType, userId: row.userId, roleValue: row.roleValue },
+        signatureMeaning: `Dashboard "${row.dashboard.title}" assignment removed`,
+      }, tx);
+      return true;
+    });
+    if (!removed) return reply.code(404).send({ error: 'Assignment not found' });
     return { success: true };
   });
 
