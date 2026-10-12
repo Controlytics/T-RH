@@ -221,6 +221,8 @@ export function NotificationsPage() {
           mutate();
           globalMutate('/api/notifications/unread-count');
         },
+        // A cancelled password is not an error: nothing was sent.
+        onCancel: () => {},
         onError: (err: any) => {
           toast.error('Failed to delete notifications', err.message || 'Operation failed');
         },
@@ -248,6 +250,8 @@ export function NotificationsPage() {
           mutate();
           globalMutate('/api/notifications/unread-count');
         },
+        // A cancelled password is not an error: nothing was sent.
+        onCancel: () => {},
         onError: (err: any) => {
           toast.error('Failed to delete notification', err.message || 'Operation failed');
         },

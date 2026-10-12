@@ -99,7 +99,14 @@ export type ValidationResult =
   | { ok: true; data: RoomInput }
   | { ok: false; error: string };
 
-export function validateRoomPayload(input: unknown): ValidationResult {
+/**
+ * `storedPoints` — the room's STORED outline, passed by the PUT route. A PUT
+ * that omits `points` keeps that polygon (routes.ts), so its doors must be
+ * checked against it, not against a 4-edge rectangle (audit 2026-10-12
+ * finding 8: a door on edge 5 of a hexagon room was refused on every save that
+ * did not resend the outline). Sent `points` (or an explicit null) win.
+ */
+export function validateRoomPayload(input: unknown, storedPoints?: Polygon | null): ValidationResult {
   const parsed = roomSchema.safeParse(input);
   if (!parsed.success) {
     const first = parsed.error.issues[0];
@@ -138,7 +145,7 @@ export function validateRoomPayload(input: unknown): ValidationResult {
   // inside the plan: normalized coordinates make "starts in bounds" too weak.
   // And it must name an edge the room HAS — a polygon with five corners has
   // five edges, a rectangle four — or the dashboard would have nothing to cut.
-  const poly: Polygon | null = d.points ?? null;
+  const poly: Polygon | null = d.points === undefined ? (storedPoints ?? null) : d.points;
   const doors = d.doors ?? [];
   const wallName = (door: { wall?: string; edge?: number }) => door.wall ?? `edge ${door.edge}`;
   for (let i = 0; i < doors.length; i++) {

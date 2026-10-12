@@ -799,4 +799,21 @@ describe('Mean Kinetic Temperature on the chart summary', () => {
     const abs = (await telemetry(absentId, `?from=${FROM}&to=${TO}&points=100`)).json() as ChartBody;
     expect(abs.summaries!.temperature.mkt).toBeNull();
   });
+
+  // Audit 2026-10-12 #8: a sensor-fault value between absolute zero and about
+  // -259 °C reached exp(-10000 / T) and Postgres raised "value out of range:
+  // underflow" (measured: exp(-10000/8.15)) — a 500 for every range summary of
+  // that key, whether MKT was switched on or not. The term is ~0 there; the
+  // SQL now says so instead of computing it, matching the pure `mktCelsius`.
+  it('a sensor-fault reading near absolute zero does not 500 the summary, and counts like the reference', async () => {
+    const faultId = await createInstrument(`TRNG-MKT-FAULT-${s}`);
+    await prisma.instrumentAttribute.create({ data: { instrumentId: faultId, key: 'isMktCalculationEnabled', value: 'True' } });
+    const withFault = [...readings, -265];
+    await seed(faultId, 'temperature', withFault.map((value, i) => ({ ts: new Date(t0.getTime() + i * STEP_MS), value })));
+    const res = await telemetry(faultId, `?from=${FROM}&to=${TO}&points=100`);
+    expect(res.statusCode).toBe(200);
+    const sums = (res.json() as ChartBody).summaries!;
+    expect(sums.temperature.min).toBe(-265);
+    expect(sums.temperature.mkt).toBeCloseTo(mktCelsius(withFault)!, 6);
+  });
 });

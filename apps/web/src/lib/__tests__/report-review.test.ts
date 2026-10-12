@@ -88,7 +88,9 @@ describe('reviewSignatures — the signature TABLE (2026-09-25)', () => {
 
 describe('approversText', () => {
   it('reads as who may approve: every role, then every named user by username (the id when unknown)', () => {
-    expect(approversText({ approverRoles: ['QA', 'SUP'], approverUserIds: ['u1', 'u9'] }, [{ id: 'u1', username: 'qa1' }])).toBe('any QA, any SUP, qa1, u9');
+    expect(approversText({ approverRoles: ['QA', 'SUP'], approverUserIds: ['u1', 'u9'], approverUserNames: ['qa1', 'u9'] })).toBe('any QA, any SUP, qa1, u9');
+    // A row without the names (not a list row) falls back to the ids.
+    expect(approversText({ approverRoles: [], approverUserIds: ['u1'] })).toBe('u1');
     expect(approversText({ approverRoles: [], approverUserIds: [] })).toBe('-');
   });
 });

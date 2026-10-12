@@ -41,6 +41,13 @@ import { logger } from '../../lib/logger.js';
  */
 async function assertCanManageTarget(callerRole: string, targetRoleName: string) {
   if (callerRole === 'SUPER_ADMIN') return; // top of the hierarchy — can manage anyone
+  // By NAME, not only by number (application review 2026-10-12, finding 8):
+  // a custom role stored at or above SUPER_ADMIN's hierarchy level (the role
+  // schema allowed up to 10 while SUPER_ADMIN sits at 6) passed the numeric
+  // test below against a SUPER_ADMIN account.
+  if (targetRoleName === 'SUPER_ADMIN') {
+    throw new ForbiddenError('You cannot manage a user whose role is higher than yours');
+  }
   const caller = await userRepository.findRole(callerRole);
   if (!caller) throw new ForbiddenError('Your role is not recognized');
   const target = await userRepository.findRole(targetRoleName);
@@ -99,9 +106,18 @@ export const userService = {
     return userRepository.countByStatus(roleFilter);
   },
 
-  async getById(id: string) {
+  /**
+   * One account — 404 for an account the caller's list would hide
+   * (application review 2026-10-12, finding 12): the list and the stats apply
+   * `hiddenRolesFor`, and this read did not, so a lower role that knew or
+   * guessed an id read a SUPER_ADMIN's or ADMIN's record. 404, never 403: the
+   * account is not there for this caller.
+   */
+  async getById(id: string, callerRole?: string) {
     const user = await userRepository.findById(id);
-    if (!user) throw new NotFoundError('User not found');
+    if (!user || hiddenRolesFor(callerRole).includes((user as { role: string }).role)) {
+      throw new NotFoundError('User not found');
+    }
     return user;
   },
 
@@ -124,7 +140,11 @@ export const userService = {
       throw new ValidationError(userIdValidation.errors.join('. '));
     }
 
-    // Check role hierarchy
+    // Check role hierarchy. SUPER_ADMIN is assigned only by a SUPER_ADMIN —
+    // by name, whatever the numbers say (finding 8).
+    if (data.role === 'SUPER_ADMIN' && ctx.userRole !== 'SUPER_ADMIN') {
+      throw new ForbiddenError(`Cannot create users with role ${data.role}`);
+    }
     const creatorRole = await userRepository.findRole(ctx.userRole);
     if (!creatorRole) throw new ForbiddenError('Your role is not recognized');
     const targetRole = await userRepository.findRole(data.role);
@@ -206,6 +226,19 @@ export const userService = {
     // Sanitize text inputs to prevent XSS
     data = sanitizeStrings(data, ['password', 'passwordHash', 'email']);
 
+    // `status` is NOT an update (application review 2026-10-12, finding 4).
+    // It used to be accepted here behind USER_UPDATE + UPDATE_USER, so a role
+    // without USER_ENABLE_DISABLE could disable or re-enable an account — with
+    // no reason, a USER_UPDATED row instead of USER_DISABLED / USER_ENABLED, and
+    // no notification. Enabling and disabling go through `enable` / `disable`
+    // (POST /api/users/:id/enable|disable). Refused loudly, never dropped: a
+    // silently ignored field reads as success.
+    if (data.status !== undefined) {
+      throw new ValidationError('Account status cannot be changed by an update — use Enable or Disable', {
+        fieldErrors: { status: ['Use Enable or Disable'] },
+      });
+    }
+
     const existing = await userRepository.findByIdFull(id);
     if (!existing) throw new NotFoundError('User not found');
     // Privilege boundary: can't manage a target above your own role (audit C2).
@@ -216,6 +249,9 @@ export const userService = {
       throw new ForbiddenError('Cannot change your own role');
     }
 
+    if (data.role === 'SUPER_ADMIN' && ctx.userRole !== 'SUPER_ADMIN') {
+      throw new ForbiddenError(`Cannot assign role ${data.role}`); // by name — finding 8
+    }
     if (data.role) {
       const creatorRole = await userRepository.findRole(ctx.userRole);
       const targetRole = await userRepository.findRole(data.role);
@@ -246,18 +282,12 @@ export const userService = {
       const updated = await userRepository.update(id, {
         ...data,
         role: data.role as any,
-        status: data.status as any,
         updatedBy: ctx.userId,
       }, tx);
 
       // If role changed, invalidate all active sessions so user gets fresh JWT on re-login
       if (data.role && data.role !== existing.role) {
         await userRepository.terminateSessions(id, 'role_changed', tx);
-      }
-
-      // If status changed to non-ENABLED, also invalidate sessions
-      if (data.status && data.status !== 'ENABLED' && data.status !== existing.status) {
-        await userRepository.terminateSessions(id, 'account_disabled', tx);
       }
 
       await auditLog({
@@ -429,7 +459,7 @@ export const userService = {
     // accounts locked before that change, or locked by a non-credential path.
     if (isLdapUser(user as any)) {
       await prisma.$transaction(async (tx) => {
-        await userRepository.unlockWithoutPasswordChange(id, ctx.userId, tx);
+        const after = await userRepository.unlockWithoutPasswordChange(id, ctx.userId, tx);
         await userRepository.terminateSessions(id, 'account_unlocked', tx);
         await auditLog({
           userId: ctx.userId, userRole: ctx.userRole, action: 'ACCOUNT_UNLOCKED',
@@ -440,7 +470,9 @@ export const userService = {
           },
           afterValue: {
             username: user.username, fullName: user.fullName,
-            status: 'ENABLED', failedLoginAttempts: 0, authSource: 'ldap',
+            // The status the row now HAS: a DISABLED account stays disabled
+            // (finding 3), and the record must not claim otherwise.
+            status: after.status, failedLoginAttempts: 0, authSource: 'ldap',
             passwordUnchanged: true,
           },
           signatureMeaning:
@@ -469,7 +501,7 @@ export const userService = {
     const passwordExpiresAt = await userRepository.getPasswordExpiresAt();
 
     await prisma.$transaction(async (tx) => {
-      await userRepository.unlockUser(id, newHash, passwordExpiresAt, ctx.userId, tx);
+      const [after] = await userRepository.unlockUser(id, newHash, passwordExpiresAt, ctx.userId, tx);
       // Compromise-response: evict any live sessions/JWTs held for this user so a
       // stolen session can't survive the reset (mirrors disable()).
       await userRepository.terminateSessions(id, 'account_unlocked', tx);
@@ -477,7 +509,7 @@ export const userService = {
         userId: ctx.userId, userRole: ctx.userRole, action: 'ACCOUNT_UNLOCKED',
         targetType: 'user', targetId: id,
         beforeValue: { username: user.username, fullName: user.fullName, status: user.status, failedLoginAttempts: user.failedLoginAttempts },
-        afterValue: { username: user.username, fullName: user.fullName, status: 'ENABLED', failedLoginAttempts: 0, forcePasswordChange: true, isTemporaryPassword: true },
+        afterValue: { username: user.username, fullName: user.fullName, status: after.status, failedLoginAttempts: 0, forcePasswordChange: true, isTemporaryPassword: true },
         signatureMeaning: 'User account unlocked by administrator with temporary password',
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       }, tx);
@@ -513,7 +545,7 @@ export const userService = {
     const passwordExpiresAt = await userRepository.getPasswordExpiresAt();
 
     await prisma.$transaction(async (tx) => {
-      await userRepository.resetPassword(id, newHash, passwordExpiresAt, ctx.userId, tx);
+      const [after] = await userRepository.resetPassword(id, newHash, passwordExpiresAt, ctx.userId, tx);
       // Compromise-response: evict any live sessions/JWTs held for this user so a
       // stolen session can't survive the reset (mirrors disable()).
       await userRepository.terminateSessions(id, 'password_reset', tx);
@@ -521,7 +553,7 @@ export const userService = {
         userId: ctx.userId, userRole: ctx.userRole, action: 'PASSWORD_RESET',
         targetType: 'user', targetId: id,
         beforeValue: { username: user.username, fullName: user.fullName, status: user.status },
-        afterValue: { status: 'ENABLED', forcePasswordChange: true, isTemporaryPassword: true },
+        afterValue: { status: after.status, forcePasswordChange: true, isTemporaryPassword: true },
         signatureMeaning: 'Administrator reset user password',
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       }, tx);

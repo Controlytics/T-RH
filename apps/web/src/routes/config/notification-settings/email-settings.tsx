@@ -214,6 +214,8 @@ function EmailTab() {
           mutate();
           reset(formData);
         },
+        // A cancelled password is not an error: nothing was sent.
+        onCancel: () => {},
         onError: (err: any) => setError(err.message || 'Failed to save'),
       },
     );
@@ -711,6 +713,8 @@ function SmsTab() {
           mutate();
           reset(formData);
         },
+        // A cancelled password is not an error: nothing was sent.
+        onCancel: () => {},
         onError: (err: any) => setError(err.message || 'Failed to save'),
       },
     );

@@ -158,7 +158,10 @@ describe('backup.repository', () => {
       await resyncSequencesAfterRestore(t, ['audit_trail', 'users']);
       const sql = t.$executeRawUnsafe.mock.calls.map((c: any[]) => c[0] as string).join('\n');
       expect(sql).toContain('audit_trail_chain_position_seq');
-      expect(t.$executeRawUnsafe).toHaveBeenCalledTimes(1);
+      // And the counter the audit writer allocates from (2026-10-12), SET to
+      // the restored head — never left above it, which would open a gap.
+      expect(sql).toMatch(/audit_chain_counter[\s\S]*DO UPDATE SET "last_position" = EXCLUDED\."last_position"/);
+      expect(t.$executeRawUnsafe).toHaveBeenCalledTimes(2);
     });
 
     it('skips a sequence whose table was not in the backup', async () => {

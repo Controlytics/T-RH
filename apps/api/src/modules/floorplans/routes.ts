@@ -10,6 +10,7 @@ import { validateRoomPayload, roomGeometry, validateLinkPayload, floorplanSchema
 import { sharedEdges, rectanglePoints, type Point, type Polygon } from '@digilog/shared';
 import { getRoomHistory, HISTORY_WINDOWS, type HistoryWindow } from './room-history.js';
 import { resolveVisibility } from '../instruments/visibility.js';
+import { REDRAW_ROOM_SELECT, REDRAW_LINK_SELECT, carriedLimits, deleteLinksAudited } from './redraw.js';
 
 /**
  * Floorplans, their rooms, and which instruments sit in each.
@@ -154,6 +155,21 @@ function polygonOf(room: { x: number; y: number; w: number; h: number; points: u
 }
 
 /**
+ * An OPENING fits when the from-room's edge `fromEdge` really lies along the
+ * to-room's wall and the opening is inside that shared stretch. The ONE rule,
+ * used when a link is written AND when either of its rooms is reshaped.
+ */
+function openingFits(from: Polygon, to: Polygon, fromEdge: number, offset: number, width: number): boolean {
+  return sharedEdges(from, to).some((s) =>
+    s.aEdge === fromEdge && s.start - 1e-9 <= offset && offset + width <= s.end + 1e-9);
+}
+
+/** A refusal raised inside a transaction, sent as-is by the route (and the transaction rolled back). */
+class RouteRefusal extends Error {
+  constructor(public status: number, public body: { error: string; message: string }) { super(body.message); }
+}
+
+/**
  * A plan refusal the browser can SHOW (review, 2026-10-05): the client toasts
  * `message` and falls back to the bare code, so a 400 with only `details`
  * read "Save failed: VALIDATION_ERROR" on screen. The first few issues, each
@@ -172,6 +188,11 @@ const planProps = {
   imageHeight: { type: 'integer' },
   isActive: { type: 'boolean' },
   sortOrder: { type: 'integer' },
+  // The plan's VERSION for an optimistic write (audit 2026-10-12 finding 4):
+  // the Layout Designer sends back the value it loaded as `expectedUpdatedAt`
+  // and a plan changed since is refused 409 STALE. Declared, or Fastify strips
+  // it and the client can never send it back.
+  updatedAt: { type: 'string', format: 'date-time' },
   // Everything on the plan that is not a room. NULL on a generated plan, and
   // the dashboard draws no legend when it is absent. Declared here because
   // Fastify strips undeclared response properties — the same omission has cost
@@ -217,8 +238,14 @@ const planProps = {
 export default async function floorplanRoutes(app: FastifyInstance) {
   // ───────────────────────────── Plans ─────────────────────────────
 
+  // The DASHBOARD reads this list (`use-telemetry.ts`) to draw its floors, so
+  // the dashboard node's gate, DASHBOARD_VIEW, reads it too (audit 2026-10-12
+  // finding 5: a DASHBOARD_VIEW + INSTRUMENT_READ role was 403'd and the
+  // dashboard said "No floor layout yet"). It carries geometry and room limits,
+  // no instruments. `GET /:id` (instruments per room, the editor's) and every
+  // write stay CONFIG_*.
   app.get('/', {
-    preHandler: [app.requirePermission('CONFIG_READ')],
+    preHandler: [app.requireAnyPermission('CONFIG_READ', 'DASHBOARD_VIEW')],
     schema: {
       tags: ['Floorplans'],
       summary: 'List floorplans with their rooms',
@@ -344,6 +371,19 @@ export default async function floorplanRoutes(app: FastifyInstance) {
     const before = await prisma.floorplan.findUnique({ where: { id } });
     if (!before) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Floorplan not found.' });
 
+    // `expectedUpdatedAt` — the version the caller loaded (read before the zod
+    // parse, which strips keys it does not name). Optional: the draw scripts
+    // and any caller that sends none are not checked. Given, it must be a
+    // readable instant — an unreadable one is refused, never ignored.
+    const rawExpected = ((req.body ?? {}) as Record<string, unknown>).expectedUpdatedAt;
+    let expected: Date | null = null;
+    if (rawExpected !== undefined && rawExpected !== null) {
+      expected = typeof rawExpected === 'string' ? new Date(rawExpected) : new Date(NaN);
+      if (Number.isNaN(expected.getTime())) {
+        return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'expectedUpdatedAt must be the plan\'s updatedAt as it was loaded.' });
+      }
+    }
+
     const parsed = floorplanUpdateSchema.safeParse(
       sanitizeStrings((req.body ?? {}) as Record<string, unknown>, IDENTITY_FIELDS),
     );
@@ -352,21 +392,35 @@ export default async function floorplanRoutes(app: FastifyInstance) {
     }
 
     try {
-      const after = await prisma.floorplan.update({
-        where: { id },
-        data: { ...parsed.data, annotations: parsed.data.annotations as Prisma.InputJsonValue | undefined, updatedBy: ctx.userId },
+      // The version check and the write are ONE statement (`updateMany` on
+      // id AND updatedAt), so two editors that loaded the same version cannot
+      // both pass a read-then-write check. `annotations` is replaced WHOLE,
+      // which is why a lost update here silently erased the other editor's
+      // layer (audit 2026-10-12 finding 4). Change and audit in one transaction.
+      const after = await prisma.$transaction(async (tx) => {
+        const data = { ...parsed.data, annotations: parsed.data.annotations as Prisma.InputJsonValue | undefined, updatedBy: ctx.userId };
+        const { count } = await tx.floorplan.updateMany({ where: { id, ...(expected ? { updatedAt: expected } : {}) }, data });
+        if (count === 0) return null;
+        const row = await tx.floorplan.findUniqueOrThrow({ where: { id } });
+        await auditLog({
+          userId: ctx.userId, userRole: ctx.userRole,
+          action: 'FLOORPLAN_UPDATED',
+          targetType: 'floorplan', targetId: id,
+          // The 2D layer as a SUMMARY (style, counts, floor, north — 2026-10-05):
+          // the arrays are hundreds of coordinates nobody can diff on a §11 row.
+          beforeValue: { name: before.name, isActive: before.isActive, sortOrder: before.sortOrder, annotations: annotationsSummary(before.annotations) },
+          afterValue: { name: row.name, isActive: row.isActive, sortOrder: row.sortOrder, annotations: annotationsSummary(row.annotations) },
+          signatureMeaning: `Floorplan "${row.name}" updated`,
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, tx);
+        return row;
       });
-      await auditLog({
-        userId: ctx.userId, userRole: ctx.userRole,
-        action: 'FLOORPLAN_UPDATED',
-        targetType: 'floorplan', targetId: id,
-        // The 2D layer as a SUMMARY (style, counts, floor, north — 2026-10-05):
-        // the arrays are hundreds of coordinates nobody can diff on a §11 row.
-        beforeValue: { name: before.name, isActive: before.isActive, sortOrder: before.sortOrder, annotations: annotationsSummary(before.annotations) },
-        afterValue: { name: after.name, isActive: after.isActive, sortOrder: after.sortOrder, annotations: annotationsSummary(after.annotations) },
-        signatureMeaning: `Floorplan "${after.name}" updated`,
-        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
-      });
+      if (!after) {
+        return reply.code(409).send({
+          error: 'STALE',
+          message: 'This plan was changed by someone else since you opened it. Reload it and make your change again.',
+        });
+      }
       return after;
     } catch (err) {
       if ((err as { code?: string }).code === 'P2002') {
@@ -390,24 +444,38 @@ export default async function floorplanRoutes(app: FastifyInstance) {
 
     const { id } = req.params as { id: string };
     const ctx = buildContext(req);
-    const before = await prisma.floorplan.findUnique({
-      where: { id },
-      include: { rooms: { select: { id: true, code: true } } },
-    });
-    if (!before) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Floorplan not found.' });
+    const who = { userId: ctx.userId, userRole: ctx.userRole, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId };
 
-    // Rooms cascade. Instruments in them are UNLINKED, never deleted
-    // (Instrument.roomId is ON DELETE SET NULL) — they reappear in the
-    // dashboard's "not placed" tray rather than vanishing with the plan.
-    await prisma.floorplan.delete({ where: { id } });
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'FLOORPLAN_DELETED',
-      targetType: 'floorplan', targetId: id,
-      beforeValue: { name: before.name, rooms: before.rooms.map((r) => r.code) },
-      signatureMeaning: `Floorplan "${before.name}" deleted with ${before.rooms.length} room(s)`,
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    // ONE transaction (audit 2026-10-12 finding 6): the links are deleted
+    // explicitly first, one FLOORPLAN_LINK_DELETED row each — by cascade they
+    // would go unrecorded — then the plan. Rooms cascade with it; instruments
+    // in them are UNLINKED, never deleted (Instrument.roomId is ON DELETE SET
+    // NULL) and reappear in the dashboard's "not placed" tray, so the plan's
+    // row names them and each room's limits (the quality specification lost).
+    const found = await prisma.$transaction(async (tx) => {
+      const before = await tx.floorplan.findUnique({
+        where: { id },
+        select: { name: true, rooms: { select: REDRAW_ROOM_SELECT, orderBy: { code: 'asc' } }, links: { select: REDRAW_LINK_SELECT } },
+      });
+      if (!before) return null;
+      const links = await deleteLinksAudited(tx, before.links, { planName: before.name, audit: who, why: `floorplan "${before.name}" deleted` });
+      await tx.floorplan.delete({ where: { id } });
+      const unplaced = before.rooms.flatMap((r) => r.instruments.map((i) => i.code));
+      await auditLog({
+        ...who,
+        action: 'FLOORPLAN_DELETED',
+        targetType: 'floorplan', targetId: id,
+        beforeValue: {
+          name: before.name,
+          rooms: before.rooms.map((r) => ({ code: r.code, label: r.label, limits: carriedLimits(r), instruments: r.instruments.map((i) => i.code) })),
+          links,
+          instrumentsUnplaced: unplaced,
+        },
+        signatureMeaning: `Floorplan "${before.name}" deleted with ${before.rooms.length} room(s); ${unplaced.length} instrument(s) unplaced`,
+      }, tx);
+      return true;
     });
+    if (!found) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Floorplan not found.' });
     return reply.code(204).send();
   });
 
@@ -505,7 +573,9 @@ export default async function floorplanRoutes(app: FastifyInstance) {
     // stripHtml would blank "NMT 25 <per SOP-114>" out of a regulated record.
     const rawBody = sanitizeStrings((req.body ?? {}) as Record<string, unknown>, [...IDENTITY_FIELDS, 'reason']);
     const reason = typeof rawBody.reason === 'string' ? rawBody.reason.trim() : '';
-    const result = validateRoomPayload(rawBody);
+    // Doors are checked against the outline the room will HAVE: the sent
+    // `points`, else the stored polygon an omitted `points` keeps.
+    const result = validateRoomPayload(rawBody, Array.isArray(before.points) ? (before.points as unknown as Point[]) : null);
     if (!result.ok) return reply.code(400).send({ error: 'VALIDATION_ERROR', message: result.error });
 
     // A change to the room's LIMITS is a change to the quality specification
@@ -523,6 +593,27 @@ export default async function floorplanRoutes(app: FastifyInstance) {
       });
     }
 
+    // `linkEdges` — the room's OWN openings (links that start on it),
+    // re-indexed for the outline this request gives it (audit 2026-10-12
+    // finding 3). Inserting or deleting a corner renumbers the edges after
+    // it, and a merge replaces the outline; the Layout Designer works out
+    // where each opening now sits and sends it here, so the outline and the
+    // openings change in ONE transaction. Read before validation (zod strips it).
+    const rawLinkEdges = (req.body as Record<string, unknown> | undefined)?.linkEdges;
+    const linkEdges: { id: string; fromEdge: number; offset: number; width: number }[] = [];
+    if (rawLinkEdges !== undefined) {
+      const okShape = Array.isArray(rawLinkEdges) && rawLinkEdges.length <= 64 && rawLinkEdges.every((e) => {
+        const o = e as Record<string, unknown>;
+        return typeof o?.id === 'string' && Number.isInteger(o.fromEdge) && (o.fromEdge as number) >= 0
+          && typeof o.offset === 'number' && typeof o.width === 'number'
+          && o.offset >= 0 && o.width > 0 && o.offset + o.width <= 1 + 1e-9;
+      });
+      if (!okShape) {
+        return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'linkEdges: each entry needs id, fromEdge, offset and width on the wall.' });
+      }
+      linkEdges.push(...(rawLinkEdges as typeof linkEdges));
+    }
+
     try {
       // An OMITTED `doors` key must leave the stored column UNCHANGED — a
       // client that doesn't know about doors yet (or simply didn't touch them)
@@ -538,44 +629,91 @@ export default async function floorplanRoutes(app: FastifyInstance) {
       // An explicit null clears the polygon and the sent box stands.
       const storedPoints = Array.isArray(before.points) ? (before.points as unknown as Point[]) : null;
       const effectivePoints = points === undefined ? storedPoints : points;
-      const after = await prisma.floorplanRoom.update({
-        where: { id: roomId },
-        data: {
-          ...roomData,
-          ...roomGeometry({ ...result.data, points: effectivePoints }),
-          ...(points !== undefined ? { points: points ?? Prisma.DbNull } : {}),
-          ...(doors !== undefined ? { doors: doorsForWrite(doors) } : {}),
-          updatedBy: ctx.userId,
-        },
-      });
-      // before/after carry the LIMITS explicitly: they are the quality
-      // specification, and an inspector must be able to read the change without
-      // diffing two opaque blobs.
-      await auditLog({
-        userId: ctx.userId, userRole: ctx.userRole,
-        action: 'FLOORPLAN_ROOM_UPDATED',
-        targetType: 'floorplan_room', targetId: roomId,
-        beforeValue: {
-          code: before.code, label: before.label,
-          geometry: { x: before.x, y: before.y, w: before.w, h: before.h, corners: Array.isArray(before.points) ? before.points.length : 4 },
-          limits: { tempMin: before.tempMin, tempMax: before.tempMax, rhMin: before.rhMin, rhMax: before.rhMax },
-          doors: doorSummary(before.doors),
-          grade: before.grade,
-        },
-        afterValue: {
-          code: after.code, label: after.label,
-          geometry: { x: after.x, y: after.y, w: after.w, h: after.h, corners: Array.isArray(after.points) ? after.points.length : 4 },
-          limits: { tempMin: after.tempMin, tempMax: after.tempMax, rhMin: after.rhMin, rhMax: after.rhMax },
-          doors: doorSummary(after.doors),
-          grade: after.grade,
-        },
-        // Stored whenever one was given, required when the limits moved.
-        reason: reason || undefined,
-        signatureMeaning: `Room "${after.code}" updated`,
-        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      const who = { userId: ctx.userId, userRole: ctx.userRole, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId };
+      // The room, its re-indexed openings and every audit row in ONE
+      // transaction; any opening touching this room that no longer sits on a
+      // shared stretch of wall refuses the WHOLE change (409 LINK_OFF_WALL) —
+      // it used to be stored pointing at the wrong wall, or at no wall.
+      const touchingSelect = { ...linkSelect, fromRoom: { select: { code: true, x: true, y: true, w: true, h: true, points: true } }, toRoom: { select: { code: true, x: true, y: true, w: true, h: true, points: true } } } as const;
+      const after = await prisma.$transaction(async (tx) => {
+        // Which openings fit BEFORE this change: only an opening this change
+        // takes off its wall is refused. One already off its wall (stored before
+        // 2026-10-12 by the designer bug this check closes) must not lock the
+        // room against an unrelated save — a label, a limit, a door.
+        const fitBefore = new Set((await tx.floorplanRoomLink.findMany({
+          where: { floorplanId: id, kind: 'OPENING', OR: [{ fromRoomId: roomId }, { toRoomId: roomId }] },
+          select: touchingSelect,
+        })).filter((l) => openingFits(polygonOf(l.fromRoom), polygonOf(l.toRoom), l.fromEdge!, l.offset!, l.width!)).map((l) => l.id));
+        const row = await tx.floorplanRoom.update({
+          where: { id: roomId },
+          data: {
+            ...roomData,
+            ...roomGeometry({ ...result.data, points: effectivePoints }),
+            ...(points !== undefined ? { points: points ?? Prisma.DbNull } : {}),
+            ...(doors !== undefined ? { doors: doorsForWrite(doors) } : {}),
+            updatedBy: ctx.userId,
+          },
+        });
+
+        const touching = await tx.floorplanRoomLink.findMany({
+          where: { floorplanId: id, OR: [{ fromRoomId: roomId }, { toRoomId: roomId }] },
+          select: touchingSelect,
+        });
+        for (const e of linkEdges) {
+          const l = touching.find((t) => t.id === e.id);
+          if (!l || l.kind !== 'OPENING' || l.fromRoomId !== roomId) {
+            throw new RouteRefusal(400, { error: 'VALIDATION_ERROR', message: 'linkEdges names a link that is not an opening starting on this room.' });
+          }
+          const code = `${l.fromRoom.code} ↔ ${l.toRoom.code}`;
+          const upd = await tx.floorplanRoomLink.update({
+            where: { id: l.id }, data: { fromEdge: e.fromEdge, offset: e.offset, width: e.width, updatedBy: ctx.userId }, select: linkSelect,
+          });
+          await auditLog({
+            ...who, action: 'FLOORPLAN_LINK_UPDATED', targetType: 'floorplan_room_link', targetId: l.id,
+            beforeValue: linkAudit(l, code), afterValue: linkAudit(upd, code),
+            signatureMeaning: `Room link "${code}" moved with the outline of room "${row.code}"`,
+          }, tx);
+          Object.assign(l, { fromEdge: e.fromEdge, offset: e.offset, width: e.width });
+        }
+        const named = new Set(linkEdges.map((e) => e.id));
+        const off = touching.filter((l) => l.kind === 'OPENING' && (fitBefore.has(l.id) || named.has(l.id))
+          && !openingFits(polygonOf(l.fromRoom), polygonOf(l.toRoom), l.fromEdge!, l.offset!, l.width!));
+        if (off.length) {
+          throw new RouteRefusal(409, {
+            error: 'LINK_OFF_WALL',
+            message: `This change leaves ${off.length === 1 ? 'an opening' : `${off.length} openings`} off a shared wall: ${off.map((l) => `${l.fromRoom.code} ↔ ${l.toRoom.code}`).join(', ')}. Move or delete the opening first.`,
+          });
+        }
+        // before/after carry the LIMITS explicitly: they are the quality
+        // specification, and an inspector must be able to read the change without
+        // diffing two opaque blobs.
+        await auditLog({
+          ...who,
+          action: 'FLOORPLAN_ROOM_UPDATED',
+          targetType: 'floorplan_room', targetId: roomId,
+          beforeValue: {
+            code: before.code, label: before.label,
+            geometry: { x: before.x, y: before.y, w: before.w, h: before.h, corners: Array.isArray(before.points) ? before.points.length : 4 },
+            limits: { tempMin: before.tempMin, tempMax: before.tempMax, rhMin: before.rhMin, rhMax: before.rhMax },
+            doors: doorSummary(before.doors),
+            grade: before.grade,
+          },
+          afterValue: {
+            code: row.code, label: row.label,
+            geometry: { x: row.x, y: row.y, w: row.w, h: row.h, corners: Array.isArray(row.points) ? row.points.length : 4 },
+            limits: { tempMin: row.tempMin, tempMax: row.tempMax, rhMin: row.rhMin, rhMax: row.rhMax },
+            doors: doorSummary(row.doors),
+            grade: row.grade,
+          },
+          // Stored whenever one was given, required when the limits moved.
+          reason: reason || undefined,
+          signatureMeaning: `Room "${row.code}" updated`,
+        }, tx);
+        return row;
       });
       return after;
     } catch (err) {
+      if (err instanceof RouteRefusal) return reply.code(err.status).send(err.body);
       if ((err as { code?: string }).code === 'P2002') {
         return reply.code(409).send({
           error: 'DUPLICATE_CODE',
@@ -606,29 +744,43 @@ export default async function floorplanRoutes(app: FastifyInstance) {
 
     const { id, roomId } = req.params as { id: string; roomId: string };
     const ctx = buildContext(req);
-    const before = await prisma.floorplanRoom.findFirst({
-      where: { id: roomId, floorplanId: id },
-      include: { instruments: { select: { id: true, code: true } } },
+    const who = { userId: ctx.userId, userRole: ctx.userRole, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId };
+
+    // ONE transaction (audit 2026-10-12 finding 6): the room's links — either
+    // end — are deleted explicitly first, one FLOORPLAN_LINK_DELETED row each
+    // (by cascade they would go unrecorded; a Layout Designer MERGE deletes
+    // room B through this route too), then the room, then its row.
+    const found = await prisma.$transaction(async (tx) => {
+      const before = await tx.floorplanRoom.findFirst({
+        where: { id: roomId, floorplanId: id },
+        include: { instruments: { select: { id: true, code: true } }, floorplan: { select: { name: true } } },
+      });
+      if (!before) return false;
+      const links = await tx.floorplanRoomLink.findMany({
+        where: { OR: [{ fromRoomId: roomId }, { toRoomId: roomId }] },
+        select: REDRAW_LINK_SELECT,
+      });
+      const linkCodes = await deleteLinksAudited(tx, links, { planName: before.floorplan.name, audit: who, why: `room "${before.code}" deleted` });
+      await tx.floorplanRoom.delete({ where: { id: roomId } });
+      await auditLog({
+        ...who,
+        action: 'FLOORPLAN_ROOM_DELETED',
+        targetType: 'floorplan_room', targetId: roomId,
+        beforeValue: {
+          code: before.code, label: before.label,
+          limits: { tempMin: before.tempMin, tempMax: before.tempMax, rhMin: before.rhMin, rhMax: before.rhMax },
+          // Named, because deleting the room unplaces every one of them.
+          instruments: before.instruments.map((i) => i.code),
+          links: linkCodes,
+        },
+        signatureMeaning:
+          `Room "${before.code}" deleted; ${before.instruments.length} instrument(s) unplaced`,
+      }, tx);
+      return true;
     });
-    if (!before) {
+    if (!found) {
       return reply.code(404).send({ error: 'NOT_FOUND', message: 'Room not found on this floorplan.' });
     }
-
-    await prisma.floorplanRoom.delete({ where: { id: roomId } });
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'FLOORPLAN_ROOM_DELETED',
-      targetType: 'floorplan_room', targetId: roomId,
-      beforeValue: {
-        code: before.code, label: before.label,
-        limits: { tempMin: before.tempMin, tempMax: before.tempMax, rhMin: before.rhMin, rhMax: before.rhMax },
-        // Named, because deleting the room unplaces every one of them.
-        instruments: before.instruments.map((i) => i.code),
-      },
-      signatureMeaning:
-        `Room "${before.code}" deleted; ${before.instruments.length} instrument(s) unplaced`,
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
-    });
     return reply.code(204).send();
   });
 
@@ -663,9 +815,7 @@ export default async function floorplanRoutes(app: FastifyInstance) {
       return null;
     }
     if (l.kind === 'OPENING') {
-      const shared = sharedEdges(polygonOf(from), polygonOf(to)).find((s) =>
-        s.aEdge === l.fromEdge && s.start - 1e-9 <= l.offset! && l.offset! + l.width! <= s.end + 1e-9);
-      if (!shared) {
+      if (!openingFits(polygonOf(from), polygonOf(to), l.fromEdge!, l.offset!, l.width!)) {
         reply.code(400).send({ error: 'NOT_ADJACENT', message: `"${from.code}" and "${to.code}" do not share that stretch of wall.` });
         return null;
       }
@@ -934,19 +1084,52 @@ export default async function floorplanRoutes(app: FastifyInstance) {
       .filter((i) => i.room && i.room.id !== roomId)
       .map((i) => ({ id: i.id, code: i.code, fromRoom: i.room }));
 
-    await prisma.$transaction([
-      prisma.instrument.updateMany({ where: { roomId }, data: { roomId: null } }),
-      prisma.instrument.updateMany({ where: { id: { in: wanted } }, data: { roomId } }),
-    ]);
+    // The change and every audit row in ONE transaction. A move changes TWO
+    // rooms, so the source room gets its own row too, naming what left and
+    // where it went, and the target's row names where each one came from —
+    // the functional-location twin's `movedFromElsewhere` (audit 2026-10-12
+    // finding 9: the source room's membership changed with no row on it).
+    const who = { userId: ctx.userId, userRole: ctx.userRole, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId };
+    const sources = new Map<string, { code: string; leaving: string[] }>();
+    for (const m of moved) {
+      const src = sources.get(m.fromRoom!.id) ?? { code: m.fromRoom!.code, leaving: [] };
+      src.leaving.push(m.code);
+      sources.set(m.fromRoom!.id, src);
+    }
+    await prisma.$transaction(async (tx) => {
+      const sourceBefore = await tx.floorplanRoom.findMany({
+        where: { id: { in: [...sources.keys()] } },
+        select: { id: true, instruments: { select: { code: true }, orderBy: { code: 'asc' } } },
+      });
+      await tx.instrument.updateMany({ where: { roomId }, data: { roomId: null } });
+      await tx.instrument.updateMany({ where: { id: { in: wanted } }, data: { roomId } });
 
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'FLOORPLAN_ROOM_UPDATED',
-      targetType: 'floorplan_room', targetId: roomId,
-      beforeValue: { code: room.code, instruments: room.instruments.map((i) => i.code) },
-      afterValue: { code: room.code, instruments: found.map((i) => i.code) },
-      signatureMeaning: `Room "${room.code}" membership set to ${found.length} instrument(s)`,
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      await auditLog({
+        ...who,
+        action: 'FLOORPLAN_ROOM_UPDATED',
+        targetType: 'floorplan_room', targetId: roomId,
+        beforeValue: { code: room.code, instruments: room.instruments.map((i) => i.code) },
+        afterValue: {
+          code: room.code, instruments: found.map((i) => i.code),
+          movedFrom: moved.map((m) => ({ instrument: m.code, room: m.fromRoom!.code })),
+        },
+        signatureMeaning: `Room "${room.code}" membership set to ${found.length} instrument(s)`,
+      }, tx);
+      for (const sb of sourceBefore) {
+        const src = sources.get(sb.id)!;
+        const before = sb.instruments.map((i) => i.code);
+        await auditLog({
+          ...who,
+          action: 'FLOORPLAN_ROOM_UPDATED',
+          targetType: 'floorplan_room', targetId: sb.id,
+          beforeValue: { code: src.code, instruments: before },
+          afterValue: {
+            code: src.code, instruments: before.filter((c) => !src.leaving.includes(c)),
+            movedTo: src.leaving.map((c) => ({ instrument: c, room: room.code })),
+          },
+          signatureMeaning: `${src.leaving.length} instrument(s) moved from room "${src.code}" to room "${room.code}"`,
+        }, tx);
+      }
     });
 
     return { roomId, instrumentIds: wanted, moved };

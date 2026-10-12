@@ -20,6 +20,7 @@ import { PlanPropertiesPanel } from './plan-panel';
 import { StructurePropertiesPanel, type StructureElement } from './structure-panel';
 import { limitChanges, numOrNull } from './room-limits';
 import { RemarkDialog, type RemarkChange } from '@/routes/instruments/remark-dialog';
+import { insertCornerMap, deleteCornerMap, geometricMap, remapDoors, remapOpenings, type SpanMap } from './reindex';
 
 /**
  * LAYOUT DESIGNER (2026-09-22). Replaces the Floorplans editor at the same
@@ -101,6 +102,15 @@ export function LayoutDesignerPage() {
   // follows the server once it answers, and runs ahead of it in between.
   const latestAnnotations = useRef(annotations);
   useEffect(() => { latestAnnotations.current = annotations; }, [annotations]);
+  // The plan VERSION the layer was loaded at (audit 2026-10-12 finding 4): sent
+  // as `expectedUpdatedAt`, so a plan someone else saved since is refused 409
+  // STALE instead of being overwritten whole. Follows the server; a successful
+  // save moves it to the version that save produced.
+  const planVersion = useRef<string | undefined>(plan?.updatedAt);
+  useEffect(() => { planVersion.current = plan?.updatedAt; }, [plan?.id, plan?.updatedAt]);
+  // ONE layer save at a time; later edits wait in the queue (see saveAnnotations).
+  const annotationsInFlight = useRef(false);
+  const annotationsQueue = useRef<{ build: (base: DesignerAnnotations) => DesignerAnnotations; done: { title: string; message?: string } | null; onDone?: (next: DesignerAnnotations, base: DesignerAnnotations) => void }[]>([]);
   const arch = isArchitectural(plan);
   const tools = arch ? [...BASE_TOOLS, ...STRUCTURE_TOOLS] : BASE_TOOLS;
   const selectedStructure = state.selection?.kind === 'structure' ? state.selection : null;
@@ -119,7 +129,7 @@ export function LayoutDesignerPage() {
   }, [selectedRoomId, plan, planDetail]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── One place every audited write goes through ─────────────────────────────
-  const run = (action: 'UPDATE_FLOORPLAN' | 'UPDATE_FLOORPLAN_ROOM', work: (password?: string) => Promise<void>, done: { title: string; message?: string } | null, onDone?: () => void) => {
+  const run = (action: 'UPDATE_FLOORPLAN' | 'UPDATE_FLOORPLAN_ROOM', work: (password?: string) => Promise<void>, done: { title: string; message?: string } | null, onDone?: () => void, onFail?: (e: unknown) => void) => {
     setSaving(true);
     reauth.execute(action, work, {
       onSuccess: async () => {
@@ -130,37 +140,75 @@ export function LayoutDesignerPage() {
       },
       onError: (e: unknown) => {
         setSaving(false);
-        toast.error('Save failed', (e as { message?: string })?.message ?? 'The change was not saved.');
+        onFail?.(e);
+        const err = e as { error?: string; message?: string } | null;
+        if (err?.error === 'STALE') toast.error('Plan changed elsewhere', 'Someone saved this plan after you opened it. It has been reloaded; make your change again.');
+        else toast.error('Save failed', err?.message ?? 'The change was not saved.');
         void Promise.all([mutatePlans(), mutateDetail()]); // a failed geometry save springs the room back
       },
-      onCancel: () => setSaving(false),
+      onCancel: () => { setSaving(false); onFail?.(null); },
     });
   };
   const put = <T,>(url: string, body: unknown, password?: string) => (password ? apiClient.putWithReauth<T>(url, body, password) : apiClient.put<T>(url, body));
   const post = <T,>(url: string, body: unknown, password?: string) => (password ? apiClient.postWithReauth<T>(url, body, password) : apiClient.post<T>(url, body));
   const del = (url: string, password?: string) => (password ? apiClient.deleteWithReauth(url, password) : apiClient.delete(url));
 
-  /** The ONE write of the 2D layer: the whole object, replaced (the `doors` rule). */
-  const saveAnnotations = (next: DesignerAnnotations, done: { title: string; message?: string } | null, onDone?: () => void) => {
+  /**
+   * The ONE write of the 2D layer: the whole object, replaced (the `doors` rule).
+   *
+   * Audit 2026-10-12 finding 4. Each save sends the plan version it builds on
+   * (`expectedUpdatedAt`; a plan someone else saved since is refused 409
+   * STALE). Saves are SERIALISED: an edit made while one is in flight waits
+   * its turn and is BUILT then, from the layer as the previous save left it
+   * (`build(base)`), so it carries the earlier edit and the version that save
+   * produced. A save that is cancelled or refused is ROLLED BACK — the layer
+   * returns to what the server has — and the edits queued behind it, built on
+   * a change that never landed, are dropped and the user told.
+   */
+  type LayerSave = { build: (base: DesignerAnnotations) => DesignerAnnotations; done: { title: string; message?: string } | null; onDone?: (next: DesignerAnnotations, base: DesignerAnnotations) => void };
+  const saveAnnotations = (build: LayerSave['build'], done: LayerSave['done'], onDone?: LayerSave['onDone']) => {
     if (!plan) return;
+    if (annotationsInFlight.current) { annotationsQueue.current.push({ build, done, onDone }); return; }
+    annotationsInFlight.current = true;
+    const prev = latestAnnotations.current;
+    const next = build(prev);
     latestAnnotations.current = next;
-    run('UPDATE_FLOORPLAN', async (pw) => { await put(`/api/floorplans/${plan.id}`, { annotations: next }, pw); }, done, onDone);
+    run('UPDATE_FLOORPLAN', async (pw) => {
+      const saved = await put<{ updatedAt?: string }>(`/api/floorplans/${plan.id}`, { annotations: next, expectedUpdatedAt: planVersion.current }, pw);
+      if (saved?.updatedAt) planVersion.current = saved.updatedAt;
+    }, done, () => {
+      annotationsInFlight.current = false;
+      onDone?.(next, prev);
+      const queued = annotationsQueue.current.shift();
+      if (queued) saveAnnotations(queued.build, queued.done, queued.onDone);
+    }, () => {
+      annotationsInFlight.current = false;
+      latestAnnotations.current = prev;
+      const dropped = annotationsQueue.current.length;
+      annotationsQueue.current = [];
+      if (dropped) dispatch({ type: 'flash', message: `${dropped} later change(s) to the plan were not saved, because the one before them was not.` });
+    });
   };
   const addStructure = (layer: StructureLayer, element: StructureElement) => {
-    const base = latestAnnotations.current;
-    const next = { ...base, [layer]: [...base[layer], element] } as DesignerAnnotations;
-    saveAnnotations(next, null, () => dispatch({ type: 'select', selection: { kind: 'structure', layer, index: base[layer].length } }));
+    saveAnnotations(
+      (base) => ({ ...base, [layer]: [...base[layer], element] } as DesignerAnnotations),
+      null,
+      (_next, base) => dispatch({ type: 'select', selection: { kind: 'structure', layer, index: base[layer].length } }),
+    );
   };
   const updateStructure = (layer: StructureLayer, index: number, element: StructureElement) => {
-    const base = latestAnnotations.current;
-    const list = [...base[layer]] as StructureElement[];
-    list[index] = element;
-    saveAnnotations({ ...base, [layer]: list } as DesignerAnnotations, null);
+    saveAnnotations((base) => {
+      const list = [...base[layer]] as StructureElement[];
+      list[index] = element;
+      return { ...base, [layer]: list } as DesignerAnnotations;
+    }, null);
   };
   const removeStructure = (layer: StructureLayer, index: number) => {
-    const base = latestAnnotations.current;
-    const list = (base[layer] as StructureElement[]).filter((_, i) => i !== index);
-    saveAnnotations({ ...base, [layer]: list } as DesignerAnnotations, { title: 'Element removed' }, () => dispatch({ type: 'select', selection: null }));
+    saveAnnotations(
+      (base) => ({ ...base, [layer]: (base[layer] as StructureElement[]).filter((_, i) => i !== index) } as DesignerAnnotations),
+      { title: 'Element removed' },
+      () => dispatch({ type: 'select', selection: null }),
+    );
   };
 
   const roomBody = (room: DesignerRoom, f: RoomForm, points: Polygon | null) => {
@@ -300,13 +348,42 @@ export function LayoutDesignerPage() {
     }, { title: 'Room saved', message: `"${body.code}" saved on ${plan.name}.` });
   };
 
-  /** A geometry change: the stored room with new corners, saved on release. */
-  const saveGeometry = (roomId: string, points: Polygon) => {
+  /**
+   * A geometry change: the stored room with new corners, saved on release.
+   * With `map` — the outline's edges were RENUMBERED (a corner added or
+   * deleted) — every door and every opening that starts on this room moves
+   * with its wall, in the same request (`linkEdges`), or the change is
+   * refused here when an opening would sit on no wall (audit 2026-10-12
+   * finding 3). A move or a corner drag keeps the numbering and sends none.
+   */
+  const saveGeometry = (roomId: string, points: Polygon, map?: SpanMap) => {
     if (!plan) return;
     const room = plan.rooms.find((r) => r.id === roomId);
     if (!room) return;
-    const body = roomBody(room, formOf(room), points);
+    let form = formOf(room);
+    let linkEdges: { id: string; fromEdge: number; offset: number; width: number }[] = [];
+    if (map) {
+      const old = roomPolygon(room);
+      const openings = remapOpenings(plan.links, room.id, map);
+      if (openings.off.length) {
+        dispatch({ type: 'flash', message: `That change takes ${openings.off.map((l) => `${codeOfSafe(l.fromRoomId)} ↔ ${codeOfSafe(l.toRoomId)}`).join(', ')} off its wall. Delete the opening first.` });
+        return;
+      }
+      const moved = remapDoors(room.doors ?? [], old, map);
+      if (moved.dropped && !window.confirm(`${moved.dropped} door(s) of "${room.code}" no longer sit on one wall of the new outline and will be removed. Continue?`)) return;
+      form = { ...form, doors: moved.doors };
+      linkEdges = openings.linkEdges;
+    }
+    const body = { ...roomBody(room, form, points), ...(linkEdges.length ? { linkEdges } : {}) };
     run('UPDATE_FLOORPLAN_ROOM', async (pw) => { await put(`/api/floorplans/${plan.id}/rooms/${room.id}`, body, pw); }, null);
+  };
+
+  /** A corner added on `edge` (double-click a wall): the edges after it are renumbered. */
+  const insertCorner = (roomId: string, edge: number, point: { x: number; y: number }) => {
+    const room = plan?.rooms.find((r) => r.id === roomId);
+    if (!room) return;
+    const poly = roomPolygon(room);
+    saveGeometry(roomId, [...poly.slice(0, edge + 1), point, ...poly.slice(edge + 1)], insertCornerMap(poly, edge, point));
   };
 
   const placeDoor = (roomId: string, door: RoomDoor) => {
@@ -343,11 +420,32 @@ export function LayoutDesignerPage() {
   const mergePieces = () => {
     if (!plan || !selectedRoom || !mergeCandidate) return;
     const a = selectedRoom, b = mergeCandidate.other;
-    if (!window.confirm(`Merge "${b.code}" into "${a.code}"? Its instruments move to "${a.code}" and "${b.code}" is deleted.`)) return;
+    const union = mergeCandidate.union;
+    // The outline is REPLACED, so doors and openings are found again on it by
+    // geometry (finding 3): A's own, and B's doors too, wherever they still sit
+    // on a wall of the union. An opening between the two pieces is inside the
+    // merged room and is deleted (audited) first; B's other links go with B.
+    const between = plan.links.filter((l) => (l.fromRoomId === a.id && l.toRoomId === b.id) || (l.fromRoomId === b.id && l.toRoomId === a.id));
+    const bOther = plan.links.filter((l) => (l.fromRoomId === b.id || l.toRoomId === b.id) && !between.includes(l));
+    const openings = remapOpenings(plan.links.filter((l) => !between.includes(l)), a.id, geometricMap(roomPolygon(a), union));
+    if (openings.off.length) {
+      dispatch({ type: 'flash', message: `Merging takes ${openings.off.map((l) => `${codeOfSafe(l.fromRoomId)} ↔ ${codeOfSafe(l.toRoomId)}`).join(', ')} off its wall. Delete the opening first.` });
+      return;
+    }
+    const aDoors = remapDoors(a.doors ?? [], roomPolygon(a), geometricMap(roomPolygon(a), union));
+    const bDoors = remapDoors(b.doors ?? [], roomPolygon(b), geometricMap(roomPolygon(b), union));
+    const dropped = aDoors.dropped + bDoors.dropped;
+    const notes = [
+      dropped ? `${dropped} door(s) no longer on a wall are removed.` : null,
+      bOther.length ? `${bOther.length} link(s) of "${b.code}" are deleted with it.` : null,
+    ].filter(Boolean).join(' ');
+    if (!window.confirm(`Merge "${b.code}" into "${a.code}"? Its instruments move to "${a.code}" and "${b.code}" is deleted.${notes ? ` ${notes}` : ''}`)) return;
     const bInstruments = planDetail?.rooms.find((r) => r.id === b.id)?.instruments?.map((i) => i.id) ?? [];
     const aInstruments = planDetail?.rooms.find((r) => r.id === a.id)?.instruments?.map((i) => i.id) ?? [];
+    const body = { ...roomBody(a, { ...formOf(a), doors: [...aDoors.doors, ...bDoors.doors] }, union), ...(openings.linkEdges.length ? { linkEdges: openings.linkEdges } : {}) };
     run('UPDATE_FLOORPLAN_ROOM', async (pw) => {
-      await put(`/api/floorplans/${plan.id}/rooms/${a.id}`, roomBody(a, formOf(a), mergeCandidate.union), pw);
+      for (const l of between) await del(`/api/floorplans/${plan.id}/links/${l.id}`, pw);
+      await put(`/api/floorplans/${plan.id}/rooms/${a.id}`, body, pw);
       if (bInstruments.length) await saveMembership(a.id, [...aInstruments, ...bInstruments], pw);
       await del(`/api/floorplans/${plan.id}/rooms/${b.id}`, pw);
     }, { title: 'Pieces merged', message: `"${b.code}" is now part of "${a.code}".` });
@@ -390,7 +488,7 @@ export function LayoutDesignerPage() {
       const poly = roomPolygon(selectedRoom);
       if (poly.length <= 3) { dispatch({ type: 'flash', message: 'A room needs at least three corners.' }); return; }
       const idx = state.selection.index;
-      saveGeometry(selectedRoom.id, poly.filter((_, i) => i !== idx));
+      saveGeometry(selectedRoom.id, poly.filter((_, i) => i !== idx), deleteCornerMap(poly, idx));
       dispatch({ type: 'select', selection: { kind: 'room', roomId: selectedRoom.id } });
     } else if (state.selection.kind === 'door' && selectedRoom) {
       // Remove ONE door: the room's stored doors without that entry, saved at
@@ -531,7 +629,8 @@ export function LayoutDesignerPage() {
               showGrid={showGrid}
               onClosePolygon={closePolygon}
               onMoveRoom={saveGeometry}
-              onCornerChange={saveGeometry}
+              onCornerChange={(roomId, points) => saveGeometry(roomId, points)}
+              onInsertCorner={insertCorner}
               onPlaceDoor={placeDoor}
               onLink={createLink}
               annotations={annotations}
@@ -556,7 +655,7 @@ export function LayoutDesignerPage() {
         <PlanPropertiesPanel
           planName={plan.name} annotations={annotations} saving={saving}
           scriptDrawn={SCRIPT_DRAWN_PLANS.includes(plan.name)}
-          onSave={(next) => saveAnnotations(next, { title: 'Plan saved', message: `${plan.name}: ${next.style === 'architectural' ? '2D architectural' : 'standard'} style.` })}
+          onSave={(next) => saveAnnotations(() => next, { title: 'Plan saved', message: `${plan.name}: ${next.style === 'architectural' ? '2D architectural' : 'standard'} style.` })}
         />
       )}
       {plan && pending && (

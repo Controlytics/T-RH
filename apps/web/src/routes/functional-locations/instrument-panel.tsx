@@ -5,6 +5,7 @@ import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
+import type { useReauth } from '@/hooks/use-reauth';
 import { InstrumentTile } from './instrument-tile';
 import { DialogBanner } from './dialog-banner';
 
@@ -21,6 +22,8 @@ interface Props {
   locationPath: string;
   canEdit: boolean;
   onChanged: () => void;
+  /** The PAGE's re-auth: one ReauthDialog serves every write on the page. */
+  reauth: Pick<ReturnType<typeof useReauth>, 'executeWithResult'>;
 }
 
 /**
@@ -34,7 +37,7 @@ interface Props {
  * but it must never be silent: those rows show their current location and the
  * confirm step names every instrument being moved.
  */
-export function InstrumentPanel({ locationId, locationPath, canEdit, onChanged }: Props) {
+export function InstrumentPanel({ locationId, locationPath, canEdit, onChanged, reauth }: Props) {
   const { data, mutate } = useSWR<{ data: Linkable[] }>('/api/functional-locations/linkable-instruments');
   const { toast } = useToast();
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -62,13 +65,27 @@ export function InstrumentPanel({ locationId, locationPath, canEdit, onChanged }
     [candidates, selected, locationId],
   );
 
+  /**
+   * The ONE write: `PUT /:id/instruments`, re-authenticated when the role
+   * requires it (`enforceReauth('UPDATE_FUNCTIONAL_LOCATION')` on the route;
+   * this sent a bare PUT until 2026-10-12 and 401'd for such a role). The list
+   * sent is the caller's VISIBLE membership; the server leaves members outside
+   * the caller's scope untouched.
+   */
+  const write = (instrumentIds: string[]) => {
+    const url = `/api/functional-locations/${locationId}/instruments`;
+    return reauth.executeWithResult('UPDATE_FUNCTIONAL_LOCATION', async (pw?: string) => (
+      pw
+        ? apiClient.putWithReauth<{ linked: number; unlinked: number; moved: number }>(url, { instrumentIds }, pw)
+        : apiClient.put<{ linked: number; unlinked: number; moved: number }>(url, { instrumentIds })
+    ));
+  };
+  const cancelled = (e: unknown) => (e as { error?: string } | null)?.error === 'REAUTH_CANCELLED';
+
   const save = async () => {
     setSaving(true);
     try {
-      const res = await apiClient.put<{ linked: number; unlinked: number; moved: number }>(
-        `/api/functional-locations/${locationId}/instruments`,
-        { instrumentIds: [...selected] },
-      );
+      const res = await write([...selected]);
       const bits = [
         res.linked ? `${res.linked} linked` : null,
         res.unlinked ? `${res.unlinked} unlinked` : null,
@@ -79,7 +96,7 @@ export function InstrumentPanel({ locationId, locationPath, canEdit, onChanged }
       await mutate();
       onChanged();
     } catch (e) {
-      toast.error('Could not update instruments', (e as Error).message);
+      if (!cancelled(e)) toast.error('Could not update instruments', (e as Error).message);
     } finally {
       setSaving(false);
     }
@@ -87,14 +104,12 @@ export function InstrumentPanel({ locationId, locationPath, canEdit, onChanged }
 
   const unlink = async (inst: Linkable) => {
     try {
-      await apiClient.put(`/api/functional-locations/${locationId}/instruments`, {
-        instrumentIds: linked.filter((i) => i.id !== inst.id).map((i) => i.id),
-      });
+      await write(linked.filter((i) => i.id !== inst.id).map((i) => i.id));
       toast.success('Instrument unlinked', `"${inst.code}" no longer belongs to ${locationPath}.`);
       await mutate();
       onChanged();
     } catch (e) {
-      toast.error('Could not unlink', (e as Error).message);
+      if (!cancelled(e)) toast.error('Could not unlink', (e as Error).message);
     }
   };
 

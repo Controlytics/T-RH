@@ -281,7 +281,7 @@ export default async function userRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { id } = req.params as { id: string };
-    return userService.getById(id);
+    return userService.getById(id, req.user.role);
   });
 
   // PUT /api/users/:id — Update user
@@ -300,7 +300,8 @@ export default async function userRoutes(app: FastifyInstance) {
           // Format is enforced by updateUserSchema (Zod) only when non-empty.
           fullName: { type: 'string' }, email: { type: ['string', 'null'] },
           department: { type: 'string' }, role: { type: 'string' },
-          status: { type: 'string', enum: ['ENABLED', 'DISABLED'] },
+          // `status` is NOT accepted here (application review 2026-10-12, finding 4):
+          // userService.update refuses it with a 400 — use POST /:id/enable|disable.
         },
       },
       response: {

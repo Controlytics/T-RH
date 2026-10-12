@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type FastifyInstance } from 'fastify';
-import { buildApp, loginAs, authGet, authPost, authDelete, ADMIN_PASSWORD } from './test-helper.js';
+import { buildApp, loginAs, authGet, authPost, authPut, authDelete, ADMIN_PASSWORD } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 
 describe('Audit Trail endpoints', () => {
@@ -228,91 +228,184 @@ describe('Audit Trail endpoints', () => {
     });
   });
 
-  // ── Delete single audit record ───────────────────────────────────────
-  // Physical hard-delete (AUDIT_DELETE), re-added 2026-07-01. The endpoint
-  // itself disables the audit_trail_no_delete immutability trigger for the
-  // scope of its transaction (query pg_trigger → DISABLE → delete → ENABLE),
-  // so a DB with the trigger present (baseline/test) still deletes cleanly.
-  // A `reason` (>= 5 chars) is REQUIRED by the body schema. NOTE: these tests
-  // physically delete rows, breaking the hash chain in the test DB by design.
+  // ── Hard delete (AUDIT_DELETE) ──────────────────────────────────────
+  // Physical hard-delete, re-added 2026-07-01. Since 2026-10-12 it is the
+  // Configuration toggle "Audit Hard Delete" (`audit-hard-delete.enabled`),
+  // DEFAULT OFF — the AUDIT_HARD_DELETE_ENABLED env var is no longer read. The
+  // toggle is switched on for the delete tests and the original row is put
+  // back FIRST in afterAll. Each test deletes rows it CREATED: picking "the
+  // oldest of the newest ten" could pick a deletion's own meta row, which is
+  // never deletable (audit 2026-10-12 #6). NOTE: these tests physically delete
+  // rows, breaking the hash chain in the test DB by design.
 
-  describe('DELETE /api/audit/:id', () => {
-    it('deletes a single audit record', async () => {
-      const list = await fetchAuditRecords(10);
-      if (list.data.length === 0) return;
+  describe('hard delete', () => {
+    const KEY = 'audit-hard-delete';
+    let original: { configValue: unknown; configType: string; requiresReauth: boolean } | null = null;
+    const setToggle = (enabled: unknown) => prisma.systemConfig.upsert({
+      where: { configKey: KEY },
+      update: { configValue: { enabled } as never },
+      create: { configKey: KEY, configValue: { enabled } as never, configType: 'security', requiresReauth: false },
+    });
+    /** A throwaway audit row to delete, returned by id. */
+    async function scratchRow(tag: string): Promise<string> {
+      const { auditLog } = await import('../lib/audit.js');
+      const targetId = `hard-delete-${tag}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await auditLog({ userId: 'admin', userRole: 'SUPER_ADMIN', action: 'CONFIG_CHANGED', targetType: 'e2e-hard-delete', targetId });
+      return (await prisma.auditTrail.findFirstOrThrow({ where: { targetId }, select: { id: true } })).id;
+    }
 
-      const targetId = list.data[list.data.length - 1].id;
-      const res = await authDelete(app, `/api/audit/${targetId}`, adminToken, ADMIN_PASSWORD, { reason: 'e2e hard-delete test' });
-
-      expect(res.statusCode).toBe(200);
-      const body = JSON.parse(res.body);
-      expect(body.success).toBe(true);
-
-      const verifyRes = await authGet(app, `/api/audit/${targetId}`, adminToken);
-      expect(verifyRes.statusCode).toBe(404);
+    beforeAll(async () => {
+      const row = await prisma.systemConfig.findUnique({ where: { configKey: KEY } });
+      original = row ? { configValue: row.configValue, configType: row.configType, requiresReauth: row.requiresReauth } : null;
+    });
+    afterAll(async () => {
+      try {
+        if (original) await prisma.systemConfig.update({ where: { configKey: KEY }, data: original as never });
+        else await prisma.systemConfig.deleteMany({ where: { configKey: KEY } });
+      } catch (e) { console.error('audit-hard-delete restore failed', e); }
     });
 
-    it('returns 404 for a non-existent audit record', async () => {
-      const res = await authDelete(app, '/api/audit/00000000-0000-0000-0000-000000000000', adminToken, ADMIN_PASSWORD, { reason: 'e2e non-existent probe' });
-      expect(res.statusCode).toBe(404);
+    describe('the toggle', () => {
+      it('ships OFF: a fresh install seeds { enabled: false } and both routes answer 403, naming the toggle', async () => {
+        const { auditHardDeleteDef } = await import('../modules/config/defs/audit-hard-delete.def.js');
+        expect(auditHardDeleteDef.settings.find((s) => s.key === 'enabled')?.default).toBe(false);
+        await setToggle(false);
+        const id = await scratchRow('off');
+        const one = await authDelete(app, `/api/audit/${id}`, adminToken, ADMIN_PASSWORD, { reason: 'e2e toggle off probe' });
+        expect(one.statusCode).toBe(403);
+        expect(one.json().error).toBe('AUDIT_HARD_DELETE_DISABLED');
+        expect(one.json().message).toMatch(/Configuration → Audit Hard Delete/);
+        const bulk = await authPost(app, '/api/audit/bulk-delete', adminToken, { ids: [id], reason: 'e2e toggle off probe' }, ADMIN_PASSWORD);
+        expect(bulk.statusCode).toBe(403);
+        expect(await prisma.auditTrail.count({ where: { id } })).toBe(1);
+      });
+
+      it('an absent row is OFF too', async () => {
+        await prisma.systemConfig.deleteMany({ where: { configKey: KEY } });
+        const id = await scratchRow('absent');
+        const res = await authDelete(app, `/api/audit/${id}`, adminToken, ADMIN_PASSWORD, { reason: 'e2e toggle absent probe' });
+        expect(res.statusCode).toBe(403);
+      });
+
+      it('is switched through the generic dynamic PUT, SUPER_ADMIN-only, writing CONFIG_CHANGED', async () => {
+        const res = await authPut(app, `/api/config/dynamic/${KEY}`, adminToken, { enabled: true }, ADMIN_PASSWORD);
+        expect(res.statusCode).toBe(200);
+        const row = await prisma.systemConfig.findUnique({ where: { configKey: KEY } });
+        expect(row?.configValue).toEqual({ enabled: true });
+        const audit = await prisma.auditTrail.findFirst({ where: { action: 'CONFIG_CHANGED', targetId: KEY }, orderBy: { chainPosition: 'desc' } });
+        expect(audit?.afterValue).toEqual({ enabled: true });
+        // A non-boolean is refused, not stored.
+        const bad = await authPut(app, `/api/config/dynamic/${KEY}`, adminToken, { enabled: 'yes' }, ADMIN_PASSWORD);
+        expect(bad.statusCode).toBe(400);
+      });
     });
 
-    it('rejects a missing reason (schema requires reason)', async () => {
-      const list = await fetchAuditRecords(10);
-      if (list.data.length === 0) return;
-      const targetId = list.data[list.data.length - 1].id;
-      const res = await authDelete(app, `/api/audit/${targetId}`, adminToken, ADMIN_PASSWORD);
-      expect(res.statusCode).toBe(400);
-    });
-  });
+    describe('DELETE /api/audit/:id', () => {
+      beforeAll(async () => { await setToggle(true); });
 
-  // ── Bulk delete audit records ──────────────────────────────────────
+      it('deletes a single audit record', async () => {
+        const targetId = await scratchRow('single');
+        const res = await authDelete(app, `/api/audit/${targetId}`, adminToken, ADMIN_PASSWORD, { reason: 'e2e hard-delete test' });
 
-  describe('POST /api/audit/bulk-delete', () => {
-    it('deletes multiple audit records', async () => {
-      const list = await fetchAuditRecords(10);
-      if (list.data.length < 2) return;
+        expect(res.statusCode).toBe(200);
+        const body = JSON.parse(res.body);
+        expect(body.success).toBe(true);
 
-      const ids = list.data.slice(-2).map((r) => r.id);
-      const res = await authPost(app, '/api/audit/bulk-delete', adminToken, { ids, reason: 'e2e bulk hard-delete' }, ADMIN_PASSWORD);
-
-      expect(res.statusCode).toBe(200);
-      const body = JSON.parse(res.body);
-      expect(body.success).toBe(true);
-      expect(typeof body.count).toBe('number');
-      expect(body.count).toBeGreaterThanOrEqual(1);
-
-      for (const id of ids) {
-        const verifyRes = await authGet(app, `/api/audit/${id}`, adminToken);
+        const verifyRes = await authGet(app, `/api/audit/${targetId}`, adminToken);
         expect(verifyRes.statusCode).toBe(404);
-      }
+      });
+
+      it('returns 404 for a non-existent audit record', async () => {
+        const res = await authDelete(app, '/api/audit/00000000-0000-0000-0000-000000000000', adminToken, ADMIN_PASSWORD, { reason: 'e2e non-existent probe' });
+        expect(res.statusCode).toBe(404);
+      });
+
+      it('rejects a missing reason (schema requires reason)', async () => {
+        const targetId = await scratchRow('noreason');
+        const res = await authDelete(app, `/api/audit/${targetId}`, adminToken, ADMIN_PASSWORD);
+        expect(res.statusCode).toBe(400);
+      });
+
+      // Audit 2026-10-12 #6: delete a row, then try to delete the
+      // AUDIT_RECORD_DELETED row that records it — the evidence must survive.
+      it('refuses to delete the record of a deletion, and of a redaction (409), even for SUPER_ADMIN', async () => {
+        const victim = await scratchRow('victim');
+        expect((await authDelete(app, `/api/audit/${victim}`, adminToken, ADMIN_PASSWORD, { reason: 'e2e first deletion' })).statusCode).toBe(200);
+        const meta = await prisma.auditTrail.findFirstOrThrow({ where: { action: 'AUDIT_RECORD_DELETED', targetId: victim } });
+        const res = await authDelete(app, `/api/audit/${meta.id}`, adminToken, ADMIN_PASSWORD, { reason: 'e2e erase the evidence' });
+        expect(res.statusCode).toBe(409);
+        expect(res.json().error).toBe('PROTECTED_AUDIT_RECORD');
+        expect(await prisma.auditTrail.count({ where: { id: meta.id } })).toBe(1);
+
+        const redactMe = await scratchRow('redact');
+        expect((await authPost(app, `/api/audit/${redactMe}/redact`, adminToken, { reason: 'e2e redaction' }, ADMIN_PASSWORD)).statusCode).toBe(200);
+        const redactMeta = await prisma.auditTrail.findFirstOrThrow({ where: { action: 'AUDIT_RECORD_REDACTED', targetId: redactMe } });
+        const r2 = await authDelete(app, `/api/audit/${redactMeta.id}`, adminToken, ADMIN_PASSWORD, { reason: 'e2e erase the redaction record' });
+        expect(r2.statusCode).toBe(409);
+        expect(await prisma.auditTrail.count({ where: { id: redactMeta.id } })).toBe(1);
+      });
     });
 
-    it('returns 404 when none of the IDs exist', async () => {
-      // ids must be UUID strings (auditTrail.id is uuid). Numeric ids
-      // cause the Fastify schema validator to 400 before the route runs.
-      const res = await authPost(
-        app,
-        '/api/audit/bulk-delete',
-        adminToken,
-        { ids: ['00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002'], reason: 'e2e no-match probe' },
-        ADMIN_PASSWORD,
-      );
+    // ── Bulk delete audit records ──────────────────────────────────────
 
-      // No matching rows → NO_MATCHING_RECORDS
-      expect(res.statusCode).toBe(404);
-    });
+    describe('POST /api/audit/bulk-delete', () => {
+      beforeAll(async () => { await setToggle(true); });
 
-    it('rejects an empty ids array', async () => {
-      const res = await authPost(
-        app,
-        '/api/audit/bulk-delete',
-        adminToken,
-        { ids: [], reason: 'e2e empty probe' },
-        ADMIN_PASSWORD,
-      );
-      // Schema requires minItems: 1 — Fastify should return 400
-      expect(res.statusCode).toBe(400);
+      it('deletes multiple audit records', async () => {
+        const ids = [await scratchRow('bulk-a'), await scratchRow('bulk-b')];
+        const res = await authPost(app, '/api/audit/bulk-delete', adminToken, { ids, reason: 'e2e bulk hard-delete' }, ADMIN_PASSWORD);
+
+        expect(res.statusCode).toBe(200);
+        const body = JSON.parse(res.body);
+        expect(body.success).toBe(true);
+        expect(body.count).toBe(2);
+
+        for (const id of ids) {
+          const verifyRes = await authGet(app, `/api/audit/${id}`, adminToken);
+          expect(verifyRes.statusCode).toBe(404);
+        }
+      });
+
+      it('refuses the WHOLE request (409, nothing deleted) when it names the record of a deletion', async () => {
+        const plain = await scratchRow('bulk-plain');
+        const victim = await scratchRow('bulk-victim');
+        expect((await authPost(app, '/api/audit/bulk-delete', adminToken, { ids: [victim], reason: 'e2e first bulk deletion' }, ADMIN_PASSWORD)).statusCode).toBe(200);
+        const meta = await prisma.auditTrail.findFirstOrThrow({
+          where: { action: 'AUDIT_RECORDS_BULK_DELETED', beforeValue: { path: ['records', '0', 'id'], equals: victim } },
+        });
+        const res = await authPost(app, '/api/audit/bulk-delete', adminToken, { ids: [plain, meta.id], reason: 'e2e erase the bulk evidence' }, ADMIN_PASSWORD);
+        expect(res.statusCode).toBe(409);
+        expect(res.json().error).toBe('PROTECTED_AUDIT_RECORD');
+        expect(res.json().message).toContain(meta.id);
+        expect(await prisma.auditTrail.count({ where: { id: { in: [plain, meta.id] } } })).toBe(2);
+      });
+
+      it('returns 404 when none of the IDs exist', async () => {
+        // ids must be UUID strings (auditTrail.id is uuid). Numeric ids
+        // cause the Fastify schema validator to 400 before the route runs.
+        const res = await authPost(
+          app,
+          '/api/audit/bulk-delete',
+          adminToken,
+          { ids: ['00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002'], reason: 'e2e no-match probe' },
+          ADMIN_PASSWORD,
+        );
+
+        // No matching rows → NO_MATCHING_RECORDS
+        expect(res.statusCode).toBe(404);
+      });
+
+      it('rejects an empty ids array', async () => {
+        const res = await authPost(
+          app,
+          '/api/audit/bulk-delete',
+          adminToken,
+          { ids: [], reason: 'e2e empty probe' },
+          ADMIN_PASSWORD,
+        );
+        // Schema requires minItems: 1 — Fastify should return 400
+        expect(res.statusCode).toBe(400);
+      });
     });
   });
 });

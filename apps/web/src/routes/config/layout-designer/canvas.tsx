@@ -37,6 +37,10 @@ export interface CanvasProps {
   onClosePolygon: () => void;
   onMoveRoom: (roomId: string, points: Polygon) => void;
   onCornerChange: (roomId: string, points: Polygon) => void;
+  /** A corner ADDED on edge `edge` at `point` (double-click a wall). Separate from
+   *  `onCornerChange` because it RENUMBERS the edges after it, so the page must
+   *  move each door and opening with its wall (audit 2026-10-12 finding 3). */
+  onInsertCorner: (roomId: string, edge: number, point: { x: number; y: number }) => void;
   onPlaceDoor: (roomId: string, door: RoomDoor) => void;
   onLink: (fromId: string, toId: string, shared: SharedEdge | null) => void;
   /** The 2D layer (2026-10-05): drawn, and edited through these two callbacks; the page writes the whole object. */
@@ -55,7 +59,7 @@ export function roomPolygon(room: Pick<DesignerRoom, 'x' | 'y' | 'w' | 'h' | 'po
 
 export function DesignerCanvas({
   plan, state, dispatch, pending, tracingSrc, guideOpacity, showGrid,
-  onClosePolygon, onMoveRoom, onCornerChange, onPlaceDoor, onLink,
+  onClosePolygon, onMoveRoom, onCornerChange, onInsertCorner, onPlaceDoor, onLink,
   annotations, arch, onAddStructure, onMoveStructure,
 }: CanvasProps) {
   const vbH = Math.round((VB_W * plan.imageHeight) / plan.imageWidth);
@@ -268,10 +272,8 @@ export function DesignerCanvas({
 
   const onEdgeDoubleClick = (e: React.MouseEvent<SVGLineElement>, room: DesignerRoom, edge: number) => {
     e.stopPropagation();
-    const poly = roomPolygon(room);
     const p = snapPoint(toPlan(e), outlinesExcept(room.id), { grid: showGrid });
-    const next = [...poly.slice(0, edge + 1), p, ...poly.slice(edge + 1)];
-    onCornerChange(room.id, next);
+    onInsertCorner(room.id, edge, p);
   };
 
   const drawingPx = state.drawing ? pxPoly(state.drawing) : [];
@@ -369,6 +371,7 @@ export function DesignerCanvas({
                 <line
                   key={`e${i}`} x1={p.x} y1={p.y} x2={q.x} y2={q.y}
                   stroke="transparent" strokeWidth={10}
+                  data-testid={`edge-${room.code}-${i}`}
                   onDoubleClick={(e) => onEdgeDoubleClick(e, room, i)}
                   onPointerDown={(e) => e.stopPropagation()}
                   style={{ cursor: 'copy' }}

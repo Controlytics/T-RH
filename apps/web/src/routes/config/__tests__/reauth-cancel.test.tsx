@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { passwordPolicySchema } from '@digilog/shared';
 
 /**
  * Audit 2026-10-12, finding 10. Cancelling the password dialog is not an error.
@@ -10,7 +11,9 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
  * config page rendered that as a red "Cancelled — password confirmation was not
  * completed." banner. Both now pass `onCancel`, which only re-enables the form.
  */
-const MY_ACTIONS = { actions: ['UPDATE_PROFILE', 'UPDATE_SESSION_CONFIG', 'CREATE_ROLE', 'EXPORT_BACKUP'] };
+// Whole pages with the real hook: slow to mount cold on this machine.
+vi.setConfig({ testTimeout: 20_000 });
+const MY_ACTIONS = { actions: ['UPDATE_PROFILE', 'UPDATE_SESSION_CONFIG', 'CREATE_ROLE', 'EXPORT_BACKUP', 'UPDATE_PASSWORD_POLICY'] };
 const MANIFEST = [{
   moduleKey: 'session', moduleName: 'Session', description: '', icon: '', category: 'Security',
   requiresReauth: true, hasCustomPage: false,
@@ -18,14 +21,17 @@ const MANIFEST = [{
 }];
 const SAVED = { idleMinutes: 15 };
 const ROLES: unknown[] = [];
+const POLICY = passwordPolicySchema.parse({});
 const mutate = vi.fn(async () => undefined);
 vi.mock('swr', () => ({
+  mutate,
   useSWRConfig: () => ({ mutate }),
   default: (key: string | null) => {
     if (key === '/api/config/action-reauth/my-actions') return { data: MY_ACTIONS, mutate };
     if (key === '/api/config/registry/manifest') return { data: MANIFEST, mutate };
     if (key === '/api/config/dynamic/session') return { data: SAVED, mutate };
     if (key === '/api/roles' || key === '/api/roles/active') return { data: ROLES, mutate };
+    if (key === '/api/config/password-policy') return { data: POLICY, mutate };
     return { data: undefined, mutate };
   },
 }));
@@ -109,5 +115,25 @@ describe('Backup — Export stays busy while the password is asked for, and a ca
     expect(screen.getByRole('button', { name: /download .* backup/i })).toBeEnabled();
     expect(screen.queryByText(/cancelled/i)).not.toBeInTheDocument();
     expect(getRaw).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The follow-up (2026-10-12): the same red "Cancelled" message on every other
+ * page whose caller passed no onCancel. Password Policy stands for them here;
+ * `hooks/__tests__/reauth-callers-declare-cancel.test.ts` pins the rest.
+ */
+describe('Password Policy — a cancelled password is silent', () => {
+  it('shows no error and sends nothing', async () => {
+    const { PasswordPolicyPage } = await import('../password-policy');
+    render(<MemoryRouter><PasswordPolicyPage /></MemoryRouter>);
+    const [first] = screen.getAllByRole('spinbutton');
+    fireEvent.change(first, { target: { value: String(Number((first as HTMLInputElement).value || 8) + 1) } });
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
+    cancelDialog();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.queryByText(/cancelled/i)).not.toBeInTheDocument();
+    expect(put).not.toHaveBeenCalled();
   });
 });

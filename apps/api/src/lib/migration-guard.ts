@@ -52,6 +52,11 @@ export const PROTECTED_TABLES = [
   'instrument_telemetry_history',
   'instrument_telemetry_latest',
   'audit_trail',
+  // 2026-10-12: where audit_trail.chain_position comes from. Dropping it stops
+  // every audit write, and recreating it from MAX(chain_position) would hide a
+  // deletion of the newest rows. No Prisma model, so `migrate diff` will
+  // propose dropping it — strip that, as for the telemetry table.
+  'audit_chain_counter',
 ] as const;
 
 /**
@@ -60,7 +65,7 @@ export const PROTECTED_TABLES = [
  * that gets noticed and re-argued, not a silent change — see the trap
  * described above.
  */
-export const UNMODELLED_TABLES = ['instrument_telemetry_history'] as const;
+export const UNMODELLED_TABLES = ['instrument_telemetry_history', 'audit_chain_counter'] as const;
 
 export interface MigrationViolation {
   migration: string;

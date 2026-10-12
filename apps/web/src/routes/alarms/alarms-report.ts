@@ -1,3 +1,4 @@
+import { zonedInputToIso } from '@/lib/zoned-input';
 import type { ReportDoc } from '@/lib/pdf-report';
 import { formatDecimals } from '@digilog/shared';
 import { alarmTypeText, triggeredText, type AlarmRow, type AlarmDisplayTexts } from './alarm-display';
@@ -473,16 +474,17 @@ export function buildAlarmsReport(
  * period rather than "everything ever": a report with no bounds is not a report
  * of a period, and this one prints its Start and End on the paper.
  *
- * The values are `datetime-local` wall-clock text, the shape both the filter
- * inputs and the dialog use; `localInputToIso` converts at the point of sending.
+ * The filter holds `datetime-local` wall-clock text in the CONFIGURED timezone
+ * `tz`; the dialog takes INSTANTS and shows them in that same zone (audit
+ * 2026-10-12, finding 11). So each filtered end is converted here, and an
+ * unset or unreadable end falls back to the 24-hour window.
  */
 export function reportSeedPeriod(
   f: { from: string; to: string },
+  tz: string | undefined,
   now: Date = new Date(),
 ): { from: string; to: string; label: string } {
-  const local = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60_000)
-    .toISOString().slice(0, 16);
-  const from = f.from || local(new Date(now.getTime() - 24 * 3_600_000));
-  const to = f.to || local(now);
+  const from = (f.from && zonedInputToIso(f.from, tz)) || new Date(now.getTime() - 24 * 3_600_000).toISOString();
+  const to = (f.to && zonedInputToIso(f.to, tz)) || now.toISOString();
   return { from, to, label: 'Selected period' };
 }

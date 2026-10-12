@@ -639,28 +639,34 @@ export async function restore(
   // a tampered audit_trail chain is refused unless the operator explicitly
   // overrides. Force is itself audited in the BACKUP_RESTORED row below
   // (afterValue.forced=true).
-  await restoreFromBackup(backup, { force: opts.force });
-
-  // Audit log the restore
-  await auditLog({
-    userId: ctx.userId,
-    userRole: ctx.userRole,
-    action: 'BACKUP_RESTORED',
-    targetType: 'system',
-    targetId: 'database_restore',
-    afterValue: {
-      backupTimestamp: backup.metadata.timestamp,
-      backupVersion: backup.metadata.version,
-      backupChecksum: backup.metadata.checksum,
-      generatedBy: backup.metadata.generatedBy,
-      forced: opts.force === true,
-    },
-    signatureMeaning: opts.force
-      ? 'Database restored from backup by administrator (audit-chain verification BYPASSED)'
-      : 'Database restored from backup by administrator',
-    ipAddress: ctx.ipAddress,
-    userAgent: ctx.userAgent,
-    sessionId: ctx.sessionId,
+  //
+  // BACKUP_RESTORED is written INSIDE the restore transaction (audit
+  // 2026-10-12 #2), after the audit_trail has been replaced: it chains onto
+  // the restored trail, and a failure to write it rolls the restore back.
+  // Written after the commit, a failed audit insert left the whole database
+  // replaced with no record of who replaced it.
+  await restoreFromBackup(backup, {
+    force: opts.force,
+    onRestored: (tx) => auditLog({
+      userId: ctx.userId,
+      userRole: ctx.userRole,
+      action: 'BACKUP_RESTORED',
+      targetType: 'system',
+      targetId: 'database_restore',
+      afterValue: {
+        backupTimestamp: backup.metadata.timestamp,
+        backupVersion: backup.metadata.version,
+        backupChecksum: backup.metadata.checksum,
+        generatedBy: backup.metadata.generatedBy,
+        forced: opts.force === true,
+      },
+      signatureMeaning: opts.force
+        ? 'Database restored from backup by administrator (audit-chain verification BYPASSED)'
+        : 'Database restored from backup by administrator',
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      sessionId: ctx.sessionId,
+    }, tx),
   });
 
   return {

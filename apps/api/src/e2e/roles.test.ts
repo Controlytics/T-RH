@@ -311,17 +311,32 @@ describe('Roles endpoints', () => {
   });
 
   describe('DELETE /api/roles/:name — Delete role', () => {
-    it('returns 409 when deleting a role that has users assigned (SUPER_ADMIN)', async () => {
-      // SUPER_ADMIN has the admin user assigned to it, so delete should return 409
+    // A SYSTEM role is refused before anything else (application review
+    // 2026-10-12, finding 5). This case used SUPER_ADMIN to reach the 409 —
+    // it now never gets that far, so the 409 is pinned on a custom role below.
+    it('returns 403 when deleting a system role (SUPER_ADMIN), and writes no audit row', async () => {
       const res = await authDelete(app, '/api/roles/SUPER_ADMIN', adminToken, ADMIN_PASSWORD);
-
-      expect(res.statusCode).toBe(409);
-      const body = JSON.parse(res.body);
-      expect(body.error).toBeTruthy();
-      expect(body.usersCount).toBeGreaterThan(0);
-      // The count runs inside the delete's transaction (API-20); a refused
-      // delete writes no audit row.
+      expect(res.statusCode).toBe(403);
+      expect(JSON.parse(res.body).message).toMatch(/system role/);
       expect(await prisma.auditTrail.count({ where: { action: 'ROLE_DELETED', targetId: 'SUPER_ADMIN' } })).toBe(0);
+    });
+
+    it('returns 409 when deleting a custom role that has users assigned', async () => {
+      const holder = await prisma.user.create({
+        data: { username: `rh${SUFFIX}`.slice(0, 50), fullName: 'role holder', role: TEST_ROLE_NAME, passwordHash: 'x', status: 'ENABLED' },
+      });
+      try {
+        const res = await authDelete(app, `/api/roles/${TEST_ROLE_NAME}`, adminToken, ADMIN_PASSWORD);
+        expect(res.statusCode).toBe(409);
+        const body = JSON.parse(res.body);
+        expect(body.error).toBeTruthy();
+        expect(body.usersCount).toBe(1);
+        // The count runs inside the delete's transaction (API-20); a refused
+        // delete writes no audit row.
+        expect(await prisma.auditTrail.count({ where: { action: 'ROLE_DELETED', targetId: TEST_ROLE_NAME } })).toBe(0);
+      } finally {
+        await prisma.user.delete({ where: { id: holder.id } });
+      }
     });
 
     it('deletes the test role successfully, recording the reason', async () => {

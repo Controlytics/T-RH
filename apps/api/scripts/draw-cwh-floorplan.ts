@@ -36,6 +36,10 @@
  */
 import { prisma } from '../src/lib/prisma.js';
 import { auditLog } from '../src/lib/audit.js';
+import {
+  REDRAW_ROOM_SELECT, REDRAW_LINK_SELECT, REDRAW_TX_OPTIONS, assertUniqueRoomCodes, carriedLimits, describeLimits,
+  linkCode, replacePlanRooms, type RedrawRoom,
+} from '../src/modules/floorplans/redraw.js';
 import { loadLimitConfig, limitsFor, enabledBoundsFor } from '../src/modules/alarms/load-limits.js';
 import type { InstrumentLimits } from '../src/modules/alarms/limit-decide.js';
 import { Prisma } from '@prisma/client';
@@ -360,55 +364,47 @@ const DRAWN_ELSEWHERE: Record<string, string> = {
   'Module-F': 'scripts/draw-architectural-floor.ts --area "Module-F"',
 };
 
-/** Replace a plan's rooms wholesale, audited, and place its instruments. */
-async function drawPlan(planId: string, planName: string, rooms: RoomSpec[]): Promise<number> {
-  const old = await prisma.floorplanRoom.findMany({ where: { floorplanId: planId }, select: { id: true, code: true } });
-  for (const r of old) {
-    await prisma.$transaction(async (tx) => {
-      await tx.floorplanRoom.delete({ where: { id: r.id } });
-      await auditLog({
-        action: 'FLOORPLAN_ROOM_DELETED', targetType: 'floorplan_room', targetId: r.id,
-        beforeValue: { code: r.code, plan: planName },
-        reason: REASON,
-        signatureMeaning: `Room "${r.code}" deleted — "${planName}" redrawn from the instrument registry`,
-        userId: ACTOR, userRole: 'SUPER_ADMIN',
-        ipAddress: '127.0.0.1', userAgent: 'scripts/draw-cwh-floorplan.ts', sessionId: null,
-      }, tx);
-    });
-  }
+/** The database a plan is read from and written to: the plan's transaction under --apply, else the client. */
+type Db = Prisma.TransactionClient;
+const AUDIT = { userId: ACTOR, userRole: 'SUPER_ADMIN', ipAddress: '127.0.0.1', userAgent: 'scripts/draw-cwh-floorplan.ts', sessionId: null };
 
-  let placed = 0;
-  for (const spec of rooms) {
-    await prisma.$transaction(async (tx) => {
-      const room = await tx.floorplanRoom.create({
-        data: {
-          floorplanId: planId, code: spec.code, label: spec.label,
-          x: spec.rect.x, y: spec.rect.y, w: spec.rect.w, h: spec.rect.h,
-          doors: (spec.door ?? (spec.grade === 'CIRCULATION' ? [] : doorFor(spec.rect))) as unknown as Prisma.InputJsonValue,
-          grade: spec.grade,
-          // A generated room has no drawing to transcribe, so it stores SQL NULL
-          // rather than an empty object — `Prisma.DbNull`, never `JsonNull`,
-          // which would write the JSON literal `null` and read back as present.
-          meta: spec.meta ? (spec.meta as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
-          createdBy: ACTOR, updatedBy: ACTOR,
-        },
-        select: { id: true },
-      });
-      if (spec.instruments.length) {
-        await tx.instrument.updateMany({ where: { id: { in: spec.instruments } }, data: { roomId: room.id } });
-      }
-      await auditLog({
-        action: 'FLOORPLAN_ROOM_CREATED', targetType: 'floorplan_room', targetId: room.id,
-        afterValue: { code: spec.code, label: spec.label, plan: planName, grade: spec.grade, instruments: spec.instruments.length },
-        reason: REASON,
-        signatureMeaning: `Room "${spec.code}" (${spec.label}) drawn on "${planName}" with ${spec.instruments.length} instrument(s)`,
-        userId: ACTOR, userRole: 'SUPER_ADMIN',
-        ipAddress: '127.0.0.1', userAgent: 'scripts/draw-cwh-floorplan.ts', sessionId: null,
-      }, tx);
-    });
-    placed += spec.instruments.length;
+/**
+ * Replace a plan's rooms wholesale, audited, and place its instruments —
+ * through the shared `replacePlanRooms` (`src/modules/floorplans/redraw.ts`),
+ * inside the caller's ONE transaction per plan. Each room's four LIMITS are
+ * carried over BY CODE from the room it replaces (audit 2026-10-12: they were
+ * dropped, so a redraw cleared every room's in-spec band), and the plan's room
+ * links are deleted with an audit row each rather than by cascade. In a dry
+ * run (`planId` null when the plan does not exist yet) it only lists the rooms
+ * and the limits each would carry.
+ */
+async function drawPlan(db: Db, planId: string | null, planName: string, rooms: RoomSpec[]): Promise<number> {
+  assertUniqueRoomCodes(rooms.map((r) => r.code), planName);
+  const old = planId
+    ? await db.floorplan.findUnique({ where: { id: planId }, select: { rooms: { select: REDRAW_ROOM_SELECT }, links: { select: REDRAW_LINK_SELECT } } })
+    : null;
+  const byCode = new Map((old?.rooms ?? []).map((r) => [r.code.toUpperCase(), r]));
+  const specs: RedrawRoom[] = rooms.map((spec) => ({
+    code: spec.code, label: spec.label,
+    ...spec.rect,
+    points: null,
+    doors: spec.door ?? (spec.grade === 'CIRCULATION' ? [] : doorFor(spec.rect)),
+    grade: spec.grade,
+    // A generated room has no drawing to transcribe: no meta is SQL NULL.
+    meta: spec.meta ?? null,
+    limits: carriedLimits(byCode.get(spec.code.toUpperCase())),
+    instrumentIds: spec.instruments,
+  }));
+  if (!APPLY) {
+    for (const s of specs) console.log(`      ${s.code.padEnd(24)} limits=${describeLimits(s.limits)}${s.instrumentIds.length ? ` +${s.instrumentIds.length} instrument(s)` : ''}`);
+    for (const l of old?.links ?? []) console.log(`      link ${l.kind} ${linkCode(l)} — deleted (its rooms are replaced)`);
+    return specs.reduce((n, s) => n + s.instrumentIds.length, 0);
   }
-  return placed;
+  return replacePlanRooms(db, {
+    planId: planId!, planName, oldRooms: old?.rooms ?? [], oldLinks: old?.links ?? [], rooms: specs,
+    audit: { ...AUDIT, reason: REASON }, actor: ACTOR,
+    why: `"${planName}" redrawn from the instrument registry`,
+  });
 }
 
 async function main() {
@@ -478,10 +474,13 @@ async function main() {
     console.log(`  ${a.name.padEnd(20)} rooms=${String(a.locs.length).padStart(2)}  grade=${gradeForArea(a.name)}`);
   }
   if (skipped.length) console.log(`skipped (no area or Location): ${skipped.join(', ')}`);
-  if (!APPLY) { console.log('\nDry run only. Re-run with --apply to execute.'); await prisma.$disconnect(); return; }
+  // The dry run walks every plan too — read-only — so it can list each room
+  // with the limits it will carry (audit 2026-10-12).
 
   const overview = await prisma.floorplan.findFirst({ where: { name: OVERVIEW_PLAN }, select: { id: true, imagePath: true, imageWidth: true, imageHeight: true } });
-  if (!overview) throw new Error(`overview plan "${OVERVIEW_PLAN}" not found`);
+  // --apply needs it (its image is reused, its rooms redrawn); a dry run reports it missing and goes on.
+  if (!overview && APPLY) throw new Error(`overview plan "${OVERVIEW_PLAN}" not found`);
+  if (!overview) console.log(`overview plan "${OVERVIEW_PLAN}" not found — --apply will refuse`);
 
   // ── One plan per area ──────────────────────────────────────────────────
   let totalRooms = 0, totalPlaced = 0;
@@ -496,30 +495,52 @@ async function main() {
       continue;
     }
     const shape = canvasFor(area.locs.length);
-    let plan = await prisma.floorplan.findFirst({ where: { name: planName }, select: { id: true, imageWidth: true, imageHeight: true } });
-    if (!plan) {
-      plan = await prisma.floorplan.create({
-        data: {
+    /**
+     * The plan, found / created / reshaped, inside the plan's transaction.
+     * The create and the reshape are audited (they were not before
+     * 2026-10-12). In a dry run nothing is written and a plan that does not
+     * exist yet is reported as `null`.
+     */
+    const planFor = async (db: Db): Promise<string | null> => {
+      const plan = await db.floorplan.findFirst({ where: { name: planName }, select: { id: true, imageWidth: true, imageHeight: true } });
+      if (!plan) {
+        console.log(`${APPLY ? 'created' : 'would create'} plan "${planName}" ${shape.width}x${shape.height}`);
+        if (!APPLY) return null;
+        const data = {
           name: planName,
           // The dashboard DRAWS rooms and never renders this image; it is only a
           // tracing guide in the editor. Reusing the block's own scan is honest
           // — it is the same building — and avoids inventing a second asset.
-          imagePath: overview.imagePath,
+          imagePath: overview!.imagePath,
           imageWidth: shape.width, imageHeight: shape.height,
-          sortOrder: idx + 1, createdBy: ACTOR, updatedBy: ACTOR,
-        },
-        select: { id: true, imageWidth: true, imageHeight: true },
-      });
-      console.log(`created plan "${planName}" ${shape.width}x${shape.height}`);
-    } else if (plan.imageWidth !== shape.width || plan.imageHeight !== shape.height) {
-      // An existing plan keeps its rooms but must adopt the corrected shape,
-      // or it goes on rendering at the old zoom.
-      await prisma.floorplan.update({
-        where: { id: plan.id },
-        data: { imageWidth: shape.width, imageHeight: shape.height, updatedBy: ACTOR },
-      });
-      console.log(`reshaped "${planName}" -> ${shape.width}x${shape.height}`);
-    }
+          sortOrder: idx + 1,
+        };
+        const created = await db.floorplan.create({ data: { ...data, createdBy: ACTOR, updatedBy: ACTOR }, select: { id: true } });
+        await auditLog({
+          ...AUDIT, action: 'FLOORPLAN_CREATED', targetType: 'floorplan', targetId: created.id,
+          afterValue: data, reason: REASON, signatureMeaning: `Floor plan "${planName}" created from the instrument registry`,
+        }, db);
+        return created.id;
+      }
+      if (plan.imageWidth !== shape.width || plan.imageHeight !== shape.height) {
+        // An existing plan keeps its rooms but must adopt the corrected shape,
+        // or it goes on rendering at the old zoom.
+        console.log(`${APPLY ? 'reshaped' : 'would reshape'} "${planName}" -> ${shape.width}x${shape.height}`);
+        if (APPLY) {
+          await db.floorplan.update({
+            where: { id: plan.id },
+            data: { imageWidth: shape.width, imageHeight: shape.height, updatedBy: ACTOR },
+          });
+          await auditLog({
+            ...AUDIT, action: 'FLOORPLAN_UPDATED', targetType: 'floorplan', targetId: plan.id,
+            beforeValue: { imageWidth: plan.imageWidth, imageHeight: plan.imageHeight },
+            afterValue: { imageWidth: shape.width, imageHeight: shape.height },
+            reason: REASON, signatureMeaning: `Floor plan "${planName}" reshaped for the instrument registry`,
+          }, db);
+        }
+      }
+      return plan.id;
+    };
 
     const grade = gradeForArea(area.name);
     const used = new Set<string>();
@@ -541,7 +562,9 @@ async function main() {
       },
     );
 
-    const placed = await drawPlan(plan.id, planName, rooms);
+    // ONE transaction per plan: either the whole floor is redrawn, or nothing.
+    const draw = async (db: Db) => drawPlan(db, await planFor(db), planName, rooms);
+    const placed = APPLY ? await prisma.$transaction(draw, REDRAW_TX_OPTIONS) : await draw(prisma);
     totalRooms += rooms.length; totalPlaced += placed;
     console.log(`  ${planName.padEnd(28)} rooms=${String(rooms.length).padStart(2)} placed=${placed}`);
   }
@@ -587,16 +610,18 @@ async function main() {
       door: [{ wall: 'bottom', offset: 0.4, width: 0.18, kind: 'PASSAGE' }],
     });
   }
-  if (ONLY) {
-    console.log(`  ${OVERVIEW_PLAN.padEnd(28)} skipped (--only "${ONLY}")`);
+  if (ONLY || !overview) {
+    console.log(`  ${OVERVIEW_PLAN.padEnd(28)} skipped (${ONLY ? `--only "${ONLY}"` : 'not on the plan list'})`);
   } else {
-    await drawPlan(overview.id, OVERVIEW_PLAN, overviewRooms);
+    if (APPLY) await prisma.$transaction((tx) => drawPlan(tx, overview.id, OVERVIEW_PLAN, overviewRooms), REDRAW_TX_OPTIONS);
+    else await drawPlan(prisma, overview.id, OVERVIEW_PLAN, overviewRooms);
     console.log(`  ${OVERVIEW_PLAN.padEnd(28)} rooms=${overviewRooms.length} placed=0 (overview — see the header note)`);
   }
 
   console.log(`\n${areaList.length} area plans, ${totalRooms} rooms, ${totalPlaced} instruments placed`);
   const unplaced = await prisma.instrument.count({ where: { roomId: null, isGateway: false } });
   console.log(`instruments still unplaced: ${unplaced}`);
+  if (!APPLY) console.log('\nDry run only. Re-run with --apply to execute.');
 }
 
 main().catch((e) => { console.error(e); process.exitCode = 1; }).finally(() => prisma.$disconnect());

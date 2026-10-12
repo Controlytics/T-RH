@@ -2,7 +2,7 @@ import { type FastifyInstance } from 'fastify';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
-import { adminRequestService } from './admin-request.service.js';
+import { adminRequestService, approvalRequirement, assertCanApprove } from './admin-request.service.js';
 import { prisma } from '../../lib/prisma.js';
 
 export default async function adminRequestRoutes(app: FastifyInstance) {
@@ -242,11 +242,24 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
     // The admin-request approve/reject flow covers password-reset / unlock /
     // modify-user as well, none of which are user-creation. The dedicated
     // action keeps the audit trail honest about WHICH role action this is.
-    const { ok } = await enforceReauth('APPROVE_ADMIN_REQUEST', req, reply);
-    if (!ok) return;
-
     const { id } = req.params as { id: string };
     const { action, adminRemarks } = req.body as { action: 'approve' | 'reject'; adminRemarks?: string };
+
+    // Approving performs the underlying user mutation, so it needs that
+    // mutation's permission and e-signature too (application review
+    // 2026-10-12, finding 1) - see `approvalRequirement`. The permission is
+    // checked BEFORE the password is asked for; the service checks it again.
+    const reauthActions = ['APPROVE_ADMIN_REQUEST'];
+    if (action === 'approve') {
+      const pending = await adminRequestService.getById(id);
+      if (pending) {
+        await assertCanApprove(pending, req.user.role);
+        const need = approvalRequirement(pending.requestType, pending.requestData);
+        if (need) reauthActions.push(need.reauthAction);
+      }
+    }
+    const { ok } = await enforceReauth(reauthActions, req, reply);
+    if (!ok) return;
     const ctx = buildContext(req);
 
     const result = await adminRequestService.process(id, action, adminRemarks ?? '', ctx);

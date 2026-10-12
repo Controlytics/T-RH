@@ -25,6 +25,8 @@ export interface DesignerPlan {
   imageHeight: number;
   isActive: boolean;
   sortOrder: number;
+  /** The plan's version, sent back as `expectedUpdatedAt` on a layer save (409 STALE when someone saved since). */
+  updatedAt?: string;
   rooms: DesignerRoom[];
   links: DesignerLink[];
   /** The 2D layer (any shape the API returns); `normaliseAnnotations` is the ONE reader. */

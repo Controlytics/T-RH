@@ -189,6 +189,8 @@ export function HelpArticlesPage() {
           setSaving(false);
           toast.success('Article created', `"${form.title}" has been created successfully.`);
         },
+        // A cancelled password is not an error: nothing was sent.
+        onCancel: () => { setSaving(false); },
         onError: (err: unknown) => {
           const msg = (err as Error)?.message ?? 'Failed to create article';
           setFormError(msg);
@@ -256,6 +258,8 @@ export function HelpArticlesPage() {
           setSaving(false);
           toast.success('Article updated', `"${form.title}" has been updated successfully.`);
         },
+        // A cancelled password is not an error: nothing was sent.
+        onCancel: () => { setSaving(false); },
         onError: (err: unknown) => {
           const msg = (err as Error)?.message ?? 'Failed to update article';
           setFormError(msg);
@@ -294,6 +298,8 @@ export function HelpArticlesPage() {
           toast.success('Article deleted', `"${selectedArticle.title}" has been deleted.`);
           setSelectedArticle(null);
         },
+        // A cancelled password is not an error: nothing was sent.
+        onCancel: () => { setDeleting(false); },
         onError: (err: unknown) => {
           const msg = (err as Error)?.message ?? 'Failed to delete article';
           setDeleteError(msg);

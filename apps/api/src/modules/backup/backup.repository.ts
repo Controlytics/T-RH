@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { partitionDdl } from '../../workers/telemetry-partition.worker.js';
 import { AppError } from '../../lib/errors.js';
@@ -50,7 +51,12 @@ function assertSafeIdentifier(name: string): void {
 //     connection).
 
 /** Tables that should not be backed up/restored (Prisma internals, etc.) */
-const EXCLUDED_TABLES = new Set(['_prisma_migrations']);
+// `audit_chain_counter` (2026-10-12) is DERIVED state — the next audit_trail
+// chain_position — and is re-derived from the restored trail by
+// resyncSequencesAfterRestore. Exporting it would let a restore install a
+// counter that disagrees with the trail it came with, and an archive taken
+// before it existed would otherwise be refused as BACKUP_INCOMPLETE.
+const EXCLUDED_TABLES = new Set(['_prisma_migrations', 'audit_chain_counter']);
 
 /**
  * List every user table in the public schema at call time.
@@ -390,79 +396,67 @@ export async function fetchAllTablesRaw(): Promise<Record<string, Record<string,
  * backup BEFORE installing them. Tampered or partial backups are refused;
  * operator can pass `force: true` to override (intentional, audited).
  *
+ * Since 2026-10-12 (audit #3) this is the LIVE verifier's walk
+ * (`walkAuditChain` in lib/audit-verify.ts) run over the archive — one
+ * implementation, not a copy. The copy it replaces checked per-row checksums
+ * and links only: an archive whose keyed rows were downgraded to the unkeyed
+ * formula, whose redactions no meta row attests, or which carried a deletion
+ * gap installed without `force` and TRUNCATEd the real trail. A redaction's
+ * meta row is looked up in the ARCHIVE, never the live table. Rollback gaps
+ * (a gap whose next row still links to its predecessor) are notices, not
+ * refusals, exactly as on the live trail.
+ *
  * Returns the count of chained / pre-chain rows it inspected. Throws with
  * a structured error on anomaly so the caller surfaces a clean 400.
  */
+const ANOMALY_LABEL: Record<string, string> = {
+  PER_ROW_CHECKSUM_MISMATCH: 'per-row checksum mismatch',
+  CHAIN_LINK_MISMATCH: 'chain link mismatch',
+  CHAIN_POSITION_GAP: 'chain position gap',
+  KEYED_ERA_DOWNGRADE: 'keyed-era downgrade',
+  REDACTION_UNATTESTED: 'unattested redaction',
+  REDACTION_MISMATCH: 'redacted row altered',
+};
+
 export async function verifyBackupAuditChain(rows: Array<Record<string, any>>): Promise<{
   preChainRows: number;
   chainedRows: number;
 }> {
-  const { verifyAuditChecksum } = await import('../../lib/hash-chain.js');
-  let preChainRows = 0;
-  let chainedRows = 0;
-  // Sort by chain_position (NULLs first — pre-chain era) for deterministic walk.
-  const sorted = [...rows].sort((a, b) => {
-    const ap = a.chain_position == null ? -1 : Number(a.chain_position);
-    const bp = b.chain_position == null ? -1 : Number(b.chain_position);
-    return ap - bp;
+  const { walkAuditChain, attestationsFromRows } = await import('../../lib/audit-verify.js');
+  // SQL / CSV archives may carry the JSON columns as text; the walk (and the
+  // attestation lookup) needs them as values.
+  const chainRows = rows.map((r) => ({
+    ...r,
+    before_value: parseJsonColumn(r.before_value),
+    after_value: parseJsonColumn(r.after_value),
+  })) as unknown as Parameters<typeof walkAuditChain>[0];
+  const result = await walkAuditChain(chainRows, {
+    findRedactionAttestations: attestationsFromRows(chainRows),
   });
-  let priorChecksum: string | null = null;
-  for (let i = 0; i < sorted.length; i++) {
-    const row = sorted[i];
-    // EVERY hashed column, exactly as `lib/audit-verify.ts` maps them (audit
-    // 2026-10-03, DATA-1). Since 2026-07-04 the writer hashes the EXPANDED set
-    // (user_name, user_role, before_value, reason, ip, user_agent, session,
-    // signature_meaning); this check passed only the reduced set, so no real
-    // row could match and every restore was run with `force: true` — which
-    // disables the one tamper check restore has. A row missing here would
-    // reconstruct the field set with nulls and fail the way it used to.
-    const perRowOk = verifyAuditChecksum({
-      timestamp: row.timestamp,
-      userId: row.user_id ?? null,
-      userName: row.user_name ?? null,
-      userRole: row.user_role ?? null,
-      action: row.action,
-      targetType: row.target_type ?? null,
-      targetId: row.target_id ?? null,
-      beforeValue: row.before_value ?? undefined,
-      afterValue: row.after_value ?? undefined,
-      reason: row.reason ?? null,
-      ipAddress: row.ip_address ?? null,
-      userAgent: row.user_agent ?? null,
-      sessionId: row.session_id ?? null,
-      signatureMeaning: row.signature_meaning ?? null,
-      checksum: row.checksum,
-      previousChecksum: row.previous_checksum ?? null,
-      // A redacted row keeps its original checksum over payloads that are now
-      // NULL; the verifier short-circuits on this, as the chain walk does.
-      redactedAt: row.redacted_at ?? undefined,
-      // Route keyed-era rows (v3) to the HMAC path; old backups lack the column
-      // (undefined → legacy V1/V2 verify, unchanged).
-      checksumVersion: (row as { checksum_version?: number | null }).checksum_version ?? null,
-    });
-    if (!perRowOk) {
-      throw {
-        statusCode: 400,
-        message: `BACKUP_AUDIT_CHAIN_INVALID: row ${i} (id=${row.id}) per-row checksum mismatch — backup is tampered or corrupt. Pass force:true to override.`,
-      };
-    }
-    if (row.previous_checksum != null) {
-      chainedRows++;
-      if (priorChecksum != null && row.previous_checksum !== priorChecksum) {
-        throw {
-          statusCode: 400,
-          message: `BACKUP_AUDIT_CHAIN_INVALID: row ${i} (id=${row.id}) chain link mismatch — backup has insertion or deletion. Pass force:true to override.`,
-        };
-      }
-    } else {
-      preChainRows++;
-    }
-    priorChecksum = row.checksum;
+  if (!result.intact) {
+    const first = result.anomalies[0];
+    const more = result.anomalies.length > 1 ? ` (+${result.anomalies.length - 1} more)` : '';
+    throw {
+      statusCode: 400,
+      message: `BACKUP_AUDIT_CHAIN_INVALID: ${first.kind} (${ANOMALY_LABEL[first.kind] ?? first.kind}) at chain_position ${first.position} (id=${first.id})${more} — ${first.message} The backup is tampered, partial or corrupt. Pass force:true to override.`,
+    };
   }
-  return { preChainRows, chainedRows };
+  return { preChainRows: result.preChainRows, chainedRows: result.chainedRows };
 }
 
-export async function restoreFromBackup(backup: BackupData, opts: { force?: boolean } = {}): Promise<void> {
+function parseJsonColumn(v: unknown): unknown {
+  if (typeof v !== 'string') return v;
+  const t = v.trim();
+  if (!(t.startsWith('{') || t.startsWith('['))) return v;
+  // Not JSON after all: hand it on unchanged — the per-row checksum then
+  // fails on it loudly, which is the right outcome for a corrupt column.
+  try { return JSON.parse(t); } catch { return v; }
+}
+
+export async function restoreFromBackup(
+  backup: BackupData,
+  opts: { force?: boolean; onRestored?: (tx: Prisma.TransactionClient) => Promise<void> } = {},
+): Promise<void> {
   // Normalize older camelCase-keyed backups to snake_case
   const data = normalizeBackupKeys(backup.data);
   const dbTables = await getAllTables();
@@ -685,6 +679,12 @@ export async function restoreFromBackup(backup: BackupData, opts: { force?: bool
     //     middle of restored history, so the hash-chain walker links the wrong
     //     rows and verification breaks permanently.
     await resyncSequencesAfterRestore(tx, restoreTables);
+
+    // The caller's audit row, INSIDE this transaction (audit 2026-10-12 #2):
+    // after the audit_trail is replaced, the triggers are back on and the
+    // chain counter points at the restored head, so the row chains onto the
+    // RESTORED trail — and if it cannot be written, the restore rolls back.
+    if (opts.onRestored) await opts.onRestored(tx);
   }, { timeout: 300_000, maxWait: 30_000 });
 }
 
@@ -787,6 +787,12 @@ async function insertRows(
  *
  * One sequence is not owned-and-reset by anything else:
  *   - audit_trail_chain_position_seq → MAX(chain_position)
+ * and, since 2026-10-12, the counter the audit writer actually allocates
+ * positions from (audit 2026-10-12 #5):
+ *   - audit_chain_counter.last_position → MAX(chain_position)
+ * SET, not GREATEST: restoring an OLDER archive must continue the chain from
+ * the restored head, or the first row written after it would sit after a gap
+ * verify-chain reports as a deletion.
  *
  * The deviation_number_seq and qnn_seq blocks were removed 2026-08-20 with the
  * filter domain: neither `deviations`/`quality_notifications` nor their
@@ -806,6 +812,11 @@ export async function resyncSequencesAfterRestore(tx: any, restoreTables: string
   if (restored.has('audit_trail')) {
     await tx.$executeRawUnsafe(
       `SELECT setval('audit_trail_chain_position_seq', COALESCE((SELECT MAX(chain_position) FROM "audit_trail"), 0) + 1, false)`,
+    );
+    await tx.$executeRawUnsafe(
+      `INSERT INTO "audit_chain_counter" ("id", "last_position")
+         VALUES (1, COALESCE((SELECT MAX(chain_position) FROM "audit_trail"), 0))
+       ON CONFLICT ("id") DO UPDATE SET "last_position" = EXCLUDED."last_position"`,
     );
   }
 }

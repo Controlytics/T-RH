@@ -26,8 +26,10 @@ import alarmRoutes from '../modules/alarms/routes.js';
 import alarmWebhookRoutes from '../modules/alarm-webhooks/routes.js';
 import reportReviewRoutes from '../modules/report-reviews/routes.js';
 import floorplanRoutes from '../modules/floorplans/routes.js';
+import dashboardRoutes from '../modules/dashboards/routes.js';
 import notificationRulesRoutes from '../modules/notification-rules/routes.js';
 import adminRequestRoutes from '../modules/admin-requests/routes.js';
+import ldapRoutes from '../modules/ldap/routes.js';
 import debugTraceRoutes from '../modules/debug-traces/routes.js';
 import { prisma } from '../lib/prisma.js';
 import { AppError, prismaErrorToResponse } from '../lib/errors.js';
@@ -127,6 +129,8 @@ export async function buildApp(
   await app.register(instrumentProfileRoutes, { prefix: '/api/instrument-profiles' });
   await app.register(instrumentRoutes, { prefix: '/api/instruments' });
   await app.register(floorplanRoutes, { prefix: '/api/floorplans' });
+  // The parked widget-dashboard module (2026-10-12): registered in app.ts, missing here, so it had no HTTP-level test.
+  await app.register(dashboardRoutes, { prefix: '/api/dashboards' });
   // Registered here as well as in app.ts — a module missing from this helper is
   // UNREACHABLE from every e2e test, which is how functional locations and alarms
   // both shipped with no HTTP-level coverage until 2026-08-13.
@@ -139,6 +143,8 @@ export async function buildApp(
   // modules had zero HTTP-level coverage (audit finding H4).
   await app.register(notificationRulesRoutes, { prefix: '/api/notification-rules' });
   await app.register(adminRequestRoutes, { prefix: '/api/admin-requests' });
+  // Registered 2026-10-12: app.ts has it; without it every /api/ldap e2e 404s.
+  await app.register(ldapRoutes, { prefix: '/api/ldap' });
   await app.register(debugTraceRoutes, { prefix: '/api/debug/traces' });
 
   await app.ready();

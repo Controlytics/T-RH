@@ -202,16 +202,35 @@ async function writeAuditRow(
     : computeChainedChecksumV2(baseFields, previousChecksum);
   const checksumVersion: number | null = chainKey ? 3 : null;
 
+  // The position comes from the TRANSACTIONAL counter (audit 2026-10-12 #5,
+  // migration 20261012120000_audit_chain_counter), bumped here under the
+  // advisory lock. It rolls back with this transaction, so a rolled-back audit
+  // insert returns its position and positions stay dense — a gap then only
+  // ever means a deletion. The BIGSERIAL default it replaces never gave a
+  // value back. GREATEST with the current max covers a row written by anything
+  // that still used the sequence default; it can never move the counter
+  // BACKWARDS, so a deleted tail position is never handed out again.
+  const allocated = await tx.$queryRaw<Array<{ position: bigint }>>`
+    UPDATE audit_chain_counter
+    SET last_position = GREATEST(last_position, (SELECT COALESCE(MAX(chain_position), 0) FROM audit_trail)) + 1
+    WHERE id = 1
+    RETURNING last_position AS position
+  `;
+  const chainPosition = allocated[0]?.position;
+  if (chainPosition === undefined) {
+    throw new Error('audit_chain_counter has no row — apply migration 20261012120000_audit_chain_counter before writing audit rows.');
+  }
+
   // Insert via raw SQL so we can write the new chain columns without
   // depending on a regenerated Prisma client (the dev server may be
-  // holding the engine DLL when migration runs). chain_position is
-  // BIGSERIAL so DEFAULT auto-fills it.
+  // holding the engine DLL when migration runs).
   await tx.$executeRaw`
     INSERT INTO audit_trail (
       timestamp, user_id, user_name, user_role, action,
       target_type, target_id, before_value, after_value,
       reason, ip_address, user_agent, session_id,
-      checksum, previous_checksum, signature_meaning, checksum_version
+      checksum, previous_checksum, signature_meaning, checksum_version,
+      chain_position
     ) VALUES (
       ${timestamp},
       ${entry.userId ?? null},
@@ -229,7 +248,8 @@ async function writeAuditRow(
       ${checksum},
       ${previousChecksum},
       ${(baseFields.signatureMeaning as string | undefined) ?? null},
-      ${checksumVersion}
+      ${checksumVersion},
+      ${chainPosition}
     )
   `;
 }

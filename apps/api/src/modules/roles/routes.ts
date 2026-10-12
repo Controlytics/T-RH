@@ -5,7 +5,8 @@ import { buildContext } from '../../lib/build-context.js';
 import { AppError } from '../../lib/errors.js';
 import { requireReason } from '../../lib/require-reason.js';
 import { verifyToken } from '../../lib/jwt.js';
-import { roleService } from './role.service.js';
+import { roleService, assertRoleWithinCallerPrivilege } from './role.service.js';
+import type { RequestContext } from '../../types/context.js';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
@@ -314,6 +315,8 @@ export default async function roleRoutes(app: FastifyInstance) {
           type: 'object',
           properties: {
             error: { type: 'string' },
+            // Declared, or Fastify strips WHY the delete was refused (finding 5).
+            message: { type: 'string' },
           },
         },
         404: {
@@ -449,6 +452,45 @@ export default async function roleRoutes(app: FastifyInstance) {
    */
   const roleExists = async (name: string) =>
     (await prisma.role.findUnique({ where: { name }, select: { name: true } })) !== null;
+
+  /**
+   * The role exists AND the caller may configure it (application review
+   * 2026-10-12, finding 6): the same rule the Roles page's own create/update
+   * applies — SUPER_ADMIN exempt; otherwise not your own role, not one at or
+   * above your level, never SUPER_ADMIN. Until then a restricted ROLE_MANAGE
+   * holder could set its OWN role's instrument scope to "all instruments" or
+   * its attribute access to "edit everything". Returns false for no such role
+   * (the caller answers 404); throws 403 for a role it may not touch.
+   */
+  const assertCanConfigureRole = async (ctx: RequestContext, name: string): Promise<boolean> => {
+    const row = await prisma.role.findUnique({ where: { name }, select: { name: true, hierarchyLevel: true } });
+    if (!row) return false;
+    await assertRoleWithinCallerPrivilege(ctx, {}, { name: row.name, hierarchyLevel: row.hierarchyLevel, permissions: [] });
+    return true;
+  };
+
+  /**
+   * A per-USER override is refused for the caller's own account and for any
+   * account whose role is at or above the caller's (finding 6) — an override
+   * REPLACES the role's rule, so it is the shortest way round the check above.
+   * SUPER_ADMIN exempt. Returns the user, or null (the caller answers 404).
+   */
+  const assertCanConfigureUser = async (ctx: RequestContext, userId: string) => {
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, username: true, role: true } });
+    if (!user || ctx.userRole === 'SUPER_ADMIN') return user;
+    if (user.id === ctx.userSub) {
+      throw new AppError(403, 'FORBIDDEN', 'You cannot change your own override');
+    }
+    const [caller, target] = await Promise.all([
+      prisma.role.findUnique({ where: { name: ctx.userRole }, select: { hierarchyLevel: true } }),
+      prisma.role.findUnique({ where: { name: user.role }, select: { hierarchyLevel: true } }),
+    ]);
+    if (!caller) throw new AppError(403, 'FORBIDDEN', 'Your role is not recognized');
+    if (user.role === 'SUPER_ADMIN' || !target || target.hierarchyLevel >= caller.hierarchyLevel) {
+      throw new AppError(403, 'FORBIDDEN', 'You cannot change the override of a user at or above your own hierarchy level');
+    }
+    return user;
+  };
 
   // The scope PUTs carry the operator's reason, stored on the CONFIG_CHANGED
   // row (audit 2026-10-03, DATA-11): a visibility change signs with a
@@ -603,12 +645,14 @@ export default async function roleRoutes(app: FastifyInstance) {
     const { scope, reason } = req.body as { scope: ScopeSelection | null; reason?: string };
     const ctx = buildContext(req);
     const why = requireReason(reason, "Changing a role's instrument visibility");
-    if (!(await roleExists(name))) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Role not found.' });
+    if (!(await assertCanConfigureRole(ctx, name))) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Role not found.' });
 
-    const before = await prisma.roleConfig.findUnique({ where: { role: name }, select: { instrumentScope: true } });
+    // The write and its audit row commit together (§11; auditLog(entry, tx)).
+    await prisma.$transaction(async (tx) => {
+    const before = await tx.roleConfig.findUnique({ where: { role: name }, select: { instrumentScope: true } });
     // upsert: a role may have no config row yet, and setting a scope must not
     // require someone to have visited another tab first.
-    await prisma.roleConfig.upsert({
+    await tx.roleConfig.upsert({
       where: { role: name },
       // Prisma.DbNull writes a real SQL NULL. Prisma.JsonNull would store the JSON
       // value `null`, a DIFFERENT thing — and this feature's contract rests on NULL
@@ -627,6 +671,7 @@ export default async function roleRoutes(app: FastifyInstance) {
         ? `Role "${name.slice(0, 60)}" instrument visibility set to ALL instruments`
         : `Role "${name.slice(0, 60)}" instrument visibility set to ${describeScope(scope)}`,
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    }, tx);
     });
     return { role: name, scope };
   });
@@ -744,7 +789,7 @@ export default async function roleRoutes(app: FastifyInstance) {
     const { name } = req.params as { name: string };
     const body = req.body as { mode?: string | null; keys?: string[]; requireReauth?: boolean };
     const ctx = buildContext(req);
-    if (!(await roleExists(name))) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Role not found.' });
+    if (!(await assertCanConfigureRole(ctx, name))) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Role not found.' });
 
     // Built through the SAME parser the enforcement reads with, so a value this
     // endpoint accepts cannot be one the gate then treats as unconfigured.
@@ -767,10 +812,12 @@ export default async function roleRoutes(app: FastifyInstance) {
       });
     }
 
-    const before = await prisma.roleConfig.findUnique({
+    // The write and its audit row commit together (§11; auditLog(entry, tx)).
+    await prisma.$transaction(async (tx) => {
+    const before = await tx.roleConfig.findUnique({
       where: { role: name }, select: { attributeAccess: true },
     });
-    await prisma.roleConfig.upsert({
+    await tx.roleConfig.upsert({
       where: { role: name },
       // Prisma.DbNull writes a real SQL NULL. JsonNull would store the JSON value
       // `null`, a different thing — and "not configured" versus "configured as
@@ -799,6 +846,7 @@ export default async function roleRoutes(app: FastifyInstance) {
         `Role "${name.slice(0, 60)}" attribute access set to ${describe}` +
         (next?.requireReauth ? ', password required' : ''),
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    }, tx);
     });
     return { role: name, mode: next?.mode ?? null, keys: next?.keys ?? [], requireReauth: next?.requireReauth ?? false };
   });
@@ -819,11 +867,13 @@ export default async function roleRoutes(app: FastifyInstance) {
     const ctx = buildContext(req);
     const why = requireReason(reason, "Changing a user's instrument visibility");
 
-    const user = await prisma.user.findUnique({ where: { id: userId }, select: { username: true, role: true } });
+    const user = await assertCanConfigureUser(ctx, userId);
     if (!user) return reply.code(404).send({ error: 'NOT_FOUND', message: 'User not found.' });
 
-    const before = await prisma.userConfig.findUnique({ where: { userId }, select: { instrumentScope: true } });
-    await prisma.userConfig.upsert({
+    // The write and its audit row commit together (§11; auditLog(entry, tx)).
+    await prisma.$transaction(async (tx) => {
+    const before = await tx.userConfig.findUnique({ where: { userId }, select: { instrumentScope: true } });
+    await tx.userConfig.upsert({
       where: { userId },
       // See the role endpoint above: DbNull, not JsonNull.
       create: { userId, instrumentScope: (scope as Prisma.InputJsonObject | null) ?? Prisma.DbNull, updatedBy: ctx.userId },
@@ -842,6 +892,7 @@ export default async function roleRoutes(app: FastifyInstance) {
         ? `User "${user.username.slice(0, 60)}" instrument visibility reset to inherit role "${user.role.slice(0, 60)}"`
         : `User "${user.username.slice(0, 60)}" instrument visibility overridden to ${describeScope(scope)}`,
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    }, tx);
     });
     return { userId, scope };
   });
