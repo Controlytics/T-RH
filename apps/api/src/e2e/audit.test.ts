@@ -3,6 +3,9 @@ import { type FastifyInstance } from 'fastify';
 import { buildApp, loginAs, authGet, authPost, authPut, authDelete, ADMIN_PASSWORD } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 
+/** The records of a deletion or a redaction: never deletable, never redactable. */
+const PROTECTED = ['AUDIT_RECORD_DELETED', 'AUDIT_RECORDS_BULK_DELETED', 'AUDIT_RECORD_REDACTED', 'AUDIT_RECORDS_BULK_REDACTED'];
+
 describe('Audit Trail endpoints', () => {
   let app: FastifyInstance;
   let adminToken: string;
@@ -178,8 +181,9 @@ describe('Audit Trail endpoints', () => {
   describe('POST /api/audit/:id/redact', () => {
     it('redacts once; a second redaction is 409 and the FIRST redactor\'s reason survives', async () => {
       const list = await fetchAuditRecords(20);
-      // An un-redacted row, oldest first.
-      const rows = (list.data as any[]).filter((r) => !r.redactedAt).reverse();
+      // An un-redacted row, oldest first — never the record of a deletion or a
+      // redaction, which cannot be redacted (2026-10-12).
+      const rows = (list.data as any[]).filter((r) => !r.redactedAt && !PROTECTED.includes(r.action)).reverse();
       if (rows.length === 0) return;
       const targetId = rows[0].id as string;
 
@@ -207,7 +211,7 @@ describe('Audit Trail endpoints', () => {
   describe('POST /api/audit/bulk-redact', () => {
     it('redacts the selected rows; a repeat is 409 and writes no second meta row', async () => {
       const list = await fetchAuditRecords(30);
-      const rows = (list.data as any[]).filter((r) => !r.redactedAt).reverse();
+      const rows = (list.data as any[]).filter((r) => !r.redactedAt && !PROTECTED.includes(r.action)).reverse();
       if (rows.length < 2) return;
       const ids = rows.slice(0, 2).map((r) => r.id as string);
 
@@ -225,6 +229,46 @@ describe('Audit Trail endpoints', () => {
         expect(detail.redactedBy).toBe('admin');
       }
       expect(await prisma.auditTrail.count({ where: { action: 'AUDIT_RECORDS_BULK_REDACTED' } })).toBe(metaBefore + 1);
+    });
+  });
+
+  // 2026-10-12: the record of a deletion or a redaction cannot itself be
+  // redacted. Redacting an AUDIT_RECORD_REDACTED row erases what it says was
+  // redacted — the attestation verify-chain checks each redacted row against —
+  // and a deletion's record is the only trace the deleted row ever existed.
+  describe('the records of a deletion or a redaction cannot be redacted', () => {
+    async function freshRow(tag: string): Promise<string> {
+      const { auditLog } = await import('../lib/audit.js');
+      const targetId = `redact-protect-${tag}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await auditLog({ userId: 'admin', userRole: 'SUPER_ADMIN', action: 'CONFIG_CHANGED', targetType: 'e2e-redact-protect', targetId });
+      return (await prisma.auditTrail.findFirstOrThrow({ where: { targetId }, select: { id: true } })).id;
+    }
+
+    it('single: 409 PROTECTED_AUDIT_RECORD, and the meta row keeps its record', async () => {
+      const victim = await freshRow('single');
+      expect((await authPost(app, `/api/audit/${victim}/redact`, adminToken, { reason: 'e2e first redaction' }, ADMIN_PASSWORD)).statusCode).toBe(200);
+      const meta = await prisma.auditTrail.findFirstOrThrow({ where: { action: 'AUDIT_RECORD_REDACTED', targetId: victim } });
+      const res = await authPost(app, `/api/audit/${meta.id}/redact`, adminToken, { reason: 'e2e erase the redaction record' }, ADMIN_PASSWORD);
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error).toBe('PROTECTED_AUDIT_RECORD');
+      const after = await prisma.auditTrail.findUniqueOrThrow({ where: { id: meta.id } });
+      expect(after.redactedAt).toBeNull();
+      expect(after.beforeValue).toMatchObject({ id: victim });
+    });
+
+    it('bulk: the WHOLE request is refused when it names one, and nothing is redacted', async () => {
+      const victim = await freshRow('bulk-victim');
+      const plain = await freshRow('bulk-plain');
+      expect((await authPost(app, '/api/audit/bulk-redact', adminToken, { ids: [victim], reason: 'e2e first bulk redaction' }, ADMIN_PASSWORD)).statusCode).toBe(200);
+      const meta = await prisma.auditTrail.findFirstOrThrow({
+        where: { action: 'AUDIT_RECORDS_BULK_REDACTED', beforeValue: { path: ['records', '0', 'id'], equals: victim } },
+      });
+      const res = await authPost(app, '/api/audit/bulk-redact', adminToken, { ids: [plain, meta.id], reason: 'e2e erase the bulk record' }, ADMIN_PASSWORD);
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error).toBe('PROTECTED_AUDIT_RECORD');
+      expect(res.json().message).toContain(meta.id);
+      const rows = await prisma.auditTrail.findMany({ where: { id: { in: [plain, meta.id] } } });
+      expect(rows.every((r) => r.redactedAt === null)).toBe(true);
     });
   });
 
@@ -278,6 +322,26 @@ describe('Audit Trail endpoints', () => {
         const bulk = await authPost(app, '/api/audit/bulk-delete', adminToken, { ids: [id], reason: 'e2e toggle off probe' }, ADMIN_PASSWORD);
         expect(bulk.statusCode).toBe(403);
         expect(await prisma.auditTrail.count({ where: { id } })).toBe(1);
+      });
+
+      // 2026-10-12: the Audit page shows its hard-delete controls only when the
+      // SERVER says the capability is on, and marks the records no one may
+      // delete or redact — it re-derives neither.
+      it('GET /api/audit says whether hard delete is on, and which rows are protected (declared, not stripped)', async () => {
+        await setToggle(false);
+        const off = await authGet(app, '/api/audit?limit=5', adminToken);
+        expect(off.statusCode).toBe(200);
+        expect(off.json().hardDeleteEnabled).toBe(false);
+        await setToggle(true);
+        const on = await authGet(app, '/api/audit?limit=5', adminToken);
+        expect(on.json().hardDeleteEnabled).toBe(true);
+        const victim = await scratchRow('protected-flag');
+        expect((await authPost(app, `/api/audit/${victim}/redact`, adminToken, { reason: 'flag probe redaction' }, ADMIN_PASSWORD)).statusCode).toBe(200);
+        const rows = (await authGet(app, '/api/audit?limit=50&action=AUDIT_RECORD_REDACTED', adminToken)).json().data as Array<{ action: string; protectedRecord: boolean }>;
+        expect(rows.length).toBeGreaterThan(0);
+        expect(rows.every((r) => r.protectedRecord === true)).toBe(true);
+        const plain = (await authGet(app, '/api/audit?limit=5&action=CONFIG_CHANGED', adminToken)).json().data as Array<{ protectedRecord: boolean }>;
+        expect(plain.every((r) => r.protectedRecord === false)).toBe(true);
       });
 
       it('an absent row is OFF too', async () => {
