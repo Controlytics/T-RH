@@ -43,3 +43,47 @@ export function maskSecrets(value: unknown, safeKeys: readonly string[] | Readon
   const safe = safeKeys instanceof Set ? safeKeys : new Set(safeKeys);
   return walk(value, safe);
 }
+
+// ─── Response masking: a secret sent to a browser ─────────────────────────────
+//
+// Separate from the audit masking above. A config screen must SHOW that a secret
+// is set without showing it, and its Save must send the screen back without
+// wiping the secret. The convention, already used by notification-settings for
+// the SMTP password and the SMS tokens: the server replaces the value with
+// SECRET_MASK on the way out, and a SECRET_MASK coming back means "keep what is
+// stored". (Audit 2026-10-12 #6 extended it to webhook header values and to the
+// SMS gateway's headers and URL query values.)
+
+/** Eight bullets. Not a valid HTTP header byte, so it can never be stored by accident. */
+export const SECRET_MASK = '••••••••';
+
+/** A copy of a header map with every VALUE masked; the names are kept. */
+export function maskHeaderValues(headers: Record<string, string> | null | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers ?? {})) out[name] = value ? SECRET_MASK : value;
+  return out;
+}
+
+/**
+ * Put the stored value back wherever a submitted header value is the mask. A mask
+ * for a name with no stored value cannot be resolved — the operator renamed a
+ * header without retyping its value — and is refused rather than stored as eight
+ * bullets. A header absent from `submitted` is removed (that is how a screen
+ * deletes one).
+ */
+export function restoreMaskedHeaders(
+  submitted: Record<string, string>,
+  stored: Record<string, string> | null | undefined,
+): { headers: Record<string, string> } | { unresolved: string } {
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(submitted)) {
+    if (value === SECRET_MASK) {
+      const kept = stored?.[name];
+      if (kept === undefined) return { unresolved: name };
+      out[name] = kept;
+    } else {
+      out[name] = value;
+    }
+  }
+  return { headers: out };
+}
