@@ -31,7 +31,7 @@ const RESPONSES: Record<string, unknown> = {
   '/api/users/reset-requests': { data: [request] },
   '/api/users/u-1': user,
   roles,
-  '/api/config/password-policy': { minLength: 8 },
+  '/api/config/password-policy/current': { minLength: 8 },
 };
 vi.mock('swr', () => ({
   default: (key: string | null) => {

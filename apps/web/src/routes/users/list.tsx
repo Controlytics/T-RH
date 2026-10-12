@@ -78,9 +78,19 @@ export function UserListPage() {
   if (statusFilter) params.set('status', statusFilter);
 
   const { data: rawData, mutate } = useSWR(`${apiBase}/users?${params}`);
-  const { data: pendingData } = useSWR<PendingCount>('/api/users/reset-requests/pending');
+  // USER_RESET_PASSWORD-only on the server, and shown only beside the
+  // reset-requests button, which is gated the same way (audit 2026-10-12,
+  // finding 9): a USER_READ-only caller no longer makes a request it is
+  // refused.
+  const canSeeResets = useCan()('users.reset_password');
+  const { data: pendingData } = useSWR<PendingCount>(canSeeResets ? '/api/users/reset-requests/pending' : null);
   const { data: userStatsData, mutate: mutateStats } = useSWR<{ total: number; enabled: number; disabled: number; locked: number; expired: number }>('/api/users/stats');
-  const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy', { revalidateOnMount: true, dedupingInterval: 5000 });
+  const { data: policyData } = useSWR<PasswordPolicyConfig>(
+    // `/current`: served to every authenticated user. The bare route is
+    // CONFIG_READ-only, so a user administrator without it got a 403 and the
+    // form described the DEFAULT policy (audit 2026-10-12, finding 8).
+    '/api/config/password-policy/current', { revalidateOnMount: true, dedupingInterval: 5000 },
+  );
   const policy = { ...DEFAULT_PASSWORD_POLICY, ...policyData };
 
   // Server already filters out higher-privilege roles (SUPER_ADMIN/ADMIN) per caller's role
