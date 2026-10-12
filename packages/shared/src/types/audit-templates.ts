@@ -453,6 +453,48 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Dashboard "{targetName}" created by {actor}',
     placeholders: ['actor', 'targetName'],
   },
+  DASHBOARD_UPDATED: {
+    label: 'Dashboard Updated',
+    category: 'Configuration',
+    template: 'Dashboard "{targetName}" updated by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  DASHBOARD_DELETED: {
+    label: 'Dashboard Deleted',
+    category: 'Configuration',
+    template: 'Dashboard "{targetName}" deleted by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  DASHBOARD_WIDGET_CREATED: {
+    label: 'Dashboard Widget Added',
+    category: 'Configuration',
+    template: 'Widget "{targetName}" added to a dashboard by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  DASHBOARD_WIDGET_UPDATED: {
+    label: 'Dashboard Widget Updated',
+    category: 'Configuration',
+    template: 'Widget "{targetName}" updated by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  DASHBOARD_WIDGET_DELETED: {
+    label: 'Dashboard Widget Removed',
+    category: 'Configuration',
+    template: 'Widget "{targetName}" removed from a dashboard by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  DASHBOARD_ASSIGNED: {
+    label: 'Dashboard Assigned',
+    category: 'Configuration',
+    template: 'Dashboard "{targetName}" assigned by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  DASHBOARD_UNASSIGNED: {
+    label: 'Dashboard Unassigned',
+    category: 'Configuration',
+    template: 'Dashboard "{targetName}" assignment removed by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
   SUPER_ADMIN_API_ACCESS_CHANGED: {
     label: 'Super Admin API Access Changed',
     category: 'Configuration',

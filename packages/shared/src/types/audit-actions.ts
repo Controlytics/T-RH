@@ -128,6 +128,16 @@ export const AUDIT_ACTIONS = {
 
   // Dashboards (a saved dashboard layout row)
   DASHBOARD_CREATED: 'DASHBOARD_CREATED',
+  // The rest of the parked /api/dashboards module's writes (2026-10-12): it wrote
+  // only the create; every other change to a dashboard, its widgets and who it
+  // is assigned to was unrecorded.
+  DASHBOARD_UPDATED: 'DASHBOARD_UPDATED',
+  DASHBOARD_DELETED: 'DASHBOARD_DELETED',
+  DASHBOARD_WIDGET_CREATED: 'DASHBOARD_WIDGET_CREATED',
+  DASHBOARD_WIDGET_UPDATED: 'DASHBOARD_WIDGET_UPDATED',
+  DASHBOARD_WIDGET_DELETED: 'DASHBOARD_WIDGET_DELETED',
+  DASHBOARD_ASSIGNED: 'DASHBOARD_ASSIGNED',
+  DASHBOARD_UNASSIGNED: 'DASHBOARD_UNASSIGNED',
 
   // Help
   HELP_ARTICLE_CREATED: 'HELP_ARTICLE_CREATED',

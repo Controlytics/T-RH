@@ -424,7 +424,9 @@ export function LayoutDesignerPage() {
     // The outline is REPLACED, so doors and openings are found again on it by
     // geometry (finding 3): A's own, and B's doors too, wherever they still sit
     // on a wall of the union. An opening between the two pieces is inside the
-    // merged room and is deleted (audited) first; B's other links go with B.
+    // merged room; B's other links go with B. ONE request (POST .../merge):
+    // the server deletes the links, reshapes A, moves the instruments and
+    // deletes B in one transaction, so a refusal leaves everything as it was.
     const between = plan.links.filter((l) => (l.fromRoomId === a.id && l.toRoomId === b.id) || (l.fromRoomId === b.id && l.toRoomId === a.id));
     const bOther = plan.links.filter((l) => (l.fromRoomId === b.id || l.toRoomId === b.id) && !between.includes(l));
     const openings = remapOpenings(plan.links.filter((l) => !between.includes(l)), a.id, geometricMap(roomPolygon(a), union));
@@ -440,14 +442,10 @@ export function LayoutDesignerPage() {
       bOther.length ? `${bOther.length} link(s) of "${b.code}" are deleted with it.` : null,
     ].filter(Boolean).join(' ');
     if (!window.confirm(`Merge "${b.code}" into "${a.code}"? Its instruments move to "${a.code}" and "${b.code}" is deleted.${notes ? ` ${notes}` : ''}`)) return;
-    const bInstruments = planDetail?.rooms.find((r) => r.id === b.id)?.instruments?.map((i) => i.id) ?? [];
-    const aInstruments = planDetail?.rooms.find((r) => r.id === a.id)?.instruments?.map((i) => i.id) ?? [];
-    const body = { ...roomBody(a, { ...formOf(a), doors: [...aDoors.doors, ...bDoors.doors] }, union), ...(openings.linkEdges.length ? { linkEdges: openings.linkEdges } : {}) };
+    const doors = [...aDoors.doors, ...bDoors.doors];
+    const body = { otherRoomId: b.id, points: union, doors: doors.length ? doors : null, ...(openings.linkEdges.length ? { linkEdges: openings.linkEdges } : {}) };
     run('UPDATE_FLOORPLAN_ROOM', async (pw) => {
-      for (const l of between) await del(`/api/floorplans/${plan.id}/links/${l.id}`, pw);
-      await put(`/api/floorplans/${plan.id}/rooms/${a.id}`, body, pw);
-      if (bInstruments.length) await saveMembership(a.id, [...aInstruments, ...bInstruments], pw);
-      await del(`/api/floorplans/${plan.id}/rooms/${b.id}`, pw);
+      await post(`/api/floorplans/${plan.id}/rooms/${a.id}/merge`, body, pw);
     }, { title: 'Pieces merged', message: `"${b.code}" is now part of "${a.code}".` });
   };
 

@@ -9,7 +9,8 @@ import { sanitizeStrings } from '../../lib/sanitize.js';
 import { validateRoomPayload, roomGeometry, validateLinkPayload, floorplanSchema, floorplanUpdateSchema, annotationsSummary, type RoomDoor, type LinkInput } from './validation.js';
 import { sharedEdges, rectanglePoints, type Point, type Polygon } from '@digilog/shared';
 import { getRoomHistory, HISTORY_WINDOWS, type HistoryWindow } from './room-history.js';
-import { resolveVisibility } from '../instruments/visibility.js';
+import { resolveVisibility, withVisibility } from '../instruments/visibility.js';
+import { roleHasPermission } from '../../plugins/rbac.js';
 import { REDRAW_ROOM_SELECT, REDRAW_LINK_SELECT, carriedLimits, deleteLinksAudited } from './redraw.js';
 
 /**
@@ -164,6 +165,19 @@ function openingFits(from: Polygon, to: Polygon, fromEdge: number, offset: numbe
     s.aEdge === fromEdge && s.start - 1e-9 <= offset && offset + width <= s.end + 1e-9);
 }
 
+type LinkEdge = { id: string; fromEdge: number; offset: number; width: number };
+/** `linkEdges` from a body: [] when absent, null when malformed. */
+function parseLinkEdges(raw: unknown): LinkEdge[] | null {
+  if (raw === undefined) return [];
+  const ok = Array.isArray(raw) && raw.length <= 64 && raw.every((e) => {
+    const o = e as Record<string, unknown>;
+    return typeof o?.id === 'string' && Number.isInteger(o.fromEdge) && (o.fromEdge as number) >= 0
+      && typeof o.offset === 'number' && typeof o.width === 'number'
+      && o.offset >= 0 && o.width > 0 && o.offset + o.width <= 1 + 1e-9;
+  });
+  return ok ? (raw as LinkEdge[]) : null;
+}
+
 /** A refusal raised inside a transaction, sent as-is by the route (and the transaction rolled back). */
 class RouteRefusal extends Error {
   constructor(public status: number, public body: { error: string; message: string }) { super(body.message); }
@@ -269,7 +283,7 @@ export default async function floorplanRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async () => {
+  }, async (req) => {
     const data = await prisma.floorplan.findMany({
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       include: {
@@ -277,7 +291,31 @@ export default async function floorplanRoutes(app: FastifyInstance) {
         links: { select: linkSelect, orderBy: { createdAt: 'asc' } },
       },
     });
-    return { data };
+    // A DASHBOARD reader without CONFIG_READ gets every room's GEOMETRY (the
+    // floor must still draw) but a room's limits only when it holds an
+    // instrument the caller may see, and a room's identity (code, label) is
+    // withheld when every instrument in it is out of scope — on the generated
+    // plans the room code IS the instrument code (follow-up to finding 5).
+    const ctx = buildContext(req);
+    if (await roleHasPermission(ctx.userRole, 'CONFIG_READ')) return { data };
+    const { where: visibility } = await resolveVisibility(ctx);
+    const [placed, seen] = await Promise.all([
+      prisma.instrument.findMany({ where: { roomId: { not: null } }, select: { roomId: true } }),
+      prisma.instrument.findMany({ where: withVisibility({ roomId: { not: null } }, visibility) as never, select: { roomId: true } }),
+    ]);
+    const occupied = new Set(placed.map((i) => i.roomId));
+    const visible = new Set(seen.map((i) => i.roomId));
+    const noLimits = { tempMin: null, tempMax: null, rhMin: null, rhMax: null };
+    return {
+      data: data.map((plan) => ({
+        ...plan,
+        rooms: plan.rooms.map((r) => {
+          if (visible.has(r.id)) return r;
+          if (occupied.has(r.id)) return { ...r, ...noLimits, code: '', label: null };
+          return { ...r, ...noLimits };
+        }),
+      })),
+    };
   });
 
   app.get('/:id', {
@@ -599,19 +637,9 @@ export default async function floorplanRoutes(app: FastifyInstance) {
     // it, and a merge replaces the outline; the Layout Designer works out
     // where each opening now sits and sends it here, so the outline and the
     // openings change in ONE transaction. Read before validation (zod strips it).
-    const rawLinkEdges = (req.body as Record<string, unknown> | undefined)?.linkEdges;
-    const linkEdges: { id: string; fromEdge: number; offset: number; width: number }[] = [];
-    if (rawLinkEdges !== undefined) {
-      const okShape = Array.isArray(rawLinkEdges) && rawLinkEdges.length <= 64 && rawLinkEdges.every((e) => {
-        const o = e as Record<string, unknown>;
-        return typeof o?.id === 'string' && Number.isInteger(o.fromEdge) && (o.fromEdge as number) >= 0
-          && typeof o.offset === 'number' && typeof o.width === 'number'
-          && o.offset >= 0 && o.width > 0 && o.offset + o.width <= 1 + 1e-9;
-      });
-      if (!okShape) {
-        return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'linkEdges: each entry needs id, fromEdge, offset and width on the wall.' });
-      }
-      linkEdges.push(...(rawLinkEdges as typeof linkEdges));
+    const linkEdges = parseLinkEdges((req.body as Record<string, unknown> | undefined)?.linkEdges);
+    if (!linkEdges) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'linkEdges: each entry needs id, fromEdge, offset and width on the wall.' });
     }
 
     try {
@@ -720,6 +748,139 @@ export default async function floorplanRoutes(app: FastifyInstance) {
           message: `This plan already has a room "${result.data.code}".`,
         });
       }
+      throw err;
+    }
+  });
+
+  // POST /:id/rooms/:roomId/merge — merge room `otherRoomId` INTO this room,
+  // as ONE transaction (2026-10-12, follow-up to review finding 3). The Layout
+  // Designer's "Merge pieces" used to be four requests (delete the openings
+  // between the pieces, PUT the union, move the instruments, delete the other
+  // piece): a refusal of the PUT after the first left the openings deleted and
+  // the pieces still apart. Here every step and every audit row commits or
+  // none does; an opening of THIS room that the union takes off its wall
+  // refuses the whole merge (409 LINK_OFF_WALL) with nothing changed.
+  app.post('/:id/rooms/:roomId/merge', {
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    schema: {
+      tags: ['Floorplans'],
+      summary: 'Merge another room of this plan into this one',
+      params: {
+        type: 'object',
+        properties: { id: { type: 'string', format: 'uuid' }, roomId: { type: 'string', format: 'uuid' } },
+      },
+      response: { 200: { type: 'object', properties: roomProps }, ...errorResponses },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_FLOORPLAN_ROOM', req, reply);
+    if (!ok) return;
+    const { id, roomId } = req.params as { id: string; roomId: string };
+    const ctx = buildContext(req);
+    const who = { userId: ctx.userId, userRole: ctx.userRole, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId };
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const otherRoomId = typeof body.otherRoomId === 'string' ? body.otherRoomId : '';
+    if (!otherRoomId || otherRoomId === roomId) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'otherRoomId must name another room of this plan.' });
+    }
+    const linkEdges = parseLinkEdges(body.linkEdges);
+    if (!linkEdges) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'linkEdges: each entry needs id, fromEdge, offset and width on the wall.' });
+    }
+
+    try {
+      const merged = await prisma.$transaction(async (tx) => {
+        const a = await tx.floorplanRoom.findFirst({ where: { id: roomId, floorplanId: id }, include: { instruments: { select: { id: true, code: true } }, floorplan: { select: { name: true } } } });
+        const b = await tx.floorplanRoom.findFirst({ where: { id: otherRoomId, floorplanId: id }, include: { instruments: { select: { id: true, code: true } } } });
+        if (!a || !b) throw new RouteRefusal(404, { error: 'NOT_FOUND', message: 'Both rooms must be on this floorplan.' });
+
+        // The union outline and the doors on it, validated as any room save is
+        // — against the outline it will HAVE. Limits, code, label, grade are A's.
+        const v = validateRoomPayload({
+          code: a.code, label: a.label, grade: a.grade, x: a.x, y: a.y, w: a.w, h: a.h,
+          tempMin: a.tempMin, tempMax: a.tempMax, rhMin: a.rhMin, rhMax: a.rhMax,
+          points: body.points, doors: body.doors ?? null,
+        });
+        if (!v.ok) throw new RouteRefusal(400, { error: 'VALIDATION_ERROR', message: v.error });
+        if (!v.data.points) throw new RouteRefusal(400, { error: 'VALIDATION_ERROR', message: 'points: the merged outline is required.' });
+
+        const touchingSelect = { ...linkSelect, fromRoom: { select: { code: true, x: true, y: true, w: true, h: true, points: true } }, toRoom: { select: { code: true, x: true, y: true, w: true, h: true, points: true } } } as const;
+        const allLinks = await tx.floorplanRoomLink.findMany({
+          where: { floorplanId: id, OR: [{ fromRoomId: { in: [a.id, b.id] } }, { toRoomId: { in: [a.id, b.id] } }] },
+          select: touchingSelect,
+        });
+        const touchesB = (l: { fromRoomId: string; toRoomId: string }) => l.fromRoomId === b.id || l.toRoomId === b.id;
+        const fitBefore = new Set(allLinks.filter((l) => !touchesB(l) && l.kind === 'OPENING'
+          && openingFits(polygonOf(l.fromRoom), polygonOf(l.toRoom), l.fromEdge!, l.offset!, l.width!)).map((l) => l.id));
+
+        // 1. Every link of the other piece goes (those between the two are
+        //    inside the merged room now), one FLOORPLAN_LINK_DELETED row each.
+        const goneLinks = await deleteLinksAudited(tx, await tx.floorplanRoomLink.findMany({
+          where: { id: { in: allLinks.filter(touchesB).map((l) => l.id) } }, select: REDRAW_LINK_SELECT,
+        }), { planName: a.floorplan.name, audit: who, why: `room "${b.code}" merged into "${a.code}"` });
+
+        // 2. This room takes the union and the doors on it.
+        const { points, doors } = v.data;
+        const row = await tx.floorplanRoom.update({
+          where: { id: a.id },
+          data: { ...roomGeometry({ ...v.data, points }), points: points as unknown as Prisma.InputJsonValue, doors: doorsForWrite(doors), updatedBy: ctx.userId },
+        });
+
+        // 3. Its own openings, re-indexed for the union.
+        for (const e of linkEdges) {
+          const l = allLinks.find((t) => t.id === e.id);
+          if (!l || l.kind !== 'OPENING' || l.fromRoomId !== a.id || touchesB(l)) {
+            throw new RouteRefusal(400, { error: 'VALIDATION_ERROR', message: 'linkEdges names a link that is not an opening starting on this room.' });
+          }
+          const code = `${l.fromRoom.code} ↔ ${l.toRoom.code}`;
+          const upd = await tx.floorplanRoomLink.update({ where: { id: l.id }, data: { fromEdge: e.fromEdge, offset: e.offset, width: e.width, updatedBy: ctx.userId }, select: linkSelect });
+          await auditLog({
+            ...who, action: 'FLOORPLAN_LINK_UPDATED', targetType: 'floorplan_room_link', targetId: l.id,
+            beforeValue: linkAudit(l, code), afterValue: linkAudit(upd, code),
+            signatureMeaning: `Room link "${code}" moved with the outline of room "${a.code}" (merge)`,
+          }, tx);
+        }
+        const named = new Set(linkEdges.map((e) => e.id));
+        const now = await tx.floorplanRoomLink.findMany({
+          where: { floorplanId: id, kind: 'OPENING', OR: [{ fromRoomId: a.id }, { toRoomId: a.id }] }, select: touchingSelect,
+        });
+        const off = now.filter((l) => (fitBefore.has(l.id) || named.has(l.id))
+          && !openingFits(polygonOf(l.fromRoom), polygonOf(l.toRoom), l.fromEdge!, l.offset!, l.width!));
+        if (off.length) {
+          throw new RouteRefusal(409, {
+            error: 'LINK_OFF_WALL',
+            message: `Merging leaves ${off.length === 1 ? 'an opening' : `${off.length} openings`} off a shared wall: ${off.map((l) => `${l.fromRoom.code} ↔ ${l.toRoom.code}`).join(', ')}. Move or delete the opening first.`,
+          });
+        }
+
+        // 4. The other piece's instruments move here; then it goes.
+        if (b.instruments.length) await tx.instrument.updateMany({ where: { roomId: b.id }, data: { roomId: a.id } });
+        await tx.floorplanRoom.delete({ where: { id: b.id } });
+        await auditLog({
+          ...who, action: 'FLOORPLAN_ROOM_DELETED', targetType: 'floorplan_room', targetId: b.id,
+          beforeValue: {
+            code: b.code, label: b.label, limits: carriedLimits(b),
+            instruments: b.instruments.map((i) => i.code), links: goneLinks, mergedInto: a.code,
+          },
+          signatureMeaning: `Room "${b.code}" merged into "${a.code}"; ${b.instruments.length} instrument(s) moved with it`,
+        }, tx);
+        await auditLog({
+          ...who, action: 'FLOORPLAN_ROOM_UPDATED', targetType: 'floorplan_room', targetId: a.id,
+          beforeValue: {
+            code: a.code, geometry: { x: a.x, y: a.y, w: a.w, h: a.h, corners: Array.isArray(a.points) ? a.points.length : 4 },
+            doors: doorSummary(a.doors), instruments: a.instruments.map((i) => i.code),
+          },
+          afterValue: {
+            code: row.code, geometry: { x: row.x, y: row.y, w: row.w, h: row.h, corners: Array.isArray(row.points) ? row.points.length : 4 },
+            doors: doorSummary(row.doors), instruments: [...a.instruments, ...b.instruments].map((i) => i.code),
+            mergedFrom: b.code, movedFrom: b.instruments.map((i) => ({ instrument: i.code, room: b.code })),
+          },
+          signatureMeaning: `Room "${b.code}" merged into room "${a.code}"`,
+        }, tx);
+        return row;
+      });
+      return merged;
+    } catch (err) {
+      if (err instanceof RouteRefusal) return reply.code(err.status).send(err.body);
       throw err;
     }
   });

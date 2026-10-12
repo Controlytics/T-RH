@@ -102,6 +102,44 @@ describe('widgets and assignments are reached only through their own dashboard',
   });
 });
 
+describe('every write is audited (follow-up to finding 10)', () => {
+  const rows = (action: string, targetId: string) => prisma.auditTrail.count({ where: { action, targetId } });
+  it('update, widget create/update/delete, layout, assign, unassign and delete each write their row', async () => {
+    const d = await dashboard(`AU ${s}`);
+    expect((await app.inject({ method: 'PUT', url: `/api/dashboards/${d.id}`, headers: auth, payload: { title: `AU2 ${s}` } })).statusCode).toBe(200);
+    expect(await rows('DASHBOARD_UPDATED', d.id)).toBe(1);
+    const updated = await prisma.auditTrail.findFirst({ where: { action: 'DASHBOARD_UPDATED', targetId: d.id } });
+    expect((updated!.beforeValue as { name: string }).name).toBe(`AU ${s}`);
+    expect((updated!.afterValue as { name: string }).name).toBe(`AU2 ${s}`);
+
+    const w = await widget(d.id);
+    expect(await rows('DASHBOARD_WIDGET_CREATED', w.id)).toBe(1);
+    expect((await app.inject({ method: 'PUT', url: `/api/dashboards/${d.id}/widgets/${w.id}`, headers: auth, payload: { title: 'renamed' } })).statusCode).toBe(200);
+    expect(await rows('DASHBOARD_WIDGET_UPDATED', w.id)).toBe(1);
+    expect((await app.inject({ method: 'PUT', url: `/api/dashboards/${d.id}/layout`, headers: auth, payload: { positions: [{ widgetId: w.id, x: 1, y: 1, w: 2, h: 2 }] } })).statusCode).toBe(200);
+    expect(await rows('DASHBOARD_UPDATED', d.id)).toBe(2);
+
+    const a = await app.inject({ method: 'POST', url: `/api/dashboards/${d.id}/assign`, headers: auth, payload: { assigneeType: 'ROLE', roleValue: `NOBODY_${s}` } });
+    expect(a.statusCode).toBe(201);
+    expect(await rows('DASHBOARD_ASSIGNED', d.id)).toBe(1);
+    expect((await app.inject({ method: 'DELETE', url: `/api/dashboards/${d.id}/assign/${a.json().id}`, headers: auth })).statusCode).toBe(200);
+    expect(await rows('DASHBOARD_UNASSIGNED', d.id)).toBe(1);
+
+    expect((await app.inject({ method: 'DELETE', url: `/api/dashboards/${d.id}/widgets/${w.id}`, headers: auth })).statusCode).toBe(200);
+    expect(await rows('DASHBOARD_WIDGET_DELETED', w.id)).toBe(1);
+    expect((await app.inject({ method: 'DELETE', url: `/api/dashboards/${d.id}`, headers: auth })).statusCode).toBe(200);
+    expect(await rows('DASHBOARD_DELETED', d.id)).toBe(1);
+  });
+
+  it('a refused write writes no row', async () => {
+    const d1 = await dashboard(`AR1 ${s}`);
+    const d2 = await dashboard(`AR2 ${s}`);
+    const w2 = await widget(d2.id);
+    await app.inject({ method: 'DELETE', url: `/api/dashboards/${d1.id}/widgets/${w2.id}`, headers: auth });
+    expect(await rows('DASHBOARD_WIDGET_DELETED', w2.id)).toBe(0);
+  });
+});
+
 describe('the list and the detail agree about what a caller may see', () => {
   const listed = async (headers: Record<string, string>) => {
     const res = await app.inject({ method: 'GET', url: '/api/dashboards?limit=1000', headers });
