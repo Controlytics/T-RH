@@ -259,6 +259,7 @@ export function FunctionalLocationDetailPage() {
         locationPath={path}
         canEdit={can('functional_locations.edit')}
         onChanged={refresh}
+        reauth={reauth}
       />
 
       {isBlock && inAreas.length > 0 && (
