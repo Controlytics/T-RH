@@ -80,6 +80,32 @@ async function assertBelowSuperAdmin(hierarchyLevel: number | undefined, roleNam
   }
 }
 
+/**
+ * May the caller change settings that apply to ONE USER (their instrument
+ * scope, panels, sidebar / permission overrides)? Application review
+ * 2026-10-12, findings 6 and follow-up 2. SUPER_ADMIN exempt. Otherwise not
+ * your own account, and not an account whose role is at or above yours —
+ * never a SUPER_ADMIN's. A per-user override REPLACES the role's setting, so
+ * without this it is the shortest way round `assertRoleWithinCallerPrivilege`.
+ */
+export async function assertUserWithinCallerPrivilege(
+  ctx: RequestContext,
+  user: { id: string; role: string },
+): Promise<void> {
+  if (ctx.userRole === 'SUPER_ADMIN') return;
+  if (user.id === ctx.userSub) {
+    throw new AppError(403, 'FORBIDDEN', 'You cannot change your own override');
+  }
+  const [caller, target] = await Promise.all([
+    roleRepository.findByName(ctx.userRole),
+    roleRepository.findByName(user.role),
+  ]);
+  if (!caller) throw new AppError(403, 'FORBIDDEN', 'Your role is not recognized');
+  if (user.role === 'SUPER_ADMIN' || !target || target.hierarchyLevel >= caller.hierarchyLevel) {
+    throw new AppError(403, 'FORBIDDEN', 'You cannot change the settings of a user at or above your own hierarchy level');
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Zod schemas
 // ---------------------------------------------------------------------------

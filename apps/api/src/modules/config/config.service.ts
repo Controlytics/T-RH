@@ -8,7 +8,7 @@ import { getDefaultTemplates, FEATURE_TO_PERMISSION_MAP, FEATURE_PRIVILEGES, SID
 import { validateUserId } from '../../lib/user-id-validator.js';
 import { prisma } from '../../lib/prisma.js';
 import { invalidateRolePermsCache } from '../../plugins/rbac.js';
-import { assertRoleWithinCallerPrivilege } from '../roles/role.service.js';
+import { assertRoleWithinCallerPrivilege, assertUserWithinCallerPrivilege } from '../roles/role.service.js';
 import { invalidatePasswordPolicyCache } from '../../plugins/auth.js';
 import { sanitizeAuditValue } from '../../lib/audit-diff.js';
 import { configRegistry } from '../../lib/config-registry.js';
@@ -326,10 +326,22 @@ export const configService = {
   },
 
   async updateUserConfig(userId: string, data: { sidebarItems?: string[]; homeWidgets?: string[]; permissions?: Record<string, boolean> }, ctx: RequestContext) {
+    // WHO may override this user's sidebar / permission toggles (application
+    // review 2026-10-12, follow-up 2): the user must exist (404, not an orphan
+    // `user_configs` row for a typo), and a non-SUPER_ADMIN may not override
+    // itself or anyone at or above its level — the per-user twin of the role
+    // check in `updateRoleConfig`. Until then any ROLE_MANAGE holder could
+    // rewrite a SUPER_ADMIN's or its own overrides.
+    const target = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } });
+    if (!target) throw new NotFoundError('User not found');
+    await assertUserWithinCallerPrivilege(ctx, target);
+
     const existing = await configRepository.findUserConfig(userId);
     const beforeValue = existing ? { sidebarItems: existing.sidebarItems, homeWidgets: existing.homeWidgets, permissions: existing.permissions } : null;
 
-    const config = await configRepository.upsertUserConfig(userId, data, existing, ctx.userId);
+    // The override and its audit row commit together (§11).
+    return prisma.$transaction(async (tx) => {
+    const config = await configRepository.upsertUserConfig(userId, data, existing, ctx.userId, tx);
 
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'CONFIG_CHANGED',
@@ -338,9 +350,10 @@ export const configService = {
       afterValue: { sidebarItems: config.sidebarItems, homeWidgets: config.homeWidgets, permissions: config.permissions },
       signatureMeaning: `User-specific configuration updated for ${userId}`,
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
-    });
+    }, tx);
 
     return config;
+    });
   },
 
   async getMyConfig(username: string) {

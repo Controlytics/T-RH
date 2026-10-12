@@ -55,13 +55,14 @@ export const configRepository = {
     return prisma.userConfig.findUnique({ where: { userId } });
   },
 
-  async upsertUserConfig(userId: string, data: { sidebarItems?: string[]; homeWidgets?: string[]; permissions?: Record<string, boolean> }, existing: any, updatedBy: string) {
+  /** `tx` joins the caller's transaction (the override and its audit row commit together). */
+  async upsertUserConfig(userId: string, data: { sidebarItems?: string[]; homeWidgets?: string[]; permissions?: Record<string, boolean> }, existing: any, updatedBy: string, tx?: Pick<typeof prisma, 'userConfig'>) {
     const updateData: Record<string, any> = { updatedAt: new Date(), updatedBy };
     if (data.sidebarItems !== undefined) updateData.sidebarItems = data.sidebarItems;
     if (data.homeWidgets !== undefined) updateData.homeWidgets = data.homeWidgets;
     if (data.permissions !== undefined) updateData.permissions = data.permissions;
 
-    return prisma.userConfig.upsert({
+    return (tx ?? prisma).userConfig.upsert({
       where: { userId },
       create: {
         userId,
