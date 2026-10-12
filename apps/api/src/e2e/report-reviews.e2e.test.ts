@@ -526,24 +526,123 @@ describe('snapshot hash', () => {
     }
   });
 
-  it('a request older than the digest (no column, no audit field) downloads and is recorded as unattested', async () => {
-    // A row raised before 2026-10-05: NULL snapshot_hash and a REQUESTED audit
-    // row with no snapshotHash. Simulated by a row created directly.
-    const legacy = await prisma.reportReview.create({
+  /** An APPROVED row written directly — what a request raised before a fix looks like. */
+  async function directRow(title: string, snapshotHash: string | null) {
+    const row = await prisma.reportReview.create({
       data: {
-        reportType: 'Audit Trail', title: 'LEGACY', requestMeta, dataSnapshot: snapshot, status: 'APPROVED',
+        reportType: 'Audit Trail', title, requestMeta, dataSnapshot: snapshot, status: 'APPROVED', snapshotHash,
         requestedBy: ids.REQ!, requestedByName: U.REQ, requestedByRole: ROLE_REQ, requestRemarks: 'old',
         approverRoles: [ROLE_APPR], approverUserIds: [], instrumentIds: [],
         decidedBy: ids.APPR!, decidedByName: U.APPR, decidedByRole: ROLE_APPR, decidedAt: new Date(), decisionRemarks: 'old',
       },
       select: { id: true, snapshotHash: true },
     });
-    created.push(legacy.id);
+    created.push(row.id);
+    return row;
+  }
+  const downloadLog = (id: string) => app.inject({ method: 'POST', url: `/api/report-reviews/${id}/download-log`, headers: bearer(tok.REQ), payload: {} });
+
+  it('a request older than the digest (no column, a REQUESTED audit row with no hash) downloads and is recorded as unattested', async () => {
+    // A row raised before 2026-10-05: NULL snapshot_hash and a REQUESTED audit
+    // row with no snapshotHash — the shape of every legacy row on the local
+    // database (13 of 13, read-only check 2026-10-12).
+    const legacy = await directRow('LEGACY', null);
     expect(legacy.snapshotHash).toBeNull();
-    const res = await app.inject({ method: 'POST', url: `/api/report-reviews/${legacy.id}/download-log`, headers: bearer(tok.REQ), payload: {} });
+    const { auditLog } = await import('../lib/audit.js');
+    await auditLog({
+      userId: U.REQ, userRole: ROLE_REQ, action: 'REPORT_REVIEW_REQUESTED', targetType: 'Audit Trail', targetId: legacy.id,
+      afterValue: { title: 'LEGACY', status: 'PENDING' },
+    });
+    const res = await downloadLog(legacy.id);
     expect(res.statusCode).toBe(200);
     const audit = await prisma.auditTrail.findFirst({ where: { action: 'REPORT_DOWNLOADED', targetId: legacy.id } });
     expect(audit?.afterValue).toMatchObject({ snapshotAttested: false });
+  });
+
+  // Audit 2026-10-12 #8: the download check FAILS CLOSED. Until then a row with
+  // no REQUESTED audit row fell back to the row's own (editable) column — so a
+  // request whose audit write was lost could have its snapshot AND column
+  // edited together and still download as signed.
+  it('a request with NO REQUESTED audit row is refused, even when its column agrees with its snapshot', async () => {
+    const { snapshotDigest } = await import('../modules/report-reviews/service.js');
+    const orphan = await directRow('ORPHAN', snapshotDigest(snapshot));
+    const res = await downloadLog(orphan.id);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toBe('SNAPSHOT_UNATTESTED');
+    expect(await prisma.auditTrail.count({ where: { action: 'REPORT_DOWNLOADED', targetId: orphan.id } })).toBe(0);
+  });
+
+  it('a request with no audit row and no column (nothing attests it at all) is refused too', async () => {
+    const bare = await directRow('BARE', null);
+    const res = await downloadLog(bare.id);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toBe('SNAPSHOT_UNATTESTED');
+  });
+
+  it('a column set while the REQUESTED audit row carries no hash is refused — the two are only ever written together', async () => {
+    const { snapshotDigest } = await import('../modules/report-reviews/service.js');
+    const odd = await directRow('ODD', snapshotDigest(snapshot));
+    const { auditLog } = await import('../lib/audit.js');
+    await auditLog({
+      userId: U.REQ, userRole: ROLE_REQ, action: 'REPORT_REVIEW_REQUESTED', targetType: 'Audit Trail', targetId: odd.id,
+      afterValue: { title: 'ODD', status: 'PENDING' },
+    });
+    const res = await downloadLog(odd.id);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toBe('SNAPSHOT_UNATTESTED');
+  });
+});
+
+/**
+ * Audit 2026-10-12 #8 (HIGH): a request and a decision are each ONE transaction
+ * with their audit row. Proved with a trigger that refuses the audit insert for
+ * this file's users only: on the old code the request / decision committed
+ * first and the audit write failed after it, leaving a §11 record with no
+ * audit row.
+ */
+describe('a request or a decision never exists without its audit row', () => {
+  const FN = `rr_refuse_audit_${STAMP}`;
+  const TRG = `rr_refuse_audit_trg_${STAMP}`;
+  async function refuse(action: string, userId: string) {
+    await prisma.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION ${FN}() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.action = '${action}' AND NEW.user_id = '${userId}' THEN RAISE EXCEPTION 'test: audit insert refused'; END IF;
+        RETURN NEW;
+      END $$`);
+    await prisma.$executeRawUnsafe(`CREATE TRIGGER ${TRG} BEFORE INSERT ON audit_trail FOR EACH ROW EXECUTE FUNCTION ${FN}()`);
+  }
+  async function allow() {
+    await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${TRG} ON audit_trail`);
+    await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${FN}()`);
+  }
+  afterAll(async () => { try { await allow(); } catch (e) { console.error('trigger cleanup failed', e); } });
+
+  it('submit: the audit insert failing leaves NO request behind', async () => {
+    const before = await prisma.reportReview.count({ where: { requestedBy: ids.REQ! } });
+    await refuse('REPORT_REVIEW_REQUESTED', U.REQ);
+    try {
+      const res = await submit(tok.REQ);
+      expect(res.statusCode).toBe(500);
+    } finally { await allow(); }
+    expect(await prisma.reportReview.count({ where: { requestedBy: ids.REQ! } })).toBe(before);
+  });
+
+  it('decide: the audit insert failing leaves the request PENDING and undecided', async () => {
+    const res = await submit(tok.REQ);
+    expect(res.statusCode).toBe(201);
+    const id = res.json().id as string;
+    created.push(id);
+    await refuse('REPORT_REVIEW_APPROVED', U.APPR);
+    try {
+      const d = await app.inject({ method: 'POST', url: `/api/report-reviews/${id}/approve`, headers: bearer(tok.APPR, PASSWORD), payload: { remarks: 'checked' } });
+      expect(d.statusCode).toBe(500);
+    } finally { await allow(); }
+    const row = await prisma.reportReview.findUnique({ where: { id } });
+    expect(row).toMatchObject({ status: 'PENDING', decidedBy: null, decidedAt: null });
+    // And once the audit can be written, the decision goes through normally.
+    const ok = await app.inject({ method: 'POST', url: `/api/report-reviews/${id}/approve`, headers: bearer(tok.APPR, PASSWORD), payload: { remarks: 'checked' } });
+    expect(ok.statusCode).toBe(200);
+    expect(await prisma.auditTrail.count({ where: { action: 'REPORT_REVIEW_APPROVED', targetId: id } })).toBe(1);
   });
 });
 

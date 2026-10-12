@@ -351,19 +351,38 @@ async function notifyRequester(row: ReviewSummary, type: NotificationType, title
   }
 }
 
-/** The digest the REQUESTED audit row recorded for this request, or null for a
- *  request raised before that field existed (or whose row was redacted). */
-async function attestedSnapshotHash(reviewId: string): Promise<string | null> {
-  const rows = await prisma.$queryRaw<Array<{ h: string | null }>>`
-    SELECT after_value->>'snapshotHash' AS h
+/**
+ * What the REQUESTED audit row says about this request's document:
+ *   - `missing`  — no REQUESTED row names it (its audit write was lost, or it
+ *                  was hard-deleted): nothing attests the document.
+ *   - `redacted` — the row exists but its payload was redacted: the digest it
+ *                  carried is gone.
+ *   - `legacy`   — the row exists and has no `snapshotHash`: raised before the
+ *                  digest existed (2026-10-05).
+ *   - `attested` — the row carries the digest.
+ */
+type Attestation =
+  | { kind: 'missing' } | { kind: 'redacted' } | { kind: 'legacy' }
+  | { kind: 'attested'; hash: string };
+
+async function requestAttestation(reviewId: string): Promise<Attestation> {
+  const rows = await prisma.$queryRaw<Array<{ h: string | null; redacted: boolean }>>`
+    SELECT after_value->>'snapshotHash' AS h, (redacted_at IS NOT NULL) AS redacted
     FROM audit_trail
-    WHERE action = 'REPORT_REVIEW_REQUESTED' AND target_id = ${reviewId} AND redacted_at IS NULL
+    WHERE action = 'REPORT_REVIEW_REQUESTED' AND target_id = ${reviewId}
     ORDER BY chain_position ASC
     LIMIT 1
   `;
-  const h = rows[0]?.h;
-  return typeof h === 'string' && h.length > 0 ? h : null;
+  const r = rows[0];
+  if (!r) return { kind: 'missing' };
+  if (r.redacted) return { kind: 'redacted' };
+  return typeof r.h === 'string' && r.h.length > 0 ? { kind: 'attested', hash: r.h } : { kind: 'legacy' };
 }
+
+/** HTTP error code a download gets when nothing hash-chained vouches for the
+ *  stored document (audit 2026-10-12 #8: fail CLOSED, never fall back to the
+ *  row's own editable column). */
+export const SNAPSHOT_UNATTESTED = 'SNAPSHOT_UNATTESTED';
 
 function auditBase(ctx: RequestContext) {
   return { userId: ctx.userId, userRole: ctx.userRole, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId };
@@ -428,7 +447,13 @@ export const reportReviewService = {
     // The digest of the document being signed, frozen beside it and into the
     // chained audit row below — what every later download is checked against.
     const snapshotHash = snapshotDigest(input.dataSnapshot);
-    const row = await prisma.reportReview.create({
+    const to = [...approverRoles.map((r) => `role ${r}`), ...approverUserIds.map((u) => `user ${u}`)].join(', ');
+    // The request and its REQUESTED audit row are ONE transaction (audit
+    // 2026-10-12 #8). Written separately, a failed audit insert left a request
+    // with no audit row — and with no REQUESTED row the download check had
+    // nothing hash-chained to compare the document against.
+    const row = await prisma.$transaction(async (tx) => {
+    const created = await tx.reportReview.create({
       data: {
         reportType: input.reportType.slice(0, 100),
         title: input.title.slice(0, 500),
@@ -448,21 +473,22 @@ export const reportReviewService = {
       },
       select: SUMMARY_SELECT,
     });
-    const to = [...approverRoles.map((r) => `role ${r}`), ...approverUserIds.map((u) => `user ${u}`)].join(', ');
     await auditLog({
       ...auditBase(ctx),
       action: 'REPORT_REVIEW_REQUESTED',
       // targetType carries the report name so the template reads
       // "<reportType> report requested for approval by <actor>".
-      targetType: row.reportType, targetId: row.id,
+      targetType: created.reportType, targetId: created.id,
       afterValue: {
-        title: row.title, requestMeta: row.requestMeta, reportKind: input.reportKind,
+        title: created.title, requestMeta: created.requestMeta, reportKind: input.reportKind,
         approvers: { roles: approverRoles, userIds: approverUserIds }, instrumentIds,
-        remarks: input.remarks || null, passwordSigned: input.policy.passwordRequired, status: row.status,
+        remarks: input.remarks || null, passwordSigned: input.policy.passwordRequired, status: created.status,
         snapshotHash,
       },
       reason: input.remarks || undefined,
-      signatureMeaning: clampSignature(`${ctx.userId} requested approval of the ${row.reportType} report "${titleLabel(row.title)}" from ${to}`),
+      signatureMeaning: clampSignature(`${ctx.userId} requested approval of the ${created.reportType} report "${titleLabel(created.title)}" from ${to}`),
+    }, tx);
+    return created;
     });
     await notifyApprovers(row, approvers, 'REPORT_REVIEW_REQUESTED', 'Report awaiting your approval',
       `"${row.title}" was sent for approval by ${ctx.userId}.`, ctx.userId);
@@ -517,14 +543,19 @@ export const reportReviewService = {
     // The guard that makes two approvers acting at once safe: the UPDATE is
     // conditional on the status still being PENDING, so the second one changes
     // nothing and is told so.
-    const { count } = await prisma.reportReview.updateMany({
+    //
+    // The decision and its audit row are ONE transaction (audit 2026-10-12 #8):
+    // a failed audit insert rolls the decision back, so an approval can never
+    // exist without the signed record of who approved it.
+    const approved = decision === 'APPROVED';
+    const after = await prisma.$transaction(async (tx) => {
+    const { count } = await tx.reportReview.updateMany({
       where: { id, status: 'PENDING' },
       // `decidedByRole` FROZEN at the decision: the signature block prints it (2026-09-25).
       data: { status: decision, decidedBy: ctx.userSub, decidedByName: ctx.userId, decidedByRole: ctx.userRole, decidedAt: new Date(), decisionRemarks: remarks },
     });
     if (count === 0) throw new AppError(409, 'ALREADY_DECIDED', 'This request has already been decided.');
-    const after = (await prisma.reportReview.findUnique({ where: { id }, select: SUMMARY_SELECT }))!;
-    const approved = decision === 'APPROVED';
+    const after = (await tx.reportReview.findUnique({ where: { id }, select: SUMMARY_SELECT }))!;
     await auditLog({
       ...auditBase(ctx),
       action: approved ? 'REPORT_REVIEW_APPROVED' : 'REPORT_REVIEW_REJECTED',
@@ -536,6 +567,8 @@ export const reportReviewService = {
       afterValue: { status: after.status, decidedBy: after.decidedByName, decidedAt: after.decidedAt, remarks, requestedBy: after.requestedByName, title: after.title, snapshotHash: after.snapshotHash },
       reason: remarks,
       signatureMeaning: clampSignature(`${ctx.userId} ${approved ? 'approved' : 'rejected'} the ${after.reportType} report "${titleLabel(after.title)}" requested by ${after.requestedByName}`),
+    }, tx);
+    return after;
     });
     await notifyRequester(after, approved ? 'REPORT_REVIEW_APPROVED' : 'REPORT_REVIEW_REJECTED',
       approved ? 'Report approved' : 'Report rejected',
@@ -552,14 +585,29 @@ export const reportReviewService = {
     if (row.status !== 'APPROVED') throw new AppError(409, 'NOT_APPROVED', 'Only an approved report can be downloaded.');
     // The document must still hash to what was signed (DATA-7). The expected
     // digest is the one the REQUESTED audit row carries — hash-chained, so an
-    // actor who edits the snapshot cannot also edit it to agree — falling back
-    // to the row's own column for a request older than the audit field, and
-    // to "unattested" for a row older than both (never refused: those reports
-    // were approved before any digest existed, and that is recorded below).
+    // actor who edits the snapshot cannot also edit it to agree.
+    //
+    // FAIL CLOSED (audit 2026-10-12 #8). The row's own `snapshot_hash` column
+    // is NEVER the anchor: it is editable together with the snapshot. Allowed
+    // without a digest is ONE shape only — a request raised before the digest
+    // existed: a REQUESTED audit row with no `snapshotHash` AND a NULL column
+    // (recorded below as unattested). Refused: no REQUESTED row at all, a
+    // redacted one (the digest it carried is gone), and a column set while the
+    // audit row has none (the two have only ever been written together).
     const actual = snapshotDigest(row.dataSnapshot);
-    const attested = await attestedSnapshotHash(row.id);
-    const expected = attested ?? row.snapshotHash;
-    const mismatch = expected !== null && (expected !== actual || (attested !== null && row.snapshotHash !== attested));
+    const att = await requestAttestation(row.id);
+    if (att.kind !== 'attested' && !(att.kind === 'legacy' && row.snapshotHash === null)) {
+      const why = att.kind === 'missing'
+        ? 'no audit record of the request exists'
+        : att.kind === 'redacted'
+          ? 'the audit record of the request was redacted'
+          : 'the stored digest has no matching audit record';
+      console.error(`[report-reviews] snapshot of ${row.id} is unattested (${att.kind}; stored column ${row.snapshotHash}) — download refused`);
+      throw new AppError(409, SNAPSHOT_UNATTESTED,
+        `This report cannot be verified against what was signed: ${why}. The download is refused; ask a super admin to investigate the audit trail.`);
+    }
+    const expected = att.kind === 'attested' ? att.hash : null;
+    const mismatch = expected !== null && (expected !== actual || row.snapshotHash !== expected);
     if (mismatch) {
       console.error(`[report-reviews] snapshot of ${row.id} does not hash to what was signed (expected ${expected}, stored column ${row.snapshotHash}, actual ${actual}) — download refused`);
       throw new AppError(409, SNAPSHOT_MISMATCH,
