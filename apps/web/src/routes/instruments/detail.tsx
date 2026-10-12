@@ -194,6 +194,8 @@ export function InstrumentDetailPage() {
         // D6: disabling Is Gateway while children remain is refused with a 409
         // whose message already names the children — surface it verbatim rather
         // than writing a generic one, it carries the detail the operator needs.
+        // A cancelled password is not an error: nothing was sent.
+        onCancel: () => {},
         onError: (err: unknown) =>
           toast.error('Update failed', (err as { message?: string })?.message ?? 'Could not save.'),
       });
@@ -228,6 +230,8 @@ export function InstrumentDetailPage() {
       setNewToken(res.token);
       void mutate();
     }, {
+      // A cancelled password is not an error: nothing was sent.
+      onCancel: () => {},
       onError: (err: unknown) =>
         toast.error('Regeneration failed', (err as { message?: string })?.message ?? 'Could not regenerate the token.'),
     });
@@ -245,6 +249,8 @@ export function InstrumentDetailPage() {
       // TOKEN_DECRYPT_FAILED because each has a different remedy, and its
       // messages say which. Surface them verbatim rather than flattening all
       // three into "could not reveal".
+      // A cancelled password is not an error: nothing was sent.
+      onCancel: () => {},
       onError: (err: unknown) =>
         toast.error('Could not reveal the token', (err as { message?: string })?.message ?? 'The token could not be shown.'),
     });
@@ -262,6 +268,8 @@ export function InstrumentDetailPage() {
       void mutate();
       toast.success('Token replaced', `${inst.code} must be reconfigured with the new token.`);
     }, {
+      // A cancelled password is not an error: nothing was sent.
+      onCancel: () => {},
       onError: (err: unknown) =>
         toast.error('Could not set the token', (err as { message?: string })?.message ?? 'The token was not changed.'),
     });

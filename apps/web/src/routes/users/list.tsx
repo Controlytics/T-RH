@@ -138,6 +138,8 @@ export function UserListPage() {
       }
       toast.success('User updated', `User "${username}" has been ${actionLabels[type] || type} successfully.`);
     }, {
+      // A cancelled password is not an error: nothing was sent.
+      onCancel: () => {},
       onError: (err: any) => {
         toast.error('Action failed', err?.message || `Failed to ${type} user "${username}".`);
       },
@@ -200,6 +202,8 @@ export function UserListPage() {
       mutateStats();
       toast.success('Users deleted', `${ids.length} user(s) deleted successfully.`);
     }, {
+      // A cancelled password is not an error: nothing was sent.
+      onCancel: () => {},
       onError: (err: any) => {
         toast.error('Bulk delete failed', err?.message || 'Failed to delete selected users.');
       },
@@ -249,6 +253,8 @@ export function UserListPage() {
           : `User "${username}" can now sign in with the temporary password.`,
       );
     }, {
+      // A cancelled password is not an error: nothing was sent.
+      onCancel: () => {},
       onError: (err: any) => {
         toast.error('Unlock failed', err?.message || `Failed to unlock user "${username}".`);
       },

@@ -28,7 +28,11 @@ interface ReauthState {
  * you MUST handle the cancel path — pass `onCancel` (preferred: a cancel is not
  * an error) or an `onError` that clears the flag. Cancel falls back to onError
  * with `{ error: 'REAUTH_CANCELLED' }` when onCancel is absent, so a caller
- * cannot hang, but onCancel is the honest shape.
+ * cannot hang, but onCancel is the honest shape — and since 2026-10-12 it is
+ * REQUIRED of every caller that passes onError
+ * (`__tests__/reauth-callers-declare-cancel.test.ts`), because every page
+ * renders its onError argument and so showed the fallback as a red
+ * "Cancelled" error.
  */
 export function useReauth() {
   const { data: myActions } = useSWR<{ actions: string[] }>(

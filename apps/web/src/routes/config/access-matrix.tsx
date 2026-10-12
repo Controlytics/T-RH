@@ -120,6 +120,8 @@ export function AccessMatrixPage() {
           toast.success('Saved', 'Configuration access matrix updated.');
           setSaving(false);
         },
+        // A cancelled password is not an error: nothing was sent.
+        onCancel: () => { setSaving(false); },
         onError: (err: any) => {
           toast.error('Save failed', err?.message ?? 'Could not save access matrix');
           setSaving(false);

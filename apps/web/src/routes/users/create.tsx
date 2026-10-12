@@ -91,6 +91,8 @@ export function CreateUserPage() {
       toast.success('User created', `User "${data.username}" was created successfully.`);
       navigate('/users');
     }, {
+      // A cancelled password is not an error: nothing was sent.
+      onCancel: () => {},
       onError: (err: any) => {
         const message = err.message || 'Failed to create user';
         setError(message);

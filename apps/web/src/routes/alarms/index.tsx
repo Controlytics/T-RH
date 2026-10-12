@@ -59,7 +59,9 @@ import {
 export default function AlarmsPage() {
   const can = useCan();
   const { toast } = useToast();
-  const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
+  const { formatDate, formatTime, formatDateTime, config: datetimeConfig } = useDatetimeFormat();
+  // The configured zone: the filter boxes are typed in it, as every printed time is.
+  const tz = datetimeConfig?.timezone;
   const { defaultLimit } = usePaginationDefaults();
   const [downloadOpen, setDownloadOpen] = useState(false);
 
@@ -102,13 +104,13 @@ export default function AlarmsPage() {
     // Resolved to an instant here, where the operator's clock is — see
     // localInputToIso. An unreadable value is simply not sent, so a half-typed
     // date does not 400 the page while the operator is still typing it.
-    const from = localInputToIso(filters.from);
-    const to = localInputToIso(filters.to);
+    const from = localInputToIso(filters.from, tz);
+    const to = localInputToIso(filters.to, tz);
     if (from) qs.set('from', from);
     if (to) qs.set('to', to);
     return qs.toString();
   }, [
-    page, pageSize, sort, dir, search, filters.type, filters.status,
+    tz, page, pageSize, sort, dir, search, filters.type, filters.status,
     filters.blockId, filters.areaId, filters.instrumentId, filters.from, filters.to,
   ]);
 
@@ -219,18 +221,11 @@ export default function AlarmsPage() {
   };
 
   const runDownload = async (req: ReportDownloadRequest) => {
-    /**
-     * `datetime-local` gives ZONELESS wall-clock text. Sent raw the API would
-     * resolve it in its OWN zone, so a report headed 08:00–20:00 could cover a
-     * different twelve hours than the operator asked for — the same reason this
-     * page's Raised-between filter goes through `localInputToIso`, and it must be
-     * the same conversion or the report and the table disagree.
-     */
-    const period = {
-      from: localInputToIso(req.period.from) ?? req.period.from,
-      to: localInputToIso(req.period.to) ?? req.period.to,
-      label: req.period.label,
-    };
+    // The dialog hands back INSTANTS: it shows and reads its From / To in the
+    // configured timezone through the same `zoned-input` conversion this page's
+    // Raised-between filter uses, so the report and the table agree (audit
+    // 2026-10-12, finding 11). Sent as given.
+    const period = { from: req.period.from, to: req.period.to, label: req.period.label };
 
     {
       const { rows: all, total: grand } = await fetchAllForReport(period);
@@ -491,7 +486,7 @@ export default function AlarmsPage() {
         open={downloadOpen}
         reportName="Alarm Report"
         kind="alarms"
-        initialPeriod={reportSeedPeriod(filters)}
+        initialPeriod={reportSeedPeriod(filters, tz)}
         onCancel={() => setDownloadOpen(false)}
         onConfirm={runDownload}
       />

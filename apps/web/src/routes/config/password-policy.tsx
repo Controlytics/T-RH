@@ -46,6 +46,8 @@ export function PasswordPolicyPage() {
       setSuccess('Settings updated successfully');
       reset(formData);
     }, {
+      // A cancelled password is not an error: nothing was sent.
+      onCancel: () => {},
       onError: (err: any) => setError(err.message || 'Failed to update'),
     });
   };

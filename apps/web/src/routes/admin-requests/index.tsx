@@ -174,6 +174,8 @@ export function AdminRequestsPage() {
           setProcessing(false);
           mutate('/api/admin-requests');
         },
+        // A cancelled password is not an error: nothing was sent.
+        onCancel: () => { setProcessing(false); },
         onError: (err: any) => {
           toast.error('Action Failed', err.message ?? 'Something went wrong');
           setProcessing(false);
