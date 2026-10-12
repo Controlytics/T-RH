@@ -357,7 +357,13 @@ export async function getRangeSummary(opts: {
            max(ts) AS last,
            ${below} AS "belowCount",
            ${above} AS "aboveCount",
-           avg(exp(-${MKT_DELTA_H_OVER_R_K}::float8 / (${numeric} + ${KELVIN_OFFSET}::float8)))
+           -- Below 15 K the term exp(-10000 / T) is under 1e-289 and Postgres
+           -- raises "value out of range: underflow" near 14 K (audit
+           -- 2026-10-12 #8): a sensor-fault reading 500'd the summary. The
+           -- term is ~0 there, so it is counted as 0, exactly what the pure
+           -- reference mktCelsius gets from Math.exp.
+           avg(CASE WHEN ${numeric} + ${KELVIN_OFFSET}::float8 < 15::float8 THEN 0::float8
+                    ELSE exp(-${MKT_DELTA_H_OVER_R_K}::float8 / (${numeric} + ${KELVIN_OFFSET}::float8)) END)
              FILTER (WHERE ${numeric} > -${KELVIN_OFFSET}::float8) AS "mktExpMean"
     FROM instrument_telemetry_history
     WHERE instrument_id = ${opts.instrumentId}
