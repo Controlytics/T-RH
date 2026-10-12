@@ -6,6 +6,7 @@ import { sanitizeAuditValue } from '../../lib/audit-diff.js';
 import { redactConfigSecrets } from './config.service.js';
 import { stripPrivateFields, enforceReauth } from '../../lib/reauth-check.js';
 import { buildContext } from '../../lib/build-context.js';
+import { validateDeclaredSettings } from './validate-settings.js';
 
 export default async function dynamicConfigRoutes(app: FastifyInstance) {
 
@@ -78,6 +79,16 @@ export default async function dynamicConfigRoutes(app: FastifyInstance) {
       }
 
       const body = req.body as Record<string, unknown>;
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'The body must be an object of settings.' });
+      }
+
+      // Every setting's DECLARED type / bounds / options (audit 2026-10-12 #7)
+      // — before the def's own zod schema, which most defs do not have.
+      const declared = validateDeclaredSettings(def, body);
+      if (declared) {
+        return reply.code(400).send({ error: 'VALIDATION_ERROR', field: declared.field, message: declared.message });
+      }
 
       // Validate with Zod if schema provided
       if (def.zodSchema) {
@@ -117,37 +128,42 @@ export default async function dynamicConfigRoutes(app: FastifyInstance) {
 
       const ctx = buildContext(req);
 
-      await prisma.systemConfig.upsert({
-        where: { configKey: def.moduleKey },
-        create: {
-          configKey: def.moduleKey,
-          configValue: newValue,
-          configType: def.category,
-          requiresReauth: def.requiresReauth,
-          updatedBy: ctx.userId,
-        },
-        update: {
-          configValue: newValue,
-          updatedAt: new Date(),
-          updatedBy: ctx.userId,
-        },
-      });
-
       // Strip declared-secret fields (def type:'secret') so credentials on
       // dynamically-rendered config pages are never persisted in the audit
       // trail or shown in the now-all-roles before/after view.
       const secretKeys = new Set(
         (def.settings ?? []).filter((s) => s.type === 'secret').map((s) => s.key),
       );
-      await auditLog({
-        userId: ctx.userId, userRole: ctx.userRole,
-        action: 'CONFIG_CHANGED',
-        targetType: 'config', targetId: def.moduleKey,
-        beforeValue: sanitizeAuditValue(redactConfigSecrets(oldValue, secretKeys)) as any,
-        afterValue: sanitizeAuditValue(redactConfigSecrets(newValue, secretKeys)),
-        signatureMeaning: `${def.moduleName} configuration updated`,
-        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
-        sessionId: ctx.sessionId,
+
+      // The change and its CONFIG_CHANGED row are ONE transaction (audit
+      // 2026-10-12 #2): written separately, a failed audit insert left the
+      // configuration changed with nothing recording who changed it.
+      await prisma.$transaction(async (tx) => {
+        await tx.systemConfig.upsert({
+          where: { configKey: def.moduleKey },
+          create: {
+            configKey: def.moduleKey,
+            configValue: newValue,
+            configType: def.category,
+            requiresReauth: def.requiresReauth,
+            updatedBy: ctx.userId,
+          },
+          update: {
+            configValue: newValue,
+            updatedAt: new Date(),
+            updatedBy: ctx.userId,
+          },
+        });
+        await auditLog({
+          userId: ctx.userId, userRole: ctx.userRole,
+          action: 'CONFIG_CHANGED',
+          targetType: 'config', targetId: def.moduleKey,
+          beforeValue: sanitizeAuditValue(redactConfigSecrets(oldValue, secretKeys)) as any,
+          afterValue: sanitizeAuditValue(redactConfigSecrets(newValue, secretKeys)),
+          signatureMeaning: `${def.moduleName} configuration updated`,
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+          sessionId: ctx.sessionId,
+        }, tx);
       });
 
       if (def.hooks?.afterUpdate) {

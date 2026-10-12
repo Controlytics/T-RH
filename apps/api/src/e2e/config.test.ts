@@ -428,11 +428,20 @@ describe('Config endpoints', () => {
           alarmsStatusHeading: 'State',
           alarmsTypeHeading: '   ',
           alarmsDateFormat: 'YYYY-MM-DD',
-          // Not in the vocabulary. Passed on it would print en-GB and look like
-          // a deliberate setting; it has to come back as inherit.
-          alarmsTimeFormat: '36-hour',
         });
         expect(put.statusCode).toBe(200);
+        // Not in the vocabulary. The dynamic PUT refuses it since 2026-10-12
+        // (audit #7, the def's options are enforced server-side)...
+        const refused = await authPut(app, '/api/config/dynamic/trend-widgets', adminToken, {
+          ...base, alarmsTimeFormat: '36-hour',
+        });
+        expect(refused.statusCode).toBe(400);
+        expect(refused.json().field).toBe('alarmsTimeFormat');
+        // ...but a row edited by hand, or stored before that, can still hold
+        // it. Passed on it would print en-GB and look like a deliberate
+        // setting; the reader has to return it as inherit.
+        const stored = (await prisma.systemConfig.findUnique({ where: { configKey: KEY } }))!.configValue as Record<string, unknown>;
+        await prisma.systemConfig.update({ where: { configKey: KEY }, data: { configValue: { ...stored, alarmsTimeFormat: '36-hour' } as any } });
 
         const res = await authGet(app, '/api/config/trend-widgets/current', adminToken);
         const body = JSON.parse(res.body);
