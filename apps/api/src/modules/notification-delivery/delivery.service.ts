@@ -178,6 +178,52 @@ export async function retryNotification(logId: string): Promise<void> {
 }
 
 /**
+ * Boot-time reconciliation (idempotent; run on every start of the job runner).
+ *
+ * Every RETRYING row must have a `notification_retry` job behind it. Rows that do
+ * not: those left RETRYING by the in-process `setTimeout` retries before
+ * 2026-10-12 (the timer died with the process), and any whose job was lost. Each
+ * gets its job — same jobKey as `recordFailure`, with `preserve_run_at`, so a row
+ * that already has its pending job keeps it exactly as scheduled and a second
+ * boot adds nothing. `runAt` is the row's own `next_retry_at`, or now if that has
+ * passed. A row whose attempts are already spent is marked FAILED instead.
+ *
+ * KNOWN LIMIT: a retry job locked by a process that was force-killed stays
+ * locked for graphile's four-hour window; graphile then frees and runs it. The
+ * key is moved to the new job here, so that late run finds the row no longer
+ * RETRYING (sent or failed meanwhile) and does nothing — or makes one extra
+ * attempt that `recordFailure` still bounds by MAX_ATTEMPTS.
+ */
+export async function reconcileNotificationRetries(now: Date = new Date()): Promise<{ scheduled: number; failed: number }> {
+  const rows = await prisma.notificationLog.findMany({
+    where: { status: 'RETRYING' },
+    select: { id: true, retryCount: true, nextRetryAt: true, errorMessage: true },
+  });
+  let scheduled = 0;
+  let failed = 0;
+  const producer = rows.length > 0 ? await getProducer() : null;
+  for (const r of rows) {
+    if (r.retryCount >= MAX_ATTEMPTS) {
+      await prisma.notificationLog.update({
+        where: { id: r.id },
+        data: { status: 'FAILED', nextRetryAt: null, errorMessage: r.errorMessage ?? 'retry attempts exhausted' },
+      });
+      failed++;
+      continue;
+    }
+    const runAt = r.nextRetryAt && r.nextRetryAt > now ? r.nextRetryAt : now;
+    await producer!.addJob('notification_retry', { logId: r.id }, {
+      runAt,
+      maxAttempts: 1,
+      jobKey: `notification_retry:${r.id}`,
+      jobKeyMode: 'preserve_run_at',
+    });
+    scheduled++;
+  }
+  return { scheduled, failed };
+}
+
+/**
  * Test a notification channel connection/configuration.
  */
 export async function testChannel(channelName: 'EMAIL' | 'SMS'): Promise<DeliveryResult> {

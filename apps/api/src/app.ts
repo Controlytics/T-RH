@@ -47,6 +47,7 @@ import { telemetryPartitionTask, ensurePartitionsAtBoot } from './workers/teleme
 import { startJobRunner, stopJobRunner } from '@digilog/queue';
 import { AppError, prismaErrorToResponse } from './lib/errors.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
+import { reconcileNotificationRetries } from './modules/notification-delivery/delivery.service.js';
 import adminRequestRoutes from './modules/admin-requests/routes.js';
 import floorplanRoutes from './modules/floorplans/routes.js';
 import { alarmEvaluationTask } from './workers/alarm-evaluation.worker.js';
@@ -532,6 +533,16 @@ try {
     });
     jobRunnerStatus = 'running';
     app.log.info('graphile-worker job runner started');
+    // Every RETRYING email/SMS row gets its durable retry job (or FAILED if its
+    // attempts are spent) — rows left by the pre-2026-10-12 setTimeout retries,
+    // or whose job was lost. Idempotent, so it runs on every start. Not awaited:
+    // a slow reconcile must not hold the server's start; its failure is logged
+    // and the next start retries it.
+    reconcileNotificationRetries()
+      .then((r) => {
+        if (r.scheduled || r.failed) app.log.info(`notification retries reconciled: ${r.scheduled} scheduled, ${r.failed} marked FAILED`);
+      })
+      .catch((err) => app.log.error({ err }, 'notification retry reconciliation failed — RETRYING rows may have no job until the next start'));
   } catch (runnerErr) {
     // Not fatal — the HTTP surface is still usable and this is a single-process
     // local API, so exiting would take the whole app down over background jobs.
