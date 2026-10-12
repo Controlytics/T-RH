@@ -137,6 +137,56 @@ describe('room PUT without points validates doors against the stored polygon (fi
   });
 });
 
+describe('room PUT keeps its openings on a shared wall (finding 3)', () => {
+  // A (0.1..0.3) and B (0.3..0.5) share A's RIGHT wall = edge 1 of A's rectangle.
+  const aRect = [{ x: 0.1, y: 0.1 }, { x: 0.3, y: 0.1 }, { x: 0.3, y: 0.3 }, { x: 0.1, y: 0.3 }];
+  // A corner inserted on the TOP edge (edge 0): the right wall becomes edge 2.
+  const aSplit = [{ x: 0.1, y: 0.1 }, { x: 0.2, y: 0.1 }, { x: 0.3, y: 0.1 }, { x: 0.3, y: 0.3 }, { x: 0.1, y: 0.3 }];
+  async function pair(name: string) {
+    const p = await blankPlan(name);
+    const a = await room(p.id, 'A', { ...box(0.1, 0.1), points: aRect });
+    const b = await room(p.id, 'B', box(0.3, 0.1));
+    const l = await link(p.id, { fromRoomId: a.id, toRoomId: b.id, kind: 'OPENING', fromEdge: 1, offset: 0.3, width: 0.3 });
+    return { p, a, b, l };
+  }
+  const putRoom = (planId: string, roomId: string, payload: Record<string, unknown>) =>
+    app.inject({ method: 'PUT', url: `/api/floorplans/${planId}/rooms/${roomId}`, headers: auth, payload });
+
+  it('refuses an outline that leaves an opening off its wall, and changes nothing', async () => {
+    const { p, a, l } = await pair(`Reindex refuse ${s}`);
+    const res = await putRoom(p.id, a.id, { code: 'A', x: 0.1, y: 0.1, w: 0.2, h: 0.2, points: aSplit });
+    expect(res.statusCode, res.body).toBe(409);
+    expect(res.json().error).toBe('LINK_OFF_WALL');
+    const stored = await prisma.floorplanRoom.findUniqueOrThrow({ where: { id: a.id } });
+    expect((stored.points as unknown[]).length).toBe(4);
+    expect((await prisma.floorplanRoomLink.findUniqueOrThrow({ where: { id: l.id } })).fromEdge).toBe(1);
+  });
+
+  it('accepts the outline with the opening re-indexed in the SAME request, audited', async () => {
+    const { p, a, l } = await pair(`Reindex ok ${s}`);
+    const res = await putRoom(p.id, a.id, { code: 'A', x: 0.1, y: 0.1, w: 0.2, h: 0.2, points: aSplit, linkEdges: [{ id: l.id, fromEdge: 2, offset: 0.3, width: 0.3 }] });
+    expect(res.statusCode, res.body).toBe(200);
+    expect((await prisma.floorplanRoomLink.findUniqueOrThrow({ where: { id: l.id } })).fromEdge).toBe(2);
+    const row = await prisma.auditTrail.findFirst({ where: { action: 'FLOORPLAN_LINK_UPDATED', targetId: l.id } });
+    expect(row).not.toBeNull();
+    expect((row!.beforeValue as { fromEdge: number }).fromEdge).toBe(1);
+    expect((row!.afterValue as { fromEdge: number }).fromEdge).toBe(2);
+  });
+
+  it('refuses moving the OTHER room away from an opening that names it', async () => {
+    const { p, b } = await pair(`Reindex move ${s}`);
+    const res = await putRoom(p.id, b.id, { code: 'B', ...box(0.6, 0.6) });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toBe('LINK_OFF_WALL');
+  });
+
+  it('refuses a linkEdges entry for a link that does not start on this room', async () => {
+    const { p, b, l } = await pair(`Reindex wrong ${s}`);
+    const res = await putRoom(p.id, b.id, { code: 'B', ...box(0.3, 0.1), linkEdges: [{ id: l.id, fromEdge: 3, offset: 0.3, width: 0.3 }] });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
 describe('room membership: a move is recorded on both rooms (finding 9)', () => {
   it('writes a row on the SOURCE room and names where each moved instrument came from on the target', async () => {
     const p = await blankPlan(`Members ${s}`);
