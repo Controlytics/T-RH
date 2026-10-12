@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { partitionDdl } from '../../workers/telemetry-partition.worker.js';
 import { AppError } from '../../lib/errors.js';
@@ -452,7 +453,10 @@ function parseJsonColumn(v: unknown): unknown {
   try { return JSON.parse(t); } catch { return v; }
 }
 
-export async function restoreFromBackup(backup: BackupData, opts: { force?: boolean } = {}): Promise<void> {
+export async function restoreFromBackup(
+  backup: BackupData,
+  opts: { force?: boolean; onRestored?: (tx: Prisma.TransactionClient) => Promise<void> } = {},
+): Promise<void> {
   // Normalize older camelCase-keyed backups to snake_case
   const data = normalizeBackupKeys(backup.data);
   const dbTables = await getAllTables();
@@ -675,6 +679,12 @@ export async function restoreFromBackup(backup: BackupData, opts: { force?: bool
     //     middle of restored history, so the hash-chain walker links the wrong
     //     rows and verification breaks permanently.
     await resyncSequencesAfterRestore(tx, restoreTables);
+
+    // The caller's audit row, INSIDE this transaction (audit 2026-10-12 #2):
+    // after the audit_trail is replaced, the triggers are back on and the
+    // chain counter points at the restored head, so the row chains onto the
+    // RESTORED trail — and if it cannot be written, the restore rolls back.
+    if (opts.onRestored) await opts.onRestored(tx);
   }, { timeout: 300_000, maxWait: 30_000 });
 }
 
