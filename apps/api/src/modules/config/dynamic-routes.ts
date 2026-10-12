@@ -1,5 +1,5 @@
 import { type FastifyInstance } from 'fastify';
-import { configRegistry } from '../../lib/config-registry.js';
+import { configRegistry, effectiveReauthAction } from '../../lib/config-registry.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { sanitizeAuditValue } from '../../lib/audit-diff.js';
@@ -72,8 +72,8 @@ export default async function dynamicConfigRoutes(app: FastifyInstance) {
       },
     }, async (req, reply) => {
       // Reauth check
-      if (def.requiresReauth || def.reauthAction) {
-        const action = def.reauthAction ?? `UPDATE_${def.moduleKey.toUpperCase().replace(/-/g, '_')}`;
+      const action = effectiveReauthAction(def);
+      if (action) {
         const { ok } = await enforceReauth(action, req, reply);
         if (!ok) return;
       }

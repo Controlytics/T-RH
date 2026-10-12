@@ -13,6 +13,8 @@ import { Button } from '@/components/ui/button';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 
 /**
  * REPORT SETTINGS (2026-10-01) — Report Approvers and Report Downloads on ONE
@@ -27,18 +29,28 @@ import { useToast } from '@/hooks/use-toast';
  * have meant moving data already saved here and on AWS for no gain on screen.
  * Each is PUT only when it changed, and WHOLE — the dynamic PUT replaces the row.
  *
+ * **Both saves are signed** (2026-10-12): the two defs carry the server's
+ * re-auth action (UPDATE_CONFIG_PAGE), read from the config manifest — never
+ * named here — and the saves run through `useReauth().execute`, so a role the
+ * Action Re-auth policy asks a password of gets the dialog up front instead of
+ * a bare 401 "error". One password covers both PUTs; a PUT that has already
+ * gone through is not repeated if the hook replays the callback after a 401.
+ *
  * The download table shows each type's EFFECTIVE values (`coerceReportDownloads`,
  * so a type split out of another shows the values it inherits), and a save
  * writes every type's own keys (`reportDownloadsRow`).
  */
 
 interface Role { name: string; displayName?: string }
+interface ManifestEntry { moduleKey: string; reauthAction?: string | null }
 interface Option { value: string; label: string }
 
 const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
 
 export function ReportSettingsConfigPage() {
   const { toast } = useToast();
+  const reauth = useReauth();
+  const { data: manifest } = useSWR<ManifestEntry[]>('/api/config/registry/manifest');
   const { data: approversRow, mutate: mutateApprovers } = useSWR<unknown>('/api/config/dynamic/report-approvers');
   const { data: downloadsRow, mutate: mutateDownloads } = useSWR<unknown>('/api/config/dynamic/report-downloads');
   const { data: rolesData } = useSWR<Role[]>('/api/roles/active');
@@ -69,21 +81,37 @@ export function ReportSettingsConfigPage() {
   const save = async () => {
     setSaving(true);
     setError('');
-    try {
-      if (approversDirty) {
-        await apiClient.put('/api/config/dynamic/report-approvers', { approverRoles: roles, approverUserIds: userIds });
+    // The server's action for these two rows (they share one); a module whose
+    // PUT enforces none still goes through the hook, under a name no policy
+    // lists, so a 401 from a stale manifest still opens the dialog.
+    const actionOf = (key: string) => manifest?.find((m) => m.moduleKey === key)?.reauthAction ?? null;
+    const action = actionOf('report-approvers') ?? actionOf('report-downloads') ?? 'NO_REAUTH_report-settings';
+    let approversSaved = false;
+    let downloadsSaved = false;
+    await reauth.execute(action, async (password?: string) => {
+      const signed = (body: Record<string, unknown>) => (password ? { ...body, _currentPassword: password } : body);
+      if (approversDirty && !approversSaved) {
+        await apiClient.put('/api/config/dynamic/report-approvers', signed({ approverRoles: roles, approverUserIds: userIds }));
+        approversSaved = true;
         await mutateApprovers();
       }
-      if (downloadsDirty && policy) {
-        await apiClient.put('/api/config/dynamic/report-downloads', reportDownloadsRow(policy));
+      if (downloadsDirty && policy && !downloadsSaved) {
+        await apiClient.put('/api/config/dynamic/report-downloads', signed(reportDownloadsRow(policy) as Record<string, unknown>));
+        downloadsSaved = true;
         await mutateDownloads();
       }
-      toast.success('Report settings saved', 'Every change is recorded in the audit trail.');
-    } catch (e: any) {
-      setError(e?.message ?? 'The settings could not be saved. Please try again.');
-    } finally {
-      setSaving(false);
-    }
+    }, {
+      onSuccess: () => {
+        toast.success('Report settings saved', 'Every change is recorded in the audit trail.');
+        setSaving(false);
+      },
+      onError: (e: any) => {
+        setError(e?.message ?? 'The settings could not be saved. Please try again.');
+        setSaving(false);
+      },
+      // A cancel is not an error (audit 2026-10-12, finding 10): nothing was sent.
+      onCancel: () => setSaving(false),
+    });
   };
 
   return (
@@ -180,6 +208,17 @@ export function ReportSettingsConfigPage() {
           </FormSection>
         </>
       )}
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Save Report Settings"
+      />
     </div>
   );
 }

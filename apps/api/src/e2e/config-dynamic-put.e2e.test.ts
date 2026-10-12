@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { buildApp, loginAs, authPut, ADMIN_PASSWORD } from './test-helper.js';
+import { buildApp, loginAs, authGet, authPut, ADMIN_PASSWORD } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 import { invalidateReauthCache } from '../lib/reauth-check.js';
 
@@ -115,6 +115,19 @@ describe('#7 — each setting is validated against its own declaration', () => {
   it('a value nothing was stored for, and keys the def does not declare, still pass (wholesale writes)', async () => {
     const res = await put('instrument-activity', { ...((await valueOf('instrument-activity')) as object), activeWindowMinutes: 30, someFutureKey: 'kept' });
     expect(res.statusCode).toBe(200);
+  });
+});
+
+describe('the manifest names the re-auth action the PUT enforces (2026-10-12)', () => {
+  // The config page asks for the password up front for THIS action; it used
+  // to rebuild `UPDATE_<KEY>` itself and missed every shared action.
+  it('carries effectiveReauthAction per module — the def\'s own, else none', async () => {
+    const res = await authGet(app, '/api/config/registry/manifest', token);
+    expect(res.statusCode).toBe(200);
+    const byKey = new Map((res.json() as Array<{ moduleKey: string; reauthAction: string | null }>).map((m) => [m.moduleKey, m.reauthAction]));
+    for (const k of ['report-downloads', 'report-approvers', 'sensor-offsets', 'telemetry-retention']) expect(byKey.get(k), k).toBe('UPDATE_CONFIG_PAGE');
+    expect(byKey.get('audit-hard-delete')).toBe('UPDATE_AUDIT_HARD_DELETE');
+    expect(byKey.get('export-limit')).toBeNull();
   });
 });
 

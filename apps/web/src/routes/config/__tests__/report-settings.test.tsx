@@ -15,6 +15,14 @@ const DOWNLOADS_ROW = { trendChartMode: 'DIRECT', dataReportRemarks: false };
 const ROLES = [{ name: 'SUPERVISOR', displayName: 'Supervisor' }, { name: 'OPERATOR', displayName: 'Operator' }, { name: 'SUPER_ADMIN', displayName: 'Super Admin' }];
 const CANDIDATES = [{ value: 'u1', label: 'sup1 (SUPERVISOR)' }, { value: 'u2', label: 'qa1 (QA)' }];
 let approversRow: unknown = APPROVERS_ROW;
+// The server's manifest names the action both rows' PUT enforces (2026-10-12).
+const MANIFEST = [
+  { moduleKey: 'report-approvers', reauthAction: 'UPDATE_CONFIG_PAGE' },
+  { moduleKey: 'report-downloads', reauthAction: 'UPDATE_CONFIG_PAGE' },
+];
+const NO_ACTIONS = { actions: [] as string[] };
+const CONFIG_PAGE_SIGNED = { actions: ['UPDATE_CONFIG_PAGE'] };
+let myActions: { actions: string[] } = NO_ACTIONS;
 
 vi.mock('swr', () => ({
   default: (key: string) => {
@@ -22,7 +30,9 @@ vi.mock('swr', () => ({
       : key === '/api/config/dynamic/report-downloads' ? DOWNLOADS_ROW
         : key === '/api/roles/active' ? ROLES
           : key === '/api/config/report-approvers/candidates' ? CANDIDATES
-            : undefined;
+            : key === '/api/config/registry/manifest' ? MANIFEST
+              : key === '/api/config/action-reauth/my-actions' ? myActions
+                : undefined;
     return { data, mutate: vi.fn(async () => undefined) };
   },
 }));
@@ -34,7 +44,7 @@ const { ReportSettingsConfigPage } = await import('../report-settings');
 const mount = () => render(<MemoryRouter><ReportSettingsConfigPage /></MemoryRouter>);
 const rowOf = (kind: string) => document.querySelector(`[data-report-kind="${kind}"]`) as HTMLElement;
 
-beforeEach(() => { put.mockClear(); approversRow = APPROVERS_ROW; });
+beforeEach(() => { put.mockClear(); approversRow = APPROVERS_ROW; myActions = NO_ACTIONS; });
 
 describe('Report Settings', () => {
   it('shows the approvers and ALL EIGHT report types on one page, never offering SUPER_ADMIN as a role', () => {
@@ -86,5 +96,40 @@ describe('Report Settings', () => {
     approversRow = EMPTY_APPROVERS;
     mount();
     expect(screen.getByTestId('no-approver')).toHaveTextContent(/Report Settings/);
+  });
+});
+
+/**
+ * 2026-10-12: both saves are signed when the Action Re-auth policy asks this
+ * role for UPDATE_CONFIG_PAGE — the action the SERVER names for both rows in
+ * the manifest. Until then the page PUT bare and showed the 401 as an error.
+ */
+describe('Report Settings — re-authentication', () => {
+  it('asks for the password BEFORE sending anything, then signs both PUTs with it', async () => {
+    myActions = CONFIG_PAGE_SIGNED;
+    mount();
+    fireEvent.click(screen.getByLabelText('Operator'));
+    fireEvent.change(within(rowOf('humidity-trend')).getByRole('combobox'), { target: { value: 'REQUEST' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(put).not.toHaveBeenCalled();
+    fireEvent.change(within(dialog).getByPlaceholderText('Enter your password'), { target: { value: 'Secret@123' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /verify/i }));
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(2));
+    const bodies = put.mock.calls.map((c) => (c as unknown as [string, Record<string, unknown>])[1]);
+    for (const b of bodies) expect(b._currentPassword).toBe('Secret@123');
+  });
+
+  it('a cancelled password sends nothing, shows no error, and Save is offered again', async () => {
+    myActions = CONFIG_PAGE_SIGNED;
+    mount();
+    fireEvent.click(screen.getByLabelText('Operator'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: /^cancel$/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(put).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
   });
 });
