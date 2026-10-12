@@ -66,7 +66,7 @@ beforeAll(async () => {
   rolePermsBefore = role.permissions as string[];
   await prisma.role.update({
     where: { id: roleId },
-    data: { permissions: [...new Set([...rolePermsBefore, 'INSTRUMENT_READ', 'INSTRUMENT_UPDATE', 'INSTRUMENT_DELETE', 'FUNCTIONAL_LOCATION_READ'])] },
+    data: { permissions: [...new Set([...rolePermsBefore, 'INSTRUMENT_READ', 'INSTRUMENT_CREATE', 'INSTRUMENT_UPDATE', 'INSTRUMENT_DELETE', 'FUNCTIONAL_LOCATION_READ'])] },
   });
   invalidateRolePermsCache('OPERATOR');
   const cfg = await prisma.roleConfig.findFirst({ where: { role: 'OPERATOR' } });
@@ -193,5 +193,97 @@ describe('GET /api/instrument-profiles/:id/attribute-usage is instrument-visibil
     expect(forAdmin.statusCode).toBe(200);
     const adminLocation = (forAdmin.json().keys as { key: string; instruments: number }[]).find((k) => k.key.toLowerCase() === 'location');
     expect(adminLocation?.instruments).toBe(2);
+  });
+});
+
+/**
+ * Audit 2026-10-12 (brief finding 7): the gateway TARGET of a link was looked
+ * up by id with no scope, so a scoped user could link an in-scope child to an
+ * out-of-scope gateway, the NOT_FOUND / NOT_A_GATEWAY answers told an
+ * out-of-scope id apart from a missing one (and named its code), and
+ * GATEWAY_HAS_CHILDREN listed out-of-scope children's codes. An out-of-scope
+ * gateway is now answered exactly like a missing one, and only visible codes
+ * are listed.
+ */
+describe('the gateway target of a link is instrument-visibility scoped', () => {
+  const made: string[] = [];
+  async function mk(code: string, fl: string, extra: Record<string, unknown> = {}): Promise<string> {
+    const res = await app.inject({
+      method: 'POST', url: '/api/instruments', headers: admin, payload: { name: code, code, profileId, ...extra },
+    });
+    expect(res.statusCode).toBe(201);
+    const id = res.json().id as string;
+    await prisma.instrument.update({ where: { id }, data: { functionalLocationId: fl } });
+    made.unshift(id);   // children are created after parents, so delete newest first
+    return id;
+  }
+  afterAll(async () => {
+    await prisma.instrument.updateMany({ where: { id: inScopeId }, data: { gatewayId: null } });
+    for (const id of made) await app.inject({ method: 'DELETE', url: `/api/instruments/${id}`, headers: admin });
+  });
+
+  it('PUT: linking to an out-of-scope GATEWAY is refused like a missing one, and nothing is linked', async () => {
+    const outGw = await mk(`SCOPE-W-OGW-${s}`, otherBlockId, { isGateway: true });
+    const res = await app.inject({ method: 'PUT', url: `/api/instruments/${inScopeId}`, headers: operator, payload: { gatewayId: outGw } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('NOT_FOUND');
+    expect(res.body).not.toContain(`SCOPE-W-OGW-${s}`);
+    expect((await prisma.instrument.findUnique({ where: { id: inScopeId } }))?.gatewayId).toBeNull();
+  });
+
+  it('PUT: an out-of-scope NON-gateway does not reveal its code (NOT_FOUND, not NOT_A_GATEWAY)', async () => {
+    const res = await app.inject({ method: 'PUT', url: `/api/instruments/${inScopeId}`, headers: operator, payload: { gatewayId: outOfScopeId } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('NOT_FOUND');
+    expect(res.body).not.toContain(`SCOPE-W-OUT-${s}`);
+  });
+
+  it('POST: a new instrument cannot be born linked to an out-of-scope gateway', async () => {
+    const outGw = await mk(`SCOPE-W-OGW2-${s}`, otherBlockId, { isGateway: true });
+    const code = `SCOPE-W-NEWKID-${s}`;
+    const res = await app.inject({
+      method: 'POST', url: '/api/instruments', headers: operator, payload: { name: code, code, profileId, gatewayId: outGw },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('NOT_FOUND');
+    expect(await prisma.instrument.findFirst({ where: { code } })).toBeNull();
+  });
+
+  it('PUT: positive control — an IN-scope gateway links', async () => {
+    const inGw = await mk(`SCOPE-W-IGW-${s}`, blockId, { isGateway: true });
+    const res = await app.inject({ method: 'PUT', url: `/api/instruments/${inScopeId}`, headers: operator, payload: { gatewayId: inGw } });
+    expect(res.statusCode).toBe(200);
+    expect((await prisma.instrument.findUnique({ where: { id: inScopeId } }))?.gatewayId).toBe(inGw);
+    await prisma.instrument.update({ where: { id: inScopeId }, data: { gatewayId: null } });
+  });
+
+  it('an EXISTING out-of-scope link does not block ordinary edits; only a NEW out-of-scope target is refused', async () => {
+    // The plant's shape: ~100 children on one gateway whose location need not
+    // be theirs. Scoping the target must not lock a scoped user out of
+    // renaming / deactivating an in-scope child an admin linked elsewhere.
+    const outGw = await mk(`SCOPE-W-XGW-${s}`, otherBlockId, { isGateway: true });
+    const outGw2 = await mk(`SCOPE-W-XGW2-${s}`, otherBlockId, { isGateway: true });
+    const kid = await mk(`SCOPE-W-XKID-${s}`, blockId, { gatewayId: outGw });
+    const rename = await app.inject({ method: 'PUT', url: `/api/instruments/${kid}`, headers: operator, payload: { name: 'renamed-kid' } });
+    expect(rename.statusCode).toBe(200);
+    // A whole-object form PUT re-sends the unchanged link.
+    const same = await app.inject({ method: 'PUT', url: `/api/instruments/${kid}`, headers: operator, payload: { name: 'renamed-kid-2', gatewayId: outGw } });
+    expect(same.statusCode).toBe(200);
+    const moved = await app.inject({ method: 'PUT', url: `/api/instruments/${kid}`, headers: operator, payload: { gatewayId: outGw2 } });
+    expect(moved.statusCode).toBe(400);
+    expect(moved.json().error).toBe('NOT_FOUND');
+    expect((await prisma.instrument.findUnique({ where: { id: kid } }))?.gatewayId).toBe(outGw);
+  });
+
+  it('GATEWAY_HAS_CHILDREN does not list an out-of-scope child\'s code', async () => {
+    const gw = await mk(`SCOPE-W-HGW-${s}`, blockId, { isGateway: true });
+    await mk(`SCOPE-W-HKIDIN-${s}`, blockId, { gatewayId: gw });
+    await mk(`SCOPE-W-HKIDOUT-${s}`, otherBlockId, { gatewayId: gw });
+    const res = await app.inject({ method: 'PUT', url: `/api/instruments/${gw}`, headers: operator, payload: { isGateway: false } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toBe('GATEWAY_HAS_CHILDREN');
+    expect(res.body).toContain(`SCOPE-W-HKIDIN-${s}`);
+    expect(res.body).not.toContain(`SCOPE-W-HKIDOUT-${s}`);
+    expect((await prisma.instrument.findUnique({ where: { id: gw } }))?.isGateway).toBe(true);
   });
 });

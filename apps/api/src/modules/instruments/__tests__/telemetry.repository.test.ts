@@ -205,6 +205,62 @@ describe('telemetry repository', () => {
       expect(await getLatest(INST)).toHaveLength(1);
     });
 
+    /**
+     * Audit 2026-10-12, finding 9 / brief finding 1 — operator decision (b):
+     * the last arrival still wins (overwriting must stay possible), but every
+     * rewrite that CHANGES a stored reading is audited, in the same
+     * transaction, as a SYSTEM action naming the sender and the transport. An
+     * identical redelivery writes no audit row.
+     */
+    describe('a rewrite of a stored reading is audited', () => {
+      const rewrites = () => prisma.auditTrail.findMany({
+        where: { targetId: INST, action: 'TELEMETRY_READING_REWRITTEN' }, orderBy: { chainPosition: 'asc' },
+      });
+      // audit_trail is append-only: each test counts rows before and after,
+      // against this run's unique synthetic instrument id.
+      const src = { code: 'DEV-REWRITE', transport: 'mqtt' };
+
+      it('an identical resend writes NO audit row', async () => {
+        const before = (await rewrites()).length;
+        await writeBatch([{ instrumentId: INST, key: 'temp', value: 7, valueType: 'int', ts: AT }], src);
+        await writeBatch([{ instrumentId: INST, key: 'temp', value: 7, valueType: 'int', ts: AT }], src);
+        expect((await rewrites()).length).toBe(before);
+      });
+
+      it('a changed resend updates the value and writes ONE audit row with both values', async () => {
+        const before = (await rewrites()).length;
+        await writeBatch([{ instrumentId: INST, key: 'temp', value: 7, valueType: 'int', ts: AT, rawValue: 6 }], src);
+        await writeBatch([{ instrumentId: INST, key: 'temp', value: 9, valueType: 'int', ts: AT, rawValue: 8 }], src);
+        const hist = await getHistory({ instrumentId: INST, limit: 10 });
+        expect(hist.rows).toHaveLength(1);
+        expect(hist.rows[0].value).toBe(9);
+        const rows = await rewrites();
+        expect(rows.length).toBe(before + 1);
+        const row = rows.at(-1)!;
+        expect(row.userId).toBeNull();
+        expect(row.beforeValue).toMatchObject({ attribute: 'temp', value: 7, rawValue: 6, ts: AT.toISOString() });
+        expect(row.afterValue).toMatchObject({
+          attribute: 'temp', value: 9, rawValue: 8, ts: AT.toISOString(), reportedBy: 'DEV-REWRITE', transport: 'mqtt',
+        });
+      });
+
+      it('only the CHANGED instants of a mixed resend are audited', async () => {
+        const later = new Date(AT.getTime() + 60_000);
+        await writeBatch([
+          { instrumentId: INST, key: 'temp', value: 1, valueType: 'int', ts: AT },
+          { instrumentId: INST, key: 'temp', value: 2, valueType: 'int', ts: later },
+        ], src);
+        const before = (await rewrites()).length;
+        await writeBatch([
+          { instrumentId: INST, key: 'temp', value: 1, valueType: 'int', ts: AT },      // identical
+          { instrumentId: INST, key: 'temp', value: 5, valueType: 'int', ts: later },   // changed
+        ], src);
+        const rows = await rewrites();
+        expect(rows.length).toBe(before + 1);
+        expect(rows.at(-1)!.afterValue).toMatchObject({ value: 5, ts: later.toISOString() });
+      });
+    });
+
     it('lastPerInstant keeps the last of each (instrument, key, ts) and leaves distinct instants alone', () => {
       const later = new Date(AT.getTime() + 1000);
       const rows = [

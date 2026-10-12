@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import net from 'node:net';
 import { prisma } from '../lib/prisma.js';
 import { fixtureProfileId } from '../test-support/fixture-profile.js';
@@ -300,5 +300,79 @@ describe('TCP ingest listener', () => {
     expect(extra.destroyed).toBe(true);
 
     for (const s of held) s.destroy();
+  });
+});
+
+/**
+ * Audit 2026-10-12 (brief finding 2): the identity was resolved ONCE per
+ * connection, so an open socket kept storing readings after its instrument was
+ * deactivated, its token revoked, or the instrument deleted (orphan rows —
+ * the telemetry tables have no FK). Every line is now re-checked against the
+ * cached resolver the routes invalidate, and the socket is closed on revocation.
+ * Each case uses its own instrument, so nothing leaks into the cases above.
+ */
+describe('TCP ingest — revocation reaches an OPEN connection', () => {
+  /** 'close' if the server shut it within 3 s, else 'still open' — fails fast, never on a timeout. */
+  const within = (shut: Promise<'close'>) =>
+    Promise.race([shut, sleep(3000).then(() => 'still open' as const)]);
+  // Destroyed whatever happened, so a failing case cannot hold a slot under
+  // the listener's connection cap and fail the next one for the wrong reason.
+  const opened: net.Socket[] = [];
+  afterEach(() => { for (const s of opened.splice(0)) s.destroy(); });
+
+  async function authed(token: string, id: string, key: string): Promise<net.Socket> {
+    await sleep(150);   // let earlier sockets' closures land under the connection cap
+    const s = await connect();
+    opened.push(s);
+    s.on('error', () => {});
+    s.write(`${JSON.stringify({ token })}\n`);
+    s.write(`${JSON.stringify({ [key]: 1 })}\n`);
+    await waitFor(async () => (await latestKeys(id)).some((r) => r.key === key));
+    return s;
+  }
+
+  it('closes the socket and stores nothing once the instrument is DEACTIVATED', async () => {
+    const x = await mkInstrument(`TCPRV1-${S}`);
+    const s = await authed(x.token, x.id, 'before');
+    const shut = closed(s);
+    await prisma.instrument.update({ where: { id: x.id }, data: { isActive: false } });
+    invalidateIngestAuthCache(x.id);   // what PUT /api/instruments/:id does
+    s.write(`${JSON.stringify({ after: 2 })}\n`);
+    await expect(within(shut)).resolves.toBe('close');
+    expect((await latestKeys(x.id)).map((r) => r.key)).toEqual(['before']);
+  });
+
+  it('closes the socket and stores nothing once the TOKEN is revoked', async () => {
+    const x = await mkInstrument(`TCPRV2-${S}`);
+    const s = await authed(x.token, x.id, 'before');
+    const shut = closed(s);
+    await prisma.instrumentCredential.updateMany({ where: { instrumentId: x.id }, data: { revokedAt: new Date() } });
+    invalidateIngestAuthCache(x.id);   // what regenerate-token / PUT token do
+    s.write(`${JSON.stringify({ after: 2 })}\n`);
+    await expect(within(shut)).resolves.toBe('close');
+    expect((await latestKeys(x.id)).map((r) => r.key)).toEqual(['before']);
+  });
+
+  it('closes the socket and writes no orphan rows once the instrument is DELETED', async () => {
+    const x = await mkInstrument(`TCPRV3-${S}`);
+    const s = await authed(x.token, x.id, 'before');
+    const shut = closed(s);
+    await prisma.$executeRaw`DELETE FROM instrument_telemetry_latest WHERE instrument_id = ${x.id}`;
+    await prisma.instrument.delete({ where: { id: x.id } });
+    invalidateIngestAuthCache(x.id);   // what DELETE /api/instruments/:id does
+    s.write(`${JSON.stringify({ after: 2 })}\n`);
+    await expect(within(shut)).resolves.toBe('close');
+    expect(await latestKeys(x.id)).toEqual([]);
+  });
+
+  it('keeps a connection whose instrument is merely RENAMED', async () => {
+    const x = await mkInstrument(`TCPRV4-${S}`);
+    const s = await authed(x.token, x.id, 'before');
+    await prisma.instrument.update({ where: { id: x.id }, data: { code: `TCPRV4b-${S}` } });
+    invalidateIngestAuthCache(x.id);
+    s.write(`${JSON.stringify({ after: 2 })}\n`);
+    await waitFor(async () => (await latestKeys(x.id)).some((r) => r.key === 'after'));
+    expect(s.destroyed).toBe(false);
+    s.destroy();
   });
 });

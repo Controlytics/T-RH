@@ -563,6 +563,16 @@ export async function startMqttBridge(
  * One query per message. Deliberate: a stale cache here would keep accepting
  * readings for an instrument an operator has just deactivated, and the write
  * that follows costs far more than this lookup.
+ *
+ * REVOCATION ON AN OPEN MQTT SESSION (audit 2026-10-12): deactivate and delete
+ * take effect on the NEXT message through this per-message lookup. A TOKEN
+ * change does NOT — the bridge cannot see which credential a publisher used,
+ * and EMQX consults the auth hook only at CONNECT — and neither does a CODE
+ * reassigned to another instrument while the old device's session (client id
+ * = the old code) is still connected: its messages arrive on the new owner's
+ * topic and are attributed to it. Closing either gap needs the broker to drop
+ * the session (EMQX REST `DELETE /api/v5/clients/{clientid}`); this project
+ * has no EMQX API client or credentials, so it is not done here.
  */
 async function lookupByCode(code: string): Promise<IngestIdentity | null> {
   // `code` is a plain unique text column, so any string is a legal lookup and

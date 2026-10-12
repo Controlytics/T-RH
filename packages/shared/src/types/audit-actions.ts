@@ -185,6 +185,10 @@ export const AUDIT_ACTIONS = {
    *  2026-09-05) — no human actor; the gateway/instrument code is in the row. */
   INSTRUMENT_ATTRIBUTE_REPORTED: 'INSTRUMENT_ATTRIBUTE_REPORTED',
   INSTRUMENT_ATTRIBUTE_REMOVED: 'INSTRUMENT_ATTRIBUTE_REMOVED',
+  /** A STORED reading re-sent by a device with a DIFFERENT value at the same
+   *  instant, and overwritten (last arrival wins, operator 2026-10-12). No human
+   *  actor; the sender's code, the transport and both values are in the row. */
+  TELEMETRY_READING_REWRITTEN: 'TELEMETRY_READING_REWRITTEN',
 
   // Floorplans and their rooms. A room carries the environmental SPECIFICATION
   // for a space, so "who changed this temperature limit, from what, to what"

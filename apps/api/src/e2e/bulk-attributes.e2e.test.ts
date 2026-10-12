@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { type FastifyInstance } from 'fastify';
 import { ATTRIBUTE_LABELS_CONFIG_KEY } from '@digilog/shared';
 import { prisma } from '../lib/prisma.js';
-import { buildApp, loginAs, authGet, authPost, authPut } from './test-helper.js';
+import { buildApp, loginAs, authGet, authPost, authPut, ADMIN_PASSWORD } from './test-helper.js';
+import { Prisma } from '@prisma/client';
 import { fixtureProfileId } from '../test-support/fixture-profile.js';
 
 /**
@@ -131,5 +132,76 @@ describe('POST /api/instruments/bulk — attribute columns', () => {
     });
     const audited = audit.map((r) => (r.afterValue as { attribute: string }).attribute).sort();
     expect(audited).toEqual(['Building', 'Enable_Temp_NMT', 'Room']);
+  });
+
+  /**
+   * Audit 2026-10-12 (brief finding 8): the bulk upload wrote attribute cells
+   * with neither the role's Attribute Access gate nor its attribute re-auth,
+   * both of which the single form's per-attribute POSTs answer to; and a throw
+   * while writing one row's attributes aborted the loop with a 500 after
+   * instruments had been created — their one-time tokens never returned.
+   */
+  describe('the attribute gate, re-auth, and per-row failures', () => {
+    const setAccess = async (value: unknown) => {
+      await prisma.roleConfig.upsert({
+        where: { role: 'SUPER_ADMIN' },
+        create: { role: 'SUPER_ADMIN', attributeAccess: value as never },
+        update: { attributeAccess: value as never },
+      });
+    };
+    afterEach(async () => {
+      await prisma.roleConfig.updateMany({ where: { role: 'SUPER_ADMIN' }, data: { attributeAccess: Prisma.DbNull } });
+    });
+
+    it('a role that may not ADD attributes cannot add them through the CSV either — and nothing is created', async () => {
+      await setAccess({ mode: 'ALL_VIEW', keys: [], requireReauth: false });
+      const stamp = Date.now();
+      const csv = ['Instrument ID,Building', `GV-${stamp},CWH`].join('\n');
+      const res = await authPost(app, '/api/instruments/bulk', token, { csv, profileId });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error).toBe('ATTRIBUTE_NOT_EDITABLE');
+      expect(await prisma.instrument.findFirst({ where: { code: `GV-${stamp}` } })).toBeNull();
+    });
+
+    it('a file with NO attribute cells is not gated by the attribute rule', async () => {
+      await setAccess({ mode: 'ALL_VIEW', keys: [], requireReauth: true });
+      const stamp = Date.now();
+      const csv = ['Instrument ID,Building', `GN-${stamp},`].join('\n');
+      const res = await authPost(app, '/api/instruments/bulk', token, { csv, profileId });
+      expect(res.statusCode).toBe(200);
+      for (const c of res.json().created) created.push(c.id);
+      expect(res.json().created).toHaveLength(1);
+    });
+
+    it('requireReauth: refused without a password, accepted with it in the BODY', async () => {
+      await setAccess({ mode: 'ALL_EDIT', keys: [], requireReauth: true });
+      const stamp = Date.now();
+      const csv = ['Instrument ID,Building', `GR-${stamp},CWH`].join('\n');
+      const refused = await authPost(app, '/api/instruments/bulk', token, { csv, profileId });
+      expect(refused.statusCode).toBe(401);
+      expect(refused.json().error).toBe('REAUTH_REQUIRED');
+      expect(await prisma.instrument.findFirst({ where: { code: `GR-${stamp}` } })).toBeNull();
+
+      const ok = await authPost(app, '/api/instruments/bulk', token, { csv, profileId, _currentPassword: ADMIN_PASSWORD });
+      expect(ok.statusCode).toBe(200);
+      for (const c of ok.json().created) created.push(c.id);
+      expect(ok.json().created).toHaveLength(1);
+    });
+
+    it('a row whose attributes cannot be written is reported on THAT row, and every token is still returned', async () => {
+      const stamp = Date.now();
+      // A NUL character: Postgres refuses it in a text column, so writing this
+      // row's attribute throws AFTER its instrument was created.
+      const csv = ['Instrument ID,Building', `GE1-${stamp},bad\u0000cell`, `GE2-${stamp},CWH`].join('\n');
+      const res = await authPost(app, '/api/instruments/bulk', token, { csv, profileId });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      for (const c of body.created) created.push(c.id);
+      expect(body.created.map((c: { code: string }) => c.code).sort()).toEqual([`GE1-${stamp}`, `GE2-${stamp}`]);
+      for (const c of body.created) expect(typeof c.token).toBe('string');
+      expect(body.errors).toHaveLength(1);
+      expect(body.errors[0].row).toBe(2);
+      expect(body.errors[0].message).toMatch(/attribute/i);
+    });
   });
 });

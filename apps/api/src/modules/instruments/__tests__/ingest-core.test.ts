@@ -2,9 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const writeBatch = vi.fn(); const writeDeadLetters = vi.fn();
 const childMapFor = vi.fn(); const stampLastSeen = vi.fn();
+const earliestPartitionStart = vi.fn(); const enqueueAlarmEvaluation = vi.fn();
 vi.mock('../telemetry.repository.js', () => ({
   writeBatch: (...a: unknown[]) => writeBatch(...a),
   writeDeadLetters: (...a: unknown[]) => writeDeadLetters(...a),
+  earliestPartitionStart: (...a: unknown[]) => earliestPartitionStart(...a),
+}));
+vi.mock('../../alarms/enqueue-evaluation.js', () => ({
+  enqueueAlarmEvaluation: (...a: unknown[]) => enqueueAlarmEvaluation(...a),
 }));
 vi.mock('../gateway-children.js', () => ({ childMapFor: (...a: unknown[]) => childMapFor(...a) }));
 vi.mock('../last-seen.js', () => ({ stampLastSeen: (...a: unknown[]) => stampLastSeen(...a) }));
@@ -20,6 +25,8 @@ beforeEach(() => {
   childMapFor.mockReset(); stampLastSeen.mockReset();
   writeBatch.mockResolvedValue(undefined); writeDeadLetters.mockResolvedValue(undefined);
   stampLastSeen.mockResolvedValue(undefined);
+  earliestPartitionStart.mockReset(); enqueueAlarmEvaluation.mockReset();
+  earliestPartitionStart.mockResolvedValue(null); enqueueAlarmEvaluation.mockResolvedValue(undefined);
   childMapFor.mockResolvedValue(new Map([['CH-A', { id: 'a1', isActive: true }]]));
 });
 
@@ -161,6 +168,81 @@ describe('ingestPayload — a null reading is dead-lettered by key', () => {
     expect(stored.map((x) => x.key)).toEqual(['h']);
     const row = writeDeadLetters.mock.calls[0][0][0];
     expect(row.reason).toContain('Null reading for "t"');
+  });
+});
+
+/**
+ * Audit 2026-10-12, finding 4: a payload that stores NOTHING (every key null,
+ * or no keys at all) used to stamp last-seen and enqueue an evaluation, so a
+ * dead probe sending `{"t":null}` never went INACTIVE.
+ */
+describe('ingestPayload — a payload that stores nothing is not a sign of life', () => {
+  it('all-null flat payload: dead-lettered, not stamped, no evaluation', async () => {
+    const r = await ingestPayload({ identity: plain, raw: buf({ t: null, h: null }), transport: 'mqtt' });
+    expect(r).toMatchObject({ ok: true, accepted: 0 });
+    expect(writeDeadLetters).toHaveBeenCalled();
+    expect(stampLastSeen).not.toHaveBeenCalled();
+    expect(enqueueAlarmEvaluation).not.toHaveBeenCalled();
+  });
+
+  it('empty flat payload: not stamped, no evaluation', async () => {
+    const r = await ingestPayload({ identity: plain, raw: buf({}), transport: 'http' });
+    expect(r).toMatchObject({ ok: true, accepted: 0 });
+    expect(stampLastSeen).not.toHaveBeenCalled();
+    expect(enqueueAlarmEvaluation).not.toHaveBeenCalled();
+  });
+
+  it('a payload with one real reading still stamps and enqueues', async () => {
+    await ingestPayload({ identity: plain, raw: buf({ t: null, h: 40 }), transport: 'mqtt' });
+    expect(stampLastSeen).toHaveBeenCalledWith(['i1'], 'direct');
+    expect(enqueueAlarmEvaluation).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * Audit 2026-10-12, finding 5: one block whose timestamp is older than every
+ * partition failed the WHOLE multi-child batch — the good children's readings
+ * were lost, and on HTTP the 503 made the gateway retry the same doomed batch
+ * forever. Now the placeable readings are stored, only the unplaceable ones are
+ * dead-lettered, and the unfixable part is reported as non-retryable.
+ */
+describe('ingestPayload — a reading older than every partition does not sink the batch', () => {
+  const NO_PARTITION = 'no partition of relation "instrument_telemetry_history" found for row';
+  const twoKids = new Map([['CH-A', { id: 'a1', isActive: true }], ['CH-B', { id: 'b1', isActive: true }]]);
+
+  it('gateway path: stores the good child, dead-letters the old block, counts it rejected', async () => {
+    childMapFor.mockResolvedValue(twoKids);
+    earliestPartitionStart.mockResolvedValue(new Date('2026-08-01T00:00:00Z'));
+    writeBatch.mockRejectedValueOnce(new Error(NO_PARTITION));
+    const now = new Date().toISOString();
+    const r = await ingestPayload({
+      identity: gw,
+      raw: buf({ devices: { 'CH-A': { t: 1, ts: '2019-06-01T00:00:00Z' }, 'CH-B': { t: 2, ts: now } } }),
+      transport: 'http',
+    });
+    expect(r).toEqual({ ok: true, accepted: 1, rejected: 1 });
+    const retried = writeBatch.mock.calls.at(-1)![0] as { instrumentId: string }[];
+    expect(retried.map((x) => x.instrumentId)).toEqual(['b1']);
+    const dl = writeDeadLetters.mock.calls.flatMap((c) => c[0] as { reason: string }[]);
+    expect(dl.some((d) => /earliest stored partition/.test(d.reason))).toBe(true);
+    expect(stampLastSeen).toHaveBeenCalledWith(['b1'], 'gateway');
+    expect(enqueueAlarmEvaluation).toHaveBeenCalledTimes(1);
+  });
+
+  it('flat path: an unplaceable old reading is a NON-retryable refusal, not WRITE_FAILED', async () => {
+    earliestPartitionStart.mockResolvedValue(new Date('2026-08-01T00:00:00Z'));
+    writeBatch.mockRejectedValueOnce(new Error(NO_PARTITION));
+    const r = await ingestPayload({ identity: plain, raw: buf({ t: 1, ts: '2019-06-01T00:00:00Z' }), transport: 'http' });
+    expect(r).toMatchObject({ ok: false, code: 'TIMESTAMP_OUT_OF_RANGE' });
+    expect(stampLastSeen).not.toHaveBeenCalled();
+    expect(writeDeadLetters).toHaveBeenCalled();
+  });
+
+  it('a missing partition AHEAD of the oldest one (maintenance behind) stays retryable', async () => {
+    earliestPartitionStart.mockResolvedValue(new Date('2019-01-01T00:00:00Z'));
+    writeBatch.mockRejectedValue(new Error(NO_PARTITION));
+    const r = await ingestPayload({ identity: plain, raw: buf({ t: 1, ts: '2019-06-01T00:00:00Z' }), transport: 'http' });
+    expect(r).toMatchObject({ ok: false, code: 'WRITE_FAILED' });
   });
 });
 

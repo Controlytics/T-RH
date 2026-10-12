@@ -47,6 +47,7 @@ export default async function ingestRoutes(app: FastifyInstance) {
         202: { type: 'object', properties: { accepted: { type: 'integer' } } },
         400: { type: 'object', properties: { error: { type: 'string' }, message: { type: 'string' } } },
         401: { type: 'object', properties: { error: { type: 'string' } } },
+        422: { type: 'object', properties: { error: { type: 'string' }, message: { type: 'string' } } },
         503: { type: 'object', properties: { error: { type: 'string' }, message: { type: 'string' } } },
       },
     },
@@ -66,6 +67,10 @@ export default async function ingestRoutes(app: FastifyInstance) {
       // the payload was fine, it is recorded as a dead letter, and a retry
       // after the fault is repaired is exactly what the device should do.
       if (outcome.code === 'WRITE_FAILED') return reply.code(503).send({ error: outcome.code, message: outcome.message });
+      // 422, NOT 503 (audit 2026-10-12, finding 5): the reading is older than
+      // the oldest partition, so no retry can ever store it — a 503 here had a
+      // device resending it forever. Dead-lettered in the core.
+      if (outcome.code === 'TIMESTAMP_OUT_OF_RANGE') return reply.code(422).send({ error: outcome.code, message: outcome.message });
       return reply.code(400).send({ error: outcome.code, message: outcome.message });
     }
 

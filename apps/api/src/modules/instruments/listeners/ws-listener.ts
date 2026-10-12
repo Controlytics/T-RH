@@ -4,7 +4,7 @@ import type { WebSocket } from 'ws';
 // `{ websocket: true }` a legal route option. The plugin itself is registered
 // by the composition root (app.ts / test-helper.ts), not here.
 import type {} from '@fastify/websocket';
-import { resolveInstrumentByToken, type IngestIdentity } from '../ingest-auth.js';
+import { resolveInstrumentByToken, reauthorizeConnection, type IngestIdentity } from '../ingest-auth.js';
 import { ingestPayload } from '../ingest-core.js';
 import { logger } from '../../../lib/logger.js';
 
@@ -87,6 +87,8 @@ const DEFAULT_MAX_CONNECTIONS = 200;
 
 /** Application close codes (4000-4999 is the range reserved for us). */
 const CLOSE_UNAUTHENTICATED = 4401;
+/** Authenticated once, but the credential or the instrument has since been revoked. */
+const CLOSE_REVOKED = 4403;
 const CLOSE_FRAME_TOO_LARGE = 4413;
 const CLOSE_RATE_EXCEEDED = 4429;
 const CLOSE_INTERNAL = 4500;
@@ -188,6 +190,8 @@ export default async function wsIngestRoutes(
     socket.on('close', () => open.delete(socket));
 
     let identity: IngestIdentity | null = null;
+    /** The token this connection authenticated with — re-checked before every frame. */
+    let authToken = '';
     let shut = false;
 
     const queue: Buffer[] = [];
@@ -245,6 +249,7 @@ export default async function wsIngestRoutes(
             return;
           }
           identity = resolved;
+          authToken = headerToken;
           clearTimeout(authDeadline);
         })().catch((e: unknown) => {
           close(CLOSE_INTERNAL, 'token resolution failed', { err: (e as Error).message });
@@ -318,9 +323,21 @@ export default async function wsIngestRoutes(
               return;
             }
             identity = resolved;
+            authToken = token;
             clearTimeout(authDeadline);
             continue;
           }
+
+          // Revocation must reach an OPEN connection (audit 2026-10-12):
+          // deactivated, token revoked or replaced, or deleted since it
+          // authenticated → the frame is not stored and the connection is
+          // closed. Cached, and invalidated by those routes, so cheap.
+          const current = await reauthorizeConnection(authToken, identity);
+          if (!current) {
+            close(CLOSE_REVOKED, 'credential revoked, or instrument deactivated or deleted', { code: identity.code });
+            return;
+          }
+          identity = current;
 
           const outcome = await ingestPayload({ identity, raw: frame, transport: 'ws' });
 
