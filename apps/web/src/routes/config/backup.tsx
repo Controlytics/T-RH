@@ -135,9 +135,15 @@ export function BackupRestorePage() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     }, {
-      onError: (err: any) => setExportError(err.message || 'Failed to export backup'),
+      // The flag is cleared by the three OUTCOMES, never after the await:
+      // `execute` returns as soon as the password dialog opens, so clearing it
+      // there re-enabled the button while the password was still being asked
+      // for; and a cancel is not an error (audit 2026-10-12, finding 10's
+      // class — same for Restore below).
+      onSuccess: () => setExporting(false),
+      onError: (err: any) => { setExportError(err.message || 'Failed to export backup'); setExporting(false); },
+      onCancel: () => setExporting(false),
     });
-    setExporting(false);
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -196,11 +202,14 @@ export function BackupRestorePage() {
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
     }, {
+      onSuccess: () => setRestoring(false),
       onError: () => {
         setRestoreResult({ success: false, message: 'Restore failed unexpectedly' });
+        setRestoring(false);
       },
+      // A cancelled password is NOT a failed restore — nothing was sent.
+      onCancel: () => setRestoring(false),
     });
-    setRestoring(false);
   };
 
   return (

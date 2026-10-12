@@ -167,9 +167,13 @@ export function EditUserPage() {
       setGeneratedPassword('');
       mutate();
     }, {
-      onError: (err: any) => setError(err.message || 'Failed to generate temporary password'),
+      // Cleared by the outcomes, never after the await (`execute` returns as
+      // soon as the password dialog opens); a cancel is not an error (audit
+      // 2026-10-12, finding 10's class).
+      onSuccess: () => setIsGenerating(false),
+      onError: (err: any) => { setError(err.message || 'Failed to generate temporary password'); setIsGenerating(false); },
+      onCancel: () => setIsGenerating(false),
     });
-    setIsGenerating(false);
   };
 
   if (!userData) {

@@ -10,7 +10,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
  * config page rendered that as a red "Cancelled — password confirmation was not
  * completed." banner. Both now pass `onCancel`, which only re-enables the form.
  */
-const MY_ACTIONS = { actions: ['UPDATE_PROFILE', 'UPDATE_SESSION_CONFIG', 'CREATE_ROLE'] };
+const MY_ACTIONS = { actions: ['UPDATE_PROFILE', 'UPDATE_SESSION_CONFIG', 'CREATE_ROLE', 'EXPORT_BACKUP'] };
 const MANIFEST = [{
   moduleKey: 'session', moduleName: 'Session', description: '', icon: '', category: 'Security',
   requiresReauth: true, hasCustomPage: false,
@@ -30,8 +30,9 @@ vi.mock('swr', () => ({
   },
 }));
 const put = vi.fn(async () => ({}));
+const getRaw = vi.fn(async () => ({}));
 vi.mock('@/lib/api-client', () => ({
-  apiClient: { put: (...a: unknown[]) => put(...(a as [])), putWithReauth: vi.fn(), get: vi.fn(async () => []) },
+  apiClient: { put: (...a: unknown[]) => put(...(a as [])), putWithReauth: vi.fn(), get: vi.fn(async () => []), getRaw: (...a: unknown[]) => getRaw(...(a as [])) },
 }));
 const USER = {
   id: 'me', username: 'superadmin', fullName: 'Super Admin', email: 'a@b.c', department: '', photoUrl: '',
@@ -93,5 +94,20 @@ describe('Roles & Access — Save stays busy while the password is being asked f
     fireEvent.click(within(reauthDialog).getByRole('button', { name: /^cancel$/i }));
     await waitFor(() => expect(screen.queryByRole('button', { name: /creating/i })).not.toBeInTheDocument());
     expect(put).not.toHaveBeenCalled();
+  });
+});
+
+describe('Backup — Export stays busy while the password is asked for, and a cancel is not a failure', () => {
+  it('keeps "Generating Backup..." while the dialog is open; a cancel frees it with no error and nothing fetched', async () => {
+    const { BackupRestorePage } = await import('../backup');
+    render(<MemoryRouter><BackupRestorePage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: /download .* backup/i }));
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /generating backup/i })).toBeInTheDocument();
+    cancelDialog();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /download .* backup/i })).toBeEnabled();
+    expect(screen.queryByText(/cancelled/i)).not.toBeInTheDocument();
+    expect(getRaw).not.toHaveBeenCalled();
   });
 });
