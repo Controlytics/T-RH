@@ -161,6 +161,16 @@ export function InstrumentCreatePage() {
     let res: CreatedInstrument | null = null;
     const written = new Set<string>();
     const failed: string[] = [];
+    /** The instrument exists but some attributes did not reach it. */
+    const keepRegistered = () => {
+      const unsaved = attributeEntries.map(([k]) => k).filter((k) => !written.has(k) || failed.includes(k));
+      toast.error(
+        'Instrument created, some attributes were not saved',
+        `${unsaved.join(', ')} could not be saved. Add them from the instrument's Attributes panel.`,
+      );
+      setCreated(res);
+      setSaving(false);
+    };
     await reauth.execute('CREATE_INSTRUMENT', async (password?: string) => {
       if (!res) {
         res = password
@@ -171,11 +181,23 @@ export function InstrumentCreatePage() {
       // separately audited. The instrument EXISTS by now, so a failure here is
       // reported without discarding it: the operator keeps the registration and
       // the token, and can add the missing attribute from the detail page.
+      //
+      // Each write carries the password when the hook has one: the server
+      // re-authenticates attribute writes as UPDATE_INSTRUMENT_ATTRIBUTE when
+      // the role's Attribute Access asks for it. A `REAUTH_REQUIRED` /
+      // `REAUTH_FAILED` is NOT an attribute failure — it is rethrown so the hook
+      // opens (or re-opens) the dialog and replays this callback; `res` and
+      // `written` make the replay skip what is already done (audit 2026-10-12,
+      // finding 3 — it was swallowed into `failed` and never retried).
       for (const [key, value] of attributeEntries) {
         if (written.has(key)) continue;
+        const url = `/api/instruments/${res.id}/attributes`;
         try {
-          await apiClient.post(`/api/instruments/${res.id}/attributes`, { key, value });
-        } catch {
+          if (password) await apiClient.postWithReauth(url, { key, value }, password);
+          else await apiClient.post(url, { key, value });
+        } catch (err) {
+          const code = (err as { error?: string })?.error;
+          if (code === 'REAUTH_REQUIRED' || code === 'REAUTH_FAILED') throw err;
           failed.push(key);
         }
         written.add(key);
@@ -192,10 +214,14 @@ export function InstrumentCreatePage() {
         setSaving(false);
       },
       onError: (err: unknown) => {
+        if (res) { keepRegistered(); return; }
         toast.error('Create failed', (err as { message?: string })?.message ?? 'Could not create the instrument.');
         setSaving(false);
       },
-      onCancel: () => setSaving(false),
+      // A cancel AFTER the instrument was registered (an attribute asked for the
+      // password) still shows the instrument and its token: it exists, and
+      // leaving the operator on the form invites a second registration.
+      onCancel: () => { if (res) keepRegistered(); else setSaving(false); },
     });
   };
 
