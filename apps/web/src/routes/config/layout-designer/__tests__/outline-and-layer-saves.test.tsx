@@ -30,10 +30,12 @@ vi.mock('swr', () => ({
   },
 }));
 const put = vi.fn();
+const post = vi.fn();
+const del = vi.fn();
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
-    post: vi.fn(), put: (...a: unknown[]) => put(...a), delete: vi.fn(),
-    postWithReauth: vi.fn(), putWithReauth: (...a: unknown[]) => put(...a), deleteWithReauth: vi.fn(),
+    post: (...a: unknown[]) => post(...a), put: (...a: unknown[]) => put(...a), delete: (...a: unknown[]) => del(...a),
+    postWithReauth: (...a: unknown[]) => post(...a), putWithReauth: (...a: unknown[]) => put(...a), deleteWithReauth: (...a: unknown[]) => del(...a),
     get: vi.fn(), postFormData: vi.fn(),
   },
 }));
@@ -175,5 +177,35 @@ describe('doors and openings follow their wall (finding 3)', () => {
     expect(body.points).toHaveLength(5);
     expect(body.doors).toEqual([{ edge: 2, offset: 0.3, width: 0.3, kind: 'ENTRY' }]);
     expect(body.linkEdges).toEqual([{ id: 'L1', fromEdge: 2, offset: 0.1, width: 0.2 }]);
+  });
+});
+
+describe('merge pieces is ONE request (follow-up to finding 3)', () => {
+  it('posts the union, the doors and the re-indexed openings to /merge, and nothing else', async () => {
+    post.mockReset().mockResolvedValue({});
+    del.mockReset();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    setPlan({
+      ...BASE, annotations: null,
+      rooms: [
+        rect('A', 'CORR-1', 0.2, 0.2, 0.2, 0.1, { grade: 'CIRCULATION', doors: [{ wall: 'top', offset: 0.2, width: 0.3, kind: 'PASSAGE' }] }),
+        rect('B', 'CORR-2', 0.4, 0.2, 0.2, 0.1, { grade: 'CIRCULATION' }),
+      ],
+      links: [{ id: 'L1', fromRoomId: 'A', toRoomId: 'B', kind: 'OPENING', fromEdge: 1, offset: 0.2, width: 0.5, door: null, label: null }],
+    });
+    renderPage();
+    stubCanvas();
+    fireEvent.pointerDown(screen.getByTestId('room-CORR-1'), { clientX: 300, clientY: 190, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(screen.getByTestId('designer-canvas'), { clientX: 300, clientY: 190, pointerId: 1 });
+    fireEvent.click(await screen.findByRole('button', { name: 'Merge pieces' }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    const [url, body] = post.mock.calls[0] as [string, { otherRoomId: string; points: unknown[]; doors: { edge: number }[] }];
+    expect(url).toBe('/api/floorplans/p1/rooms/A/merge');
+    expect(body.otherRoomId).toBe('B');
+    expect(body.points).toHaveLength(4);
+    expect(body.doors).toHaveLength(1);
+    expect(body.doors[0].edge).toBe(0);
+    expect(put).not.toHaveBeenCalled();
+    expect(del).not.toHaveBeenCalled();
   });
 });

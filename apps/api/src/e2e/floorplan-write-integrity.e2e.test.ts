@@ -196,6 +196,58 @@ describe('room PUT keeps its openings on a shared wall (finding 3)', () => {
   });
 });
 
+describe('merging two pieces is ONE transaction (follow-up to finding 3)', () => {
+  // A 0.1..0.3, B 0.3..0.5 (beside A), C below A. The union of A and B is 0.1..0.5 x 0.1..0.3.
+  const rectPts = (x: number, y: number, w: number, h: number) => [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];
+  const union = rectPts(0.1, 0.1, 0.4, 0.2);
+  async function three(name: string) {
+    const p = await blankPlan(name);
+    const a = await room(p.id, 'A', { ...box(0.1, 0.1), points: rectPts(0.1, 0.1, 0.2, 0.2) });
+    const b = await room(p.id, 'B', box(0.3, 0.1));
+    const c = await room(p.id, 'C', box(0.1, 0.3));
+    const ab = await link(p.id, { fromRoomId: a.id, toRoomId: b.id, kind: 'OPENING', fromEdge: 1, offset: 0.3, width: 0.3 });
+    // A's BOTTOM wall (edge 2, running right to left) into C: x 0.24..0.18.
+    const ac = await link(p.id, { fromRoomId: a.id, toRoomId: c.id, kind: 'OPENING', fromEdge: 2, offset: 0.3, width: 0.3 });
+    const inst = await instrument(`FPMERGE-${s}-${name.length}`);
+    await prisma.instrument.update({ where: { id: inst.id }, data: { roomId: b.id } });
+    return { p, a, b, ab, ac, inst };
+  }
+  const merge = (planId: string, roomId: string, payload: Record<string, unknown>) =>
+    app.inject({ method: 'POST', url: `/api/floorplans/${planId}/rooms/${roomId}/merge`, headers: auth, payload });
+
+  it('a refused merge (an opening the union takes off its wall) changes NOTHING', async () => {
+    const { p, a, b, ab, inst } = await three(`Merge refused ${s}`);
+    const res = await merge(p.id, a.id, { otherRoomId: b.id, points: union });
+    expect(res.statusCode, res.body).toBe(409);
+    expect(res.json().error).toBe('LINK_OFF_WALL');
+    expect(await prisma.floorplanRoom.count({ where: { id: b.id } })).toBe(1);
+    expect(await prisma.floorplanRoomLink.count({ where: { id: ab.id } })).toBe(1);
+    expect(((await prisma.floorplanRoom.findUniqueOrThrow({ where: { id: a.id } })).points as unknown[]).length).toBe(4);
+    expect((await prisma.floorplanRoom.findUniqueOrThrow({ where: { id: a.id } })).w).toBeCloseTo(0.2, 9);
+    expect((await prisma.instrument.findUniqueOrThrow({ where: { id: inst.id } })).roomId).toBe(b.id);
+    expect(await prisma.auditTrail.count({ where: { action: 'FLOORPLAN_LINK_DELETED', targetId: ab.id } })).toBe(0);
+  });
+
+  it('a merge with the opening re-indexed lands whole: union, links, instruments, the other piece gone, all audited', async () => {
+    const { p, a, b, ab, ac, inst } = await three(`Merge ok ${s}`);
+    const res = await merge(p.id, a.id, { otherRoomId: b.id, points: union, linkEdges: [{ id: ac.id, fromEdge: 2, offset: 0.65, width: 0.15 }] });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().w).toBeCloseTo(0.4, 9);
+    expect(await prisma.floorplanRoom.count({ where: { id: b.id } })).toBe(0);
+    expect(await prisma.floorplanRoomLink.count({ where: { id: ab.id } })).toBe(0);
+    expect(await prisma.auditTrail.count({ where: { action: 'FLOORPLAN_LINK_DELETED', targetId: ab.id } })).toBe(1);
+    expect(await prisma.auditTrail.count({ where: { action: 'FLOORPLAN_LINK_UPDATED', targetId: ac.id } })).toBe(1);
+    expect((await prisma.instrument.findUniqueOrThrow({ where: { id: inst.id } })).roomId).toBe(a.id);
+    const gone = await prisma.auditTrail.findFirst({ where: { action: 'FLOORPLAN_ROOM_DELETED', targetId: b.id } });
+    expect((gone!.beforeValue as { mergedInto: string }).mergedInto).toBe('A');
+  });
+
+  it('refuses merging a room with itself', async () => {
+    const { p, a } = await three(`Merge self ${s}`);
+    expect((await merge(p.id, a.id, { otherRoomId: a.id, points: union })).statusCode).toBe(400);
+  });
+});
+
 describe('room membership: a move is recorded on both rooms (finding 9)', () => {
   it('writes a row on the SOURCE room and names where each moved instrument came from on the target', async () => {
     const p = await blankPlan(`Members ${s}`);
