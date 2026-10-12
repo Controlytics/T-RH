@@ -223,8 +223,18 @@ export const configService = {
     // upsert below used to create — and audit — an orphan `role_configs` row
     // for any name in the URL, which then resurfaced as that role's config if
     // the name was ever created.
-    const roleRow = await prisma.role.findUnique({ where: { name: role }, select: { name: true } });
+    const roleRow = await prisma.role.findUnique({ where: { name: role }, select: { name: true, hierarchyLevel: true } });
     if (!roleRow) throw new NotFoundError('Role not found');
+
+    // WHO may edit this role's configuration at all (application review
+    // 2026-10-12, finding 10) — checked on EVERY save, not only one that adds a
+    // permission: not your own role, not one at or above your level, never
+    // SUPER_ADMIN's (SUPER_ADMIN exempt). Until then a sidebar save — which
+    // also moves primary permissions and rewrites what a role sees — reached
+    // all three. The "may you grant this" check below is the second half.
+    await assertRoleWithinCallerPrivilege(ctx, {}, {
+      name: roleRow.name, hierarchyLevel: roleRow.hierarchyLevel ?? 0, permissions: [],
+    });
 
     const existing = await configRepository.findRoleConfig(role);
     const beforeValue = existing ? { sidebarItems: existing.sidebarItems, homeWidgets: existing.homeWidgets, permissions: existing.permissions } : null;
@@ -267,7 +277,12 @@ export const configService = {
     );
     const reason = permissionSetChanged ? requireReason(data.reason, "Changing a role's permissions") : undefined;
 
-    const config = await configRepository.upsertRoleConfig(role, data, existing, ctx.userId);
+    // The config row, the role's permission array and the audit row commit
+    // TOGETHER (finding 10): they were three standalone writes, so a failed
+    // audit insert left a permission change with no record, and a failed
+    // permission write left a config row disagreeing with the role.
+    const config = await prisma.$transaction(async (tx) => {
+    const config = await configRepository.upsertRoleConfig(role, data, existing, ctx.userId, tx);
 
     // Sync feature privileges + sidebar selections to the role's permissions
     // array. Runs whenever EITHER tab saves so the two stay linked (2026-06-15,
@@ -278,14 +293,10 @@ export const configService = {
     //   (2) Enabled sidebar items (Sidebar tab) — each grants its primary perm.
     // Permissions NOT covered by any feature toggle are preserved (manual grants).
     if (plan) {
-      await prisma.role.updateMany({
+      await tx.role.updateMany({
         where: { name: role },
         data: { permissions: plan.permissionsArray },
       });
-      // Audit 2026-05-04 fix (api-supporting M11): rbac plugin caches role
-      // permissions for 5s; invalidate so the new config takes effect on the
-      // very next request rather than waiting up to 5s.
-      invalidateRolePermsCache(role);
     }
 
     await auditLog({
@@ -296,7 +307,14 @@ export const configService = {
       signatureMeaning: `Role configuration updated for ${role}`,
       reason,
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    }, tx);
+    return config;
     });
+
+    // Audit 2026-05-04 fix (api-supporting M11): rbac plugin caches role
+    // permissions for 5s; invalidate AFTER commit so the new config takes
+    // effect on the very next request rather than waiting up to 5s.
+    if (plan) invalidateRolePermsCache(role);
 
     return config;
   },

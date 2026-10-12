@@ -27,7 +27,9 @@ export const configRepository = {
     return prisma.roleConfig.findUnique({ where: { role: role as any } });
   },
 
-  async upsertRoleConfig(role: string, data: { sidebarItems?: string[]; homeWidgets?: string[]; permissions?: Record<string, boolean> }, existing: any, updatedBy: string) {
+  /** `tx` joins the caller's transaction (role-config save: config row, role
+   *  permissions and audit row commit together — review 2026-10-12, #10). */
+  async upsertRoleConfig(role: string, data: { sidebarItems?: string[]; homeWidgets?: string[]; permissions?: Record<string, boolean> }, existing: any, updatedBy: string, tx?: Pick<typeof prisma, 'roleConfig'>) {
     // Build update object — only include fields that are explicitly provided,
     // otherwise preserve existing values (supports partial saves from different tabs)
     const updateData: Record<string, any> = { updatedAt: new Date(), updatedBy };
@@ -35,7 +37,7 @@ export const configRepository = {
     if (data.homeWidgets !== undefined) updateData.homeWidgets = data.homeWidgets;
     if (data.permissions !== undefined) updateData.permissions = data.permissions;
 
-    return prisma.roleConfig.upsert({
+    return (tx ?? prisma).roleConfig.upsert({
       where: { role: role as any },
       create: {
         role: role as any,

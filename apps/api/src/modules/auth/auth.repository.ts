@@ -22,12 +22,19 @@ export const authRepository = {
     });
   },
 
+  /**
+   * What `/api/auth/me` tells the browser this role holds. An INACTIVE role
+   * holds NOTHING (application review 2026-10-12, finding 13) — the same rule
+   * the rbac plugin enforces on every request (`getRolePerms`). This read
+   * ignored `isActive`, so a user of a switched-off role saw the role's whole
+   * menu and was refused on every click.
+   */
   async getRolePermissions(roleName: string) {
     const role = await prisma.role.findUnique({
       where: { name: roleName },
-      select: { permissions: true },
+      select: { permissions: true, isActive: true },
     });
-    return (role?.permissions as string[]) || [];
+    return role?.isActive ? ((role.permissions as string[]) || []) : [];
   },
 
   async findUserByEmail(email: string) {

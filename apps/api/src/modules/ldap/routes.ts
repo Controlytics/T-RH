@@ -1,5 +1,6 @@
 import { type FastifyInstance } from 'fastify';
 import { ldapService } from './ldap.service.js';
+import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { maskSecrets } from '../../lib/mask-secrets.js';
 import { stripPrivateFields, enforceReauth } from '../../lib/reauth-check.js';
@@ -49,18 +50,24 @@ export default async function ldapRoutes(app: FastifyInstance) {
     if (!ok) return;
     const body = req.body as Record<string, any>;
     stripPrivateFields(body as Record<string, unknown>);
-    await ldapService.saveConfig(body, req.user.username);
+    // Role mappings grant roles: a non-SUPER_ADMIN may only name roles below
+    // its own (application review 2026-10-12, finding 7).
+    await ldapService.assertRoleTargetsWithinCaller(req.user.role, body);
 
-    await auditLog({
-      userId: req.user.username,
-      userRole: req.user.role,
-      action: 'LDAP_CONFIG_UPDATED',
-      targetType: 'system_config',
-      targetId: 'ldap',
-      afterValue: maskSecrets(body, LDAP_AUDIT_SAFE_KEYS),
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
-      sessionId: req.user.sessionId,
+    // The config row and its audit row commit together (§11).
+    await prisma.$transaction(async (tx) => {
+      await ldapService.saveConfig(body, req.user.username, tx);
+      await auditLog({
+        userId: req.user.username,
+        userRole: req.user.role,
+        action: 'LDAP_CONFIG_UPDATED',
+        targetType: 'system_config',
+        targetId: 'ldap',
+        afterValue: maskSecrets(body, LDAP_AUDIT_SAFE_KEYS),
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+        sessionId: req.user.sessionId,
+      }, tx);
     });
 
     return { success: true, message: 'LDAP configuration updated' };
@@ -74,10 +81,36 @@ export default async function ldapRoutes(app: FastifyInstance) {
       summary: 'Test LDAP connection',
       body: { type: 'object', additionalProperties: true },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    // A test binds with the service-account credential, the stored one when
+    // the target is unchanged — the same e-signature as saving it
+    // (application review 2026-10-12, finding 2).
+    const { ok } = await enforceReauth('UPDATE_LDAP_CONFIG', req, reply);
+    if (!ok) return;
     const body = req.body as Record<string, any>;
+    stripPrivateFields(body as Record<string, unknown>);
     const hasConfig = body && Object.keys(body).length > 0;
-    return ldapService.testConnection(hasConfig ? body : undefined);
+    // Refuses (400) a new server/bind DN that brings no password of its own.
+    const cfg = await ldapService.resolveTestConfig(hasConfig ? body : undefined);
+    const result = await ldapService.testConnection(cfg);
+    // Every test is recorded: who bound to which directory, and the outcome.
+    // Allowlisted fields only — never the password.
+    await auditLog({
+      userId: req.user.username,
+      userRole: req.user.role,
+      action: 'LDAP_CONNECTION_TESTED',
+      targetType: 'system_config',
+      targetId: 'ldap',
+      afterValue: {
+        serverUrl: cfg.serverUrl, bindDN: cfg.bindDN,
+        passwordSource: hasConfig && body.bindPassword && body.bindPassword !== '********' ? 'typed' : 'stored',
+        success: result.success, message: result.message.slice(0, 300),
+      },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      sessionId: req.user.sessionId,
+    });
+    return result;
   });
 
   // GET /api/ldap/status

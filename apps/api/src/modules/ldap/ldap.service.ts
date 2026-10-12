@@ -3,6 +3,53 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { invalidateUserAuthCache } from '../../plugins/auth.js';
 import { logger } from '../../lib/logger.js';
+import { AppError, ValidationError } from '../../lib/errors.js';
+
+type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+/** What GET /api/ldap/config shows for a stored bind password, and what the
+ *  config page therefore sends back when nobody retyped it. */
+export const LDAP_PASSWORD_MASK = '********';
+
+/**
+ * Is the incoming config aimed at the SAME directory account as the stored
+ * one? Server URL compared trimmed and case-insensitively (scheme and host are
+ * case-insensitive); bind DN likewise (AD DNs are).
+ */
+function sameBindTarget(a: Pick<LdapConfig, 'serverUrl' | 'bindDN'>, b: Pick<LdapConfig, 'serverUrl' | 'bindDN'>): boolean {
+  const n = (v: unknown) => String(v ?? '').trim().toLowerCase();
+  return n(a.serverUrl) === n(b.serverUrl) && n(a.bindDN) === n(b.bindDN);
+}
+
+/**
+ * The bind password a request is allowed to use (application review
+ * 2026-10-12, finding 2).
+ *
+ * The stored service-account password is used ONLY for the stored server and
+ * bind DN. Test-connection used to merge the request over the stored config
+ * and bind with the result, so a CONFIG_UPDATE holder could send just
+ * `serverUrl: ldap://their-host` and receive the stored password in the clear
+ * (a simple bind carries it as-is). Save had the same path: a changed
+ * serverUrl saved with the mask kept the stored password, and the next login
+ * bound to the new host with it. Now: a request that names a different target
+ * must carry its own password, or it is refused.
+ *
+ * `absent` (omitted, or the page's mask) means "the stored one"; anything
+ * else is the caller's own password and is used as given.
+ */
+function resolveBindPassword(
+  incoming: Partial<LdapConfig>,
+  stored: LdapConfig,
+  merged: LdapConfig,
+  absent: (v: unknown) => boolean,
+): string {
+  if (!absent(incoming.bindPassword)) return String(incoming.bindPassword ?? '');
+  if (!stored.bindPassword || sameBindTarget(merged, stored)) return stored.bindPassword;
+  throw new ValidationError(
+    'The server URL or bind DN differs from the saved one: enter the bind password for it',
+    { fieldErrors: { bindPassword: ['Required when the server URL or bind DN changes'] } },
+  );
+}
 
 /**
  * Placeholder written to `users.password_hash` for directory-authenticated
@@ -195,24 +242,68 @@ export const ldapService = {
     return { ...DEFAULT_CONFIG, ...(config.configValue as Record<string, unknown>) } as LdapConfig;
   },
 
-  async saveConfig(config: Partial<LdapConfig>, updatedBy: string): Promise<void> {
+  async saveConfig(config: Partial<LdapConfig>, updatedBy: string, tx?: Tx): Promise<void> {
     const existing = await this.getConfig();
 
-    // If bindPassword is masked placeholder, keep existing
+    // The mask (or no password at all) keeps the stored one — but only for the
+    // stored server and bind DN (finding 2). An explicit '' still clears it.
     const merged = { ...existing, ...config };
-    if (config.bindPassword === '********') {
-      merged.bindPassword = existing.bindPassword;
-    }
+    merged.bindPassword = resolveBindPassword(config, existing, merged, (v) => v === undefined || v === LDAP_PASSWORD_MASK);
 
-    await prisma.systemConfig.upsert({
+    await (tx ?? prisma).systemConfig.upsert({
       where: { configKey: 'ldap' },
       update: { configValue: merged as any, updatedBy, updatedAt: new Date() },
       create: { configKey: 'ldap', configValue: merged as any, configType: 'security', requiresReauth: true, updatedBy },
     });
   },
 
+  /**
+   * The config a connection test binds with: the stored config with the
+   * request laid over it, and the bind password resolved by the finding-2 rule
+   * above (a blank, the mask or no password = the stored one, for the stored
+   * target only). Exposed so the route can audit WHAT was tested.
+   */
+  async resolveTestConfig(config?: Partial<LdapConfig>): Promise<LdapConfig> {
+    const stored = await this.getConfig();
+    if (!config) return stored;
+    const merged = { ...stored, ...config };
+    merged.bindPassword = resolveBindPassword(config, stored, merged, (v) => v === undefined || v === '' || v === LDAP_PASSWORD_MASK);
+    return merged;
+  },
+
+  /**
+   * Finding 7 (application review 2026-10-12): `roleMappings` and `defaultRole`
+   * decide what role a directory user is GIVEN, so writing them is granting a
+   * role. A non-SUPER_ADMIN may only name roles that exist and sit below its
+   * own level, never SUPER_ADMIN, never its own. A mapping already stored, and
+   * an unchanged default role, are grandfathered — otherwise one mapping a
+   * SUPER_ADMIN made would stop a lower admin saving any LDAP field at all.
+   */
+  async assertRoleTargetsWithinCaller(callerRole: string, incoming: Partial<LdapConfig>): Promise<void> {
+    if (callerRole === 'SUPER_ADMIN') return;
+    const stored = await this.getConfig();
+    const key = (m: { ldapGroup?: unknown; role?: unknown }) => `${String(m.ldapGroup ?? '').trim().toLowerCase()}\u0000${String(m.role ?? '')}`;
+    const kept = new Set((stored.roleMappings ?? []).map(key));
+    const named = new Set<string>();
+    for (const m of Array.isArray(incoming.roleMappings) ? incoming.roleMappings : []) {
+      if (!kept.has(key(m))) named.add(String(m?.role ?? ''));
+    }
+    if (incoming.defaultRole !== undefined && incoming.defaultRole !== stored.defaultRole) named.add(String(incoming.defaultRole));
+    if (named.size === 0) return;
+
+    const caller = await prisma.role.findUnique({ where: { name: callerRole }, select: { hierarchyLevel: true } });
+    if (!caller) throw new AppError(403, 'FORBIDDEN', 'Your role is not recognized');
+    const rows = await prisma.role.findMany({ where: { name: { in: [...named] } }, select: { name: true, hierarchyLevel: true } });
+    const level = new Map(rows.map((r) => [r.name, r.hierarchyLevel]));
+    const refused = [...named].filter((r) =>
+      r === 'SUPER_ADMIN' || r === callerRole || !level.has(r) || (level.get(r) as number) >= caller.hierarchyLevel);
+    if (refused.length > 0) {
+      throw new AppError(403, 'FORBIDDEN', `You cannot map directory users to a role at or above your own: ${refused.join(', ')}`);
+    }
+  },
+
   async testConnection(config?: Partial<LdapConfig>): Promise<{ success: boolean; message: string }> {
-    const cfg = config ? { ...await this.getConfig(), ...config } : await this.getConfig();
+    const cfg = await this.resolveTestConfig(config);
 
     if (!cfg.serverUrl || !cfg.bindDN || !cfg.bindPassword) {
       return { success: false, message: 'Server URL, Bind DN, and Bind Password are required' };

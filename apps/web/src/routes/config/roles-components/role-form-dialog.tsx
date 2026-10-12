@@ -139,14 +139,13 @@ export function RoleFormDialog({
             <Input
               type="number"
               min={1}
-              max={10}
               value={formData.hierarchyLevel}
               onChange={(e) => setFormData({ ...formData, hierarchyLevel: parseInt(e.target.value) || 1 })}
               className="h-12"
               disabled={isEdit && isSystem}
             />
             {!isEdit && (
-              <p className="text-xs text-slate-500">Higher level = more privileges (1-10)</p>
+              <p className="text-xs text-slate-500">Higher level = more privileges; must be below Super Admin</p>
             )}
           </div>
           <div className="space-y-2">

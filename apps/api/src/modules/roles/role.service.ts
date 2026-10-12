@@ -33,6 +33,11 @@ export async function assertRoleWithinCallerPrivilege(
   if (!caller) throw new AppError(403, 'FORBIDDEN', 'Your role is not recognized');
 
   if (target) {
+    // SUPER_ADMIN by NAME (application review 2026-10-12, finding 8): a legacy
+    // custom role numbered at or above it must still not reach it.
+    if (target.name === 'SUPER_ADMIN') {
+      throw new AppError(403, 'FORBIDDEN', 'You cannot modify a role at or above your own hierarchy level');
+    }
     if (target.name === ctx.userRole) {
       throw new AppError(403, 'FORBIDDEN', 'You cannot modify your own role');
     }
@@ -51,6 +56,27 @@ export async function assertRoleWithinCallerPrivilege(
       const shown = escalating.slice(0, 5).join(', ');
       throw new AppError(403, 'FORBIDDEN', `You cannot grant permissions your own role does not hold: ${shown}${escalating.length > 5 ? ', …' : ''}`);
     }
+  }
+}
+
+/**
+ * No role other than SUPER_ADMIN may sit at or above SUPER_ADMIN's hierarchy
+ * level (application review 2026-10-12, finding 8). The schema allowed 1..10
+ * while SUPER_ADMIN is seeded at 6, and every "may X manage Y" rule compares
+ * the numbers — so a custom role created at 7 (only a SUPER_ADMIN could, as
+ * `assertRoleWithinCallerPrivilege` caps everyone else below their own level)
+ * outranked SUPER_ADMIN everywhere a number was compared. Enforced for EVERY
+ * caller, SUPER_ADMIN included. SUPER_ADMIN's level is read, not assumed.
+ */
+async function assertBelowSuperAdmin(hierarchyLevel: number | undefined, roleName: string) {
+  if (hierarchyLevel === undefined || roleName === 'SUPER_ADMIN') return;
+  const top = await roleRepository.findByName('SUPER_ADMIN');
+  const ceiling = top?.hierarchyLevel ?? 6;
+  if (hierarchyLevel >= ceiling) {
+    throw new ValidationError(
+      `Hierarchy level must be below Super Admin's (${ceiling})`,
+      { fieldErrors: { hierarchyLevel: [`Must be less than ${ceiling}`] } },
+    );
   }
 }
 
@@ -183,6 +209,7 @@ export const roleService = {
     }
 
     await assertRoleWithinCallerPrivilege(ctx, { hierarchyLevel: parsed.data.hierarchyLevel, permissions: parsed.data.permissions });
+    await assertBelowSuperAdmin(parsed.data.hierarchyLevel, parsed.data.name);
 
     // The row and its audit row commit together (audit 2026-10-03, API-7).
     const role = await prisma.$transaction(async (tx) => {
@@ -231,7 +258,6 @@ export const roleService = {
       { hierarchyLevel: parsed.data.hierarchyLevel, permissions: parsed.data.permissions },
       { name: existing.name, hierarchyLevel: (existing as any).hierarchyLevel, permissions: ((existing as any).permissions as string[]) ?? [] },
     );
-
     const { reason: rawReason, ...fields } = parsed.data;
     const existingPerms = ((existing as any).permissions as string[]) ?? [];
 
@@ -263,6 +289,13 @@ export const roleService = {
       }
       delete fields.hierarchyLevel;
       delete fields.isActive;
+    }
+
+    // After the system-role refusal (a system role's level never changes).
+    // Only a CHANGE of level is checked, so a legacy row already above the
+    // ceiling can still have its label edited (the Roles page echoes the level).
+    if (fields.hierarchyLevel !== undefined && fields.hierarchyLevel !== existing.hierarchyLevel) {
+      await assertBelowSuperAdmin(fields.hierarchyLevel, existing.name);
     }
 
     const deactivating = fields.isActive === false && existing.isActive === true;
@@ -322,6 +355,18 @@ export const roleService = {
       throw new NotFoundError('Role not found');
     }
     const reason = rawReason?.trim() || undefined;
+
+    // Application review 2026-10-12, finding 5. A SYSTEM role is never
+    // deleted — by anyone; the seed and the code name them. And the same
+    // privilege rule as update: not your own role, not one at or above your
+    // level (SUPER_ADMIN exempt). Until then only "has users" stopped a
+    // ROLE_MANAGE holder deleting ADMIN, its own role, or any role above it.
+    if (existing.isSystem) {
+      throw new AppError(403, 'FORBIDDEN', `${existing.name} is a system role and cannot be deleted`);
+    }
+    await assertRoleWithinCallerPrivilege(ctx, {}, {
+      name: existing.name, hierarchyLevel: existing.hierarchyLevel, permissions: [],
+    });
 
     // Count, delete and audit row in ONE transaction (API-7, API-20): the
     // repository counts immediately before the delete and throws

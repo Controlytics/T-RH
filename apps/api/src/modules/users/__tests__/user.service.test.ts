@@ -193,10 +193,10 @@ describe('userService', () => {
     it('rejects creating higher hierarchy role', async () => {
       mockValidateUserId.mockResolvedValue({ valid: true, errors: [] });
       mockUserRepo.findRole.mockResolvedValueOnce({ name: 'ADMIN', hierarchyLevel: 5, isActive: true });
-      mockUserRepo.findRole.mockResolvedValueOnce({ name: 'SUPER_ADMIN', hierarchyLevel: 6, isActive: true });
+      mockUserRepo.findRole.mockResolvedValueOnce({ name: 'TOP_CUSTOM', hierarchyLevel: 6, isActive: true });
       mockUserRepo.findByUsernameOrEmail.mockResolvedValue(null);
 
-      await expect(userService.create({ username: 'new', fullName: 'T', email: 't@t.com', role: 'SUPER_ADMIN', password: 'p' }, ctx))
+      await expect(userService.create({ username: 'new', fullName: 'T', email: 't@t.com', role: 'TOP_CUSTOM', password: 'p' }, ctx))
         .rejects.toThrow('Cannot create');
     });
   });
@@ -340,7 +340,7 @@ describe('userService', () => {
       mockUserRepo.findByIdFull.mockResolvedValue({ id: '1', username: 'u1', fullName: 'F', status: 'LOCKED', failedLoginAttempts: 5 });
       mockHashPassword.mockResolvedValue('new-hash');
       mockUserRepo.getPasswordExpiresAt.mockResolvedValue(new Date());
-      mockUserRepo.unlockUser.mockResolvedValue([]);
+      mockUserRepo.unlockUser.mockResolvedValue([{ status: 'ENABLED' }]);
 
       await userService.unlock('1', 'TempPass@1', ctx);
       expect(mockUserRepo.unlockUser).toHaveBeenCalled();
@@ -350,7 +350,7 @@ describe('userService', () => {
       mockUserRepo.findByIdFull.mockResolvedValue({ id: '1', username: 'u1', fullName: 'F', status: 'LOCKED', failedLoginAttempts: 5 });
       mockHashPassword.mockResolvedValue('new-hash');
       mockUserRepo.getPasswordExpiresAt.mockResolvedValue(new Date());
-      mockUserRepo.unlockUser.mockResolvedValue([]);
+      mockUserRepo.unlockUser.mockResolvedValue([{ status: 'ENABLED' }]);
       mockUserRepo.terminateSessions.mockResolvedValue({ count: 2 });
 
       await userService.unlock('1', 'TempPass@1', ctx);
@@ -363,7 +363,7 @@ describe('userService', () => {
       mockUserRepo.findByIdFull.mockResolvedValue({ id: '1', username: 'u1', fullName: 'F', status: 'ENABLED' });
       mockHashPassword.mockResolvedValue('new-hash');
       mockUserRepo.getPasswordExpiresAt.mockResolvedValue(new Date());
-      mockUserRepo.resetPassword.mockResolvedValue([]);
+      mockUserRepo.resetPassword.mockResolvedValue([{ status: 'ENABLED' }]);
       mockUserRepo.terminateSessions.mockResolvedValue({ count: 1 });
 
       await userService.resetPassword('1', 'NewPass@1', ctx);
@@ -429,8 +429,8 @@ describe('userService', () => {
       mockUserRepo.findRole.mockImplementation((n: string) => byLevel(n));
       mockHashPassword.mockResolvedValue('new-hash');
       mockUserRepo.getPasswordExpiresAt.mockResolvedValue(new Date());
-      mockUserRepo.resetPassword.mockResolvedValue([]);
-      mockUserRepo.unlockUser.mockResolvedValue([]);
+      mockUserRepo.resetPassword.mockResolvedValue([{ status: 'ENABLED' }]);
+      mockUserRepo.unlockUser.mockResolvedValue([{ status: 'ENABLED' }]);
       mockUserRepo.update.mockResolvedValue({ id: 'sa', username: 'superadmin' });
     });
 
@@ -500,8 +500,8 @@ describe('userService', () => {
       mockUserRepo.findRole.mockResolvedValue({ name: 'OPERATOR', hierarchyLevel: 2, isActive: true });
       mockHashPassword.mockResolvedValue('new-hash');
       mockUserRepo.getPasswordExpiresAt.mockResolvedValue(new Date());
-      mockUserRepo.unlockUser.mockResolvedValue([]);
-      mockUserRepo.resetPassword.mockResolvedValue([]);
+      mockUserRepo.unlockUser.mockResolvedValue([{ status: 'ENABLED' }]);
+      mockUserRepo.resetPassword.mockResolvedValue([{ status: 'ENABLED' }]);
       mockUserRepo.approveResetRequest.mockResolvedValue([]);
     });
 

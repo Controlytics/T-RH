@@ -13,6 +13,22 @@ type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 const db = (tx?: Tx) => tx ?? prisma;
 
 /**
+ * The status an account has after an administrator clears its lock or resets
+ * its password (application review 2026-10-12, finding 3): ENABLED — UNLESS it
+ * is DISABLED, which stays DISABLED. These writes used to set ENABLED
+ * unconditionally, so resetting a disabled employee's password, unlocking
+ * them, or approving their reset request silently re-enabled the account: a
+ * revocation undone as a side effect, recorded as a password change.
+ *
+ * Read under a row lock inside the caller's transaction, so a disable that
+ * lands between this read and the write cannot be overwritten.
+ */
+async function statusAfterCredentialReset(t: Tx, id: string): Promise<'ENABLED' | 'DISABLED'> {
+  const rows = await t.$queryRaw<Array<{ status: string }>>`SELECT status::text AS status FROM users WHERE id = ${id}::uuid FOR UPDATE`;
+  return rows[0]?.status === 'DISABLED' ? 'DISABLED' : 'ENABLED';
+}
+
+/**
  * Remove every row that holds an ON DELETE RESTRICT foreign key to the users
  * being deleted, so `user.delete` can proceed. Without this a user who ever
  * authored content gets a Prisma P2003 ("Foreign key constraint failed") and
@@ -202,10 +218,10 @@ export const userRepository = {
    * at a change-password screen that refuses directory accounts.
    */
   async unlockWithoutPasswordChange(id: string, updatedBy: string, tx?: Tx) {
-    const result = await db(tx).user.update({
+    const run = async (t: Tx) => t.user.update({
       where: { id },
       data: {
-        status: 'ENABLED',
+        status: await statusAfterCredentialReset(t, id),
         failedLoginAttempts: 0,
         lockedAt: null,
         lockoutUntil: null,
@@ -214,6 +230,7 @@ export const userRepository = {
         updatedBy,
       },
     });
+    const result = tx ? await run(tx) : await prisma.$transaction(run);
     invalidateUserAuthCache(id);
     return result;
   },
@@ -223,7 +240,7 @@ export const userRepository = {
       const user = await t.user.update({
         where: { id },
         data: {
-          status: 'ENABLED',
+          status: await statusAfterCredentialReset(t, id),
           failedLoginAttempts: 0,
           lockedAt: null,
           lockoutUntil: null,
@@ -254,7 +271,7 @@ export const userRepository = {
           failedLoginAttempts: 0,
           lockedAt: null,
           lockoutUntil: null,
-          status: 'ENABLED',
+          status: await statusAfterCredentialReset(t, id),
           passwordChangedAt: new Date(),
           passwordExpiresAt,
           updatedBy,
@@ -292,7 +309,7 @@ export const userRepository = {
           failedLoginAttempts: 0,
           lockedAt: null,
           lockoutUntil: null,
-          status: 'ENABLED',
+          status: await statusAfterCredentialReset(t, userId),
           passwordChangedAt: new Date(),
           passwordExpiresAt,
           updatedBy: processedBy,

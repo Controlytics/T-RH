@@ -13,6 +13,61 @@ import { userRepository } from '../users/user.repository.js';
 import type { RequestContext } from '../../types/context.js';
 import { describeTarget, targetFromRequestData, requesterLabel, requestRecordName } from './describe-request.js';
 import { decideAccountState, type AccountStatus, type StateRequestType } from './account-state.js';
+import { roleHasPermission } from '../../plugins/rbac.js';
+
+/**
+ * What APPROVING a request of this type actually does, in permission and
+ * e-signature terms (application review 2026-10-12, finding 1).
+ *
+ * An approval runs the user mutation it names - `userService.create`,
+ * `unlock`, `resetPassword`, `update`, `enable`, `disable`. It used to be gated
+ * on ADMIN_REQUEST_APPROVE alone, so a role holding only that could approve a
+ * FORGOT_PASSWORD for a peer and be handed the temporary password: a
+ * credential reset its role was never granted, without the reset's own
+ * e-signature. The approver must now hold the permission the Users-page route
+ * for the same act requires, and sign with that act's re-auth action as well
+ * as APPROVE_ADMIN_REQUEST. The hierarchy rule is the userService call's own
+ * (`assertCanManageTarget` / the create role check) and is unchanged.
+ *
+ * A MODIFY_USER of `status` is an enable or a disable, not an update - it is
+ * gated, signed and executed as one (finding 4).
+ *
+ * Returns null for a type this server does not know; `executeApproval`
+ * refuses those itself.
+ */
+export function approvalRequirement(
+  requestType: string,
+  requestData: unknown,
+): { permission: string; reauthAction: string } | null {
+  const data = (requestData ?? {}) as Record<string, unknown>;
+  switch (requestType) {
+    case 'CREATE_USER': return { permission: 'USER_CREATE', reauthAction: 'CREATE_USER' };
+    case 'UNLOCK': return { permission: 'USER_UNLOCK', reauthAction: 'UNLOCK_USER' };
+    case 'FORGOT_PASSWORD': return { permission: 'USER_RESET_PASSWORD', reauthAction: 'RESET_PASSWORD' };
+    case 'ENABLE_ACCOUNT': return { permission: 'USER_ENABLE_DISABLE', reauthAction: 'ENABLE_USER' };
+    case 'DISABLE_ACCOUNT': return { permission: 'USER_ENABLE_DISABLE', reauthAction: 'DISABLE_USER' };
+    case 'MODIFY_USER':
+      if (String(data.modifyField ?? '').trim() === 'status') {
+        return String(data.newValue ?? '').trim().toUpperCase() === 'ENABLED'
+          ? { permission: 'USER_ENABLE_DISABLE', reauthAction: 'ENABLE_USER' }
+          : { permission: 'USER_ENABLE_DISABLE', reauthAction: 'DISABLE_USER' };
+      }
+      return { permission: 'USER_UPDATE', reauthAction: 'UPDATE_USER' };
+    default: return null;
+  }
+}
+
+/** 403 unless `role` holds what approving this request does - by the SAME
+ *  resolver `requirePermission` applies at a route (SUPER_ADMIN always). */
+export async function assertCanApprove(
+  request: { requestType: string; requestData: unknown },
+  role: string,
+): Promise<void> {
+  const need = approvalRequirement(request.requestType, request.requestData);
+  if (need && !(await roleHasPermission(role, need.permission))) {
+    throw new ForbiddenError(`Approving this request requires the ${need.permission} permission`);
+  }
+}
 
 export const adminRequestService = {
   async create(data: {
@@ -120,6 +175,9 @@ export const adminRequestService = {
     if (request.status !== 'PENDING') throw new ValidationError('Request has already been processed');
 
     const newStatus = action === 'approve' ? 'APPROVED' : 'REJECTED';
+    // Checked here as well as in the route (finding 1): the route checks first
+    // so a caller who may not approve is told so before being asked to sign.
+    if (action === 'approve') await assertCanApprove(request, ctx.userRole);
 
     /**
      * ONE transaction: claim, act, record (audit 2026-10-03, API-7).
@@ -249,6 +307,13 @@ async function executeApproval(
       const requestedRole = String(data.requestedRole ?? '').trim();
       const department = data.department ? String(data.department).trim() : undefined;
       if (!requestedRole) throw new ValidationError('Request is missing requested role');
+      // A public form may not ask for SUPER_ADMIN, whoever approves it (finding
+      // 9) - the rule MODIFY_USER applies below. `userService.create` lets a
+      // SUPER_ADMIN approver create a SUPER_ADMIN, so an anonymous request
+      // would otherwise mint a top-level account on one click.
+      if (requestedRole.toUpperCase() === 'SUPER_ADMIN') {
+        throw new ForbiddenError('An admin request cannot assign the SUPER_ADMIN role');
+      }
 
       // Username: prefer the requester-supplied User ID (collected on the
       // contact-admin form). Legacy requests submitted before that field
@@ -321,8 +386,16 @@ async function executeApproval(
         // for an account that was not locked would be a credential change nobody
         // asked for.
         const temporaryPassword = generateTempPassword();
-        await userService.unlock(user.id, temporaryPassword, ctx);
-        return { username: targetUsername, temporaryPassword, message: decision.message, changed: true, targetRole };
+        const { passwordIssued } = await userService.unlock(user.id, temporaryPassword, ctx);
+        // A DIRECTORY account is unlocked without a password being set
+        // (`unlock` discards it). Handing the generated one to the admin anyway
+        // told them to give the user a password that was never set.
+        return passwordIssued
+          ? { username: targetUsername, temporaryPassword, message: decision.message, changed: true, targetRole }
+          : {
+            username: targetUsername, changed: true, targetRole,
+            message: `${decision.message} Password remains managed in Active Directory.`,
+          };
       }
       if (request.requestType === 'ENABLE_ACCOUNT') {
         await userService.enable(user.id, ctx);
@@ -378,11 +451,30 @@ async function executeApproval(
       }
       const user = await userRepository.findByUsername(targetUsername);
       if (!user) throw new NotFoundError(`User "${targetUsername}" not found`);
+      const role = (user as { role?: string }).role ?? undefined;
+
+      // A status change is an ENABLE or a DISABLE (finding 4): it goes through
+      // those paths - their state guard, their reason, their USER_ENABLED /
+      // USER_DISABLED rows, notifications and session termination - never
+      // through `update`, which refuses `status` now.
+      if (field === 'status') {
+        const asType: StateRequestType = typed.data.status === 'ENABLED' ? 'ENABLE_ACCOUNT' : 'DISABLE_ACCOUNT';
+        const decision = decideAccountState(asType, (user as { status: AccountStatus }).status, targetUsername);
+        if (!decision.apply) return { username: targetUsername, message: decision.message, changed: false, targetRole: role };
+        if (asType === 'ENABLE_ACCOUNT') {
+          await userService.enable(user.id, ctx);
+        } else {
+          const why = `Approved admin request ${request.id} (Modify User: status) from ${requesterLabel(request)}`
+            + (adminRemarks.trim() ? `: ${adminRemarks.trim()}` : '');
+          await userService.disable(user.id, ctx, why);
+        }
+        return { username: targetUsername, message: decision.message, changed: true, targetRole: role };
+      }
       await userService.update(user.id, typed.data as Record<string, unknown>, ctx);
       return {
         username: targetUsername,
         message: `User "${targetUsername}" updated (${field}).`,
-        changed: true, targetRole: (user as { role?: string }).role ?? undefined,
+        changed: true, targetRole: role,
       };
     }
 
