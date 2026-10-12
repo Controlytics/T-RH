@@ -142,6 +142,8 @@ describe('notification config PUT — audit secret masking (L136)', () => {
   it('GET /sms masks gateway header values and URL query values; a round-trip PUT keeps them', async () => {
     const MASK = '••••••••';
     const url = 'https://gw.example/send?authkey=E2E-URL-SECRET&mobiles={phone}&message={message}&route=4';
+    // The body template's secret-NAMED fields are masked too; the rest stays readable.
+    const TEMPLATE = '{"authkey":"E2E-TPL-SECRET","mobiles":"{phone}","sender":"DIGLOG"}';
     const put1 = await app.inject({
       method: 'PUT', url: '/api/notification-settings/sms', headers: auth(),
       payload: {
@@ -149,6 +151,7 @@ describe('notification config PUT — audit secret masking (L136)', () => {
         httpGatewayUrl: url,
         httpGatewayMethod: 'GET',
         httpGatewayHeaders: { Authorization: 'Bearer E2E-GW-BEARER' },
+        httpGatewayBodyTemplate: TEMPLATE,
       },
     });
     expect(put1.statusCode).toBe(200);
@@ -158,6 +161,8 @@ describe('notification config PUT — audit secret masking (L136)', () => {
     const body = got.json();
     expect(JSON.stringify(body)).not.toContain('E2E-URL-SECRET');
     expect(JSON.stringify(body)).not.toContain('E2E-GW-BEARER');
+    expect(JSON.stringify(body)).not.toContain('E2E-TPL-SECRET');
+    expect(body.httpGatewayBodyTemplate).toBe(`{"authkey":"${MASK}","mobiles":"{phone}","sender":"DIGLOG"}`);
     expect(body.httpGatewayHeaders).toEqual({ Authorization: MASK });
     // Names and the {phone}/{message} placeholders stay readable.
     expect(body.httpGatewayUrl).toBe(`https://gw.example/send?authkey=${MASK}&mobiles={phone}&message={message}&route=${MASK}`);
@@ -171,6 +176,7 @@ describe('notification config PUT — audit secret masking (L136)', () => {
     const stored = (await prisma.systemConfig.findUnique({ where: { configKey: 'notification-sms' } }))!.configValue as any;
     expect(stored.httpGatewayUrl).toBe(url);
     expect(stored.httpGatewayHeaders).toEqual({ Authorization: 'Bearer E2E-GW-BEARER' });
+    expect(stored.httpGatewayBodyTemplate).toBe(TEMPLATE);
     expect(stored.senderId).toBe('CHANGED');
 
     // A mask for a query key with nothing stored cannot be resolved: refused, not stored as bullets.
