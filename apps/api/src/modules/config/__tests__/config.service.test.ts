@@ -191,6 +191,25 @@ describe('configService', () => {
       const written = mockPrisma.role.updateMany.mock.calls.at(-1)?.[0].data.permissions as string[];
       expect(written).toEqual(expect.arrayContaining(['USER_READ', 'CONFIG_READ']));
     });
+
+    // Application review 2026-10-12, finding 10: the config row, the role's
+    // permission array and the audit row are written on ONE transaction
+    // client. A distinct sentinel proves it — the default mock hands back
+    // `mockPrisma` itself, which would make the global client look the same.
+    it('writes the config row, the permissions and the audit row on the transaction client', async () => {
+      const tx = { role: { updateMany: vi.fn() }, roleConfig: {} };
+      mockPrisma.$transaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+      mockConfigRepo.findRoleConfig.mockResolvedValue(null);
+      mockConfigRepo.upsertRoleConfig.mockResolvedValue({ role: 'QA', sidebarItems: ['users'], homeWidgets: [], permissions: {} });
+      mockPrisma.role.findFirst.mockResolvedValue({ permissions: [] });
+
+      await configService.updateRoleConfig('QA', { sidebarItems: ['users'] }, ctx as any);
+
+      expect(mockConfigRepo.upsertRoleConfig.mock.calls[0][4]).toBe(tx);
+      expect(tx.role.updateMany).toHaveBeenCalled();
+      expect(mockPrisma.role.updateMany).not.toHaveBeenCalled();
+      expect(mockAuditLog.mock.calls[0][1]).toBe(tx);
+    });
   });
 
   describe('getUserConfig', () => {
