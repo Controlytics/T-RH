@@ -180,6 +180,15 @@ describe('room PUT keeps its openings on a shared wall (finding 3)', () => {
     expect(res.json().error).toBe('LINK_OFF_WALL');
   });
 
+  it('an opening ALREADY off its wall (stored before the check) does not lock the room against an unrelated save', async () => {
+    const { p, a, l } = await pair(`Reindex legacy ${s}`);
+    // As the old designer bug left it: the opening names edge 0 (top), which B does not share.
+    await prisma.floorplanRoomLink.update({ where: { id: l.id }, data: { fromEdge: 0 } });
+    const res = await putRoom(p.id, a.id, { code: 'A', label: 'renamed', x: 0.1, y: 0.1, w: 0.2, h: 0.2 });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().label).toBe('renamed');
+  });
+
   it('refuses a linkEdges entry for a link that does not start on this room', async () => {
     const { p, b, l } = await pair(`Reindex wrong ${s}`);
     const res = await putRoom(p.id, b.id, { code: 'B', ...box(0.3, 0.1), linkEdges: [{ id: l.id, fromEdge: 3, offset: 0.3, width: 0.3 }] });

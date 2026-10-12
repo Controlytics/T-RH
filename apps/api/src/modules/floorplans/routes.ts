@@ -634,7 +634,16 @@ export default async function floorplanRoutes(app: FastifyInstance) {
       // transaction; any opening touching this room that no longer sits on a
       // shared stretch of wall refuses the WHOLE change (409 LINK_OFF_WALL) —
       // it used to be stored pointing at the wrong wall, or at no wall.
+      const touchingSelect = { ...linkSelect, fromRoom: { select: { code: true, x: true, y: true, w: true, h: true, points: true } }, toRoom: { select: { code: true, x: true, y: true, w: true, h: true, points: true } } } as const;
       const after = await prisma.$transaction(async (tx) => {
+        // Which openings fit BEFORE this change: only an opening this change
+        // takes off its wall is refused. One already off its wall (stored before
+        // 2026-10-12 by the designer bug this check closes) must not lock the
+        // room against an unrelated save — a label, a limit, a door.
+        const fitBefore = new Set((await tx.floorplanRoomLink.findMany({
+          where: { floorplanId: id, kind: 'OPENING', OR: [{ fromRoomId: roomId }, { toRoomId: roomId }] },
+          select: touchingSelect,
+        })).filter((l) => openingFits(polygonOf(l.fromRoom), polygonOf(l.toRoom), l.fromEdge!, l.offset!, l.width!)).map((l) => l.id));
         const row = await tx.floorplanRoom.update({
           where: { id: roomId },
           data: {
@@ -648,7 +657,7 @@ export default async function floorplanRoutes(app: FastifyInstance) {
 
         const touching = await tx.floorplanRoomLink.findMany({
           where: { floorplanId: id, OR: [{ fromRoomId: roomId }, { toRoomId: roomId }] },
-          select: { ...linkSelect, fromRoom: { select: { code: true, x: true, y: true, w: true, h: true, points: true } }, toRoom: { select: { code: true, x: true, y: true, w: true, h: true, points: true } } },
+          select: touchingSelect,
         });
         for (const e of linkEdges) {
           const l = touching.find((t) => t.id === e.id);
@@ -666,7 +675,9 @@ export default async function floorplanRoutes(app: FastifyInstance) {
           }, tx);
           Object.assign(l, { fromEdge: e.fromEdge, offset: e.offset, width: e.width });
         }
-        const off = touching.filter((l) => l.kind === 'OPENING' && !openingFits(polygonOf(l.fromRoom), polygonOf(l.toRoom), l.fromEdge!, l.offset!, l.width!));
+        const named = new Set(linkEdges.map((e) => e.id));
+        const off = touching.filter((l) => l.kind === 'OPENING' && (fitBefore.has(l.id) || named.has(l.id))
+          && !openingFits(polygonOf(l.fromRoom), polygonOf(l.toRoom), l.fromEdge!, l.offset!, l.width!));
         if (off.length) {
           throw new RouteRefusal(409, {
             error: 'LINK_OFF_WALL',
