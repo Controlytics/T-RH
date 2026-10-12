@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp, ADMIN_PASSWORD } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
+import { Prisma } from '@prisma/client';
 
 /**
  * Instrument profiles — a named container for instruments.
@@ -469,5 +470,121 @@ describe('instrument profile attributeKeys', () => {
       orderBy: { timestamp: 'desc' },
     });
     expect(row!.signatureMeaning).toBe('Instrument profile renamed "IPT Before" → "IPT After"');
+  });
+});
+
+/**
+ * Audit 2026-10-12 (brief finding 3): the profile cascade deletes an attribute
+ * on every instrument of the profile — the same act the per-instrument DELETE
+ * signs with `UPDATE_INSTRUMENT_ATTRIBUTE` re-auth when the role's Attribute
+ * Access asks for it. The cascade checked the access rule but never asked for
+ * the password. The password goes in the BODY here on purpose: the route's own
+ * configurable re-auth strips `_currentPassword` first, so a fix that only
+ * re-reads the body would refuse a caller who did send it.
+ */
+describe('PUT /api/instrument-profiles/:id — cascade re-auth follows Attribute Access', () => {
+  const setAccess = async (value: unknown) => {
+    await prisma.roleConfig.upsert({
+      where: { role: 'SUPER_ADMIN' },
+      create: { role: 'SUPER_ADMIN', attributeAccess: value as never },
+      update: { attributeAccess: value as never },
+    });
+  };
+  afterEach(async () => {
+    await prisma.roleConfig.updateMany({ where: { role: 'SUPER_ADMIN' }, data: { attributeAccess: Prisma.DbNull } });
+  });
+
+  const seed = async (name: string, code: string) => {
+    const p = JSON.parse((await createProfile({ name, attributeKeys: 'Building\nRoom' })).body);
+    const inst = await prisma.instrument.create({ data: { name: code, code, profileId: p.id } });
+    await prisma.instrumentAttribute.create({ data: { instrumentId: inst.id, key: 'Room', value: '101' } });
+    return { p, inst };
+  };
+  const roomOf = async (id: string) =>
+    (await prisma.instrumentAttribute.findUnique({ where: { instrumentId_key: { instrumentId: id, key: 'Room' } } }))?.value;
+
+  it('refuses the cascade without a password when the role requires re-auth, and deletes nothing', async () => {
+    const { p, inst } = await seed('IPT ReauthNo', 'IPT-RA1');
+    await setAccess({ mode: 'ALL_EDIT', keys: [], requireReauth: true });
+    const res = await app.inject({
+      method: 'PUT', url: `/api/instrument-profiles/${p.id}`, headers: auth(),
+      payload: { attributeKeys: 'Building', reason: 'Room moved to the floor plan' },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body).error).toBe('REAUTH_REQUIRED');
+    expect(await roomOf(inst.id)).toBe('101');
+    expect((await prisma.instrumentProfile.findUnique({ where: { id: p.id } }))?.attributeKeys).toBe('Building\nRoom');
+  });
+
+  it('accepts the cascade with the password in the BODY', async () => {
+    const { p, inst } = await seed('IPT ReauthYes', 'IPT-RA2');
+    await setAccess({ mode: 'ALL_EDIT', keys: [], requireReauth: true });
+    const res = await app.inject({
+      method: 'PUT', url: `/api/instrument-profiles/${p.id}`, headers: auth(),
+      payload: { attributeKeys: 'Building', reason: 'Room moved to the floor plan', _currentPassword: ADMIN_PASSWORD },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(await roomOf(inst.id)).toBeUndefined();
+  });
+
+  it('a profile edit that removes no carried key never asks for the attribute password', async () => {
+    const { p } = await seed('IPT ReauthNone', 'IPT-RA3');
+    await setAccess({ mode: 'ALL_EDIT', keys: [], requireReauth: true });
+    const res = await app.inject({
+      method: 'PUT', url: `/api/instrument-profiles/${p.id}`, headers: auth(),
+      payload: { description: 'just a description' },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+});
+
+/**
+ * Audit 2026-10-12 (brief finding 6): profile create / update / delete wrote
+ * their audit row AFTER the change had committed, so a failed audit write left
+ * a §11 change with no record. A temporary trigger on THIS test database makes
+ * the audit insert fail for profiles named "IPT AUDITFAIL…" only; the change
+ * must roll back with it.
+ */
+describe('instrument profile writes are atomic with their audit row', () => {
+  beforeAll(async () => {
+    await prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION zz_test_refuse_profile_audit() RETURNS trigger AS $f$
+      BEGIN
+        IF NEW.action LIKE 'INSTRUMENT_PROFILE_%'
+           AND coalesce(NEW.after_value->>'name', NEW.before_value->>'name') LIKE 'IPT AUDITFAIL%' THEN
+          RAISE EXCEPTION 'test: audit write refused';
+        END IF;
+        RETURN NEW;
+      END $f$ LANGUAGE plpgsql`);
+    await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS zz_test_refuse_profile_audit ON audit_trail`);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER zz_test_refuse_profile_audit BEFORE INSERT ON audit_trail
+      FOR EACH ROW EXECUTE FUNCTION zz_test_refuse_profile_audit()`);
+  });
+  afterAll(async () => {
+    try { await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS zz_test_refuse_profile_audit ON audit_trail`); } catch { /* next line still runs */ }
+    await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS zz_test_refuse_profile_audit()`);
+  });
+
+  it('CREATE: a failed audit write leaves no profile behind', async () => {
+    const res = await createProfile({ name: 'IPT AUDITFAIL create' });
+    expect(res.statusCode).toBe(500);
+    expect(await prisma.instrumentProfile.findFirst({ where: { name: 'IPT AUDITFAIL create' } })).toBeNull();
+  });
+
+  it('UPDATE: a failed audit write leaves the profile unchanged', async () => {
+    const p = await prisma.instrumentProfile.create({ data: { name: 'IPT AuditOk' } });
+    const res = await app.inject({
+      method: 'PUT', url: `/api/instrument-profiles/${p.id}`, headers: auth(), payload: { name: 'IPT AUDITFAIL renamed' },
+    });
+    expect(res.statusCode).toBe(500);
+    expect((await prisma.instrumentProfile.findUnique({ where: { id: p.id } }))?.name).toBe('IPT AuditOk');
+  });
+
+  it('DELETE: a failed audit write leaves the profile in place', async () => {
+    const p = await prisma.instrumentProfile.create({ data: { name: 'IPT AUDITFAIL delete' } });
+    const res = await app.inject({ method: 'DELETE', url: `/api/instrument-profiles/${p.id}`, headers: auth() });
+    expect(res.statusCode).toBe(500);
+    expect(await prisma.instrumentProfile.findUnique({ where: { id: p.id } })).not.toBeNull();
   });
 });

@@ -13,9 +13,14 @@ import { buildContext } from '../../lib/build-context.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { logger } from '../../lib/logger.js';
-import { enforceReauth } from '../../lib/reauth-check.js';
+import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { resolveVisibility, withVisibility, type ScopeWhere } from '../instruments/visibility.js';
-import { loadAttributeAccess, refuseAttributeWrite } from '../instruments/attribute-access.js';
+import { loadAttributeAccess, refuseAttributeWrite, needsReauth } from '../instruments/attribute-access.js';
+
+/** Thrown inside the cascade's transaction to roll it back: a carrier is out of the caller's scope. */
+class OutOfScope extends Error {
+  constructor() { super('OUT_OF_SCOPE'); this.name = 'OutOfScope'; }
+}
 import { publishAttributeDownlink } from '../instruments/attribute-downlink.js';
 import { announceChildAttributeChange } from '../instruments/child-attributes-bundle.js';
 
@@ -324,21 +329,25 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
     try {
       // A profile that has just been created holds nothing, so there is no scope
       // question here — the empty argument keeps one shape for the helper.
-      const row = await prisma.instrumentProfile.create({
-        data: { ...parsed.data, attributeKeys, createdBy: ctx.userId },
-        include: withInstruments(),
-      });
-
-      await auditLog({
-        userId: ctx.userId, userRole: ctx.userRole,
-        action: 'INSTRUMENT_PROFILE_CREATED',
-        targetType: 'instrument_profile', targetId: row.id,
-        afterValue: {
-          name: row.name, description: row.description, isActive: row.isActive,
-          attributeKeys: parseInstrumentAttributeKeys(row.attributeKeys),
-        },
-        signatureMeaning: `Instrument profile "${row.name}" created`,
-        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      // One transaction with its audit row (audit 2026-10-12): written after
+      // the commit, a failed audit write left a profile with no record.
+      const row = await prisma.$transaction(async (tx) => {
+        const created = await tx.instrumentProfile.create({
+          data: { ...parsed.data, attributeKeys, createdBy: ctx.userId },
+          include: withInstruments(),
+        });
+        await auditLog({
+          userId: ctx.userId, userRole: ctx.userRole,
+          action: 'INSTRUMENT_PROFILE_CREATED',
+          targetType: 'instrument_profile', targetId: created.id,
+          afterValue: {
+            name: created.name, description: created.description, isActive: created.isActive,
+            attributeKeys: parseInstrumentAttributeKeys(created.attributeKeys),
+          },
+          signatureMeaning: `Instrument profile "${created.name}" created`,
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, tx as unknown as Prisma.TransactionClient);
+        return created;
       });
 
       return reply.code(201).send(present(row as ProfileRow));
@@ -380,6 +389,13 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
     // attribute on every instrument of the profile, which is the same act the
     // per-instrument attribute delete signs. FIRST, so `_currentPassword` is
     // stripped before the body is parsed.
+    //
+    // The password is read BEFORE that strip, because the cascade below may
+    // need it again for the attribute re-auth (audit 2026-10-12): taken from
+    // the body after `enforceReauth`, it would already be gone and a caller
+    // who DID send it would be refused.
+    const sentPassword = ((req.body as Record<string, unknown> | undefined)?._currentPassword as string | undefined)
+      ?? (req.headers['x-reauth-password'] as string | undefined);
     const { ok } = await enforceReauth('UPDATE_INSTRUMENT_PROFILE', req, reply);
     if (!ok) return;
     const { id } = req.params as { id: string };
@@ -445,20 +461,18 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
           const refusal = refuseAttributeWrite({ access, hasUpdatePermission: true, key: a.key, isNewKey: false, remark: reason as string | undefined });
           if (refusal) return reply.code(refusal.status).send(refusal.body);
         }
-        const folds = new Set(affected.map((a) => fold(a.key)));
-        const carrying = await prisma.instrumentAttribute.findMany({
-          where: { instrument: { profileId: id } },
-          select: { key: true, instrument: { select: { id: true } } },
-        });
-        const carryingIds = new Set(carrying.filter((r) => folds.has(fold(r.key))).map((r) => r.instrument.id));
-        if (carryingIds.size > 0) {
-          const visibleCount = await prisma.instrument.count({ where: withVisibility({ id: { in: [...carryingIds] } }, visibility) as never });
-          if (visibleCount < carryingIds.size) {
-            return reply.code(403).send({
-              error: 'OUT_OF_SCOPE',
-              message: 'Removing this key would delete attributes on instruments outside your instrument scope.',
-            });
-          }
+        // ...and the same PASSWORD the direct delete forces when the role's
+        // Attribute Access asks for one (audit 2026-10-12): the cascade checked
+        // the access rule but never the re-auth, so a role that must sign every
+        // attribute delete could delete one key from a whole profile unsigned.
+        // AFTER the access check, as on the direct delete. Skipped only when
+        // this request already verified the password (the profile's own
+        // re-auth above) — one password, one request.
+        if (needsReauth(access) && !(req as unknown as { _reauthVerified?: boolean })._reauthVerified) {
+          const body = (req.body ?? {}) as Record<string, unknown>;
+          if (sentPassword) body._currentPassword = sentPassword;
+          const { ok: signed } = await enforceReauthAlways('UPDATE_INSTRUMENT_ATTRIBUTE', req, reply);
+          if (!signed) return;
         }
       }
       const deleted: { instrument: { id: string; code: string; gatewayId: string | null }; key: string }[] = [];
@@ -470,12 +484,23 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
         });
         if (affected.length > 0) {
           const folds = new Set(affected.map((a) => fold(a.key)));
-          const rows = await tx.instrumentAttribute.findMany({
+          const rows = (await tx.instrumentAttribute.findMany({
             where: { instrument: { profileId: id } },
             select: { instrumentId: true, key: true, value: true, instrument: { select: { code: true, gatewayId: true } } },
-          });
+          })).filter((r) => folds.has(fold(r.key)));
+          // The caller's instrument SCOPE, checked on exactly the rows this
+          // transaction is about to delete (audit 2026-10-12): checked before
+          // the transaction, an instrument joining the profile in between was
+          // deleted unchecked. A key carried by an instrument the caller cannot
+          // see refuses the whole cascade rather than half-removing it.
+          const carryingIds = [...new Set(rows.map((r) => r.instrumentId))];
+          if (carryingIds.length > 0) {
+            const visibleCount = await tx.instrument.count({ where: withVisibility({ id: { in: carryingIds } }, visibility) as never });
+            if (visibleCount < carryingIds.length) {
+              throw new OutOfScope();
+            }
+          }
           for (const r of rows) {
-            if (!folds.has(fold(r.key))) continue;
             // The same per-attribute advisory lock the instruments module takes.
             await tx.$executeRaw`SELECT pg_advisory_xact_lock(20260807, hashtext(${`${r.instrumentId}:${r.key}`}))`;
             await tx.instrumentAttribute.delete({ where: { instrumentId_key: { instrumentId: r.instrumentId, key: r.key } } });
@@ -492,50 +517,53 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
             deleted.push({ instrument: { id: r.instrumentId, code: r.instrument.code, gatewayId: r.instrument.gatewayId }, key: r.key });
           }
         }
+
+        const row = updated;
+        const keysAfter = parseInstrumentAttributeKeys(row.attributeKeys);
+        // Compared as PARSED lists, so a whitespace-only edit that changes no key
+        // does not claim the keys changed.
+        const keysChanged = keysBefore.join('\n') !== keysAfter.join('\n');
+        const cascadeNote = deleted.length > 0
+          ? `; removed ${affected.map((a) => `"${a.key}"`).join(', ')} from ${new Set(deleted.map((d) => d.instrument.id)).size} instrument(s)`
+          : '';
+
+        // In the SAME transaction as the update (audit 2026-10-12): written
+        // after the commit, a failed audit write left the change unrecorded.
+        await auditLog({
+          userId: ctx.userId, userRole: ctx.userRole,
+          action: 'INSTRUMENT_PROFILE_UPDATED',
+          targetType: 'instrument_profile', targetId: id,
+          beforeValue: {
+            name: before.name, description: before.description, isActive: before.isActive,
+            attributeKeys: keysBefore,
+          },
+          afterValue: {
+            name: row.name, description: row.description, isActive: row.isActive,
+            attributeKeys: keysAfter,
+          },
+          // A rename is called out first: it changes what an inspector reads
+          // against every instrument in the profile, so "updated" alone would
+          // understate it. A key change is named next, with the counts, because it
+          // changes what every future registration is asked. Both fit
+          // audit_trail.signature_meaning's varchar(255): ~50 fixed characters
+          // plus a name capped at 120.
+          // The cascade note is clamped so a long key list cannot overflow
+          // signature_meaning's varchar(255) — `auditLog` does not truncate.
+          signatureMeaning: (() => {
+            const base = before.name !== row.name
+              ? `Instrument profile renamed "${before.name}" → "${row.name}"`
+              : keysChanged
+                ? `Instrument profile "${row.name}" attribute keys changed (${keysBefore.length} → ${keysAfter.length})`
+                : `Instrument profile "${row.name}" updated`;
+            const full = base + cascadeNote;
+            if (full.length <= 250) return full;
+            const short = base + `; removed ${affected.length} key(s) from ${new Set(deleted.map((d) => d.instrument.id)).size} instrument(s)`;
+            return short.length <= 250 ? short : short.slice(0, 249) + '…';
+          })(),
+          ...(deleted.length > 0 && reason ? { reason } : {}),
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, tx as unknown as Prisma.TransactionClient);
         return updated;
-      });
-
-      const keysAfter = parseInstrumentAttributeKeys(row.attributeKeys);
-      // Compared as PARSED lists, so a whitespace-only edit that changes no key
-      // does not claim the keys changed.
-      const keysChanged = keysBefore.join('\n') !== keysAfter.join('\n');
-      const cascadeNote = deleted.length > 0
-        ? `; removed ${affected.map((a) => `"${a.key}"`).join(', ')} from ${new Set(deleted.map((d) => d.instrument.id)).size} instrument(s)`
-        : '';
-
-      await auditLog({
-        userId: ctx.userId, userRole: ctx.userRole,
-        action: 'INSTRUMENT_PROFILE_UPDATED',
-        targetType: 'instrument_profile', targetId: id,
-        beforeValue: {
-          name: before.name, description: before.description, isActive: before.isActive,
-          attributeKeys: keysBefore,
-        },
-        afterValue: {
-          name: row.name, description: row.description, isActive: row.isActive,
-          attributeKeys: keysAfter,
-        },
-        // A rename is called out first: it changes what an inspector reads
-        // against every instrument in the profile, so "updated" alone would
-        // understate it. A key change is named next, with the counts, because it
-        // changes what every future registration is asked. Both fit
-        // audit_trail.signature_meaning's varchar(255): ~50 fixed characters
-        // plus a name capped at 120.
-        // The cascade note is clamped so a long key list cannot overflow
-        // signature_meaning's varchar(255) — `auditLog` does not truncate.
-        signatureMeaning: (() => {
-          const base = before.name !== row.name
-            ? `Instrument profile renamed "${before.name}" → "${row.name}"`
-            : keysChanged
-              ? `Instrument profile "${row.name}" attribute keys changed (${keysBefore.length} → ${keysAfter.length})`
-              : `Instrument profile "${row.name}" updated`;
-          const full = base + cascadeNote;
-          if (full.length <= 250) return full;
-          const short = base + `; removed ${affected.length} key(s) from ${new Set(deleted.map((d) => d.instrument.id)).size} instrument(s)`;
-          return short.length <= 250 ? short : short.slice(0, 249) + '…';
-        })(),
-        ...(deleted.length > 0 && reason ? { reason } : {}),
-        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       });
 
       // Committed. Now, and only now, tell each device — but AFTER this
@@ -554,6 +582,12 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
 
       return present(row as ProfileRow);
     } catch (err) {
+      if (err instanceof OutOfScope) {
+        return reply.code(403).send({
+          error: 'OUT_OF_SCOPE',
+          message: 'Removing this key would delete attributes on instruments outside your instrument scope.',
+        });
+      }
       if (isDuplicateName(err)) {
         return reply.code(409).send({
           error: 'DUPLICATE_NAME',
@@ -607,16 +641,32 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
     }
 
     const ctx = buildContext(req);
-    await prisma.instrumentProfile.delete({ where: { id } });
-
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'INSTRUMENT_PROFILE_DELETED',
-      targetType: 'instrument_profile', targetId: id,
-      beforeValue: { name: row.name, description: row.description, isActive: row.isActive },
-      signatureMeaning: `Instrument profile "${row.name}" deleted`,
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
-    });
+    // One transaction with its audit row (audit 2026-10-12): deleted first and
+    // audited after, a failed audit write left a profile gone with no record.
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.instrumentProfile.delete({ where: { id } });
+        await auditLog({
+          userId: ctx.userId, userRole: ctx.userRole,
+          action: 'INSTRUMENT_PROFILE_DELETED',
+          targetType: 'instrument_profile', targetId: id,
+          beforeValue: { name: row.name, description: row.description, isActive: row.isActive },
+          signatureMeaning: `Instrument profile "${row.name}" deleted`,
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, tx as unknown as Prisma.TransactionClient);
+      });
+    } catch (err) {
+      // An instrument created in the profile after the count above: the
+      // foreign key (ON DELETE RESTRICT) refuses the delete. The same answer
+      // as the pre-check, never a raw 500.
+      if ((err as { code?: string })?.code === 'P2003') {
+        return reply.code(409).send({
+          error: 'PROFILE_NOT_EMPTY',
+          message: `"${row.name}" still contains instruments. Move or delete them before deleting the profile.`,
+        });
+      }
+      throw err;
+    }
 
     return { success: true };
   });
