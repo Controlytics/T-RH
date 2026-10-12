@@ -57,6 +57,57 @@ afterAll(async () => {
   await app.close();
 });
 
+/** A rolled-back audit insert. */
+async function rolledBackInsert() {
+  await prisma.$transaction(async (tx) => {
+    await auditLog({ userId: 'admin', userRole: 'SUPER_ADMIN', action: `${TAG}_ROLLED_BACK`, targetType: 'walk-test', targetId: TAG }, tx);
+    throw new Error('roll back');
+  }).catch((e: Error) => { if (e.message !== 'roll back') throw e; });
+}
+async function positionsFrom(from: number): Promise<Array<{ p: number; checksum: string; previous_checksum: string }>> {
+  const rows = await prisma.$queryRaw<Array<{ chain_position: bigint; checksum: string; previous_checksum: string }>>`
+    SELECT chain_position, checksum, previous_checksum FROM audit_trail WHERE chain_position >= ${from} ORDER BY chain_position`;
+  return rows.map((r) => ({ p: Number(r.chain_position), checksum: r.checksum, previous_checksum: r.previous_checksum }));
+}
+
+/**
+ * Audit 2026-10-12 #5, as decided by the lead (option c): positions come from a
+ * TRANSACTIONAL counter (`audit_chain_counter`, migration
+ * 20261012120000_audit_chain_counter) bumped under the chain's advisory lock,
+ * so a rolled-back audit insert returns its position. Until then
+ * chain_position was a BIGSERIAL, which never gives a value back, so every
+ * rollback (e.g. auth/session-sweep.ts) left a gap verify-chain reported as an
+ * interior deletion. Gaps stay STRICT: a gap now only ever means a deletion.
+ */
+describe('positions are dense: a rollback returns its position', () => {
+  it('a rolled-back audit insert leaves no gap, and verify-chain stays intact', async () => {
+    const from = (await maxPosition()) + 1;
+    await writeRow(`${TAG}_DENSE_A`);
+    await rolledBackInsert();
+    await rolledBackInsert();
+    await writeRow(`${TAG}_DENSE_B`);
+    const rows = await positionsFrom(from);
+    expect(rows.map((r) => r.p)).toEqual([from, from + 1]);
+    const result = await verifyAuditChain({ fromPosition: from });
+    expect(result.anomalies).toEqual([]);
+    expect(result.intact).toBe(true);
+  });
+
+  it('concurrent writers — with rollbacks among them — produce a dense, correctly linked chain', async () => {
+    const from = (await maxPosition()) + 1;
+    const N = 8;
+    await Promise.all(Array.from({ length: N }, (_, i) => (i % 4 === 3
+      ? rolledBackInsert()
+      : auditLog({ userId: 'admin', userRole: 'SUPER_ADMIN', action: `${TAG}_CONC`, targetType: 'walk-test', targetId: String(i) }))));
+    const rows = await positionsFrom(from);
+    const committed = N - N / 4;
+    expect(rows.map((r) => r.p)).toEqual(Array.from({ length: committed }, (_, i) => from + i));
+    for (let i = 1; i < rows.length; i++) expect(rows[i].previous_checksum).toBe(rows[i - 1].checksum);
+    const result = await verifyAuditChain({ fromPosition: from });
+    expect(result.anomalies).toEqual([]);
+  });
+});
+
 describe('chain_position gaps', () => {
   // The case that decides how a gap may be read (2026-10-12): the NEWEST row
   // deleted, then a new row written. The new row links to the last surviving

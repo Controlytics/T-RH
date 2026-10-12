@@ -50,7 +50,12 @@ function assertSafeIdentifier(name: string): void {
 //     connection).
 
 /** Tables that should not be backed up/restored (Prisma internals, etc.) */
-const EXCLUDED_TABLES = new Set(['_prisma_migrations']);
+// `audit_chain_counter` (2026-10-12) is DERIVED state — the next audit_trail
+// chain_position — and is re-derived from the restored trail by
+// resyncSequencesAfterRestore. Exporting it would let a restore install a
+// counter that disagrees with the trail it came with, and an archive taken
+// before it existed would otherwise be refused as BACKUP_INCOMPLETE.
+const EXCLUDED_TABLES = new Set(['_prisma_migrations', 'audit_chain_counter']);
 
 /**
  * List every user table in the public schema at call time.
@@ -772,6 +777,12 @@ async function insertRows(
  *
  * One sequence is not owned-and-reset by anything else:
  *   - audit_trail_chain_position_seq → MAX(chain_position)
+ * and, since 2026-10-12, the counter the audit writer actually allocates
+ * positions from (audit 2026-10-12 #5):
+ *   - audit_chain_counter.last_position → MAX(chain_position)
+ * SET, not GREATEST: restoring an OLDER archive must continue the chain from
+ * the restored head, or the first row written after it would sit after a gap
+ * verify-chain reports as a deletion.
  *
  * The deviation_number_seq and qnn_seq blocks were removed 2026-08-20 with the
  * filter domain: neither `deviations`/`quality_notifications` nor their
@@ -791,6 +802,11 @@ export async function resyncSequencesAfterRestore(tx: any, restoreTables: string
   if (restored.has('audit_trail')) {
     await tx.$executeRawUnsafe(
       `SELECT setval('audit_trail_chain_position_seq', COALESCE((SELECT MAX(chain_position) FROM "audit_trail"), 0) + 1, false)`,
+    );
+    await tx.$executeRawUnsafe(
+      `INSERT INTO "audit_chain_counter" ("id", "last_position")
+         VALUES (1, COALESCE((SELECT MAX(chain_position) FROM "audit_trail"), 0))
+       ON CONFLICT ("id") DO UPDATE SET "last_position" = EXCLUDED."last_position"`,
     );
   }
 }
