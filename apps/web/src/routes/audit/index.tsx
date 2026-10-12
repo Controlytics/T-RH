@@ -173,6 +173,8 @@ export function AuditTrailPage() {
         // A failed §11 redaction must never pass silently — the operator has to
         // know the payload is still there. reauth.cancel() does not route here,
         // so this only ever fires on a real failure.
+        // A cancelled password is not an error: nothing was sent.
+        onCancel: () => {},
         onError: (err: any) => toast.error('Redaction Failed', err?.message ?? 'The audit record was not redacted.'),
       },
     );
@@ -197,6 +199,8 @@ export function AuditTrailPage() {
           mutate();
           setDeleting(false);
         },
+        // A cancelled password is not an error: nothing was sent.
+        onCancel: () => { setDeleting(false); },
         onError: (err: any) => {
           toast.error('Bulk Redaction Failed', err?.message ?? 'No audit records were redacted.');
           setDeleting(false);
@@ -227,6 +231,8 @@ export function AuditTrailPage() {
           });
           mutate();
         },
+        // A cancelled password is not an error: nothing was sent.
+        onCancel: () => {},
         onError: (err: any) => toast.error('Delete Failed', err?.message ?? 'The audit record was not deleted.'),
       },
     );
@@ -251,6 +257,8 @@ export function AuditTrailPage() {
           mutate();
           setHardDeleting(false);
         },
+        // A cancelled password is not an error: nothing was sent.
+        onCancel: () => { setHardDeleting(false); },
         onError: (err: any) => {
           toast.error('Bulk Delete Failed', err?.message ?? 'No audit records were deleted.');
           setHardDeleting(false);

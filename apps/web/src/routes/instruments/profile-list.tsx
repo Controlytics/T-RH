@@ -88,6 +88,8 @@ export function InstrumentProfileListPage() {
       },
       // The backend refuses a populated profile with the COUNT and a next step.
       // Surfacing its message verbatim beats inventing a vaguer one here.
+      // A cancelled password is not an error: nothing was sent.
+      onCancel: () => {},
       onError: (e: unknown) => toast.error('Could not delete profile', (e as Error)?.message ?? 'Unknown error'),
     });
   };

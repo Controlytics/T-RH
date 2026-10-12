@@ -232,6 +232,8 @@ export function ActionReauthPage() {
           setSaveMessage({ type: 'success', text: 'Action re-authentication settings saved successfully.' });
           setSaving(false);
         },
+        // A cancelled password is not an error: nothing was sent.
+        onCancel: () => { setSaving(false); },
         onError: (err: any) => {
           setSaveMessage({ type: 'error', text: err.message ?? 'Failed to save settings.' });
           setSaving(false);

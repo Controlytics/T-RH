@@ -118,6 +118,8 @@ export function EditUserPage() {
       toast.success('User updated', 'The user’s details were updated successfully.');
       navigate('/users');
     }, {
+      // A cancelled password is not an error: nothing was sent.
+      onCancel: () => {},
       onError: (err: any) => {
         const message = err.message || 'Failed to update user';
         setError(message);

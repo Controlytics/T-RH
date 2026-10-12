@@ -85,6 +85,8 @@ export function BrandingConfigPage() {
       reset(formData);
       setShowSuccessPopup(true);
     }, {
+      // A cancelled password is not an error: nothing was sent.
+      onCancel: () => {},
       onError: (err) => {
         const errorMsg = (err as any)?.message || 'Failed to update';
         setError(errorMsg);
