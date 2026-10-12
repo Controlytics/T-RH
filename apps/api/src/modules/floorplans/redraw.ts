@@ -98,7 +98,28 @@ export interface RedrawRoom {
 }
 
 /** Who and why, the same on every row of one redraw. */
-export type RedrawAudit = Pick<AuditEntry, 'userId' | 'userRole' | 'ipAddress' | 'userAgent' | 'sessionId'> & { reason: string };
+export type RedrawAudit = Pick<AuditEntry, 'userId' | 'userRole' | 'ipAddress' | 'userAgent' | 'sessionId'> & { reason?: string | null };
+
+/**
+ * Delete links EXPLICITLY, one FLOORPLAN_LINK_DELETED row each, inside the
+ * caller's transaction. A link dies with either of its rooms (FK cascade)
+ * WITHOUT a row of its own, so every path that deletes a room or a plan —
+ * the routes (room DELETE, plan DELETE, a merge's DELETE of room B) and the
+ * draw scripts — calls this first (audit 2026-10-12 finding 6).
+ */
+export async function deleteLinksAudited(tx: Prisma.TransactionClient, links: RedrawOldLink[], ctx: {
+  planName: string; audit: RedrawAudit; why: string;
+}): Promise<string[]> {
+  for (const l of links) {
+    await tx.floorplanRoomLink.delete({ where: { id: l.id } });
+    await auditLog({
+      ...ctx.audit, action: 'FLOORPLAN_LINK_DELETED', targetType: 'floorplan_room_link', targetId: l.id,
+      beforeValue: { floorplan: ctx.planName, code: linkCode(l), kind: l.kind, fromEdge: l.fromEdge, offset: l.offset, width: l.width, door: l.door, label: l.label },
+      signatureMeaning: `Room link "${linkCode(l)}" deleted — ${ctx.why}`,
+    }, tx);
+  }
+  return links.map(linkCode);
+}
 
 /**
  * Inside the caller's transaction: delete the plan's links (one
@@ -121,14 +142,7 @@ export async function replacePlanRooms(tx: Prisma.TransactionClient, args: {
   const { planId, planName, audit, why, actor } = args;
   assertUniqueRoomCodes(args.rooms.map((r) => r.code), planName);
 
-  for (const l of args.oldLinks) {
-    await tx.floorplanRoomLink.delete({ where: { id: l.id } });
-    await auditLog({
-      ...audit, action: 'FLOORPLAN_LINK_DELETED', targetType: 'floorplan_room_link', targetId: l.id,
-      beforeValue: { floorplan: planName, code: linkCode(l), kind: l.kind, fromEdge: l.fromEdge, offset: l.offset, width: l.width, door: l.door, label: l.label },
-      signatureMeaning: `Room link "${linkCode(l)}" deleted — ${why}`,
-    }, tx);
-  }
+  await deleteLinksAudited(tx, args.oldLinks, { planName, audit, why });
 
   for (const r of args.oldRooms) {
     await tx.instrument.updateMany({ where: { roomId: r.id }, data: { roomId: null } });

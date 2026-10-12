@@ -10,6 +10,7 @@ import { validateRoomPayload, roomGeometry, validateLinkPayload, floorplanSchema
 import { sharedEdges, rectanglePoints, type Point, type Polygon } from '@digilog/shared';
 import { getRoomHistory, HISTORY_WINDOWS, type HistoryWindow } from './room-history.js';
 import { resolveVisibility } from '../instruments/visibility.js';
+import { REDRAW_ROOM_SELECT, REDRAW_LINK_SELECT, carriedLimits, deleteLinksAudited } from './redraw.js';
 
 /**
  * Floorplans, their rooms, and which instruments sit in each.
@@ -390,24 +391,38 @@ export default async function floorplanRoutes(app: FastifyInstance) {
 
     const { id } = req.params as { id: string };
     const ctx = buildContext(req);
-    const before = await prisma.floorplan.findUnique({
-      where: { id },
-      include: { rooms: { select: { id: true, code: true } } },
-    });
-    if (!before) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Floorplan not found.' });
+    const who = { userId: ctx.userId, userRole: ctx.userRole, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId };
 
-    // Rooms cascade. Instruments in them are UNLINKED, never deleted
-    // (Instrument.roomId is ON DELETE SET NULL) — they reappear in the
-    // dashboard's "not placed" tray rather than vanishing with the plan.
-    await prisma.floorplan.delete({ where: { id } });
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'FLOORPLAN_DELETED',
-      targetType: 'floorplan', targetId: id,
-      beforeValue: { name: before.name, rooms: before.rooms.map((r) => r.code) },
-      signatureMeaning: `Floorplan "${before.name}" deleted with ${before.rooms.length} room(s)`,
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    // ONE transaction (audit 2026-10-12 finding 6): the links are deleted
+    // explicitly first, one FLOORPLAN_LINK_DELETED row each — by cascade they
+    // would go unrecorded — then the plan. Rooms cascade with it; instruments
+    // in them are UNLINKED, never deleted (Instrument.roomId is ON DELETE SET
+    // NULL) and reappear in the dashboard's "not placed" tray, so the plan's
+    // row names them and each room's limits (the quality specification lost).
+    const found = await prisma.$transaction(async (tx) => {
+      const before = await tx.floorplan.findUnique({
+        where: { id },
+        select: { name: true, rooms: { select: REDRAW_ROOM_SELECT, orderBy: { code: 'asc' } }, links: { select: REDRAW_LINK_SELECT } },
+      });
+      if (!before) return null;
+      const links = await deleteLinksAudited(tx, before.links, { planName: before.name, audit: who, why: `floorplan "${before.name}" deleted` });
+      await tx.floorplan.delete({ where: { id } });
+      const unplaced = before.rooms.flatMap((r) => r.instruments.map((i) => i.code));
+      await auditLog({
+        ...who,
+        action: 'FLOORPLAN_DELETED',
+        targetType: 'floorplan', targetId: id,
+        beforeValue: {
+          name: before.name,
+          rooms: before.rooms.map((r) => ({ code: r.code, label: r.label, limits: carriedLimits(r), instruments: r.instruments.map((i) => i.code) })),
+          links,
+          instrumentsUnplaced: unplaced,
+        },
+        signatureMeaning: `Floorplan "${before.name}" deleted with ${before.rooms.length} room(s); ${unplaced.length} instrument(s) unplaced`,
+      }, tx);
+      return true;
     });
+    if (!found) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Floorplan not found.' });
     return reply.code(204).send();
   });
 
@@ -606,29 +621,43 @@ export default async function floorplanRoutes(app: FastifyInstance) {
 
     const { id, roomId } = req.params as { id: string; roomId: string };
     const ctx = buildContext(req);
-    const before = await prisma.floorplanRoom.findFirst({
-      where: { id: roomId, floorplanId: id },
-      include: { instruments: { select: { id: true, code: true } } },
+    const who = { userId: ctx.userId, userRole: ctx.userRole, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId };
+
+    // ONE transaction (audit 2026-10-12 finding 6): the room's links — either
+    // end — are deleted explicitly first, one FLOORPLAN_LINK_DELETED row each
+    // (by cascade they would go unrecorded; a Layout Designer MERGE deletes
+    // room B through this route too), then the room, then its row.
+    const found = await prisma.$transaction(async (tx) => {
+      const before = await tx.floorplanRoom.findFirst({
+        where: { id: roomId, floorplanId: id },
+        include: { instruments: { select: { id: true, code: true } }, floorplan: { select: { name: true } } },
+      });
+      if (!before) return false;
+      const links = await tx.floorplanRoomLink.findMany({
+        where: { OR: [{ fromRoomId: roomId }, { toRoomId: roomId }] },
+        select: REDRAW_LINK_SELECT,
+      });
+      const linkCodes = await deleteLinksAudited(tx, links, { planName: before.floorplan.name, audit: who, why: `room "${before.code}" deleted` });
+      await tx.floorplanRoom.delete({ where: { id: roomId } });
+      await auditLog({
+        ...who,
+        action: 'FLOORPLAN_ROOM_DELETED',
+        targetType: 'floorplan_room', targetId: roomId,
+        beforeValue: {
+          code: before.code, label: before.label,
+          limits: { tempMin: before.tempMin, tempMax: before.tempMax, rhMin: before.rhMin, rhMax: before.rhMax },
+          // Named, because deleting the room unplaces every one of them.
+          instruments: before.instruments.map((i) => i.code),
+          links: linkCodes,
+        },
+        signatureMeaning:
+          `Room "${before.code}" deleted; ${before.instruments.length} instrument(s) unplaced`,
+      }, tx);
+      return true;
     });
-    if (!before) {
+    if (!found) {
       return reply.code(404).send({ error: 'NOT_FOUND', message: 'Room not found on this floorplan.' });
     }
-
-    await prisma.floorplanRoom.delete({ where: { id: roomId } });
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'FLOORPLAN_ROOM_DELETED',
-      targetType: 'floorplan_room', targetId: roomId,
-      beforeValue: {
-        code: before.code, label: before.label,
-        limits: { tempMin: before.tempMin, tempMax: before.tempMax, rhMin: before.rhMin, rhMax: before.rhMax },
-        // Named, because deleting the room unplaces every one of them.
-        instruments: before.instruments.map((i) => i.code),
-      },
-      signatureMeaning:
-        `Room "${before.code}" deleted; ${before.instruments.length} instrument(s) unplaced`,
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
-    });
     return reply.code(204).send();
   });
 
