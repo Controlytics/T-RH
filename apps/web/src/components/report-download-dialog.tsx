@@ -7,6 +7,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { SignaturePasswordInput } from '@/components/ui/signature-password-input';
 import { useReportDownloads } from '@/hooks/use-report-downloads';
+import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { isoToZonedInput, zonedInputToIso } from '@/lib/zoned-input';
 
 export interface ReportPeriod { from: string; to: string; label: string }
 export interface ReportDownloadRequest {
@@ -89,6 +91,9 @@ export function ReportDownloadDialog({
   const [error, setError] = useState('');
 
   const { policy: configured, error: policyError } = useReportDownloads();
+  // The period is shown and read in the CONFIGURED timezone, the one the report
+  // prints its period in, not the browser's (audit 2026-10-12, finding 11).
+  const tz = useDatetimeFormat().config?.timezone;
   const policy: ReportKindPolicy | undefined = policyOverride ?? configured?.[kind];
   const requesting = policy?.mode === 'REQUEST';
   const { data: approversData } = useSWR<unknown>(open && requesting ? '/api/config/report-approvers/current' : null);
@@ -170,8 +175,8 @@ export function ReportDownloadDialog({
                     <input
                       id="report-download-from"
                       type="datetime-local"
-                      value={toLocalInput(from)}
-                      onChange={(e) => setFrom(fromLocalInput(e.target.value))}
+                      value={isoToZonedInput(from, tz)}
+                      onChange={(e) => setFrom(zonedInputToIso(e.target.value, tz) ?? '')}
                       className="ctl w-full"
                     />
                   </div>
@@ -180,8 +185,8 @@ export function ReportDownloadDialog({
                     <input
                       id="report-download-to"
                       type="datetime-local"
-                      value={toLocalInput(to)}
-                      onChange={(e) => setTo(fromLocalInput(e.target.value))}
+                      value={isoToZonedInput(to, tz)}
+                      onChange={(e) => setTo(zonedInputToIso(e.target.value, tz) ?? '')}
                       className="ctl w-full"
                     />
                   </div>
@@ -274,17 +279,3 @@ function approverSummary(roles: string[], userCount: number): string {
   return parts.join(', and ');
 }
 
-/** ISO string -> the value a `datetime-local` input needs (local time, no seconds/zone). */
-function toLocalInput(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-/** The reverse of `toLocalInput` — local `datetime-local` value back to ISO. */
-function fromLocalInput(value: string): string {
-  if (!value) return '';
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? value : d.toISOString();
-}
