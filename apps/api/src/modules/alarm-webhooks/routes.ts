@@ -22,7 +22,7 @@ import { maskHeaderValues, restoreMaskedHeaders, maskUrlSecrets, restoreMaskedUr
 const shownUrl = (url: string): string => maskUrlSecrets(url, { secretNamesOnly: true }) ?? url;
 import { expandLocations, targetMatches } from './target-scope.js';
 import { deliverToTarget } from './send.js';
-import { buildWebhookVariables } from './build-variables.js';
+import { buildWebhookVariablesWithLocal } from './build-variables.js';
 import type { FlNode } from '../functional-locations/tree.js';
 import { ALARM_WEBHOOK_DELIVERY_STATUSES, DEFAULT_WEBHOOK_BODY_TEMPLATE } from '@digilog/shared';
 
@@ -649,7 +649,7 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
     // Fires REGARDLESS of scope, isActive and the fire flags —
     // commissioning a hooter must not require first configuring the conditions you
     // are trying to test.
-    const variables = buildWebhookVariables('TEST', {
+    const variables = await buildWebhookVariablesWithLocal('TEST', {
       alarmId: 'TEST',
       instrumentId: 'TEST',
       instrumentCode: 'TEST',

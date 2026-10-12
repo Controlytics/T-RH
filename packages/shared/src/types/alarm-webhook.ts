@@ -30,12 +30,16 @@ const COMMON = [
   'condition',
   'ruleName',
   'timestamp',
+  // The same instant as `timestamp`, printed in the ADMINISTERED timezone and
+  // date/time format (Config → Date/Time) — for a display panel a person reads.
+  // `timestamp` stays ISO-8601 UTC for anything that parses it (2026-10-12).
+  'timestampLocal',
 ] as const;
 
 export const ALARM_WEBHOOK_VARIABLES: Record<AlarmWebhookEvent, readonly string[]> = {
   RAISED: COMMON,
-  CLEARED: [...COMMON, 'raisedAt', 'duration'],
-  ACKNOWLEDGED: [...COMMON, 'raisedAt', 'acknowledgedBy', 'acknowledgeReason'],
+  CLEARED: [...COMMON, 'raisedAt', 'raisedAtLocal', 'duration'],
+  ACKNOWLEDGED: [...COMMON, 'raisedAt', 'raisedAtLocal', 'acknowledgedBy', 'acknowledgeReason'],
   TEST: COMMON,
 };
 
