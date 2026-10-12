@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
 import { useCan } from '@/hooks/use-can';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { zonedInputToIso } from '@/lib/zoned-input';
 import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import { useRoleColors } from '@/hooks/use-role-colors';
 import { apiClient } from '@/lib/api-client';
@@ -37,7 +38,7 @@ export function AuditTrailPage() {
   const reauth = useReauth();
   const { toast } = useToast();
   const exportLimit = useExportLimit();
-  const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
+  const { formatDate, formatTime, formatDateTime, config: datetimeConfig } = useDatetimeFormat();
   const { options: paginationOptions, defaultLimit } = usePaginationDefaults();
   const { labelsFor } = useReportLabels();
   const auditL = labelsFor('audit-trail');
@@ -68,6 +69,13 @@ export function AuditTrailPage() {
   const [search, setSearch] = useState('');
   const [fromDateTime, setFromDateTime] = useState('');
   const [toDateTime, setToDateTime] = useState('');
+  // The From / To boxes hold wall-clock text in the CONFIGURED timezone — the
+  // one every time on this page and in its export is printed in. They were read
+  // with `new Date(text)`, the BROWSER's zone, until 2026-10-12 (audit
+  // 2026-10-12, finding 11). Every use below goes through these two instants.
+  const tz = datetimeConfig?.timezone;
+  const fromIso = zonedInputToIso(fromDateTime, tz);
+  const toIso = zonedInputToIso(toDateTime, tz);
   const [selectedRecord, setSelectedRecord] = useState<any>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -90,13 +98,8 @@ export function AuditTrailPage() {
   const params = new URLSearchParams({ page: String(page), limit: String(perPage), sortBy, sortOrder });
   if (search) params.set('search', search);
 
-  // Use combined datetime values for API — convert local time to UTC ISO string
-  if (fromDateTime) {
-    params.set('startDate', new Date(fromDateTime).toISOString());
-  }
-  if (toDateTime) {
-    params.set('endDate', new Date(toDateTime).toISOString());
-  }
+  if (fromIso) params.set('startDate', fromIso);
+  if (toIso) params.set('endDate', toIso);
 
   const { data, isLoading, mutate } = useSWR(`/api/audit?${params}`);
 
@@ -279,13 +282,13 @@ export function AuditTrailPage() {
 
   // Format datetime for display using global config
   const formatDateTimeDisplay = (datetime: string) => {
-    if (!datetime) return '';
-    return formatDateTime(datetime);
+    const iso = zonedInputToIso(datetime, tz);
+    return iso ? formatDateTime(iso) : '';
   };
 
   const currentPeriod = (): string =>
     fromDateTime || toDateTime
-      ? `${fromDateTime ? formatDateTime(fromDateTime) : 'Start'} to ${toDateTime ? formatDateTime(toDateTime) : 'Now'}`
+      ? `${fromIso ? formatDateTime(fromIso) : 'Start'} to ${toIso ? formatDateTime(toIso) : 'Now'}`
       : 'All Time';
 
   // The export is what an inspector actually receives, so a redacted record must
@@ -312,8 +315,8 @@ export function AuditTrailPage() {
     for (;;) {
       const qs = new URLSearchParams({ page: String(pageN), limit: String(LIMIT), sortBy, sortOrder });
       if (search) qs.set('search', search);
-      if (fromDateTime) qs.set('startDate', new Date(fromDateTime).toISOString());
-      if (toDateTime) qs.set('endDate', new Date(toDateTime).toISOString());
+      if (fromIso) qs.set('startDate', fromIso);
+      if (toIso) qs.set('endDate', toIso);
       const res = await apiClient.get<{ data?: any[]; total?: number }>(`/api/audit?${qs}`);
       const rows = res?.data ?? [];
       all.push(...rows);
@@ -331,8 +334,8 @@ export function AuditTrailPage() {
       reportType: 'Audit Trail', format, recordCount,
       period: currentPeriod(),
       search: search || undefined,
-      startDate: fromDateTime ? new Date(fromDateTime).toISOString() : undefined,
-      endDate: toDateTime ? new Date(toDateTime).toISOString() : undefined,
+      startDate: fromIso,
+      endDate: toIso,
       remarks,
       password,
     });
@@ -381,8 +384,8 @@ export function AuditTrailPage() {
         });
         report.addTable({ head: auditHead, body: mapAuditRows(records), columnStyles: { 0: { cellWidth: 35 }, 5: { cellWidth: 65 } } });
         const snapshot = report.getSnapshot();
-        const period = fromDateTime && toDateTime
-          ? { from: new Date(fromDateTime).toISOString(), to: new Date(toDateTime).toISOString(), label: currentPeriod() }
+        const period = fromIso && toIso
+          ? { from: fromIso, to: toIso, label: currentPeriod() }
           : undefined;
         const outcome = await deliverReport({
           kind: 'audit-trail', req, report, reportType: 'Audit Trail', title: snapshot.title, subtitle: snapshot.subtitle,
@@ -585,8 +588,8 @@ export function AuditTrailPage() {
         // disconnected pair of date pickers.
         showPeriod={false}
         initialPeriod={{
-          from: fromDateTime ? new Date(fromDateTime).toISOString() : '',
-          to: toDateTime ? new Date(toDateTime).toISOString() : '',
+          from: fromIso ?? '',
+          to: toIso ?? '',
           label: currentPeriod(),
         }}
         onCancel={() => setDownloadFormat(null)}
