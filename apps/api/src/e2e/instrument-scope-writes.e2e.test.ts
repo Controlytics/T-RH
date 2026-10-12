@@ -257,6 +257,24 @@ describe('the gateway target of a link is instrument-visibility scoped', () => {
     await prisma.instrument.update({ where: { id: inScopeId }, data: { gatewayId: null } });
   });
 
+  it('an EXISTING out-of-scope link does not block ordinary edits; only a NEW out-of-scope target is refused', async () => {
+    // The plant's shape: ~100 children on one gateway whose location need not
+    // be theirs. Scoping the target must not lock a scoped user out of
+    // renaming / deactivating an in-scope child an admin linked elsewhere.
+    const outGw = await mk(`SCOPE-W-XGW-${s}`, otherBlockId, { isGateway: true });
+    const outGw2 = await mk(`SCOPE-W-XGW2-${s}`, otherBlockId, { isGateway: true });
+    const kid = await mk(`SCOPE-W-XKID-${s}`, blockId, { gatewayId: outGw });
+    const rename = await app.inject({ method: 'PUT', url: `/api/instruments/${kid}`, headers: operator, payload: { name: 'renamed-kid' } });
+    expect(rename.statusCode).toBe(200);
+    // A whole-object form PUT re-sends the unchanged link.
+    const same = await app.inject({ method: 'PUT', url: `/api/instruments/${kid}`, headers: operator, payload: { name: 'renamed-kid-2', gatewayId: outGw } });
+    expect(same.statusCode).toBe(200);
+    const moved = await app.inject({ method: 'PUT', url: `/api/instruments/${kid}`, headers: operator, payload: { gatewayId: outGw2 } });
+    expect(moved.statusCode).toBe(400);
+    expect(moved.json().error).toBe('NOT_FOUND');
+    expect((await prisma.instrument.findUnique({ where: { id: kid } }))?.gatewayId).toBe(outGw);
+  });
+
   it('GATEWAY_HAS_CHILDREN does not list an out-of-scope child\'s code', async () => {
     const gw = await mk(`SCOPE-W-HGW-${s}`, blockId, { isGateway: true });
     await mk(`SCOPE-W-HKIDIN-${s}`, blockId, { gatewayId: gw });

@@ -1772,6 +1772,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         disablingGatewayId: parsed.data.isGateway === false ? id : null,
         selfId: id,
         visibility,
+        linkChanges: (parsed.data.gatewayId ?? null) !== existing.gatewayId,
       });
 
       // Re-read under those locks. This — not `existing` — decides what counts

@@ -75,8 +75,14 @@ export async function gatewayInvariantError(
     return { status: 400, body: { error: 'SELF_GATEWAY', message: 'An instrument cannot be its own gateway.' } };
   }
   if (gatewayId) {
+    // Scoped only when this request CHANGES the link. An existing link to a
+    // gateway outside the caller's scope (an admin's doing — at this plant one
+    // gateway carries ~100 children across locations) must not refuse every
+    // rename or deactivation of the in-scope child, nor a form re-sending the
+    // unchanged value.
+    const changesLink = next.gatewayId !== undefined && next.gatewayId !== (current?.gatewayId ?? null);
     const parent = await prisma.instrument.findFirst({
-      where: withVisibility({ id: gatewayId }, visibility) as Prisma.InstrumentWhereInput,
+      where: withVisibility({ id: gatewayId }, changesLink ? visibility : undefined) as Prisma.InstrumentWhereInput,
       select: { id: true, code: true, isGateway: true },
     });
     if (!parent) return { status: 400, body: { error: 'NOT_FOUND', message: 'The selected gateway does not exist.' } };
@@ -222,6 +228,12 @@ export async function lockedGatewayRecheck(
     linkTo?: string | null; disablingGatewayId?: string | null; selfId?: string | null;
     /** The caller's visibility — see `gatewayInvariantError`. */
     visibility?: ScopeWhere;
+    /**
+     * Whether `linkTo` is a NEW link (default true). False when the request
+     * re-sends the link the instrument already has: an existing out-of-scope
+     * link is not re-judged against the caller's scope.
+     */
+    linkChanges?: boolean;
   },
 ): Promise<void> {
   // Parent (`linkTo`) BEFORE self — see lockInstrumentRows. `disablingGatewayId`
@@ -230,7 +242,7 @@ export async function lockedGatewayRecheck(
 
   if (opts.linkTo) {
     // Out of the caller's scope reads as MISSING here too, under the lock.
-    const inScope = !opts.visibility || (await tx.instrument.count({
+    const inScope = !opts.visibility || opts.linkChanges === false || (await tx.instrument.count({
       where: withVisibility({ id: opts.linkTo }, opts.visibility) as Prisma.InstrumentWhereInput,
     })) > 0;
     const parent = inScope ? locked.get(opts.linkTo) : undefined;
