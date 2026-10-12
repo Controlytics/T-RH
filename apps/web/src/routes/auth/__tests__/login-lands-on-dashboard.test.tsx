@@ -66,7 +66,6 @@ describe("useAuth().login lands on the dashboard whatever the login page's query
     vi.doMock('../../../lib/api-client', () => ({
       apiClient: { post: vi.fn(async () => ({ token: 't', user: { id: 'u1', forcePasswordChange: false } })), get: vi.fn() },
     }));
-    vi.doMock('../../../lib/server-contact', () => ({ clearServerContact: vi.fn() }));
     vi.doUnmock('@/hooks/use-auth');
     const { useAuth } = await import('../../../hooks/use-auth');
     const Trigger = () => { const { login } = useAuth(); useEffect(() => { void login('someone', 'pw'); }, []); return <p>signing in</p>; };

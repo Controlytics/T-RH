@@ -1,5 +1,4 @@
 // NOTE: Prefer importing as `apiClient` using @/ alias across all files
-import { markServerContactFromResponse } from './server-contact';
 import { getApiBase } from './api-base';
 import { safeStorage } from './safe-storage';
 
@@ -33,25 +32,15 @@ class ApiClient {
     return headers;
   }
 
-  /** `fetch` with the shared headers and the server-contact bookkeeping; no body handling. */
+  /** `fetch` with the shared headers; no body handling. */
   private async send(url: string, options: RequestInit): Promise<Response> {
-    const res = await fetch(`${getApiBase()}${url}`, {
+    return fetch(`${getApiBase()}${url}`, {
       ...options,
       headers: {
         ...this.authHeaders(options),
         ...options.headers,
       },
     });
-
-    // The fetch returned — apply the < 500 rule so that Vite dev-proxy
-    // errors (and any reverse-proxy "upstream unreachable" responses) do
-    // NOT spuriously reset the W4 hard-cutoff timer. 2xx/3xx/4xx count as
-    // contact (401 is evidence the server is up, just rejecting auth);
-    // 5xx is treated as no-contact since it's ambiguous between a backend
-    // bug and a proxy error, and the safer 21 CFR Part 11 posture is to
-    // err toward read-only mode on sustained 5xx.
-    markServerContactFromResponse(res);
-    return res;
   }
 
   /**
@@ -151,7 +140,7 @@ class ApiClient {
    * Multipart upload.
    *
    * Goes through `request()` so it picks up the ONE definition of where the
-   * token lives, the server-contact tracking, and the shared error handling.
+   * token lives and the shared error handling.
    * Hand-rolled `fetch` calls for uploads have already gone wrong once here:
    * the profile photo uploader read the token from `localStorage`, a key
    * nothing in the app ever writes, so it sent `Bearer null` and always 401'd.

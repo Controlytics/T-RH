@@ -2,7 +2,6 @@ import { useEffect } from 'react';
 import useSWR from 'swr';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../lib/api-client';
-import { clearServerContact } from '../lib/server-contact';
 import { safeStorage } from '../lib/safe-storage';
 
 interface User {
@@ -114,12 +113,6 @@ export function useAuth() {
     // WEB-10): nothing in this fork ever wrote it — it was the Capacitor APK's
     // key, and the only two references in the tree were its two removals.
     safeStorage.local.remove('digilog_cached_user');
-    // W3: clear the last-server-contact timestamp on logout. Otherwise a
-    // shared workstation could inherit a stale timestamp from the previous
-    // user, making the W4 hard-cutoff blocker disagree with reality on the
-    // next login. The new session starts with no recorded contact and the
-    // first apiClient call (e.g. POST /api/auth/login) reseeds it.
-    clearServerContact();
     // Clean up single-tab localStorage keys
     const myTabId = safeStorage.session.get('digilog_tab_id');
     if (myTabId && safeStorage.local.get('digilog_active_tab_id') === myTabId) {
