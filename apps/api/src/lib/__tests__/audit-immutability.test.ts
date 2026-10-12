@@ -1,6 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { prisma } from '../prisma.js';
 import {
   isHardDeleteEnabled,
+  AUDIT_HARD_DELETE_CONFIG_KEY,
+  PROTECTED_AUDIT_ACTIONS,
   withTriggersDisabled,
   withAuditDeletesAllowed,
   AUDIT_NO_DELETE_TRIGGER,
@@ -19,35 +22,61 @@ function fakeTx(triggers: string[] = [AUDIT_NO_DELETE_TRIGGER]) {
   };
 }
 
+// 2026-10-12 (operator): hard delete is a Configuration TOGGLE, default OFF.
+// The env var is no longer read. These read the real `system_config` row in the
+// test database, so the original row is captured and restored FIRST.
 describe('isHardDeleteEnabled', () => {
-  const original = process.env.AUDIT_HARD_DELETE_ENABLED;
-  beforeEach(() => { delete process.env.AUDIT_HARD_DELETE_ENABLED; });
-  afterEach(() => {
-    if (original === undefined) delete process.env.AUDIT_HARD_DELETE_ENABLED;
-    else process.env.AUDIT_HARD_DELETE_ENABLED = original;
+  let original: { configValue: unknown; configType: string; requiresReauth: boolean } | null = null;
+  const envBefore = process.env.AUDIT_HARD_DELETE_ENABLED;
+  beforeAll(async () => {
+    const row = await prisma.systemConfig.findUnique({ where: { configKey: AUDIT_HARD_DELETE_CONFIG_KEY } });
+    original = row ? { configValue: row.configValue, configType: row.configType, requiresReauth: row.requiresReauth } : null;
+  });
+  afterAll(async () => {
+    if (original) await prisma.systemConfig.upsert({ where: { configKey: AUDIT_HARD_DELETE_CONFIG_KEY }, update: original as never, create: { configKey: AUDIT_HARD_DELETE_CONFIG_KEY, ...original } as never });
+    else await prisma.systemConfig.deleteMany({ where: { configKey: AUDIT_HARD_DELETE_CONFIG_KEY } });
+    if (envBefore === undefined) delete process.env.AUDIT_HARD_DELETE_ENABLED;
+    else process.env.AUDIT_HARD_DELETE_ENABLED = envBefore;
+  });
+  const set = (value: unknown) => prisma.systemConfig.upsert({
+    where: { configKey: AUDIT_HARD_DELETE_CONFIG_KEY },
+    update: { configValue: value as never },
+    create: { configKey: AUDIT_HARD_DELETE_CONFIG_KEY, configValue: value as never, configType: 'security', requiresReauth: false },
   });
 
-  // The default MUST stay enabled: this system has always had the capability
-  // and silently removing it in a patch release would break an operator
-  // workflow without anyone deciding to. Turning it off is a deliberate act.
-  it('defaults to enabled when the variable is unset', () => {
-    expect(isHardDeleteEnabled()).toBe(true);
+  it('is OFF when no row exists', async () => {
+    await prisma.systemConfig.deleteMany({ where: { configKey: AUDIT_HARD_DELETE_CONFIG_KEY } });
+    expect(await isHardDeleteEnabled()).toBe(false);
   });
 
-  it('is disabled only by the exact string "false"', () => {
-    process.env.AUDIT_HARD_DELETE_ENABLED = 'false';
-    expect(isHardDeleteEnabled()).toBe(false);
+  it('is ON only when the toggle is exactly true', async () => {
+    await set({ enabled: true });
+    expect(await isHardDeleteEnabled()).toBe(true);
   });
 
-  // Fail SAFE for the operator's workflow, not closed: a typo must not
-  // silently disable a governed capability they believe they still have.
-  it.each(['true', 'FALSE', '0', '', 'no', 'off'])(
-    'stays enabled for %o',
-    (value) => {
-      process.env.AUDIT_HARD_DELETE_ENABLED = value;
-      expect(isHardDeleteEnabled()).toBe(true);
+  // Fail CLOSED: a half-seeded or hand-edited row must never open the one
+  // route that destroys §11 history.
+  it.each([{ enabled: false }, { enabled: 'true' }, { enabled: 1 }, {}, { enabled: null }])(
+    'is OFF for %o',
+    async (value) => {
+      await set(value);
+      expect(await isHardDeleteEnabled()).toBe(false);
     },
   );
+
+  it('ignores the retired AUDIT_HARD_DELETE_ENABLED variable', async () => {
+    await set({ enabled: false });
+    process.env.AUDIT_HARD_DELETE_ENABLED = 'true';
+    expect(await isHardDeleteEnabled()).toBe(false);
+  });
+});
+
+describe('PROTECTED_AUDIT_ACTIONS', () => {
+  it('names the four meta actions that record a deletion or a redaction', () => {
+    expect([...PROTECTED_AUDIT_ACTIONS].sort()).toEqual([
+      'AUDIT_RECORDS_BULK_DELETED', 'AUDIT_RECORDS_BULK_REDACTED', 'AUDIT_RECORD_DELETED', 'AUDIT_RECORD_REDACTED',
+    ]);
+  });
 });
 
 describe('withTriggersDisabled', () => {
