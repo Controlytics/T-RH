@@ -69,6 +69,11 @@ export const REAUTH_ACTIONS = {
   // differ, and the surviving meta-audit row records single vs bulk intent.
   DELETE_AUDIT_RECORD: { label: 'Delete Audit Record', category: 'Configuration' },
   BULK_DELETE_AUDIT_RECORDS: { label: 'Bulk Delete Audit Records', category: 'Configuration' },
+  // 2026-10-12: the Configuration toggle that switches the two hard-delete
+  // routes on or off (replacing the AUDIT_HARD_DELETE_ENABLED env var). The
+  // dynamic config page derives `UPDATE_<MODULE_KEY>` from the module key, so
+  // this name lets it prompt BEFORE the save rather than after a 401.
+  UPDATE_AUDIT_HARD_DELETE: { label: 'Allow / Disallow Audit Record Deletion', category: 'Configuration' },
   // 2026-05-26 audit fix (PA-REAUTH-4): notification bulk-delete is
   // destructive (irreversible, no recycle bin) and was missing reauth.
   // Single-delete uses the same key — same blast radius per row.

@@ -10,7 +10,7 @@
  *
  * Two code paths still have to suspend it:
  *   1. `POST /api/audit/bulk-delete` and `DELETE /api/audit/:id` — the
- *      governed hard-delete surface (see AUDIT_HARD_DELETE_ENABLED below).
+ *      governed hard-delete surface (see isHardDeleteEnabled below).
  *   2. `modules/backup` restore, which TRUNCATEs and reinserts every table.
  *
  * Before this module, that dance was written out three times (audit/routes.ts
@@ -19,34 +19,55 @@
  * below — has to be remembered in the others.
  */
 
+import { prisma } from './prisma.js';
+
+/** The `system_config` key of the Audit Hard Delete toggle (its def imports this). */
+export const AUDIT_HARD_DELETE_CONFIG_KEY = 'audit-hard-delete';
+
 /**
  * Whether the governed hard-delete endpoints are available.
  *
- * DEFAULT: enabled, which is the behaviour this system has always had. The
- * flag is here so a validated install can turn the capability OFF without a
- * code change, not because the default has been decided for you.
+ * DEFAULT: OFF (operator decision, 2026-10-12). It is the Configuration toggle
+ * "Audit Hard Delete" (`system_config['audit-hard-delete'].enabled`), read
+ * fresh on every request and honoured only when it is exactly `true` — an
+ * absent, half-seeded or hand-edited row means OFF. Until 2026-10-12 it was
+ * the `AUDIT_HARD_DELETE_ENABLED` environment variable, which defaulted to
+ * ENABLED when absent; that variable is no longer read.
  *
- * The endpoints it gates are already permission-gated (`AUDIT_DELETE`),
+ * The endpoints it gates are also permission-gated (`AUDIT_DELETE`),
  * re-authenticated, rate-limited to 5/min, and write a meta-audit record
  * naming the deletion before it happens. They are nonetheless the one place
  * in the product where §11 history can be destroyed rather than redacted, and
  * `POST /api/audit/bulk-redact` covers the legitimate "this record contains
  * data that must not be retained" case without breaking the chain.
- *
- * Set `AUDIT_HARD_DELETE_ENABLED=false` to remove the capability entirely;
- * the routes then answer 403 AUDIT_HARD_DELETE_DISABLED and point at redact.
- * Whether that should become the default is a QA/regulatory decision, not an
- * engineering one — it is called out in docs/audit/2026-08-29 finding H3.
  */
-export function isHardDeleteEnabled(): boolean {
-  return process.env.AUDIT_HARD_DELETE_ENABLED !== 'false';
+export async function isHardDeleteEnabled(): Promise<boolean> {
+  const row = await prisma.systemConfig.findUnique({
+    where: { configKey: AUDIT_HARD_DELETE_CONFIG_KEY },
+    select: { configValue: true },
+  });
+  const value = row?.configValue as { enabled?: unknown } | null | undefined;
+  return value?.enabled === true;
 }
 
 /** Message used wherever the hard-delete surface is refused. */
 export const HARD_DELETE_DISABLED_MESSAGE =
-  'Physical deletion of audit records is disabled on this installation '
-  + '(AUDIT_HARD_DELETE_ENABLED=false). Use POST /api/audit/bulk-redact, which '
-  + 'removes the record content without breaking the tamper-evident hash chain.';
+  'Permanent deletion of audit records is switched off (Configuration → Audit Hard Delete). '
+  + 'Use Redact, which removes the record content without breaking the tamper-evident hash chain.';
+
+/**
+ * The audit actions that RECORD a deletion or a redaction (audit 2026-10-12
+ * #6). They can never be hard-deleted, by anyone, whatever the toggle says:
+ * deleting a row and then its AUDIT_RECORD_DELETED row would erase the only
+ * evidence that the first deletion happened, and a redaction's meta row is
+ * what `verify-chain` checks every redacted row against.
+ */
+export const PROTECTED_AUDIT_ACTIONS: readonly string[] = [
+  'AUDIT_RECORD_DELETED',
+  'AUDIT_RECORDS_BULK_DELETED',
+  'AUDIT_RECORD_REDACTED',
+  'AUDIT_RECORDS_BULK_REDACTED',
+];
 
 /**
  * Run `fn` with the named triggers disabled on `table`, then re-enable them.

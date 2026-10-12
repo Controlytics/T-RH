@@ -135,7 +135,12 @@ describe('backup.service', () => {
       const backup = makeBackup();
       const buf = Buffer.from(JSON.stringify(backup));
       mockComputeChecksum.mockReturnValue('abc123');
-      mockRestoreFromBackup.mockResolvedValue(undefined);
+      // The repository runs `onRestored` with ITS transaction client, after
+      // the trail is replaced (audit 2026-10-12 #2); stand in for that here.
+      const fakeTx = { marker: 'restore-tx' };
+      mockRestoreFromBackup.mockImplementation(async (_b: unknown, o: { onRestored?: (tx: unknown) => Promise<void> }) => {
+        await o.onRestored?.(fakeTx);
+      });
 
       const result = await restore(buf, ctx);
       expect(result.success).toBe(true);
@@ -143,7 +148,9 @@ describe('backup.service', () => {
       expect(mockRestoreFromBackup).toHaveBeenCalled();
       // Sequence realignment now happens inside restoreFromBackup's transaction
       // (resyncSequencesAfterRestore), not as a separate service-level call.
-      expect(mockAuditLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'BACKUP_RESTORED' }));
+      // BACKUP_RESTORED is written ONLY through that transaction's client.
+      expect(mockAuditLog).toHaveBeenCalledTimes(1);
+      expect(mockAuditLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'BACKUP_RESTORED' }), fakeTx);
     });
 
     it('rejects backup with checksum mismatch', async () => {

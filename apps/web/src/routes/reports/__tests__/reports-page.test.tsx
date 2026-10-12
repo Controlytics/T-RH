@@ -25,15 +25,23 @@ const base = {
 // The approvers are the FROZEN set from configuration (2026-10-01): roles and
 // named users. The legacy single assignee columns are null on every row.
 const legacy = { assigneeUserId: null, assigneeRole: null, instrumentIds: ['i1'] };
-const toMe = { ...base, ...legacy, id: 'r-user', status: 'PENDING', approverRoles: [], approverUserIds: ['u-appr'] };
-const toMyRole = { ...base, ...legacy, id: 'r-role', status: 'PENDING', approverRoles: ['QA'], approverUserIds: [], title: 'ALARM REPORT', reportType: 'Alarms' };
-const toSomeoneElse = { ...base, ...legacy, id: 'r-other', status: 'PENDING', approverRoles: ['SUPERVISOR'], approverUserIds: ['u-x'], title: 'Instrument Trend — Temperature', reportType: 'Instrument Trend — Temperature' };
-const approved = { ...base, ...legacy, id: 'r-ok', status: 'APPROVED', approverRoles: ['QA'], approverUserIds: ['u-appr'], decidedBy: 'u-appr', decidedByName: 'qa1', decidedAt: '2026-09-07T15:10:00.000Z', decisionRemarks: 'checked' };
+// Since 2026-10-12 (audit #9) every list row carries the SERVER's `canDecide`
+// for the caller and the approver users by NAME; the page re-derives neither.
+// The fixtures are therefore what the server answers for the approver `qa1`.
+const toMe = { ...base, ...legacy, id: 'r-user', status: 'PENDING', approverRoles: [], approverUserIds: ['u-appr'], approverUserNames: ['qa1'], canDecide: true };
+const toMyRole = { ...base, ...legacy, id: 'r-role', status: 'PENDING', approverRoles: ['QA'], approverUserIds: [], approverUserNames: [], canDecide: true, title: 'ALARM REPORT', reportType: 'Alarms' };
+const toSomeoneElse = { ...base, ...legacy, id: 'r-other', status: 'PENDING', approverRoles: ['SUPERVISOR'], approverUserIds: ['u-x'], approverUserNames: ['other'], canDecide: false, title: 'Instrument Trend — Temperature', reportType: 'Instrument Trend — Temperature' };
+const approved = { ...base, ...legacy, id: 'r-ok', status: 'APPROVED', approverRoles: ['QA'], approverUserIds: ['u-appr'], approverUserNames: ['qa1'], canDecide: false, decidedBy: 'u-appr', decidedByName: 'qa1', decidedAt: '2026-09-07T15:10:00.000Z', decisionRemarks: 'checked' };
 
-const myOwn = { ...base, ...legacy, id: 'r-own', status: 'PENDING', requestedBy: 'u-appr', requestedByName: 'qa1', approverRoles: ['QA'], approverUserIds: [], title: 'MY OWN REQUEST' };
-const superAdminsOwn = { ...base, ...legacy, id: 'r-sa-own', status: 'PENDING', requestedBy: 'u-sa', requestedByName: 'superadmin', approverRoles: ['ADMIN'], approverUserIds: [], title: 'SUPER ADMIN OWN REQUEST' };
+const myOwn = { ...base, ...legacy, id: 'r-own', status: 'PENDING', requestedBy: 'u-appr', requestedByName: 'qa1', approverRoles: ['QA'], approverUserIds: [], approverUserNames: [], canDecide: false, title: 'MY OWN REQUEST' };
+const superAdminsOwn = { ...base, ...legacy, id: 'r-sa-own', status: 'PENDING', requestedBy: 'u-sa', requestedByName: 'superadmin', approverRoles: ['ADMIN'], approverUserIds: [], approverUserNames: [], canDecide: false, title: 'SUPER ADMIN OWN REQUEST' };
+// Assigned to my ROLE, not mine, PENDING — everything the browser used to check
+// says "approve" — but about an instrument outside my scope, so the server says no.
+const outOfScope = { ...base, ...legacy, id: 'r-scope', status: 'PENDING', approverRoles: ['QA'], approverUserIds: [], approverUserNames: [], canDecide: false, instrumentIds: ['i-elsewhere'], title: 'OUT OF MY SCOPE' };
 
-const lists: Record<string, any[]> = { queue: [toMe, toMyRole, toSomeoneElse, myOwn, superAdminsOwn], mine: [], approved: [approved] };
+const QUEUE_FOR_APPROVER = [toMe, toMyRole, toSomeoneElse, myOwn, superAdminsOwn, outOfScope];
+const lists: Record<string, any[]> = { queue: QUEUE_FOR_APPROVER, mine: [], approved: [approved] };
+const swrKeys: string[] = [];
 /** The frozen v2 snapshot the approved row opens beneath itself. */
 const SNAPSHOT = {
   version: 2, reportType: 'Instrument Time Series', title: 'Temperature and RH Data Report', config: {},
@@ -50,13 +58,13 @@ const mutate = vi.fn();
 vi.mock('swr', () => ({
   default: (key: any) => {
     const k = typeof key === 'function' ? key() : key;
+    if (typeof k === 'string') swrKeys.push(k);
     if (typeof k === 'string' && k.startsWith('/api/report-reviews?')) {
       const list = new URLSearchParams(k.split('?')[1]).get('list') ?? 'queue';
       if (listError) return { data: undefined, error: listError, isLoading: false, mutate };
       return { data: { data: lists[list], total: lists[list].length }, isLoading: false, mutate };
     }
     if (typeof k === 'string' && k.includes('/config/pagination')) return { data: { limit: 25, options: [10, 25, 50] }, mutate: vi.fn() };
-    if (typeof k === 'string' && k.startsWith('/api/users?')) return { data: { data: [{ id: 'u-appr', username: 'qa1' }, { id: 'u-x', username: 'other' }] }, mutate: vi.fn() };
     if (k === '/api/report-reviews/r-ok') return { data: APPROVED_FULL, isLoading: false, mutate: vi.fn() };
     if (k === '/api/report-reviews/r-role') return { data: PENDING_FULL, isLoading: false, mutate: vi.fn() };
     return { data: undefined, isLoading: false, mutate: vi.fn() };
@@ -86,7 +94,7 @@ function mount() {
 const rowOf = (title: string) => screen.getByText(title).closest('tr')!;
 
 describe('ReportsPage', () => {
-  beforeEach(() => { me = asApprover; listError = undefined; mutate.mockClear(); decideReview.mockClear(); downloadApproved.mockClear(); });
+  beforeEach(() => { me = asApprover; lists.queue = QUEUE_FOR_APPROVER; listError = undefined; swrKeys.length = 0; mutate.mockClear(); decideReview.mockClear(); downloadApproved.mockClear(); });
 
   it('names the screen once and opens on the approval queue with the three lists as tabs', () => {
     mount();
@@ -118,8 +126,25 @@ describe('ReportsPage', () => {
     expect(within(rowOf('MY OWN REQUEST')).queryByRole('button', { name: 'Approve' })).toBeNull();
   });
 
+  // Audit 2026-10-12 #9: the buttons follow the SERVER's per-row answer. The
+  // browser's own rule (approver role + not mine + the gate) said yes to this
+  // row; the instrument scope says no, and only the server knows the scope.
+  it('follows the server\'s canDecide — no Approve on a row outside my instrument scope', () => {
+    mount();
+    expect(within(rowOf('OUT OF MY SCOPE')).queryByRole('button', { name: 'Approve' })).toBeNull();
+    expect(within(rowOf('OUT OF MY SCOPE')).queryByRole('button', { name: 'Reject' })).toBeNull();
+  });
+
+  it('names the approver users from the rows themselves — it never reads /api/users (USER_READ)', () => {
+    mount();
+    expect(rowOf('Instrument Trend — Temperature')).toHaveTextContent('any SUPERVISOR, other');
+    expect(swrKeys.some((k) => k.startsWith('/api/users'))).toBe(false);
+  });
+
   it('SUPER_ADMIN may approve any pending request, their own included (operator, 2026-09-08)', () => {
     me = asSuperAdmin;
+    // The server's answer for a SUPER_ADMIN: every pending row is theirs to decide.
+    lists.queue = QUEUE_FOR_APPROVER.map((r) => ({ ...r, canDecide: true }));
     mount();
     expect(within(rowOf('SUPER ADMIN OWN REQUEST')).getByRole('button', { name: 'Approve' })).toBeInTheDocument();
     expect(within(rowOf('SUPER ADMIN OWN REQUEST')).getByRole('button', { name: 'Reject' })).toBeInTheDocument();

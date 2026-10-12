@@ -14,7 +14,11 @@ import {
   withAuditDeletesAllowed,
   isHardDeleteEnabled,
   HARD_DELETE_DISABLED_MESSAGE,
+  PROTECTED_AUDIT_ACTIONS,
 } from '../../lib/audit-immutability.js';
+
+const PROTECTED_RECORD_MESSAGE =
+  'This record documents a deletion or a redaction of the audit trail and can never be deleted.';
 
 /**
  * Path-param guard for audit record ids.
@@ -633,7 +637,7 @@ export default async function auditRoutes(app: FastifyInstance) {
     // Checked BEFORE reauth: an installation that has switched this capability
     // off should not prompt an operator for their password to perform an
     // action that is going to be refused anyway.
-    if (!isHardDeleteEnabled()) {
+    if (!(await isHardDeleteEnabled())) {
       return reply.code(403).send({
         error: 'AUDIT_HARD_DELETE_DISABLED',
         message: HARD_DELETE_DISABLED_MESSAGE,
@@ -658,6 +662,13 @@ export default async function auditRoutes(app: FastifyInstance) {
       },
     });
     if (!record) return reply.code(404).send({ error: 'Audit record not found' });
+    // The record of a deletion or a redaction is never deletable (audit
+    // 2026-10-12 #6) — for everyone, whatever the toggle says. Without this an
+    // AUDIT_DELETE holder could delete a row and then the AUDIT_RECORD_DELETED
+    // row naming it, leaving no trace that the first deletion happened.
+    if (PROTECTED_AUDIT_ACTIONS.includes(record.action)) {
+      return reply.code(409).send({ error: 'PROTECTED_AUDIT_RECORD', message: PROTECTED_RECORD_MESSAGE });
+    }
 
     await prisma.$transaction(async (tx) => {
       // Meta-audit FIRST (same tx) so the deletion is recorded even though the
@@ -675,7 +686,10 @@ export default async function auditRoutes(app: FastifyInstance) {
       // for the scope of this tx only — see lib/audit-immutability.ts for the
       // locking rationale and why the re-enable lives in a `finally`.
       await withAuditDeletesAllowed(tx, async () => {
-        await tx.auditTrail.delete({ where: { id } });
+        // The protected-action predicate is repeated in the DELETE itself, so
+        // the guard holds even if the row read above were ever stale.
+        const del = await tx.auditTrail.deleteMany({ where: { id, action: { notIn: [...PROTECTED_AUDIT_ACTIONS] } } });
+        if (del.count !== 1) throw new AppError(409, 'PROTECTED_AUDIT_RECORD', PROTECTED_RECORD_MESSAGE);
       });
     });
 
@@ -705,7 +719,7 @@ export default async function auditRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     // See the single-delete route: refused before reauth, not after.
-    if (!isHardDeleteEnabled()) {
+    if (!(await isHardDeleteEnabled())) {
       return reply.code(403).send({
         error: 'AUDIT_HARD_DELETE_DISABLED',
         message: HARD_DELETE_DISABLED_MESSAGE,
@@ -726,6 +740,16 @@ export default async function auditRoutes(app: FastifyInstance) {
       },
     });
     if (records.length === 0) return reply.code(404).send({ error: 'NO_MATCHING_RECORDS', message: 'No matching audit records' });
+    // Refuse the WHOLE request when it names a record of a deletion or a
+    // redaction (audit 2026-10-12 #6) — silently skipping it would report a
+    // deletion the operator did not get.
+    const protectedIds = records.filter((r) => PROTECTED_AUDIT_ACTIONS.includes(r.action)).map((r) => r.id);
+    if (protectedIds.length > 0) {
+      return reply.code(409).send({
+        error: 'PROTECTED_AUDIT_RECORD',
+        message: `${protectedIds.length} of the selected records document a deletion or a redaction of the audit trail and can never be deleted: ${protectedIds.join(', ')}. Nothing was deleted.`,
+      });
+    }
     const matchedIds = records.map((r) => r.id);
 
     const result = await prisma.$transaction(async (tx) => {
@@ -745,7 +769,10 @@ export default async function auditRoutes(app: FastifyInstance) {
       }, tx);
       // Suspend the immutability trigger for this tx (see single-delete above).
       return await withAuditDeletesAllowed(tx, async () => {
-        const del = await tx.auditTrail.deleteMany({ where: { id: { in: matchedIds } } });
+        // Protected actions excluded in the DELETE too (backstop for the check
+        // above); a count short of the meta row's list rolls everything back.
+        const del = await tx.auditTrail.deleteMany({ where: { id: { in: matchedIds }, action: { notIn: [...PROTECTED_AUDIT_ACTIONS] } } });
+        if (del.count !== matchedIds.length) throw new AppError(409, 'PROTECTED_AUDIT_RECORD', PROTECTED_RECORD_MESSAGE);
         return del.count;
       });
     });

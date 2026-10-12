@@ -56,6 +56,10 @@ export const telemetryRetentionDef: ModuleConfigDefinition = {
   permissions: { read: 'CONFIG_READ', write: 'CONFIG_UPDATE' },
   requiredRole: 'SUPER_ADMIN',
   requiresReauth: false,
+  // Re-auth on save is governed by the UPDATE_CONFIG_PAGE entry under Action
+  // Re-authentication (audit 2026-10-12 #7): this SUPER_ADMIN def had no
+  // action at all, so no policy could ever ask for the password here.
+  reauthAction: 'UPDATE_CONFIG_PAGE',
   hasCustomPage: false,
   settings: [
     {

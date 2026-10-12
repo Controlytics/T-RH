@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // Audit 2026-05-04 fix C3: rewrote auditLog() to use a Postgres advisory
 // lock + raw SQL inside $transaction so the row chains to its predecessor.
-// Mocks reflect the new shape — tx.$queryRaw (lock + prior-row read) and
-// tx.$executeRaw (insert).
+// Mocks reflect the new shape — tx.$queryRaw (prior-row read, and since
+// 2026-10-12 the chain_position allocation from audit_chain_counter) and
+// tx.$executeRaw (lock + insert).
 
 const { mockTxQueryRaw, mockTxExecuteRaw, mockTransaction, mockComputeChainedChecksum, mockComputeChecksum } = vi.hoisted(() => {
   return {
@@ -35,12 +36,20 @@ vi.mock('./hash-chain.js', () => ({
 
 import { auditLog } from './audit.js';
 
+/** The prior chain row the next read returns, and the position the counter hands out. */
+let priorRows: Array<{ checksum: string }> = [];
+let counterRows: Array<{ position: bigint }> = [{ position: 42n }];
+const sqlOf = (args: unknown[]) => (Array.isArray(args[0]) ? (args[0] as string[]).join('?') : String(args[0]));
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockComputeChainedChecksum.mockReturnValue('sha256-chained');
   mockComputeChecksum.mockReturnValue('sha256-perrow');
   // Default: no prior chain row → previousChecksum stays null.
-  mockTxQueryRaw.mockResolvedValue([]);
+  priorRows = [];
+  counterRows = [{ position: 42n }];
+  mockTxQueryRaw.mockImplementation(async (...args: unknown[]) =>
+    (sqlOf(args).includes('audit_chain_counter') ? counterRows : priorRows));
   mockTxExecuteRaw.mockResolvedValue(1);
   // Wire $transaction(callback) → callback({ $queryRaw, $executeRaw })
   mockTransaction.mockImplementation(async (cb: (tx: any) => Promise<any>) =>
@@ -49,7 +58,7 @@ beforeEach(() => {
 
 describe('auditLog — C3 chain', () => {
   it('writes a genesis row when audit_trail is empty (previousChecksum=null)', async () => {
-    mockTxQueryRaw.mockResolvedValueOnce([]); // prior chain row read returns nothing
+    priorRows = []; // prior chain row read returns nothing
     await auditLog({
       userId: 'admin',
       userRole: 'ADMIN',
@@ -61,9 +70,10 @@ describe('auditLog — C3 chain', () => {
     });
 
     expect(mockTransaction).toHaveBeenCalledTimes(1);
-    // executeRaw is called twice (lock + insert); queryRaw once (select prior).
+    // executeRaw is called twice (lock + insert); queryRaw twice (select
+    // prior, allocate the position from the counter).
     expect(mockTxExecuteRaw).toHaveBeenCalledTimes(2);
-    expect(mockTxQueryRaw).toHaveBeenCalledTimes(1);
+    expect(mockTxQueryRaw).toHaveBeenCalledTimes(2);
     expect(mockComputeChainedChecksum).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'admin',
@@ -76,7 +86,7 @@ describe('auditLog — C3 chain', () => {
   });
 
   it('chains to the prior checksum when one exists', async () => {
-    mockTxQueryRaw.mockResolvedValueOnce([{ checksum: 'prior-sha-abc' }]);
+    priorRows = [{ checksum: 'prior-sha-abc' }];
     await auditLog({
       userId: 'test-user',
       action: 'LOGOUT',
@@ -124,7 +134,26 @@ describe('auditLog — C3 chain', () => {
     // The 2nd executeRaw call is the INSERT — its values array should
     // contain the signatureMeaning string.
     const insertCall = mockTxExecuteRaw.mock.calls[1];
-    const valuesContain = JSON.stringify(insertCall).includes('User changed password');
+    const valuesContain = JSON.stringify(insertCall, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)).includes('User changed password');
     expect(valuesContain).toBe(true);
+  });
+
+  // Audit 2026-10-12 #5: the position is allocated from the transactional
+  // counter, under the lock, and written explicitly — never the BIGSERIAL
+  // default, which a rollback cannot return.
+  it('writes the position the counter allocated, after taking the lock', async () => {
+    counterRows = [{ position: 7001n }];
+    await auditLog({ userId: 'test-user', action: 'TEST' });
+    const order = [...mockTxExecuteRaw.mock.invocationCallOrder, ...mockTxQueryRaw.mock.invocationCallOrder].sort((a, b) => a - b);
+    expect(mockTxExecuteRaw.mock.invocationCallOrder[0]).toBe(order[0]); // the lock first
+    const insert = mockTxExecuteRaw.mock.calls[1];
+    expect(sqlOf(insert)).toContain('chain_position');
+    expect(insert.slice(1)).toContain(7001n);
+  });
+
+  it('refuses to write when the counter row is missing — never falls back to the sequence', async () => {
+    counterRows = [];
+    await expect(auditLog({ userId: 'test-user', action: 'TEST' })).rejects.toThrow(/audit_chain_counter/);
+    expect(mockTxExecuteRaw).toHaveBeenCalledTimes(1); // the lock only, no insert
   });
 });
