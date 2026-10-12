@@ -3,6 +3,7 @@ import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { zonedInputToIso } from '@/lib/zoned-input';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -30,7 +31,7 @@ import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@
 
 export function DebugTracesPage() {
   const { toast } = useToast();
-  const { formatDateTime } = useDatetimeFormat();
+  const { formatDateTime, config: datetimeConfig } = useDatetimeFormat();
 
   // Filters
   const [page, setPage] = useState(1);
@@ -86,8 +87,12 @@ export function DebugTracesPage() {
   if (transportFilter) params.set('transport', transportFilter);
   if (debouncedErrorCode) params.set('errorCode', debouncedErrorCode);
   if (debouncedEntitySearch) params.set('entityId', debouncedEntitySearch);
-  if (fromDate) params.set('from', new Date(fromDate).toISOString());
-  if (toDate) params.set('to', new Date(toDate).toISOString());
+  // Typed in the CONFIGURED timezone, the one the trace times print in — not
+  // the browser's (audit 2026-10-12, finding 11).
+  const fromIso = zonedInputToIso(fromDate, datetimeConfig?.timezone);
+  const toIso = zonedInputToIso(toDate, datetimeConfig?.timezone);
+  if (fromIso) params.set('from', fromIso);
+  if (toIso) params.set('to', toIso);
 
   const { data, isLoading, mutate } = useSWR<PaginatedTracesResponse>(
     `/api/debug/traces?${params}`,
