@@ -6,8 +6,8 @@ import { configService } from '../config.service.js';
 import { enforceReauth } from '../../../lib/reauth-check.js';
 
 // Action Re-authentication Configuration routes.
-// Extracted from the main config/routes.ts monolith — see TODO in that file
-// for the full extraction plan.
+// Extracted from the main config/routes.ts monolith, which is now only the
+// registration loop.
 export async function actionReauthRoutes(app: FastifyInstance) {
   // GET full config (SUPER_ADMIN via CONFIG_READ)
   app.get('/action-reauth', {

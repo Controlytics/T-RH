@@ -101,3 +101,5 @@ apps/web/*.pdf
 # Pruned 2026-10-05 (audit DOCS-18): rules for mosquitto/, RFID/, *.apk, *.aab,
 # *.jks, *.keystore and nssm-path.txt — none of those paths or build chains
 # exist in this fork (`ls -d mosquitto RFID` -> neither).
+apps/*/dist.new/
+apps/*/dist.prev/

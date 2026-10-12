@@ -11,7 +11,8 @@ REM  rebuild, migrate and restart (scripts/aws/deploy-on-ubuntu.sh). So:
 REM      1. git push          (from your machine)
 REM      2. deploy-to-aws.bat (this file)
 REM
-REM  Requires: aws login (credentials expire every few hours).
+REM  Requires: AWS CLI credentials - on the operator laptop the IAM user
+REM  cli-laptop's access key in %USERPROFILE%\.aws\credentials (it does not expire).
 REM ===========================================================================
 
 setlocal
@@ -64,10 +65,10 @@ echo   Checking AWS credentials...
 "%AWS%" sts get-caller-identity --query Account --output text >nul 2>&1
 if errorlevel 1 (
     echo.
-    echo   NOT SIGNED IN ^(or the session expired^).
-    echo   Run this first, then re-run deploy:
-    echo.
-    echo       "%AWS%" login
+    echo   AWS CREDENTIALS REFUSED.
+    echo   This laptop uses the IAM user cli-laptop's access key ^(%USERPROFILE%\.aws\credentials^).
+    echo   Check it with:  "%AWS%" sts get-caller-identity
+    echo   If the key was rotated or deleted, set the new one with:  "%AWS%" configure
     echo.
     pause & exit /b 1
 )

@@ -121,7 +121,22 @@ if [ "$lock_changed" = 0 ] || [ "$SKIP_INSTALL" = 1 ]; then
   fi
 fi
 
-# ---------------------------------------------------------------- 3. migrations
+# ---------------------------------------------------------------- 3. build
+# Build BEFORE migrating, into side directories (2026-10-12 review). The old
+# order migrated first and then built in place: a failed tsc left the old API
+# running against the NEW schema, serving the NEW web bundle - not the clean
+# "previous version is still running" the failure message promised. Now a
+# build failure stops the deploy before the database or the served files move.
+Step "Building"
+npm run build -w @digilog/shared >/dev/null || Die "@digilog/shared build failed."; Ok "shared"
+npm run build -w @digilog/queue  >/dev/null || Die "@digilog/queue build failed.";  Ok "queue"
+rm -rf apps/web/dist.new apps/api/dist.new
+(cd apps/web && npx vite build --outDir dist.new --emptyOutDir 2>&1 | tail -n 2) || true
+[ -f apps/web/dist.new/index.html ] || Die "web build produced no index.html."; Ok "web SPA"
+npx tsc -p apps/api/tsconfig.json --outDir apps/api/dist.new || Die "API TypeScript compile failed."
+[ -f apps/api/dist.new/app.js ] || Die "API build produced no app.js."; Ok "API"
+
+# ---------------------------------------------------------------- 4. migrations
 Step "Database migrations"
 load_env "$ENV_FILE"
 export DOTENV_CONFIG_PATH="$ENV_FILE"
@@ -129,19 +144,18 @@ export DOTENV_CONFIG_PATH="$ENV_FILE"
 (cd apps/api && npx prisma migrate status >/dev/null 2>&1) || Die "prisma migrate deploy left pending or failed migrations. Service NOT restarted."
 Ok "schema up to date"
 
-# ---------------------------------------------------------------- 4. build
-Step "Building"
-npm run build -w @digilog/shared >/dev/null || Die "@digilog/shared build failed."; Ok "shared"
-npm run build -w @digilog/queue  >/dev/null || Die "@digilog/queue build failed.";  Ok "queue"
-(cd apps/web && npx vite build 2>&1 | tail -n 2) || true
-[ -f apps/web/dist/index.html ] || Die "web build produced no dist/index.html."; Ok "web SPA"
-npx tsc -p apps/api/tsconfig.json || Die "API TypeScript compile failed."
-[ -f apps/api/dist/app.js ] || Die "API build produced no dist/app.js."; Ok "API"
+# Swap the new builds in. The previous ones are kept as dist.prev for a manual
+# rollback of the CODE (a migration cannot be rolled back automatically).
+for d in apps/web apps/api; do
+  rm -rf "$d/dist.prev"
+  if [ -d "$d/dist" ]; then mv "$d/dist" "$d/dist.prev"; fi
+  mv "$d/dist.new" "$d/dist" || Die "could not move $d/dist.new into place."
+done
 # tsc writes dist/ as 750/640 under root, and the service user cannot read it:
 # Node then reports "Cannot find module .../dist/app.js" (the 2026-09-18 cutover
 # failure). Readable-by-all is correct here: the tree holds no secret.
 chmod -R a+rX "$APP"
-Ok "readable by the digilog user"
+Ok "new build in place, readable by the digilog user"
 
 # ---------------------------------------------------------------- 5. restart
 Step "Restarting $SERVICE"

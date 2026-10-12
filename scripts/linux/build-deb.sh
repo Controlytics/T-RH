@@ -68,6 +68,10 @@ mkdir -p "$STAGE" "$CLEAN" "$DL"
 # ── 1. Build the application ────────────────────────────────────────────────
 cd "$REPO"
 if [ "$SKIP_NPM_CI" = 0 ]; then step "npm ci (workspace)"; npm ci --no-audit --no-fund; fi
+# The workspace's Prisma client must be generated before tsc: no package has a
+# postinstall hook, so after `npm ci` the client is the empty stub and every
+# Prisma type is missing. Every build-deb run failed here until 2026-10-12.
+step "Generate Prisma client (workspace)"; ( cd apps/api && npx prisma generate )
 step "Build @digilog/shared + @digilog/queue"; npm run build -w @digilog/shared; npm run build -w @digilog/queue
 step "Compile backend (tsc)"; npx tsc -p apps/api/tsconfig.json
 step "Precompile DB seed (esbuild -> prisma/seed.mjs)"
