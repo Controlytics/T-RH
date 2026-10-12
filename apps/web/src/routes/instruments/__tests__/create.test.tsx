@@ -47,8 +47,13 @@ vi.mock('swr', () => ({
 }));
 
 const post = vi.fn();
+const postWithReauth = vi.fn();
 vi.mock('@/lib/api-client', () => ({
-  apiClient: { post: (...a: unknown[]) => post(...a), get: vi.fn(), put: vi.fn(), delete: vi.fn() },
+  apiClient: {
+    post: (...a: unknown[]) => post(...a),
+    postWithReauth: (...a: unknown[]) => postWithReauth(...a),
+    get: vi.fn(), put: vi.fn(), delete: vi.fn(),
+  },
 }));
 
 const errorToast = vi.fn();
@@ -59,6 +64,14 @@ vi.mock('@/hooks/use-toast', () => ({
  *  otherwise, as the Attributes panel test does: the callback runs with no
  *  password — the path for a role whose policy is off. */
 const reauthActions: string[] = [];
+/**
+ * How the operator answers the password dialog. `none` = no dialog (policy
+ * off); `password` = the policy pre-opened it and a password arrived; on a
+ * `REAUTH_REQUIRED` thrown out of the callback the REAL hook opens the dialog
+ * retroactively and REPLAYS the callback with the password — modelled here as
+ * `retry` (operator confirms) or `cancel` (operator cancels).
+ */
+const dialog = { current: 'none' as 'none' | 'password' | 'cancel' };
 vi.mock('@/hooks/use-reauth', () => ({
   useReauth: () => ({
     execute: async (
@@ -67,7 +80,14 @@ vi.mock('@/hooks/use-reauth', () => ({
       opts?: { onSuccess?: () => void; onError?: (e: unknown) => void; onCancel?: () => void },
     ) => {
       reauthActions.push(action);
-      try { await cb(); await opts?.onSuccess?.(); } catch (e) { opts?.onError?.(e); }
+      try {
+        await cb(dialog.current === 'password' ? 'pw' : undefined);
+        await opts?.onSuccess?.();
+      } catch (e) {
+        if ((e as { error?: string })?.error !== 'REAUTH_REQUIRED') { opts?.onError?.(e); return; }
+        if (dialog.current === 'cancel') { opts?.onCancel?.(); return; }
+        try { await cb('pw'); await opts?.onSuccess?.(); } catch (e2) { opts?.onError?.(e2); }
+      }
     },
     isOpen: false, password: '', error: '', isVerifying: false,
     setPassword: vi.fn(), confirm: vi.fn(), cancel: vi.fn(), needsReauth: () => false,
@@ -85,7 +105,9 @@ beforeEach(() => {
   PROFILE_FETCH.error = false;
   LABELS.current = {};
   post.mockReset().mockResolvedValue(created);
+  postWithReauth.mockReset().mockResolvedValue(created);
   errorToast.mockReset();
+  dialog.current = 'none';
 });
 
 /**
@@ -327,5 +349,59 @@ describe('InstrumentCreatePage — switching profile', () => {
     choose('p-2');
     expect(confirmSpy).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
+  });
+});
+
+/**
+ * Audit 2026-10-12, finding 3. The attribute writes went out as bare posts even
+ * inside the re-auth callback that HAD the password, and a `REAUTH_REQUIRED`
+ * from them (the role's Attribute Access asks for one; CREATE_INSTRUMENT
+ * ships OFF, so no password was collected up front) was swallowed as an
+ * ordinary failure: the attribute was reported unsaved and never retried.
+ */
+describe('InstrumentCreatePage — the attribute writes are signed too', () => {
+  const REAUTH = { error: 'REAUTH_REQUIRED', message: 'Password required' };
+
+  it('sends the collected password with every attribute write', async () => {
+    dialog.current = 'password';
+    renderPage();
+    fillId('P-6');
+    fireEvent.change(screen.getByRole('textbox', { name: /^room$/i }), { target: { value: 'B-204' } });
+    submit();
+    await waitFor(() => expect(postWithReauth).toHaveBeenCalledWith(
+      '/api/instruments/i-1/attributes', { key: 'Room', value: 'B-204' }, 'pw',
+    ));
+    expect(post).not.toHaveBeenCalledWith('/api/instruments/i-1/attributes', expect.anything());
+  });
+
+  it('asks for the password when an attribute write demands one, and registers ONCE', async () => {
+    post.mockImplementation((url: string) =>
+      url.endsWith('/attributes') ? Promise.reject(REAUTH) : Promise.resolve(created));
+    renderPage();
+    fillId('P-7');
+    fireEvent.change(screen.getByRole('textbox', { name: /^room$/i }), { target: { value: 'B-204' } });
+    submit();
+    await waitFor(() => expect(postWithReauth).toHaveBeenCalledWith(
+      '/api/instruments/i-1/attributes', { key: 'Room', value: 'B-204' }, 'pw',
+    ));
+    // The replay must not register the instrument a second time.
+    expect(post.mock.calls.filter(([url]) => url === '/api/instruments')).toHaveLength(1);
+    expect(postWithReauth).not.toHaveBeenCalledWith('/api/instruments', expect.anything(), expect.anything());
+    expect(errorToast).not.toHaveBeenCalled();
+    expect(await screen.findByText(/PROBE-A1/)).toBeInTheDocument();
+  });
+
+  it('still shows the registered instrument and its token when that password is cancelled', async () => {
+    dialog.current = 'cancel';
+    post.mockImplementation((url: string) =>
+      url.endsWith('/attributes') ? Promise.reject(REAUTH) : Promise.resolve(created));
+    renderPage();
+    fillId('P-8');
+    fireEvent.change(screen.getByRole('textbox', { name: /^room$/i }), { target: { value: 'B-204' } });
+    submit();
+    // The instrument EXISTS: leaving the operator on the form invites a second
+    // registration, and loses the only moment the token is shown.
+    expect(await screen.findByText(/PROBE-A1/)).toBeInTheDocument();
+    expect(errorToast).toHaveBeenCalledWith(expect.stringMatching(/created/i), expect.stringMatching(/Room/));
   });
 });

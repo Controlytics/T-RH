@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -56,6 +56,8 @@ const longHistory = [
 const requested: string[] = [];
 /** When set, the history endpoint reports this whole-period total instead of the page's row count. */
 let historyTotalOverride: number | null = null;
+/** The administered date/time settings; `{}` = the browser's zone (no timezone set). */
+let datetimeConfig: Record<string, string> = {};
 
 function dataFor(key: string | null): any {
   if (!key) return undefined;
@@ -75,6 +77,7 @@ function dataFor(key: string | null): any {
     return { data: scope === 'a2' ? [] : instruments, total: scope === 'a2' ? 0 : 2 };
   }
   if (key.includes('action-reauth/my-actions')) return { actions: [] };
+  if (key === '/api/config/datetime/current') return datetimeConfig;
   return {};
 }
 
@@ -252,5 +255,27 @@ describe('InstrumentHistoryWidget', () => {
     fireEvent.change(screen.getByLabelText('Area'), { target: { value: 'a2' } });
     expect(screen.getByText('No instruments in this scope.')).toBeInTheDocument();
     expect(screen.getByText('Select at least one instrument.')).toBeInTheDocument();
+  });
+});
+
+/**
+ * Audit 2026-10-12, finding 11. The From / To pickers read and showed the
+ * BROWSER's zone; every time printed beside them is in the configured one.
+ * New York, because this host is IST and the default would hide the defect.
+ */
+describe('InstrumentHistoryWidget — the period pickers use the configured timezone', () => {
+  afterEach(() => { datetimeConfig = {}; });
+
+  it('shows the period in New York time and reads what is typed as New York time', async () => {
+    datetimeConfig = { dateFormat: 'DD/MM/YYYY', timeFormat: '24-hour', timezone: 'America/New_York' };
+    renderWidget();
+    pickArea();
+    const from = screen.getByLabelText('History from');
+    expect(from).toHaveValue('2026-08-23T20:00');
+    expect(screen.getByLabelText('History to')).toHaveValue('2026-08-23T21:00');
+    fireEvent.change(from, { target: { value: '2026-08-23T19:00' } });
+    await waitFor(() => expect(screen.getByLabelText('History from')).toHaveValue('2026-08-23T19:00'));
+    const hist = requested.filter((k) => k.includes('/telemetry-history?')).at(-1)!;
+    expect(new URLSearchParams(hist.split('?')[1]).get('from')).toBe('2026-08-23T23:00:00.000Z');
   });
 });

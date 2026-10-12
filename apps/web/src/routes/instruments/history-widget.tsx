@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/select';
 import { Pagination } from '@/components/ui/pagination';
 import { useSensorWords } from '@/hooks/use-failure-text';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { isoToZonedInput, zonedInputToIso } from '@/lib/zoned-input';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
 import type { HistoryScope } from '@/routes/data-report/use-history-scope';
 import { useTrendPeriod, TREND_PRESETS } from './use-trend-data';
@@ -68,7 +69,7 @@ export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(paginationOptions[0]);
   const sensorWords = useSensorWords();
-  const { formatDateTime } = useDatetimeFormat();
+  const { formatDateTime, config: datetimeConfig } = useDatetimeFormat();
 
   /**
    * Full screen (2026-09-16, operator: "make data report widget into full
@@ -106,8 +107,13 @@ export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
   const total = hist?.total ?? 0;
   const byId = useMemo(() => new Map(inScope.map((i) => [i.id, i])), [inScope]);
 
-  const fromLocal = toLocalInput(period.from);
-  const toLocal = toLocalInput(period.to);
+  // The CONFIGURED timezone, the one the table beside these boxes prints in —
+  // not the browser's (audit 2026-10-12, finding 11).
+  const tz = datetimeConfig?.timezone;
+  const fromLocal = isoToZonedInput(period.from, tz);
+  const toLocal = isoToZonedInput(period.to, tz);
+  const typedFrom = (text: string) => { const iso = zonedInputToIso(text, tz); if (iso) setCustom(iso, period.to); };
+  const typedTo = (text: string) => { const iso = zonedInputToIso(text, tz); if (iso) setCustom(period.from, iso); };
 
   const subtitle = chosen.length === 0
     ? 'Choose a Block or Area, or tick instruments, to see their readings'
@@ -165,7 +171,7 @@ export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
             <input
               type="datetime-local"
               value={fromLocal}
-              onChange={(e) => e.target.value && setCustom(new Date(e.target.value).toISOString(), period.to)}
+              onChange={(e) => typedFrom(e.target.value)}
               className="ctl ctl-sm font-mono tabular-nums [color-scheme:light]"
               aria-label="History from"
             />
@@ -175,7 +181,7 @@ export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
             <input
               type="datetime-local"
               value={toLocal}
-              onChange={(e) => e.target.value && setCustom(period.from, new Date(e.target.value).toISOString())}
+              onChange={(e) => typedTo(e.target.value)}
               className="ctl ctl-sm font-mono tabular-nums [color-scheme:light]"
               aria-label="History to"
             />
@@ -381,10 +387,3 @@ function HistoryValueCell({ judged, decimals, words }: {
   );
 }
 
-/** ISO → the value a `datetime-local` input needs (local time, no seconds). */
-function toLocalInput(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}

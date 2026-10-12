@@ -2,6 +2,8 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import { PANELS, PANEL_PAGES } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 
@@ -105,6 +107,7 @@ function PanelEditor({
  */
 export function PanelAccessTab() {
   const { toast } = useToast();
+  const reauth = useReauth();
   const { data, mutate } = useSWR<{ roles: RolePanels[]; users: UserPanels[] }>('/api/roles/panel-access');
   const [saving, setSaving] = useState<string | null>(null);
 
@@ -118,19 +121,25 @@ export function PanelAccessTab() {
     return panels.map((k) => PANELS.find((p) => p.key === k)?.label ?? k).join(', ');
   };
 
-  const save = async (kind: 'role' | 'user', key: string, panels: string[] | null) => {
+  // Through `reauth.execute` (audit 2026-10-12, finding 5): both PUTs are
+  // re-authenticated server-side as UPDATE_ROLE_CONFIG.
+  const save = (kind: 'role' | 'user', key: string, panels: string[] | null) => {
+    const url = `/api/roles/panel-access/${kind}/${encodeURIComponent(key)}`;
     setSaving(`${kind}:${key}`);
-    try {
-      await apiClient.put(`/api/roles/panel-access/${kind}/${encodeURIComponent(key)}`, { panels });
-      toast.success('Panels updated', panels === null
-        ? (kind === 'role' ? 'Sees all panels.' : 'Now inherits the role.')
-        : panels.length === 0 ? 'Sees no panels.' : `Limited to ${panels.length} panel(s).`);
-      await mutate();
-    } catch (e) {
-      toast.error('Could not save', (e as Error).message);
-    } finally {
-      setSaving(null);
-    }
+    void reauth.execute('UPDATE_ROLE_CONFIG', async (password?: string) => {
+      if (password) await apiClient.putWithReauth(url, { panels }, password);
+      else await apiClient.put(url, { panels });
+    }, {
+      onSuccess: async () => {
+        toast.success('Panels updated', panels === null
+          ? (kind === 'role' ? 'Sees all panels.' : 'Now inherits the role.')
+          : panels.length === 0 ? 'Sees no panels.' : `Limited to ${panels.length} panel(s).`);
+        setSaving(null);
+        await mutate();
+      },
+      onError: (e) => { toast.error('Could not save', (e as Error).message); setSaving(null); },
+      onCancel: () => setSaving(null),
+    });
   };
 
   return (
@@ -206,6 +215,15 @@ export function PanelAccessTab() {
           )}
         </div>
       </div>
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+      />
     </div>
   );
 }

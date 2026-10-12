@@ -47,14 +47,18 @@ vi.mock('swr', () => ({
  * re-authentication. The retroactive 401 branch is the hook's own tested
  * behaviour.
  */
+/** Every action `execute` was asked to run, and whether it hands the callback a password. */
+const executed: string[] = [];
+const withPassword = { current: false };
 vi.mock('@/hooks/use-reauth', () => ({
   useReauth: () => ({
     execute: async (
-      _action: string,
+      action: string,
       cb: (p?: string) => Promise<void>,
       opts?: { onSuccess?: () => void; onError?: (e: unknown) => void; onCancel?: () => void },
     ) => {
-      try { await cb(); opts?.onSuccess?.(); } catch (e) { opts?.onError?.(e); }
+      executed.push(action);
+      try { await cb(withPassword.current ? 'pw' : undefined); opts?.onSuccess?.(); } catch (e) { opts?.onError?.(e); }
     },
     isOpen: false, password: '', error: '', isVerifying: false,
     setPassword: vi.fn(), confirm: vi.fn(), cancel: vi.fn(), needsReauth: () => false,
@@ -62,11 +66,13 @@ vi.mock('@/hooks/use-reauth', () => ({
 }));
 
 const post = vi.fn();
+const postWithReauth = vi.fn();
 const put = vi.fn();
 const del = vi.fn();
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
     post: (...a: unknown[]) => post(...a),
+    postWithReauth: (...a: unknown[]) => postWithReauth(...a),
     put: (...a: unknown[]) => put(...a),
     delete: (...a: unknown[]) => del(...a),
   },
@@ -88,6 +94,9 @@ beforeEach(() => {
   access.current = { mode: null, keys: [], requireReauth: false };
   labels.current = {};
   post.mockReset().mockResolvedValue({});
+  postWithReauth.mockReset().mockResolvedValue({});
+  executed.length = 0;
+  withPassword.current = false;
   put.mockReset().mockResolvedValue({});
   del.mockReset().mockResolvedValue({});
   mutate.mockReset().mockResolvedValue(undefined);
@@ -610,5 +619,66 @@ describe('AttributesPanel — the remark is mandatory', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
     expect(screen.getByRole('textbox', { name: /remarks/i })).toHaveValue('');
+  });
+});
+
+/**
+ * Audit 2026-10-12, finding 2: Fill and Add went out as bare `apiClient.post`.
+ * The server re-authenticates EVERY attribute write (POST included) as
+ * UPDATE_INSTRUMENT_ATTRIBUTE when the role's Attribute Access asks for it, so
+ * those two never reached the password dialog and failed with a bare 401. And
+ * Add on a key the instrument already carries is an OVERWRITE, for which the
+ * server demands a remark the panel never asked for.
+ */
+describe('AttributesPanel — Fill and Add are signed like every other write', () => {
+  it('fills an unset key through the re-auth hook', async () => {
+    profileKeys.current = 'Calibration Due';
+    render(<AttributesPanel instrumentId="i-1" profileId="p-1" canEdit />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Calibration Due' }), { target: { value: '2027-06-30' } });
+    fireEvent.click(screen.getAllByRole('button', { name: /^save$/i })[0]);
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    expect(executed).toEqual(['UPDATE_INSTRUMENT_ATTRIBUTE']);
+  });
+
+  it('sends the password with a fill when the dialog collected one', async () => {
+    withPassword.current = true;
+    profileKeys.current = 'Calibration Due';
+    render(<AttributesPanel instrumentId="i-1" profileId="p-1" canEdit />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Calibration Due' }), { target: { value: '2027-06-30' } });
+    fireEvent.click(screen.getAllByRole('button', { name: /^save$/i })[0]);
+    await waitFor(() => expect(postWithReauth).toHaveBeenCalledWith(
+      '/api/instruments/i-1/attributes', { key: 'Calibration Due', value: '2027-06-30' }, 'pw',
+    ));
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('adds a new key through the re-auth hook, with the password when given', async () => {
+    withPassword.current = true;
+    render(<AttributesPanel instrumentId="i-1" profileId="p-1" canEdit />);
+    fireEvent.click(screen.getByRole('button', { name: /add attribute/i }));
+    fireEvent.change(screen.getByPlaceholderText(/key \(/i), { target: { value: 'Supplier Ref' } });
+    fireEvent.change(screen.getByPlaceholderText(/value \(/i), { target: { value: 'SR-1' } });
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(postWithReauth).toHaveBeenCalledWith(
+      '/api/instruments/i-1/attributes', { key: 'Supplier Ref', value: 'SR-1' }, 'pw',
+    ));
+    expect(executed).toEqual(['UPDATE_INSTRUMENT_ATTRIBUTE']);
+  });
+
+  it('asks for a remark when Add would overwrite a recorded key, and sends it', async () => {
+    rows.current = [attr('Room', '204')];
+    render(<AttributesPanel instrumentId="i-1" profileId="p-1" canEdit />);
+    fireEvent.click(screen.getByRole('button', { name: /add attribute/i }));
+    fireEvent.change(screen.getByPlaceholderText(/key \(/i), { target: { value: 'Room' } });
+    fireEvent.change(screen.getByPlaceholderText(/value \(/i), { target: { value: '205' } });
+    fireEvent.click(screen.getAllByRole('button', { name: /^save$/i })[0]);
+    // Nothing goes out until the remark is given.
+    expect(post).not.toHaveBeenCalled();
+    giveRemark();
+    fireEvent.click(screen.getByRole('button', { name: /save change/i }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith(
+      '/api/instruments/i-1/attributes', { key: 'Room', value: '205', reason: REMARK },
+    ));
+    expect(executed).toEqual(['UPDATE_INSTRUMENT_ATTRIBUTE']);
   });
 });

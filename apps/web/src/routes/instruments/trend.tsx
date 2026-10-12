@@ -18,6 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { isoToZonedInput, zonedInputToIso } from '@/lib/zoned-input';
 import { useTrendWidgets } from '@/hooks/use-trend-widgets';
 import { WidgetSettingsButton } from './widget-settings-button';
 import { formatSetPoint } from '@/routes/dashboard/set-point';
@@ -328,7 +329,7 @@ export function InstrumentTrend() {
   const trendError = trend.error;
   const retryTrend = trend.retry;
   const { data: keyOptions } = useSWR<{ data: TelemetryKeyOption[] }>(id ? `/api/instruments/${id}/telemetry-keys` : null);
-  const { formatDateTime, formatDate, formatTime } = useDatetimeFormat();
+  const { formatDateTime, formatDate, formatTime, config: datetimeConfig } = useDatetimeFormat();
   // Blocks and their Areas, for the Data Report's Block / Area lines. The same
   // key the alarm filters use, so SWR dedupes it.
   const { data: locationTree } = useSWR<{ data: LocationNode[] }>('/api/functional-locations');
@@ -381,8 +382,15 @@ export function InstrumentTrend() {
     typeNames,
   };
 
-  const fromLocal = period.from.slice(0, 16);
-  const toLocal = period.to.slice(0, 16);
+  // In the CONFIGURED timezone, the one every time on this page is printed in
+  // (audit 2026-10-12, findings 4 and 11). This was `period.from.slice(0, 16)`
+  // — UTC text in a box the browser reads as local — and typed values were read
+  // back in the BROWSER's zone, so the boxes were off by the UTC offset.
+  const tz = datetimeConfig?.timezone;
+  const fromLocal = isoToZonedInput(period.from, tz);
+  const toLocal = isoToZonedInput(period.to, tz);
+  const typedFrom = (text: string) => { const iso = zonedInputToIso(text, tz); if (iso) setCustom(iso, period.to); };
+  const typedTo = (text: string) => { const iso = zonedInputToIso(text, tz); if (iso) setCustom(period.from, iso); };
 
   const chartRows = numericRows(trend.chartRows);
   const tempKey = keyForSlot(trend.chartRows, 'temperature');
@@ -833,7 +841,7 @@ export function InstrumentTrend() {
           <input
             type="datetime-local"
             value={fromLocal}
-            onChange={(e) => e.target.value && setCustom(new Date(e.target.value).toISOString(), period.to)}
+            onChange={(e) => typedFrom(e.target.value)}
             className="ctl ctl-sm font-mono tabular-nums [color-scheme:light]"
             aria-label="From"
           />
@@ -843,7 +851,7 @@ export function InstrumentTrend() {
           <input
             type="datetime-local"
             value={toLocal}
-            onChange={(e) => e.target.value && setCustom(period.from, new Date(e.target.value).toISOString())}
+            onChange={(e) => typedTo(e.target.value)}
             className="ctl ctl-sm font-mono tabular-nums [color-scheme:light]"
             aria-label="To"
           />

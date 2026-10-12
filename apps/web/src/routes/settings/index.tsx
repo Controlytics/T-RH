@@ -304,9 +304,19 @@ export function SettingsPage() {
             : `${changes.length} attribute${changes.length === 1 ? '' : 's'} updated.`);
         },
         onCancel: () => setBusy(false),
-        onError: (err) => {
-          setBusy(false);
+        // Keys are written one by one, so a failure part-way leaves the earlier
+        // ones SAVED. Re-read the server's values before the form is usable
+        // again (audit 2026-10-12, finding 7): `changes` is computed against
+        // them, so a re-Save writes only what still differs, never re-PUTs a
+        // key already saved (a before == after §11 row). Kept busy until the
+        // re-read lands so a re-Save cannot race it.
+        onError: async (err) => {
           toast.error('Could not save', (err as { message?: string })?.message ?? 'The changes were not saved.');
+          try {
+            await mutateAttrs();
+          } finally {
+            setBusy(false);
+          }
         },
       },
     );

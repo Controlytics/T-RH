@@ -96,6 +96,29 @@ describe('REQUEST mode', () => {
   });
 });
 
+/**
+ * Audit 2026-10-12, finding 11. The period was shown and read in the BROWSER's
+ * zone while every printed time (and the report itself) is in the configured
+ * one. New York is configured here because this host is IST — the default —
+ * and a test in the default zone could not tell the two apart.
+ */
+describe('the period is shown and read in the CONFIGURED timezone', () => {
+  it('shows the instants as New York wall-clock time and sends what was typed as New York time', async () => {
+    responses.set('/api/config/datetime/current', { dateFormat: 'DD/MM/YYYY', timeFormat: '24-hour', timezone: 'America/New_York' });
+    const onConfirm = open();
+    const from = screen.getByLabelText(/^from$/i);
+    expect(from).toHaveValue('2026-07-31T20:00');
+    expect(screen.getByLabelText(/^to$/i)).toHaveValue('2026-08-23T20:00');
+    fireEvent.change(from, { target: { value: '2026-07-31T21:00' } });
+    fireEvent.change(screen.getByLabelText(/remarks/i), { target: { value: 'monthly review' } });
+    fireEvent.change(password(), { target: { value: 'pw' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Request approval' }));
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({
+      period: expect.objectContaining({ from: '2026-08-01T01:00:00.000Z', to: period.to }),
+    })));
+  });
+});
+
 describe('DIRECT mode', () => {
   it('names the action Download and says nothing about approvers', () => {
     setPolicy(POLICY.DIRECT_FULL);

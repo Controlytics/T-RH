@@ -90,9 +90,14 @@ export function RoleAccessPage() {
       mutateRoles();
       setShowCreateDialog(false); resetForm();
     }, {
-      onError: (err: unknown) => { setError((err as any)?.message || 'Failed to create role'); },
+      // The flag is cleared by the three OUTCOMES, never after the await:
+      // `execute` returns as soon as the password dialog opens, so clearing it
+      // there re-enabled Save while the password was still being asked for
+      // (audit 2026-10-12, finding 10). Same for update and delete below.
+      onSuccess: () => setSaving(false),
+      onError: (err: unknown) => { setError((err as any)?.message || 'Failed to create role'); setSaving(false); },
+      onCancel: () => setSaving(false),
     });
-    setSaving(false);
   };
   const handleUpdate = async () => {
     if (!selectedRoleForEdit) return;
@@ -109,9 +114,10 @@ export function RoleAccessPage() {
       mutateRoles();
       setShowEditDialog(false); setSelectedRoleForEdit(null);
     }, {
-      onError: (err: unknown) => { setError((err as any)?.message || 'Failed to update role'); },
+      onSuccess: () => setSaving(false),
+      onError: (err: unknown) => { setError((err as any)?.message || 'Failed to update role'); setSaving(false); },
+      onCancel: () => setSaving(false),
     });
-    setSaving(false);
   };
   const openDeleteDialog = (role: RoleData) => { setDeleteTarget(role); setDeleteError(''); setShowDeleteDialog(true); };
   const handleDelete = async () => {
@@ -124,9 +130,10 @@ export function RoleAccessPage() {
       mutateRoles();
       setShowDeleteDialog(false); setDeleteTarget(null);
     }, {
-      onError: (err: unknown) => { setDeleteError((err as any)?.message || 'Failed to delete role'); },
+      onSuccess: () => setDeleting(false),
+      onError: (err: unknown) => { setDeleteError((err as any)?.message || 'Failed to delete role'); setDeleting(false); },
+      onCancel: () => setDeleting(false),
     });
-    setDeleting(false);
   };
 
   // ── Tab definitions ──

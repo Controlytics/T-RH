@@ -139,7 +139,7 @@ export function AttributesPanel(
    * change from the one it will submit.
    */
   const [pendingRemark, setPendingRemark] = useState<
-    { kind: 'change' | 'remove'; key: string; from: string; to?: string } | null
+    { kind: 'change' | 'remove' | 'overwrite'; key: string; from: string; to?: string } | null
   >(null);
 
   const rows = data?.data ?? [];
@@ -207,41 +207,67 @@ export function AttributesPanel(
    *  the table it is describing. */
   const hasUnset = items.some((i) => i.attr === null);
 
-  const fill = async (k: string) => {
-    const value = (fills[k] ?? '').trim();
-    if (!value) return;
-    setBusy(true);
-    try {
-      await apiClient.post(key, { key: k, value });
-      setFills((f) => ({ ...f, [k]: '' }));
-      await mutate();
-      toast.success('Attribute saved', `"${k}" set on this instrument.`);
-    } catch (err) {
-      fail('Could not save attribute', err);
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const fail = (what: string, err: unknown) =>
     toast.error(what, (err as { message?: string })?.message ?? 'The change was not saved.');
 
-  const add = async () => {
+  /**
+   * The ONE POST path. A fill, an add, and an add that overwrites a recorded
+   * key all go through it, and through `reauth.execute`, like `save` and
+   * `remove` below. The server re-authenticates EVERY attribute write as
+   * UPDATE_INSTRUMENT_ATTRIBUTE when the role's Attribute Access asks for it
+   * (`attributeWriteRefused`); until 2026-10-12 fill and add were bare posts, so
+   * such a role got a bare 401 and "Could not save attribute" (audit 2026-10-12,
+   * finding 2). `reason` is sent only for an overwrite: a first fill is not
+   * asked for one, and the server ignores it there.
+   */
+  const post = (
+    attrKey: string, value: string, reason: string | undefined, onSaved: () => void,
+  ) => {
+    setBusy(true);
+    reauth.execute(
+      'UPDATE_INSTRUMENT_ATTRIBUTE',
+      async (password) => {
+        const body = reason ? { key: attrKey, value, reason } : { key: attrKey, value };
+        if (password) await apiClient.postWithReauth(key, body, password);
+        else await apiClient.post(key, body);
+      },
+      {
+        onSuccess: async () => {
+          onSaved();
+          setBusy(false);
+          await mutate();
+          toast.success('Attribute saved', `"${attrKey}" set on this instrument.`);
+        },
+        // A cancel is not an error, but busy was set before execute().
+        onCancel: () => setBusy(false),
+        onError: (err) => { setBusy(false); fail('Could not save attribute', err); },
+      },
+    );
+  };
+
+  const fill = (k: string) => {
+    const value = (fills[k] ?? '').trim();
+    if (!value) return;
+    post(k, value, undefined, () => setFills((f) => ({ ...f, [k]: '' })));
+  };
+
+  const closeAdd = () => { setNewKey(''); setNewValue(''); setAdding(false); };
+
+  const add = () => {
     const k = newKey.trim();
     if (!k) return;
-    setBusy(true);
-    try {
-      // POST upserts on the key, so re-adding an existing key updates it rather
-      // than failing — matching the backend, which is deliberately idempotent.
-      await apiClient.post(key, { key: k, value: newValue });
-      setNewKey(''); setNewValue(''); setAdding(false);
-      await mutate();
-      toast.success('Attribute saved', `"${k}" set on this instrument.`);
-    } catch (err) {
-      fail('Could not save attribute', err);
-    } finally {
-      setBusy(false);
+    // POST upserts on the key, so Add on a key this instrument already carries
+    // is an OVERWRITE of a recorded value, and the server demands a remark for
+    // that. Matched EXACTLY: the table's unique index is `(instrument_id, key)`
+    // and Postgres compares case, so `room` beside a recorded `Room` is a new
+    // key, not a change. A protected key is not asked for a remark it could not
+    // use; the server's 403 says why.
+    const existing = rows.find((r) => r.key === k);
+    if (existing && mayEdit(k)) {
+      setPendingRemark({ kind: 'overwrite', key: k, from: existing.value, to: newValue });
+      return;
     }
+    post(k, newValue, undefined, closeAdd);
   };
 
   /**
@@ -339,12 +365,12 @@ export function AttributesPanel(
               onChange={setNewValue}
             />
             <div className="flex gap-2">
-              <Button type="button" size="sm" disabled={busy || !newKey.trim()} onClick={() => void add()}>
+              <Button type="button" size="sm" disabled={busy || !newKey.trim()} onClick={add}>
                 {busy ? 'Saving…' : 'Save'}
               </Button>
               <Button
                 type="button" size="sm" variant="secondary" disabled={busy}
-                onClick={() => { setNewKey(''); setNewValue(''); setAdding(false); }}
+                onClick={closeAdd}
               >
                 Cancel
               </Button>
@@ -391,7 +417,7 @@ export function AttributesPanel(
                         ariaLabel={k}
                         placeholder="Not set"
                         onChange={(v) => setFills((f) => ({ ...f, [k]: v }))}
-                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void fill(k); } }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); fill(k); } }}
                       />
                     ) : editingKey === a.key ? (
                       <AttributeValueInput attrKey={a.key} value={editValue} onChange={setEditValue} />
@@ -415,7 +441,7 @@ export function AttributesPanel(
                         <Button
                           type="button" size="sm" variant="secondary"
                           disabled={busy || !(fills[k] ?? '').trim()}
-                          onClick={() => void fill(k)}
+                          onClick={() => fill(k)}
                         >
                           Save
                         </Button>
@@ -520,7 +546,9 @@ export function AttributesPanel(
         onSubmit={(remark) => {
           if (!pendingRemark) return;
           if (pendingRemark.kind === 'remove') void remove(pendingRemark.key, remark);
-          else void save(pendingRemark.key, remark);
+          else if (pendingRemark.kind === 'overwrite') {
+            post(pendingRemark.key, pendingRemark.to ?? '', remark, () => { setPendingRemark(null); closeAdd(); });
+          } else void save(pendingRemark.key, remark);
         }}
         onClose={() => { setPendingRemark(null); setPendingDelete(null); }}
       />

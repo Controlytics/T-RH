@@ -29,7 +29,12 @@ export function CreateUserPage() {
   const [copied, setCopied] = useState(false);
 
   // Fetch password policy
-  const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy', { revalidateOnMount: true, dedupingInterval: 5000 });
+  const { data: policyData } = useSWR<PasswordPolicyConfig>(
+    // `/current`: served to every authenticated user. The bare route is
+    // CONFIG_READ-only, so a user administrator without it got a 403 and the
+    // form described the DEFAULT policy (audit 2026-10-12, finding 8).
+    '/api/config/password-policy/current', { revalidateOnMount: true, dedupingInterval: 5000 },
+  );
   const policy = { ...DEFAULT_PASSWORD_POLICY, ...policyData };
 
   // Fetch roles that current user can create

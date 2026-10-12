@@ -5,6 +5,8 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Card } from '@/components/ui/card';
 import { apiClient } from '@/lib/api-client';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { useAuth } from '@/hooks/use-auth';
 import { PageHero } from '@/components/ui/page-hero';
 
@@ -46,6 +48,7 @@ const CASE_OPTIONS = [
 
 export function UserIdConfigPage() {
   const { user } = useAuth();
+  const reauth = useReauth();
   const isSuperAdmin = user?.role === 'SUPER_ADMIN' || (user?.permissions?.includes('CONFIG_UPDATE') ?? false);
 
   const { data: config, mutate } = useSWR<UserIdConfig>('/api/config/user-id');
@@ -77,23 +80,29 @@ export function UserIdConfigPage() {
     }
   }, [config]);
 
-  const handleSave = async () => {
+  // Through `reauth.execute` (audit 2026-10-12, finding 5): the server
+  // re-authenticates this PUT as UPDATE_USERID_CONFIG and it was a bare put.
+  const handleSave = () => {
     setSaving(true);
     setSaveMessage(null);
-    try {
-      const saveData = { ...form };
-      if (!saveData.format.startsWith('PREFIX_')) { saveData.prefix = ''; }
-      await apiClient.put('/api/config/user-id', saveData);
-      mutate();
-      setSaveMessage({ type: 'success', text: 'Configuration saved successfully!' });
-      setTimeout(() => setSaveMessage(null), 4000);
-    } catch (err: any) {
-      console.error('Failed to save:', err);
-      setSaveMessage({ type: 'error', text: err?.message || 'Failed to save configuration' });
-      setTimeout(() => setSaveMessage(null), 5000);
-    } finally {
-      setSaving(false);
-    }
+    const saveData = { ...form };
+    if (!saveData.format.startsWith('PREFIX_')) { saveData.prefix = ''; }
+    void reauth.execute('UPDATE_USERID_CONFIG', async (password?: string) => {
+      if (password) await apiClient.putWithReauth('/api/config/user-id', saveData, password);
+      else await apiClient.put('/api/config/user-id', saveData);
+    }, {
+      onSuccess: () => {
+        mutate();
+        setSaveMessage({ type: 'success', text: 'Configuration saved successfully!' });
+        setTimeout(() => setSaveMessage(null), 4000);
+        setSaving(false);
+      },
+      onError: (err: unknown) => {
+        setSaveMessage({ type: 'error', text: (err as { message?: string })?.message || 'Failed to save configuration' });
+        setSaving(false);
+      },
+      onCancel: () => setSaving(false),
+    });
   };
 
   const handleValidate = async () => {
@@ -499,6 +508,15 @@ export function UserIdConfigPage() {
           </Card>
         </div>
       </div>
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+      />
     </div>
   );
 }
