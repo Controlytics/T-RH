@@ -404,17 +404,18 @@ describe('ALARM_TYPE_OPTIONS', () => {
 });
 
 describe('localInputToIso', () => {
-  it('resolves the browser wall-clock value to an instant', () => {
+  it('resolves the wall-clock value in the CONFIGURED timezone, not the browser\'s', () => {
     // `datetime-local` yields zoneless text. Sent raw, the server would resolve it
-    // in ITS timezone, so the same typed range would select a different window
-    // once the API moved to another machine.
-    const iso = localInputToIso('2026-08-27T00:00');
-    expect(iso).toBe(new Date(2026, 7, 27, 0, 0, 0).toISOString());
+    // in ITS timezone; read in the browser's, it disagreed with every time the
+    // page prints (audit 2026-10-12, finding 11). Zones named explicitly, so
+    // this holds on any host clock.
+    expect(localInputToIso('2026-08-27T00:00', 'America/New_York')).toBe('2026-08-27T04:00:00.000Z');
+    expect(localInputToIso('2026-08-27T00:00', 'Asia/Kolkata')).toBe('2026-08-26T18:30:00.000Z');
   });
 
   it('treats an empty or unreadable value as no bound at all', () => {
-    expect(localInputToIso('')).toBeUndefined();
-    expect(localInputToIso('not a date')).toBeUndefined();
+    expect(localInputToIso('', 'Asia/Kolkata')).toBeUndefined();
+    expect(localInputToIso('not a date', 'Asia/Kolkata')).toBeUndefined();
   });
 });
 

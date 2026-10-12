@@ -204,25 +204,26 @@ describe('truncationNote', () => {
 describe('reportSeedPeriod', () => {
   const now = new Date('2026-05-28T16:00:00.000Z');
 
-  it('opens on the period the page is already filtered to', () => {
+  // The filter holds wall-clock text in the CONFIGURED zone; the dialog takes
+  // INSTANTS (audit 2026-10-12, finding 11), so the seed is the same instant
+  // the table is filtered to.
+  it('opens on the period the page is already filtered to, as instants in the configured zone', () => {
     // The dialog must agree with the table behind it.
-    expect(reportSeedPeriod({ from: '2026-05-01T00:00', to: '2026-05-02T00:00' }, now))
-      .toMatchObject({ from: '2026-05-01T00:00', to: '2026-05-02T00:00' });
+    expect(reportSeedPeriod({ from: '2026-05-01T00:00', to: '2026-05-02T00:00' }, 'America/New_York', now))
+      .toMatchObject({ from: '2026-05-01T04:00:00.000Z', to: '2026-05-02T04:00:00.000Z' });
   });
 
   it('falls back to a BOUNDED period, not to everything', () => {
     // A report with no bounds is not a report of a period, and this one prints
     // its own Start and End on the paper.
-    const seeded = reportSeedPeriod({ from: '', to: '' }, now);
-    expect(seeded.from).not.toBe('');
-    expect(seeded.to).not.toBe('');
-    expect(new Date(seeded.to).getTime() - new Date(seeded.from).getTime())
-      .toBe(24 * 3_600_000);
+    const seeded = reportSeedPeriod({ from: '', to: '' }, 'Asia/Kolkata', now);
+    expect(seeded).toMatchObject({ from: '2026-05-27T16:00:00.000Z', to: '2026-05-28T16:00:00.000Z' });
   });
 
   it('keeps one end when only the other is filtered', () => {
-    expect(reportSeedPeriod({ from: '2026-05-01T00:00', to: '' }, now).from)
-      .toBe('2026-05-01T00:00');
+    const seeded = reportSeedPeriod({ from: '2026-05-01T00:00', to: '' }, 'Asia/Kolkata', now);
+    expect(seeded.from).toBe('2026-04-30T18:30:00.000Z');
+    expect(seeded.to).toBe('2026-05-28T16:00:00.000Z');
   });
 });
 

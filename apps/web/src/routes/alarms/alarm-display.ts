@@ -7,6 +7,7 @@
  * the UI must not let "Cleared" read as "dealt with".
  */
 
+import { zonedInputToIso } from '@/lib/zoned-input';
 import {
   ALARM_STATUS_TEXT_DEFAULT, formatDecimals, TELEMETRY_DECIMALS_FALLBACK,
   INACTIVITY_TYPE_LABEL, inactivityLimitText, INACTIVITY_TEXT_DEFAULT,
@@ -726,11 +727,12 @@ export type AlarmSortKey = (typeof ALARM_SORT_KEYS)[number];
  * The input gives back wall-clock text with no zone (`2026-08-27T00:00`). Sending
  * that raw would leave the server to guess a timezone, and it would guess its
  * own — so a range typed at a plant in one zone would select a different window
- * once the API moved to a server in another. Resolved here, where the operator's
- * clock is.
+ * once the API moved to a server in another. Resolved here, in the CONFIGURED
+ * timezone — the one every time on the page is printed in. It was the browser's
+ * until 2026-10-12, so on a workstation set to another zone the typed range and
+ * the printed one disagreed (audit 2026-10-12, finding 11). The one conversion
+ * is `zonedInputToIso`; this is the alarms page's name for it.
  */
-export function localInputToIso(value: string): string | undefined {
-  if (!value) return undefined;
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+export function localInputToIso(value: string, tz: string | undefined): string | undefined {
+  return zonedInputToIso(value, tz);
 }

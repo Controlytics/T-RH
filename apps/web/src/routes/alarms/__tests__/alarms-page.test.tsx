@@ -79,12 +79,18 @@ const DOWNLOADS = {
 };
 const APPROVERS = { approverRoles: ['QA'], approverUserCount: 0 };
 let downloads: unknown = DOWNLOADS.REQUEST;
+/** The administered date/time settings; undefined = the shipped default. */
+let datetimeConfig: unknown;
+/** Every alarm-list URL the page asked for. */
+const alarmListKeys: string[] = [];
 
 vi.mock('swr', () => ({
   default: (key: unknown) => {
     const k = typeof key === 'function' ? (key as () => string)() : key;
     if (typeof k !== 'string') return { data: undefined, isLoading: false, mutate: vi.fn() };
+    if (k === '/api/config/datetime/current') return { data: datetimeConfig, mutate: vi.fn() };
     if (k.startsWith('/api/alarms?')) {
+      alarmListKeys.push(k);
       const payload = { data: listState.rows, total: 26, counts };
       if (listState.error) {
         return {
@@ -506,5 +512,26 @@ describe('the page hero', () => {
     const hero = screen.getByTestId('page-hero');
     expect(hero.contains(screen.getByRole('heading', { level: 1, name: 'Alarms' }))).toBe(true);
     expect(hero.contains(screen.getByRole('button', { name: /export/i }))).toBe(true);
+  });
+});
+
+/**
+ * Audit 2026-10-12, finding 11 (follow-up). The Raised-between boxes were read
+ * in the BROWSER's zone while every time on the page prints in the configured
+ * one. New York is configured because this host is IST, the default.
+ */
+describe('Alarms — Raised between is read in the configured timezone', () => {
+  it('sends a typed bound as New York time', async () => {
+    datetimeConfig = { dateFormat: 'DD/MM/YYYY', timeFormat: '24-hour', timezone: 'America/New_York' };
+    try {
+      mount();
+      fireEvent.change(screen.getByLabelText('Raised from'), { target: { value: '2026-08-27T00:00' } });
+      await waitFor(() => {
+        const last = alarmListKeys.at(-1)!;
+        expect(new URLSearchParams(last.split('?')[1]).get('from')).toBe('2026-08-27T04:00:00.000Z');
+      });
+    } finally {
+      datetimeConfig = undefined;
+    }
   });
 });
