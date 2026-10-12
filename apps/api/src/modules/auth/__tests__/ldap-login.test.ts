@@ -184,3 +184,22 @@ describe('changePassword / forgotPassword — directory users', () => {
     expect(mockRepo.findPendingResetRequest).not.toHaveBeenCalled();
   });
 });
+
+// Application review 2026-10-12, follow-up 4: a directory ERROR (not a
+// rejected bind) used to answer 401 LDAP_ERROR — telling an anonymous caller
+// the username is a directory account. The caller now gets the generic answer;
+// the detail goes to the server log and the LOGIN_FAILED audit row.
+describe('login — directory error', () => {
+  it('answers the generic INVALID_CREDENTIALS and records the error for the operator', async () => {
+    mockRepo.findUserByUsername.mockResolvedValue(directoryUser());
+    mockLdap.authenticateUser.mockRejectedValue(new Error('connect ECONNREFUSED 10.0.0.5:636'));
+
+    const err: any = await authService.login('EMP1234', 'pw', '127.0.0.1', 'ua').catch((e) => e);
+    expect(err.statusCode).toBe(401);
+    expect(err.code).toBe('INVALID_CREDENTIALS');
+    expect(err.message).toBe('Username or password is incorrect.');
+    const row = mockAuditLog.mock.calls.map(([e]: any[]) => e).find((e: any) => e.action === 'LOGIN_FAILED');
+    expect(row?.afterValue?.directoryError).toMatch(/ECONNREFUSED/);
+    expect(mockRepo.updateUser).not.toHaveBeenCalled();
+  });
+});

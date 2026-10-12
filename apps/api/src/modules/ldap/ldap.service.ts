@@ -436,25 +436,51 @@ export const ldapService = {
 
   matchesLdapGroup,
 
-  mapGroupsToRole(groups: string[], config: LdapConfig): string {
-    if (!config.roleMappings || config.roleMappings.length === 0) {
-      return config.defaultRole || 'OPERATOR';
-    }
-
-    // Check each mapping - first match wins (mappings should be ordered by priority)
-    for (const mapping of config.roleMappings) {
-      // An LDAP mapping must never confer SUPER_ADMIN. Such a user is unusable
-      // anyway (auth.service.ts refuses the LDAP bind branch for SUPER_ADMIN and
-      // the sentinel passwordHash then 401s), so this only stops the config from
-      // provisioning a locked-out, over-privileged row.
+  /**
+   * Every role a user's groups map to, in STORED order, de-duplicated.
+   * An LDAP mapping must never confer SUPER_ADMIN — such a user is unusable
+   * anyway (auth.service.ts refuses the LDAP bind branch for SUPER_ADMIN and the
+   * sentinel passwordHash then 401s) — so those entries are skipped.
+   */
+  matchedRoles(groups: string[], config: LdapConfig): string[] {
+    const out: string[] = [];
+    for (const mapping of config.roleMappings ?? []) {
       if (mapping.role === 'SUPER_ADMIN') continue;
-      const ldapGroupLower = mapping.ldapGroup.toLowerCase();
-      if (groups.some(g => matchesLdapGroup(g, ldapGroupLower))) {
-        return mapping.role;
-      }
+      const ldapGroupLower = String(mapping.ldapGroup ?? '').toLowerCase();
+      if (groups.some((g) => matchesLdapGroup(g, ldapGroupLower)) && !out.includes(mapping.role)) out.push(mapping.role);
     }
+    return out;
+  },
 
-    return config.defaultRole || 'OPERATOR';
+  /**
+   * THE PRECEDENCE RULE (application review 2026-10-12, follow-up 5): when a
+   * user's groups match several mappings, the HIGHEST-PRIVILEGE role wins —
+   * the greatest `hierarchyLevel` in `levels`; the stored order only breaks a
+   * tie between roles at the same level. With no `levels` (or no mapped role
+   * known in it) every candidate ties, which reduces to the stored order.
+   *
+   * It used to be "first match in stored order", which made the role a person
+   * received depend on row order nobody could see or set on the config page
+   * (it has no reorder control), and let anyone who could re-save the list
+   * change it by deleting and re-adding a row. Highest-privilege is what the
+   * integration guide already told operators to arrange by hand ("list
+   * most-privileged first"), so for a correctly ordered list nothing changes;
+   * for any other list it removes the order dependence. A user in both
+   * "Operators" and "Admins" is an admin — the directory says they are one.
+   *
+   * Roles absent from `levels` (missing or inactive) lose to any present one.
+   */
+  mapGroupsToRole(groups: string[], config: LdapConfig, levels?: Map<string, number>): string {
+    const candidates = this.matchedRoles(groups, config);
+    if (candidates.length === 0) return config.defaultRole || 'OPERATOR';
+    if (!levels) return candidates[0];
+    let best = candidates[0];
+    let bestLevel = levels.get(best) ?? -Infinity;
+    for (const role of candidates.slice(1)) {
+      const level = levels.get(role) ?? -Infinity;
+      if (level > bestLevel) { best = role; bestLevel = level; }
+    }
+    return best;
   },
 
   /**
@@ -476,7 +502,14 @@ export const ldapService = {
     groups: string[],
     config: LdapConfig,
   ): Promise<{ role: string; mappedRole: string; fellBack: boolean }> {
-    const mappedRole = this.mapGroupsToRole(groups, config);
+    // Levels of the ACTIVE roles the groups match, so the precedence rule
+    // above can pick the highest; an inactive or missing role is not in the
+    // map and therefore never beats one that exists.
+    const candidates = this.matchedRoles(groups, config);
+    const known = candidates.length
+      ? await prisma.role.findMany({ where: { name: { in: candidates }, isActive: true }, select: { name: true, hierarchyLevel: true } })
+      : [];
+    const mappedRole = this.mapGroupsToRole(groups, config, new Map(known.map((r) => [r.name, r.hierarchyLevel])));
     const exists = await prisma.role.findFirst({
       where: { name: mappedRole, isActive: true },
       select: { name: true },
