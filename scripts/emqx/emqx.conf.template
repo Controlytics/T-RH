@@ -34,6 +34,17 @@ dashboard {
   }
 }
 
+## ONE REST API key, so the API can drop a device's open session when its
+## token is revoked or replaced, the instrument is deactivated or deleted, or
+## its code changes (DELETE /api/v5/clients/{clientid}) — EMQX asks the auth
+## hook only at CONNECT. The file is rendered from api_key.bootstrap.template
+## (`key:secret`, one line) with EMQX_API_KEY / EMQX_API_SECRET from
+## digilog.env, which the API reads too. Loaded at broker start. The REST API
+## is served on the dashboard listener above, i.e. loopback only.
+api_key {
+  bootstrap_file = "@@API_KEY_FILE@@"
+}
+
 ## Plain MQTT on the LAN for devices that cannot do TLS; MQTTS beside it.
 listeners.tcp.default {
   bind = "0.0.0.0:@@MQTT_PORT@@"

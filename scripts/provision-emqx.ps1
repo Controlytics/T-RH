@@ -10,12 +10,15 @@
 
     1. Secrets + bridge credential in <DataRoot>\config\digilog.env — appended
        only if ABSENT, never regenerated: MQTT_BROKER_URL, MQTT_CLIENT_ID,
-       MQTT_USERNAME, MQTT_PASSWORD, EMQX_NODE_COOKIE, EMQX_DASHBOARD_PASSWORD.
+       MQTT_USERNAME, MQTT_PASSWORD, EMQX_NODE_COOKIE, EMQX_DASHBOARD_PASSWORD,
+       EMQX_API_KEY, EMQX_API_SECRET, EMQX_API_URL.
        The API reads the MQTT_* keys through the same env file its service
        loads, and its auth hook admits the bridge by that credential, so ONE
-       authenticator (the hook) is enough — no dashboard or API-key step.
-    2. Render scripts\emqx\emqx.conf.template + acl.conf into <InstallDir>\emqx\etc
-       (the stock acl.conf carries two allow-all rules and is REPLACED).
+       authenticator (the hook) is enough. The EMQX_API_* pair is a REST API
+       key the API uses to drop a revoked device's open session (2026-10-12).
+    2. Render scripts\emqx\emqx.conf.template + acl.conf + api_key.bootstrap.template
+       into <InstallDir>\emqx\etc (the stock acl.conf carries two allow-all
+       rules and is REPLACED; the key file is loaded via api_key.bootstrap_file).
     3. Create the broker's data dir under <DataRoot>\emqx (retained slots and
        the built-in database survive upgrades there).
     4. (Re)register the Windows service through EMQX's own launcher
@@ -86,7 +89,7 @@ if (-not (Test-Path $emqxCmd)) {
   Write-Host "FATAL: EMQX launcher not found at $emqxCmd - the installer did not stage the broker (build-installer.ps1 -EmqxZip)." -ForegroundColor Red
   exit 1
 }
-foreach ($t in 'emqx.conf.template','acl.conf') {
+foreach ($t in 'emqx.conf.template','acl.conf','api_key.bootstrap.template') {
   if (-not (Test-Path (Join-Path $tplDir $t))) { Write-Host "FATAL: template $t missing from $tplDir" -ForegroundColor Red; exit 1 }
 }
 
@@ -111,6 +114,12 @@ $null      = EnvEnsure 'MQTT_USERNAME' 'digilog-bridge'
 $null      = EnvEnsure 'MQTT_PASSWORD' (NewSecret 24)
 $cookie    = EnvEnsure 'EMQX_NODE_COOKIE' (NewSecret 24)
 $dashPw    = EnvEnsure 'EMQX_DASHBOARD_PASSWORD' (NewDashboardPassword)
+# The REST API key the API uses to drop a revoked device's open session
+# (broker-kick.ts). Bootstrapped into the broker from api_key.bootstrap.template.
+# The key starts with a letter; both halves are hex, so `:` never appears in them.
+$apiKey    = EnvEnsure 'EMQX_API_KEY' ("digilog" + (NewSecret 8))
+$apiSecret = EnvEnsure 'EMQX_API_SECRET' (NewSecret 24)
+$null      = EnvEnsure 'EMQX_API_URL' "http://127.0.0.1:$DashboardPort"
 if ($pending.Count -gt 0) {
   if ($DryRun) { Write-Host "[dry-run] append to $envFile : $($pending -replace '=.*','=<generated>' -join ', ')" -ForegroundColor Yellow }
   else {
@@ -129,6 +138,7 @@ foreach ($f in $certFile, $keyFile, $caFile) {
 }
 $aclOut  = Join-Path $etcDir 'acl.conf'
 $confOut = Join-Path $etcDir 'emqx.conf'
+$keyOut  = Join-Path $etcDir 'api_key.bootstrap'
 $conf = Get-Content (Join-Path $tplDir 'emqx.conf.template') -Raw
 $map = @{
   '@@NODE_COOKIE@@'    = $cookie
@@ -141,18 +151,22 @@ $map = @{
   '@@CA_FILE@@'        = (Hocon $caFile)
   '@@HOOK_URL@@'       = "https://127.0.0.1:$ApiPort/api/ingest/v1/mqtt-auth"
   '@@ACL_FILE@@'       = (Hocon $aclOut)
+  '@@API_KEY_FILE@@'   = (Hocon $keyOut)
 }
 foreach ($k in $map.Keys) { $conf = $conf.Replace($k, [string]$map[$k]) }
 $stray = [regex]::Matches($conf, '@@[A-Z_]+@@') | ForEach-Object { $_.Value } | Sort-Object -Unique
 if ($stray) { Write-Host "FATAL: unrendered template token(s): $($stray -join ', ')" -ForegroundColor Red; exit 1 }
 $acl = Get-Content (Join-Path $tplDir 'acl.conf') -Raw
+$apiKeyFile = (Get-Content (Join-Path $tplDir 'api_key.bootstrap.template') -Raw).Replace('@@EMQX_API_KEY@@', $apiKey).Replace('@@EMQX_API_SECRET@@', $apiSecret)
+if ($apiKeyFile -match '@@[A-Z_]+@@') { Write-Host "FATAL: unrendered token in api_key.bootstrap.template" -ForegroundColor Red; exit 1 }
 
 if ($DryRun) {
   $out = Join-Path $env:TEMP 'digilog-emqx-dryrun'
   New-Item -ItemType Directory -Force -Path $out | Out-Null
   Set-Content -Path (Join-Path $out 'emqx.conf') -Value $conf -Encoding ascii
   Set-Content -Path (Join-Path $out 'acl.conf')  -Value $acl  -Encoding ascii
-  Write-Host "[dry-run] rendered emqx.conf + acl.conf to $out (would write to $etcDir)" -ForegroundColor Yellow
+  Set-Content -Path (Join-Path $out 'api_key.bootstrap') -Value $apiKeyFile.TrimEnd() -Encoding ascii
+  Write-Host "[dry-run] rendered emqx.conf + acl.conf + api_key.bootstrap to $out (would write to $etcDir)" -ForegroundColor Yellow
 } else {
   foreach ($f in $confOut, $aclOut) {
     $orig = "$f.orig"
@@ -160,7 +174,10 @@ if ($DryRun) {
   }
   Set-Content -Path $confOut -Value $conf -Encoding ascii
   Set-Content -Path $aclOut  -Value $acl  -Encoding ascii
-  Write-Host "==> Wrote $confOut and $aclOut (stock copies kept as *.orig)" -ForegroundColor Cyan
+  # Same folder and same ACL as emqx.conf, which carries the node cookie: the
+  # broker service must be able to read it, whatever account it runs as.
+  Set-Content -Path $keyOut -Value $apiKeyFile.TrimEnd() -Encoding ascii
+  Write-Host "==> Wrote $confOut, $aclOut and $keyOut (stock copies kept as *.orig)" -ForegroundColor Cyan
 }
 
 # 3. Data dir - the launcher refuses to start if node.data_dir does not exist.

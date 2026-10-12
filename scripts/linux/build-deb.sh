@@ -139,7 +139,7 @@ tar -xzf "$EMQX_TAR" -C "$OPT/emqx"
 # some tarballs nest a single top folder; flatten if so
 if [ ! -x "$OPT/emqx/bin/emqx" ]; then inner="$(find "$OPT/emqx" -maxdepth 2 -type f -name emqx -path '*/bin/emqx' | head -1)"; [ -n "$inner" ] || { echo "FATAL: bin/emqx not found in $EMQX_TAR" >&2; exit 1; }; top="$(dirname "$(dirname "$inner")")"; mv "$top"/* "$OPT/emqx/"; rmdir "$top"; fi
 rm -rf "$OPT/emqx/data" "$OPT/emqx/log"      # the customer's broker starts empty under /var/lib/digilog/emqx
-cp scripts/emqx/emqx.conf.template scripts/emqx/acl.conf "$OPT/emqx-templates/"
+cp scripts/emqx/emqx.conf.template scripts/emqx/acl.conf scripts/emqx/api_key.bootstrap.template "$OPT/emqx-templates/"
 
 step "Stage scripts + systemd units"
 cp scripts/linux/digilog-lib.sh scripts/linux/digilog-backup.sh "$OPT/scripts/"

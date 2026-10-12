@@ -185,14 +185,20 @@ digilog_upgrade_db() {
 # templates the Windows installer uses, data under /var/lib/digilog/emqx.
 digilog_provision_emqx() {
   local tpl="$OPT/emqx-templates"
-  [ -f "$tpl/emqx.conf.template" ] && [ -f "$tpl/acl.conf" ] || die "EMQX templates missing from $tpl"
+  [ -f "$tpl/emqx.conf.template" ] && [ -f "$tpl/acl.conf" ] && [ -f "$tpl/api_key.bootstrap.template" ] || die "EMQX templates missing from $tpl"
   env_ensure MQTT_BROKER_URL "mqtt://127.0.0.1:$MQTT_PORT" >/dev/null
   env_ensure MQTT_CLIENT_ID digilog-ingest-bridge >/dev/null
   env_ensure MQTT_USERNAME digilog-bridge >/dev/null
   env_ensure MQTT_PASSWORD "$(secret 24)" >/dev/null
   local cookie dashpw; cookie="$(env_ensure EMQX_NODE_COOKIE "$(secret 24)")"
   dashpw="$(env_ensure EMQX_DASHBOARD_PASSWORD "$(secret 12)")"
-  local conf="$OPT/emqx/etc/emqx.conf" acl="$OPT/emqx/etc/acl.conf"
+  # The REST API key the API uses to drop a revoked device's open session
+  # (broker-kick.ts), bootstrapped from api_key.bootstrap.template — the same
+  # keys and shape provision-emqx.ps1 writes on Windows.
+  local apikey apisecret; apikey="$(env_ensure EMQX_API_KEY "digilog$(secret 8)")"
+  apisecret="$(env_ensure EMQX_API_SECRET "$(secret 24)")"
+  env_ensure EMQX_API_URL "http://127.0.0.1:$DASHBOARD_PORT" >/dev/null
+  local conf="$OPT/emqx/etc/emqx.conf" acl="$OPT/emqx/etc/acl.conf" keyfile="$OPT/emqx/etc/api_key.bootstrap"
   [ -f "$conf" ] && [ ! -f "$conf.orig" ] && cp "$conf" "$conf.orig"
   [ -f "$acl" ]  && [ ! -f "$acl.orig" ]  && cp "$acl"  "$acl.orig"
   sed -e "s|@@NODE_COOKIE@@|$cookie|g" \
@@ -205,10 +211,16 @@ digilog_provision_emqx() {
       -e "s|@@CA_FILE@@|$CERT_DIR/rootCA.pem|g" \
       -e "s|@@HOOK_URL@@|https://127.0.0.1:$API_PORT/api/ingest/v1/mqtt-auth|g" \
       -e "s|@@ACL_FILE@@|$acl|g" \
+      -e "s|@@API_KEY_FILE@@|$keyfile|g" \
       "$tpl/emqx.conf.template" > "$conf"
   if grep -qE '@@[A-Z_]+@@' "$conf"; then die "unrendered EMQX template token: $(grep -oE '@@[A-Z_]+@@' "$conf" | sort -u | tr '\n' ' ')"; fi
   cp "$tpl/acl.conf" "$acl"
-  chown "$DIGILOG_USER:$DIGILOG_USER" "$conf" "$acl"
+  # A credential: 0640, readable by the broker's user only.
+  ( umask 027; sed -e "s|@@EMQX_API_KEY@@|$apikey|g" -e "s|@@EMQX_API_SECRET@@|$apisecret|g" \
+      "$tpl/api_key.bootstrap.template" > "$keyfile" )
+  if grep -qE '@@[A-Z_]+@@' "$keyfile"; then die "unrendered token in api_key.bootstrap.template"; fi
+  chmod 0640 "$keyfile"
+  chown "$DIGILOG_USER:$DIGILOG_USER" "$conf" "$acl" "$keyfile"
   install -d -m 0750 -o "$DIGILOG_USER" -g "$DIGILOG_USER" "$DATA/emqx"
   log "Rendered $conf and $acl"
 }
