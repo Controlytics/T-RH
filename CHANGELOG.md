@@ -1,5 +1,92 @@
 # Changelog
 
+## [Unreleased] - Application review 2026-10-12: every finding fixed (2026-10-12)
+
+Operator: "review the entire application and find the bugs" then "fix all of
+them". Findings: `docs/audit/2026-10-12-application-review.md`. Fixed by six
+area fixers in isolated worktrees (own test database each), merged into
+`data-layer`; each fix proved by a test that failed first. Operator decisions
+taken on the way: a device re-sending an old timestamp may still overwrite the
+reading but every value change is AUDITED; audit hard delete is an on/off
+TOGGLE in Configuration, default OFF.
+
+**Migrations (3, all hand-authored):**
+`20261012120000_audit_chain_counter` (one-row `audit_chain_counter`; chain
+positions are allocated inside the writing transaction, so a rolled-back audit
+insert no longer leaves a gap that verify-chain reports as a deletion),
+`20261012140000_notification_type_alarm_events` (`NotificationType` gains
+`ALARM_RAISED` / `ALARM_CLEARED` — in-app alarm notifications from rules were
+never stored), `20261012140100_notification_dedup_key_index`. Counts: audit
+actions 89 → 98, templates 102 → 111, reauth actions 55 → 56, config defs
+35 → 36, graphile tasks 6 → 7; models/enums 37/13 unchanged.
+
+**Highest-severity fixes**
+- Draw scripts kept room temperature/humidity limits only by accident of
+  nothing being set: they now carry them by room code, redraw a plan in ONE
+  transaction, refuse duplicate codes and print the limits in the dry run.
+- Alarm webhooks could reach the EC2 metadata service (SSRF): link-local,
+  loopback and unspecified addresses are refused at save and at send, after
+  DNS resolution, connecting only to the checked address. Same guard on the
+  SMS HTTP gateway.
+- Cron and on-ingest alarm passes ran concurrently and could clear a live
+  alarm on a stale reading: one serial graphile queue for both, open-alarm sets
+  read before the overview.
+- Approving an admin request skipped the USER_* permissions and re-auth.
+- LDAP test-connection sent the stored bind password to any host named in
+  the request.
+- Notification Rules page never listed saved rules (`{data,total}` read as an
+  array).
+- Attribute Fill/Add and New Instrument attributes never sent the password.
+- Report approvals and their audit row were separate transactions; downloads
+  now fail closed when the REQUESTED attestation is missing.
+- A device overwriting a stored reading left no trace: now
+  `TELEMETRY_READING_REWRITTEN` per changed value (identical resends write
+  nothing).
+- The Linux `.deb` had never built on CI (tsc before `prisma generate`).
+
+**Also fixed (selection):** reset/unlock no longer re-enable DISABLED
+accounts; user status only via enable/disable; system roles undeletable;
+role/scope/attribute-access/panel/dashboard-layout/user-config edits refused
+on your own role and on equal-or-higher levels; scope grants must sit inside
+the caller's own scope; SUPER_ADMIN matched by name, no role at its level;
+login checks the password before revealing account state, LDAP errors
+generic; LDAP mapping = highest-privilege match wins. Alarm recipients need
+ALARM_READ and instrument visibility; cooldown per rule+event+instrument;
+email/SMS retries durable (`notification_retry`, boot reconciliation);
+webhook/SMS secrets masked (mask-means-keep on save); webhook audit rows
+complete; limit pass gated on active + reporting; acknowledge is one
+transaction. Restore runs the live chain verifier on the archive; redacted
+rows checked against their meta row (`REDACTION_MISMATCH`); deletion and
+redaction records can be neither hard-deleted nor redacted; config writes
+validated against each def's type/min/max and audited in the same
+transaction; MKT underflow guarded; Reports page uses server `canDecide`.
+Revoked instruments: WS/TCP sockets closed (4403), MQTT sessions dropped via
+the EMQX REST API (`EMQX_API_KEY/SECRET/URL`, provisioned by both
+installers); all-null payloads no longer count as "reporting"; a batch with
+one too-old block stores the rest (flat too-old reading → 422
+`TIMESTAMP_OUT_OF_RANGE`, not 503 forever); gateway target scoped; bulk CSV
+applies the attribute gate. Floorplans: FL membership PUT only touches
+instruments the caller sees; doors/openings re-indexed when an outline
+changes; plan PUT has an `updatedAt` check (409 `STALE`); merge is one
+server operation; link deletions audited; dashboard floor and FL tree
+readable (scoped) without CONFIG_READ. Web: every date picker uses the
+configured timezone; cancelling a password dialog is silent everywhere
+(enforced by a source-scan test); Settings re-save no longer writes
+before==after rows.
+
+**Dependencies:** fastify 5.12.5, adm-zip 0.6.1, sanitize-html 2.18.0,
+nodemailer 10.1.0 (own types; `@types/nodemailer` removed). `TRUST_PROXY`
+now takes true/false or a proxy IP/CIDR list; a bare hop count refuses to
+start (fastify removed hop-count trust as the spoofing fix). Left: build-time
+advisories (tar / node-pre-gyp via bcrypt, Prisma 6 via @prisma/config —
+needs Prisma 7) and exceljs/uuid (only "fix" is a downgrade).
+
+**Deploy:** `deploy-on-ubuntu.sh` now builds into `dist.new` BEFORE
+migrating and swaps after, so a failed compile leaves the old build on the
+old schema. AWS needs the three migrations (applied by the deploy), the EMQX
+API key provisioned (`digilog_provision_emqx`) for the MQTT kick, and the
+five draw scripts — safe to run now.
+
 ## [Unreleased] - Swagger: the intro text describes this application (2026-10-07)
 
 Operator: "fix the swagger intro text". `apps/api/src/lib/swagger.ts` still

@@ -171,9 +171,10 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   Only `compliance_core_db` + `compliance_core_db_test` exist — **no TimescaleDB,
   no `digilog_tsdb`**. The test database is migrated **separately**; a migration
   applied to only one of them makes every instrument-touching e2e 500.
-- **Permissions:** **44** constants, **55** reauth actions in **8** categories,
+- **Permissions:** **44** constants, **56** reauth actions in **8** categories,
   **14** sidebar items (`grep -cE` against `permissions.ts` / `reauth-actions.ts`
-  / `sidebar-items.ts`). 50 → 55 reauth actions (2026-10-05, audit SEC-7):
+  / `sidebar-items.ts`). 55 → 56 reauth actions (2026-10-12): `UPDATE_AUDIT_HARD_DELETE`
+  under `Configuration`, gating the new Audit Hard Delete toggle. Earlier 50 → 55 reauth actions (2026-10-05, audit SEC-7):
   `CREATE_INSTRUMENT` / `UPDATE_INSTRUMENT` / `DELETE_INSTRUMENT` /
   `UPDATE_INSTRUMENT_PROFILE` / `DELETE_INSTRUMENT_PROFILE` under the EXISTING
   `Configuration` category, gating the five registry mutations; ships OFF like
@@ -195,8 +196,13 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   downloads; no permission or sidebar item was added for it.
   The "102 / 83 / 92 / 26" this file carried for months was upstream DigiLog's and
   was never true here.
-- **Audit registries:** **89** audit actions, **102** audit templates in **7**
-  categories (106 → 89 / 100 → 102 on 2026-10-05, audit DATA-10: the 11 actions
+- **Audit registries:** **98** audit actions, **111** audit templates in **7**
+  categories (89 → 98 / 102 → 111 on 2026-10-12, the application-review fixes:
+  `TELEMETRY_READING_REWRITTEN` (a SYSTEM action — a device overwrote a stored
+  reading with a different value), `LDAP_CONNECTION_TESTED`, and seven for the
+  parked dashboards module — `DASHBOARD_UPDATED` / `DELETED` / `WIDGET_CREATED` /
+  `WIDGET_UPDATED` / `WIDGET_DELETED` / `ASSIGNED` / `UNASSIGNED`; categories
+  unchanged). Earlier (106 → 89 / 100 → 102 on 2026-10-05, audit DATA-10: the 11 actions
   written but never registered — `AUDIT_RECORD_REDACTED`,
   `AUDIT_RECORDS_BULK_REDACTED`, `ROLE_CREATED/UPDATED/DELETED`,
   `ADMIN_REQUEST_SUBMITTED`, `LDAP_CONFIG_UPDATED`,
@@ -222,7 +228,10 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   re-derived by the two greps in the verification block). Earlier: **97** / **91** in **7**
   categories. 93 → 97 / 87 → 91 (2026-08-27): create / update / delete / test
   for alarm webhook targets; categories unchanged.
-- **Config:** **35** definitions (`config/defs/*.def.ts`) + auto-discovery (34 → 35 on
+- **Config:** **36** definitions (`config/defs/*.def.ts`) + auto-discovery (35 → 36 on
+  2026-10-12: `audit-hard-delete.def.ts` — the on/off toggle that replaced the
+  `AUDIT_HARD_DELETE_ENABLED` env var, default OFF, SUPER_ADMIN card, dynamic page,
+  page count unchanged. 34 → 35 on
   2026-10-05: `telemetry-retention.def.ts` — the partition schedule the worker
   had read for months with NO def behind it (audit DATA-9); SUPER_ADMIN card,
   dynamic page, page count unchanged. 33 → 34 on
@@ -260,7 +269,7 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
 - **Frontend:** **53** `<Route`s in `main.tsx` (52 → 53, 2026-10-01: `/config/report-settings`; 53 → 52, 2026-09-19: `/home`, the
   Module Guide, removed with the `home` sidebar item; a `/config/attribute-labels` route existed for a few hours on 2026-09-16 and was removed the same day — unchanged; 52 → 53, 2026-09-08: `/settings`; 51 → 52, 2026-09-07: `/reports`; 50 → 51 the same day: `/data-report`) (51 → 50, 2026-08-31: `/config/alarm-rules` removed with the rule feature) (50 → 51, 2026-08-29: `/config/export-options`, a page that had a config def and a dashboard card but no route, so it was unreachable. Earlier 49 → 50, 2026-08-27:
   `/config/alarm-webhooks`).
-- **Queue backend:** graphile-worker (Postgres-backed), **6** tasks.
+- **Queue backend:** graphile-worker (Postgres-backed), **7** tasks (6 → 7 on 2026-10-12: `notification_retry`, the durable email/SMS retry, event-driven, no crontab line).
 - **Tenancy:** single-tenant, single-site. JWT `scope` always stamps `GLOBAL`.
 - **Themes:** 10 preset colour themes.
 

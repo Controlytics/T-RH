@@ -25,7 +25,7 @@ live instrument monitoring with alarms.
 | Database | PostgreSQL 18 via Prisma 6 — **37 models, 13 enums** (re-derived 2026-10-05) |
 | Frontend | React 19, Vite 6, React Router 7, SWR, Tailwind v4 |
 | Auth | JWT (`jose`, HS256, 1h default) + bcrypt; session table; single-tab enforcement |
-| Jobs | graphile-worker on Postgres — **6 tasks**. No Redis. |
+| Jobs | graphile-worker on Postgres — **7 tasks**. No Redis. |
 | Ingest | MQTT (EMQX 5.3.2), WebSocket, raw TCP, HTTP POST |
 | Reports | jsPDF + exceljs, client-side |
 | Deployment | Windows services (WinSW) + Inno Setup. No containers. |

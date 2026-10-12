@@ -67,7 +67,7 @@ that assumes any of those is describing upstream DigiLog, not this repository.
         │                                       ▲
         │  in-app notifications                 │
         └───────────────────────────┌───────────┴──────────────────────┐
-                                    │ graphile-worker (6 tasks)        │
+                                    │ graphile-worker (7 tasks)        │
                                     │  notification                    │
                                     │  password_expiry_check      cron │
                                     │  session_sweep              cron │

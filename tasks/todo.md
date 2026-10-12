@@ -97,12 +97,12 @@ MEDIUM/LOW sweeps (per module, after the HIGHs):
 
 ## 2026-10-12 — fix every finding in docs/audit/2026-10-12-application-review.md
 Six fixers in worktrees (own test DB each: compliance_core_db_test_{auth,alarms,audit,ingest,floor}); lead merges, owns registries/CHANGELOG/counts, then deps + full test run + deploy.
-- [ ] Floorplans/FL/draw scripts (item 1 first: room limits carried)
-- [ ] Alarms/notifications/webhooks (items 2, 3 + mediums)
-- [ ] Auth/users/roles/LDAP (items 4, 5 + mediums, SEC-8)
-- [ ] Audit/reports/config/backup (item 8 + mediums; hard-delete default = operator decision)
-- [ ] Instruments/ingest (item 9 = operator decision + mediums)
-- [ ] Web outside floorplans (items 6, 7 + mediums)
-- [ ] Lead: build-deb prisma generate, deploy rollback ordering, bat text, doc drift
+- [x] Floorplans/FL/draw scripts (item 1 first: room limits carried)
+- [x] Alarms/notifications/webhooks (items 2, 3 + mediums)
+- [x] Auth/users/roles/LDAP (items 4, 5 + mediums, SEC-8)
+- [x] Audit/reports/config/backup (item 8 + mediums; hard-delete default = operator decision)
+- [x] Instruments/ingest (item 9 = operator decision + mediums)
+- [x] Web outside floorplans (items 6, 7 + mediums)
+- [x] Lead: build-deb prisma generate, deploy rollback ordering, bat text, doc drift
 - [ ] Lead: deps (fastify, adm-zip, sanitize-html, nodemailer), full serial test run, CHANGELOG, counts
 - [ ] Deploy to AWS; hand operator the post-deploy writes

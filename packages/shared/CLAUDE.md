@@ -60,8 +60,8 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 
 > **The per-file counts in the table below are inherited from upstream DigiLog and were
 > NEVER true in this fork.** Verified by `grep` 2026-08-27, the real numbers are
-> **44** permission constants, **45** feature privileges, **55** reauth actions in
-> **8** categories, **89** audit actions, **102** audit templates in **7**
+> **44** permission constants, **45** feature privileges, **56** reauth actions in
+> **8** categories, **98** audit actions, **111** audit templates in **7**
 > categories (103 → 106 / 97 → 100 on 2026-09-22: `FLOORPLAN_LINK_CREATED` /
 > `UPDATED` / `DELETED`, the Layout Designer's room links; `{room}` carries
 > "A ↔ B", no new placeholder). Earlier **103** / **97** in **7**
@@ -123,13 +123,13 @@ someone may be using was not part of that change.
 |---|---|
 | `permissions.ts` | **44** permission constants (`grep -cE "^\s+[A-Z_]+:\s*'"`) |
 | `feature-privileges.ts` | **45** feature privileges + `FEATURE_TO_PERMISSION_MAP`, DERIVED from `PERMISSION_TREE` (`legacy-maps-derived.test.ts` pins 45) |
-| `reauth-actions.ts` | **55** reauth actions in **8** categories (`grep -cE "^\s+[A-Z_]+:"`; `grep -oE "category: '[^']+'" \| sort -u \| wc -l`) |
+| `reauth-actions.ts` | **56** reauth actions in **8** categories (`grep -cE "^\s+[A-Z_]+:"`; `grep -oE "category: '[^']+'" \| sort -u \| wc -l`) |
 | `roles.ts` | Role constants + hierarchy + display labels; `defaultRoles` lives in `apps/api/prisma/default-roles.ts` |
 | `permission-categories.ts` | Permission grouping for the role-access UI |
 | `permission-tree.ts` | The single Sidebar→Page→Action catalog; derives `FEATURE_PRIVILEGES` / `FEATURE_TO_PERMISSION_MAP` / `SIDEBAR_PRIVILEGE_MAP`; `resolveNodeGate(nodeId)` feeds `useCan()` |
 | `sidebar-items.ts` | **14** sidebar items (`grep -c "id: '"`) |
 | `sidebar-privilege-map.ts` | Sidebar item → privilege binding, DERIVED from the tree's `visibilityPrivilegeIds` (**14** sections) |
-| `audit-actions.ts` | **89** audit action constants (`grep -cE "^\s+[A-Z_]+:\s*'"`) |
+| `audit-actions.ts` | **98** audit action constants (`grep -cE "^\s+[A-Z_]+:\s*'"`) |
 | `audit-templates.ts` | **102** templates in **7** categories (`grep -cE "^\s+[A-Z_]+:\s*\{"`, 2026-10-05 after that day's sweeps). A template using a NEW placeholder is **two** edits: the template here AND the substitution in `apps/web/src/routes/audit/audit-helpers.ts`, or it renders literally in the exported §11 record; `{targetName}` and `{actor}` are substituted generically. `template-placeholders.test.ts` is the check. |
 
 A "(historic) verified 2026-06-30" table stood here until 2026-10-05 with the upstream DigiLog

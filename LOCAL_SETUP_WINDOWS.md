@@ -1116,7 +1116,7 @@ compliance-core/
 │   │   ├── scripts/            # operational + one-shot scripts (one-shots carry a `// ONE-SHOT` header)
 │   │   └── src/
 │   │       ├── app.ts          # entry point; registers the 25 modules, ingest listeners, job runner
-│   │       ├── modules/        # 25 API modules (`ls | wc -l`, 2026-10-05); config/defs/ holds 35 config defs
+│   │       ├── modules/        # 25 API modules (`ls | wc -l`, 2026-10-05); config/defs/ holds 36 config defs
 │   │       ├── plugins/        # auth, rbac, cors, …
 │   │       ├── workers/        # the 6 graphile-worker tasks
 │   │       └── lib/            # audit hash chain, config discovery/registry, sanitize, …
@@ -1233,10 +1233,10 @@ npm install && npm run build -w @digilog/shared && npx turbo build --force
 ## 15. Architecture Summary
 
 - **Backend:** Fastify 5 + TypeScript (ESM) + Prisma 6 on PostgreSQL 18; graphile-worker
-  job queue in the same database (**6** tasks: `notification`,
+  job queue in the same database (**7** tasks: `notification`, `notification_retry`,
   `password_expiry_check`, `session_sweep`, `telemetry_partition_maintenance`,
   `alarm_evaluation`, `alarm_webhook` — the `taskList` in `apps/api/src/app.ts`,
-  2026-10-05). Instrument ingest over HTTP, WebSocket, raw TCP and MQTT (EMQX 5.3.2).
+  2026-10-12). Instrument ingest over HTTP, WebSocket, raw TCP and MQTT (EMQX 5.3.2).
 - **Frontend:** React 19 + Vite 6 + Tailwind v4 + SWR + React Router 7, served
   same-origin by the API in production.
 - **Domain:** 21 CFR Part 11 administration — users, roles, hash-chained audit trail,
