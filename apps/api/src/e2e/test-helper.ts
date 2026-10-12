@@ -28,6 +28,7 @@ import reportReviewRoutes from '../modules/report-reviews/routes.js';
 import floorplanRoutes from '../modules/floorplans/routes.js';
 import notificationRulesRoutes from '../modules/notification-rules/routes.js';
 import adminRequestRoutes from '../modules/admin-requests/routes.js';
+import ldapRoutes from '../modules/ldap/routes.js';
 import debugTraceRoutes from '../modules/debug-traces/routes.js';
 import { prisma } from '../lib/prisma.js';
 import { AppError, prismaErrorToResponse } from '../lib/errors.js';
@@ -139,6 +140,8 @@ export async function buildApp(
   // modules had zero HTTP-level coverage (audit finding H4).
   await app.register(notificationRulesRoutes, { prefix: '/api/notification-rules' });
   await app.register(adminRequestRoutes, { prefix: '/api/admin-requests' });
+  // Registered 2026-10-12: app.ts has it; without it every /api/ldap e2e 404s.
+  await app.register(ldapRoutes, { prefix: '/api/ldap' });
   await app.register(debugTraceRoutes, { prefix: '/api/debug/traces' });
 
   await app.ready();

@@ -144,13 +144,28 @@ export default function LdapConfigPage() {
     if (!validate()) { setTestResult({ success: false, message: 'Correct the highlighted fields.' }); return; }
     setTesting(true);
     setTestResult(null);
-    try {
-      const result = await apiClient.post<{ success: boolean; message: string }>('/api/ldap/test-connection', config);
-      setTestResult(result);
-    } catch (e: any) {
-      setTestResult({ success: false, message: e.message || 'Test failed' });
-    }
-    setTesting(false);
+    // A test binds with the service-account credential, so the server gates it
+    // with the same e-signature as saving (UPDATE_LDAP_CONFIG), and refuses a
+    // changed server URL / bind DN that brings no password of its own — the
+    // stored one is only ever used against the stored target (application
+    // review 2026-10-12, finding 2). The `********` mask is sent as-is: the
+    // server reads it as "the saved password" for the saved target.
+    reauth.execute(
+      'UPDATE_LDAP_CONFIG',
+      async (password?: string) => {
+        const result = password
+          ? await apiClient.postWithReauth<{ success: boolean; message: string }>('/api/ldap/test-connection', config, password)
+          : await apiClient.post<{ success: boolean; message: string }>('/api/ldap/test-connection', config);
+        setTestResult(result);
+      },
+      {
+        onSuccess: () => setTesting(false),
+        onError: (e: any) => {
+          setTestResult({ success: false, message: e.message || 'Test failed' });
+          setTesting(false);
+        },
+      },
+    );
   };
 
   const addRoleMapping = () => {

@@ -429,6 +429,12 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'LDAP configuration updated by {actor}',
     placeholders: ['actor'],
   },
+  LDAP_CONNECTION_TESTED: {
+    label: 'LDAP Connection Tested',
+    category: 'Configuration',
+    template: 'LDAP connection tested by {actor}',
+    placeholders: ['actor'],
+  },
   UPDATE_EMAIL_CONFIG: {
     label: 'Email Settings Updated',
     category: 'Configuration',

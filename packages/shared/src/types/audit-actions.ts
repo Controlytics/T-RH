@@ -95,6 +95,9 @@ export const AUDIT_ACTIONS = {
 
   // Directory and super-admin configuration
   LDAP_CONFIG_UPDATED: 'LDAP_CONFIG_UPDATED',
+  // A bind attempt with the stored or a typed service-account credential
+  // (application review 2026-10-12, finding 2) — recorded, never the secret.
+  LDAP_CONNECTION_TESTED: 'LDAP_CONNECTION_TESTED',
   SUPER_ADMIN_API_ACCESS_CHANGED: 'SUPER_ADMIN_API_ACCESS_CHANGED',
 
   // Notification delivery configuration (SMTP / SMS). The names are the
