@@ -2,22 +2,38 @@
  * Notification Dispatcher — Central service that matches events to notification rules,
  * resolves recipients, and dispatches via the delivery service.
  */
+import { NotificationType } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { sendNotification } from './delivery.service.js';
 import { resolveTemplate } from './template-engine.js';
 import { formatConfiguredDateTime } from '../../lib/format-datetime.js';
 import { logger } from '../../lib/logger.js';
+import { roleHasPermission } from '../../plugins/rbac.js';
+import { resolveVisibility } from '../instruments/visibility.js';
+import { claimCooldown, releaseCooldown, cooldownKey } from './cooldown.js';
 
 interface DispatchEvent {
   eventType: string;
   context: Record<string, unknown>;
   variables: Record<string, string>;
   forceRuleId?: string; // For testing a specific rule
+  /**
+   * Identity of THIS delivery of THIS event, stable across retries — the
+   * notification worker passes `job:<graphile job id>` (audit 2026-10-12 #9).
+   * Every log row / in-app row written for the event carries it; a retry skips
+   * any (rule, channel, recipient) that already has one, so a job retried after a
+   * later rule failed does not re-send to the recipients an earlier rule reached.
+   * Absent for the direct (un-queued) callers, which are never retried.
+   */
+  dedupKey?: string;
 }
 
-// Cooldown tracking (in-memory, per rule)
-// TODO: Move cooldown tracking to Redis for cross-instance consistency
-const cooldownMap = new Map<string, number>();
+function inAppStorable(eventType: string): boolean {
+  return Object.prototype.hasOwnProperty.call(NotificationType, eventType);
+}
+
+/** Variables the callers pass as UTC ISO that must print in the configured zone. */
+const TIME_VARIABLES = ['timestamp', 'raisedAt', 'clearedAt', 'inactiveSince'] as const;
 
 /**
  * Main dispatcher: find matching rules, resolve recipients, send notifications.
@@ -26,12 +42,18 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
   // [Dispatcher] event received
   const { eventType, context, variables, forceRuleId } = event;
 
-  // Normalize the `timestamp` variable (callers pass UTC ISO) to the configured
+  const { dedupKey } = event;
+
+  // Normalize the time variables (callers pass UTC ISO) to the configured
   // timezone/format — IST by default — so every rendered email/SMS/in-app shows
   // local time, not raw UTC. Leaves non-parseable pre-formatted values untouched.
-  if (variables.timestamp) {
-    const formatted = await formatConfiguredDateTime(variables.timestamp);
-    if (formatted) variables.timestamp = formatted;
+  // `raisedAt` joined `timestamp` 2026-10-12 (#12): the ALARM_CLEARED email printed
+  // "Raised At 2026-10-12T04:00:00.000Z" beside a "Time" in IST.
+  for (const key of TIME_VARIABLES) {
+    const raw = variables[key];
+    if (!raw || !/^\d{4}-\d{2}-\d{2}T/.test(raw)) continue;
+    const formatted = await formatConfiguredDateTime(raw);
+    if (formatted) variables[key] = formatted;
   }
 
   // Build eventLabel, summary, and dynamic details HTML based on event type
@@ -87,116 +109,168 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
   });
   // [Dispatcher] rules matched
 
+  // What this event has ALREADY delivered, on an earlier attempt of the same job
+  // (#9). Any row counts, whatever its status: a RETRYING/FAILED row has its own
+  // durable retry chain, and a second row would be a second message.
+  const done = new Set<string>();
+  if (dedupKey) {
+    const [logs, inApp] = await Promise.all([
+      prisma.notificationLog.findMany({
+        where: { metadata: { path: ['dedupKey'], equals: dedupKey } },
+        select: { channel: true, recipient: true, metadata: true },
+      }),
+      prisma.notification.findMany({
+        where: { metadata: { path: ['dedupKey'], equals: dedupKey } },
+        select: { forUserId: true, metadata: true },
+      }),
+    ]);
+    for (const l of logs) done.add(`${(l.metadata as { ruleId?: string } | null)?.ruleId}|${l.channel}|${l.recipient}`);
+    for (const n of inApp) done.add(`${(n.metadata as { ruleId?: string } | null)?.ruleId}|INAPP|${n.forUserId}`);
+  }
+
+  // A fault in one rule (or one recipient) must not cost the others their
+  // message; it is collected and re-thrown AFTER every rule has been tried, so the
+  // notification job is retried — and the dedup set above keeps that retry from
+  // re-sending what this attempt already delivered.
+  const failures: unknown[] = [];
+
   for (const rule of rules) {
-    // Check cooldown
-    if (!forceRuleId && rule.cooldownMinutes > 0) {
-      const lastFired = cooldownMap.get(rule.id) ?? 0;
-      const cooldownMs = rule.cooldownMinutes * 60 * 1000;
-      if (Date.now() - lastFired < cooldownMs) continue;
-    }
-
-    // Evaluate conditions
-    if (!forceRuleId && !matchConditions(rule.conditions as Record<string, unknown>, context)) {
-      continue;
-    }
-
-    // Resolve recipients to user list
-    const users = await resolveRecipients(rule.recipients);
-    // [Dispatcher] recipients resolved
-    if (users.length === 0) continue;
-
-    // Update cooldown
-    cooldownMap.set(rule.id, Date.now());
-
-    // Load templates: use rule's configured template if set, otherwise event-specific defaults
-    let emailTemplate: { subject: string; bodyTemplate: string } | null = null;
-    let smsTemplate: { bodyTemplate: string } | null = null;
-
-    if (rule.emailEnabled && rule.emailTemplateId) {
-      const t = await prisma.notificationTemplate.findUnique({ where: { id: rule.emailTemplateId } });
-      if (t) emailTemplate = { subject: t.subject ?? '', bodyTemplate: t.bodyTemplate };
-    }
-    if (rule.smsEnabled && rule.smsTemplateId) {
-      const t = await prisma.notificationTemplate.findUnique({ where: { id: rule.smsTemplateId } });
-      if (t) smsTemplate = { bodyTemplate: t.bodyTemplate };
-    }
-
-    // Fall back to event-specific defaults if no DB template configured
-    if (rule.emailEnabled && !emailTemplate) {
-      emailTemplate = getDefaultEmailTemplate(eventType);
-    }
-    if (rule.smsEnabled && !smsTemplate) {
-      smsTemplate = getDefaultSmsTemplate(eventType);
-    }
-
-    // Batch-fetch phone and telegram configs for all recipients
-    const userIds = users.map(u => u.id);
-    const configKeys = userIds.flatMap(id => [`user-phone-${id}`, `user-telegram-${id}`]);
-    const allConfigs = configKeys.length > 0 ? await prisma.systemConfig.findMany({
-      where: { configKey: { in: configKeys } },
-    }) : [];
-    const configMap = new Map(allConfigs.map(c => [c.configKey, c.configValue]));
-
-    // Dispatch to each user
-    for (const user of users) {
-      const userVars = { ...variables, recipientName: user.fullName, recipientEmail: user.email ?? '' };
-
-      // Email
-      if (rule.emailEnabled && emailTemplate && user.email) {
-        const subject = resolveTemplate(emailTemplate.subject, userVars);
-        const body = resolveTemplate(emailTemplate.bodyTemplate, userVars);
-        // [Dispatcher] sending email
-        sendNotification({
-          channel: 'EMAIL',
-          recipient: user.email,
-          subject,
-          message: body,
-          triggeredBy: 'notification-rule',
-          metadata: { ruleName: rule.name, eventType, userId: user.id, ruleId: rule.id },
-        }).catch(err => logger.error(`[Dispatcher] Email to ${user.email} failed:`, err.message));
+    try {
+      // Evaluate conditions
+      if (!forceRuleId && !matchConditions(rule.conditions as Record<string, unknown>, context)) {
+        continue;
       }
 
-      // SMS
-      if (rule.smsEnabled && smsTemplate) {
-        const phone = (configMap.get(`user-phone-${user.id}`) as any)?.phone;
-        // [Dispatcher] checking SMS for user
-        if (phone) {
-          const body = resolveTemplate(smsTemplate.bodyTemplate, userVars);
-          // [Dispatcher] sending SMS
-          sendNotification({
-            channel: 'SMS',
-            recipient: phone,
-            message: body,
-            triggeredBy: 'notification-rule',
-            metadata: { ruleName: rule.name, eventType, userId: user.id, ruleId: rule.id },
-          }).catch(err => logger.error(`[Dispatcher] SMS to ${phone} failed:`, err.message));
+      // Resolve recipients to user list — scoped for alarm events (#5).
+      const users = await resolveRecipients(rule.recipients, eventType, context);
+      // [Dispatcher] recipients resolved
+      if (users.length === 0) continue;
+
+      // Cooldown per rule + instrument + event type, claimed now and handed back
+      // below if this event reached nobody (#4).
+      const cdKey = cooldownKey(rule.id, eventType, context.instrumentId);
+      const claimedAt = Date.now();
+      if (!forceRuleId && !claimCooldown(cdKey, rule.cooldownMinutes * 60 * 1000, claimedAt, dedupKey)) continue;
+      let reached = false;
+
+      // Load templates: use rule's configured template if set, otherwise event-specific defaults
+      let emailTemplate: { subject: string; bodyTemplate: string } | null = null;
+      let smsTemplate: { bodyTemplate: string } | null = null;
+
+      if (rule.emailEnabled && rule.emailTemplateId) {
+        const t = await prisma.notificationTemplate.findUnique({ where: { id: rule.emailTemplateId } });
+        if (t) emailTemplate = { subject: t.subject ?? '', bodyTemplate: t.bodyTemplate };
+      }
+      if (rule.smsEnabled && rule.smsTemplateId) {
+        const t = await prisma.notificationTemplate.findUnique({ where: { id: rule.smsTemplateId } });
+        if (t) smsTemplate = { bodyTemplate: t.bodyTemplate };
+      }
+
+      // Fall back to event-specific defaults if no DB template configured
+      if (rule.emailEnabled && !emailTemplate) {
+        emailTemplate = getDefaultEmailTemplate(eventType);
+      }
+      if (rule.smsEnabled && !smsTemplate) {
+        smsTemplate = getDefaultSmsTemplate(eventType);
+      }
+
+      // Batch-fetch phone and telegram configs for all recipients
+      const userIds = users.map(u => u.id);
+      const configKeys = userIds.flatMap(id => [`user-phone-${id}`, `user-telegram-${id}`]);
+      const allConfigs = configKeys.length > 0 ? await prisma.systemConfig.findMany({
+        where: { configKey: { in: configKeys } },
+      }) : [];
+      const configMap = new Map(allConfigs.map(c => [c.configKey, c.configValue]));
+
+      // Dispatch to each user. AWAITED (2026-10-12): the sends used to be fired and
+      // forgotten, so nothing knew whether the event reached anyone (needed to
+      // release the cooldown) and a throw could not make the job retry. Each send
+      // makes one attempt; a failed attempt is retried durably by delivery.service.
+      const meta = { ruleName: rule.name, eventType, ruleId: rule.id, ...(dedupKey ? { dedupKey } : {}) };
+      const sends: Promise<boolean>[] = [];
+      for (const user of users) {
+        const userVars = { ...variables, recipientName: user.fullName, recipientEmail: user.email ?? '' };
+
+        // Email
+        if (rule.emailEnabled && emailTemplate && user.email && !done.has(`${rule.id}|EMAIL|${user.email}`)) {
+          const tmpl = emailTemplate;
+          const email = user.email;
+          sends.push((async () => {
+            const subject = resolveTemplate(tmpl.subject, userVars);
+            const body = resolveTemplate(tmpl.bodyTemplate, userVars);
+            const r = await sendNotification({
+              channel: 'EMAIL', recipient: email, subject, message: body,
+              triggeredBy: 'notification-rule', metadata: { ...meta, userId: user.id },
+            });
+            return r.success;
+          })());
+        }
+
+        // SMS
+        if (rule.smsEnabled && smsTemplate) {
+          const phone = (configMap.get(`user-phone-${user.id}`) as any)?.phone as string | undefined;
+          if (phone && !done.has(`${rule.id}|SMS|${phone}`)) {
+            const tmpl = smsTemplate;
+            sends.push((async () => {
+              const body = resolveTemplate(tmpl.bodyTemplate, userVars);
+              const r = await sendNotification({
+                channel: 'SMS', recipient: phone, message: body,
+                triggeredBy: 'notification-rule', metadata: { ...meta, userId: user.id },
+              });
+              return r.success;
+            })());
+          }
+        }
+
+        // In-App. Only for an event the `notifications.type` enum can hold. KNOWN GAP
+        // (found 2026-10-12): NotificationType has no ALARM_RAISED / ALARM_CLEARED,
+        // so an in-app row for an alarm rule has ALWAYS failed at insert — the error
+        // used to be caught and logged per recipient, invisibly. It is now refused
+        // up front with one warning instead of failing the whole job on every
+        // attempt; making it work needs a migration adding the two enum values.
+        if (rule.inAppEnabled && !inAppStorable(eventType)) {
+          logger.warn(`[Dispatcher] rule "${rule.name}": in-app delivery is not available for ${eventType} (no such NotificationType); email/SMS unaffected`);
+        } else if (rule.inAppEnabled && !done.has(`${rule.id}|INAPP|${user.username}`)) {
+          sends.push((async () => {
+            const message = resolveTemplate(getDefaultInAppMessage(eventType), userVars);
+            await prisma.notification.create({
+              data: {
+                type: eventType as any,
+                title: rule.name,
+                message,
+                // forUserId is VarChar(50) and the visibility filter compares it
+                // against the caller's username — must be the username string,
+                // not the user UUID. See resolveRecipients() for the select.
+                forUserId: user.username,
+                metadata: { eventType, severity: mapEventToSeverity(eventType), ruleId: rule.id, ...(dedupKey ? { dedupKey } : {}) } as any,
+              },
+            });
+            return true;
+          })());
         }
       }
 
-      // In-App
-      if (rule.inAppEnabled) {
-        const message = resolveTemplate(
-          getDefaultInAppMessage(eventType),
-          userVars,
-        );
-        try {
-          await prisma.notification.create({
-            data: {
-              type: eventType as any,
-              title: rule.name,
-              message,
-              // forUserId is VarChar(50) and the visibility filter compares it
-              // against the caller's username — must be the username string,
-              // not the user UUID. See resolveRecipients() for the select.
-              forUserId: user.username,
-              metadata: { eventType, severity: mapEventToSeverity(eventType) } as any,
-            },
-          });
-        } catch (err: any) {
-          logger.error(`[Dispatcher] In-app notification for ${user.username} failed:`, err.message);
+      const results = await Promise.allSettled(sends);
+      for (const r of results) {
+        if (r.status === 'fulfilled') {
+          if (r.value) reached = true;
+        } else {
+          failures.push(r.reason);
+          logger.error(`[Dispatcher] rule "${rule.name}" send failed:`, r.reason instanceof Error ? r.reason.message : String(r.reason));
         }
       }
+      // Reached nobody: the window must not stand on a message never delivered (#4).
+      // Retries already scheduled may still deliver it; the next event is then simply
+      // not suppressed, which is the safe direction for an alarm.
+      if (!reached && !forceRuleId) releaseCooldown(cdKey, claimedAt);
+    } catch (err) {
+      failures.push(err);
+      logger.error(`[Dispatcher] rule "${rule.name}" failed:`, err instanceof Error ? err.message : String(err));
     }
+  }
+
+  if (failures.length > 0) {
+    throw new AggregateError(failures, `[Dispatcher] ${failures.length} failure(s) dispatching ${eventType}`);
   }
 }
 
@@ -204,7 +278,9 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
  * Resolve recipients from rules to actual user records.
  */
 async function resolveRecipients(
-  recipients: Array<{ recipientType: string; roleValue: string | null; groupId: string | null; userId: string | null }>
+  recipients: Array<{ recipientType: string; roleValue: string | null; groupId: string | null; userId: string | null }>,
+  eventType: string,
+  context: Record<string, unknown>,
 ): Promise<Array<{ id: string; username: string; email: string | null; fullName: string }>> {
   // Collect all user IDs first, then do a single batch fetch
   const allUserIds = new Set<string>();
@@ -248,10 +324,49 @@ async function resolveRecipients(
   // (notification.service.ts) matches against the caller's username.
   // Routing by `user.id` (UUID) silently drops every rule-driven in-app
   // notification.
-  return prisma.user.findMany({
+  const users = await prisma.user.findMany({
     where: { id: { in: Array.from(allUserIds) }, status: 'ENABLED' },
-    select: { id: true, username: true, email: true, fullName: true },
+    select: { id: true, username: true, email: true, fullName: true, role: true },
   });
+  return (await scopeToAlarm(users, eventType, context))
+    .map(({ role: _role, ...u }) => u);
+}
+
+/**
+ * An alarm notification goes only to someone who could see the alarm (audit
+ * 2026-10-12 #5). Recipients used to be filtered on ENABLED alone, so a role
+ * without ALARM_READ — or one scoped to Block A — was emailed every Block-B
+ * excursion: the instrument code, the reading and the condition, outside the
+ * scope the Alarms page enforces for the same person.
+ *
+ * The same two answers the Alarms page uses, from the same resolvers:
+ *  - ALARM_READ by `roleHasPermission` (the rule `requirePermission` applies,
+ *    including an inactive role holding nothing);
+ *  - the alarm's instrument within `resolveVisibility` for that user (the ONE
+ *    visibility resolver; its `userId` is the USERNAME).
+ * An alarm event with no instrument in its context (the rule test-fire) checks
+ * the permission only. Non-alarm events are unchanged.
+ */
+async function scopeToAlarm<T extends { username: string; role: string }>(
+  users: T[],
+  eventType: string,
+  context: Record<string, unknown>,
+): Promise<T[]> {
+  if (!eventType.startsWith('ALARM_')) return users;
+  const instrumentId = typeof context.instrumentId === 'string' && context.instrumentId ? context.instrumentId : null;
+  const out: T[] = [];
+  for (const u of users) {
+    if (!(await roleHasPermission(u.role, 'ALARM_READ'))) continue;
+    if (instrumentId) {
+      const { where } = await resolveVisibility({ userId: u.username, userRole: u.role });
+      if (where) {
+        const visible = await prisma.instrument.count({ where: { AND: [{ id: instrumentId }, where] } });
+        if (visible === 0) continue;
+      }
+    }
+    out.push(u);
+  }
+  return out;
 }
 
 /**
