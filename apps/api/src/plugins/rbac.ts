@@ -2,6 +2,11 @@ import fp from 'fastify-plugin';
 import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { hasEffectivePermission } from '@digilog/shared';
+// `req.user` is declared by the auth plugin's module augmentation. Type-only, no
+// runtime import: it makes this file compile on its own in a program (the
+// scripts' tsconfig) that reaches it without going through app.ts —
+// `roleHasPermission` is now used by the notification dispatcher (2026-10-12).
+import type {} from './auth.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
