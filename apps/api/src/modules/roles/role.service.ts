@@ -33,6 +33,11 @@ export async function assertRoleWithinCallerPrivilege(
   if (!caller) throw new AppError(403, 'FORBIDDEN', 'Your role is not recognized');
 
   if (target) {
+    // SUPER_ADMIN by NAME (application review 2026-10-12, finding 8): a legacy
+    // custom role numbered at or above it must still not reach it.
+    if (target.name === 'SUPER_ADMIN') {
+      throw new AppError(403, 'FORBIDDEN', 'You cannot modify a role at or above your own hierarchy level');
+    }
     if (target.name === ctx.userRole) {
       throw new AppError(403, 'FORBIDDEN', 'You cannot modify your own role');
     }
@@ -253,12 +258,6 @@ export const roleService = {
       { hierarchyLevel: parsed.data.hierarchyLevel, permissions: parsed.data.permissions },
       { name: existing.name, hierarchyLevel: (existing as any).hierarchyLevel, permissions: ((existing as any).permissions as string[]) ?? [] },
     );
-    // Only a CHANGE of level is checked, so a legacy row already above the
-    // ceiling can still have its label edited (the Roles page echoes the level).
-    if (parsed.data.hierarchyLevel !== existing.hierarchyLevel) {
-      await assertBelowSuperAdmin(parsed.data.hierarchyLevel, existing.name);
-    }
-
     const { reason: rawReason, ...fields } = parsed.data;
     const existingPerms = ((existing as any).permissions as string[]) ?? [];
 
@@ -290,6 +289,13 @@ export const roleService = {
       }
       delete fields.hierarchyLevel;
       delete fields.isActive;
+    }
+
+    // After the system-role refusal (a system role's level never changes).
+    // Only a CHANGE of level is checked, so a legacy row already above the
+    // ceiling can still have its label edited (the Roles page echoes the level).
+    if (fields.hierarchyLevel !== undefined && fields.hierarchyLevel !== existing.hierarchyLevel) {
+      await assertBelowSuperAdmin(fields.hierarchyLevel, existing.name);
     }
 
     const deactivating = fields.isActive === false && existing.isActive === true;
@@ -349,6 +355,18 @@ export const roleService = {
       throw new NotFoundError('Role not found');
     }
     const reason = rawReason?.trim() || undefined;
+
+    // Application review 2026-10-12, finding 5. A SYSTEM role is never
+    // deleted — by anyone; the seed and the code name them. And the same
+    // privilege rule as update: not your own role, not one at or above your
+    // level (SUPER_ADMIN exempt). Until then only "has users" stopped a
+    // ROLE_MANAGE holder deleting ADMIN, its own role, or any role above it.
+    if (existing.isSystem) {
+      throw new AppError(403, 'FORBIDDEN', `${existing.name} is a system role and cannot be deleted`);
+    }
+    await assertRoleWithinCallerPrivilege(ctx, {}, {
+      name: existing.name, hierarchyLevel: existing.hierarchyLevel, permissions: [],
+    });
 
     // Count, delete and audit row in ONE transaction (API-7, API-20): the
     // repository counts immediately before the delete and throws

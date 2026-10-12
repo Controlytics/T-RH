@@ -32,7 +32,7 @@ const {
   mockIsReauthRequired: vi.fn(),
   mockGetDefaultTemplates: vi.fn(),
   mockValidateUserId: vi.fn(),
-  mockPrisma: { role: { findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() } },
+  mockPrisma: { role: { findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() }, $transaction: vi.fn() },
 }));
 
 vi.mock('../config.repository.js', () => ({ configRepository: mockConfigRepo }));
@@ -153,7 +153,11 @@ describe('configService', () => {
   describe('updateRoleConfig — sidebar ↔ permission link', () => {
     // The role must EXIST (audit 2026-10-03, API-20): a name with no role row
     // is a 404, not a fresh orphan `role_configs` row.
-    beforeEach(() => { mockPrisma.role.findUnique.mockResolvedValue({ name: 'QA' }); });
+    beforeEach(() => {
+      mockPrisma.role.findUnique.mockResolvedValue({ name: 'QA' });
+      // The save runs config row + role permissions + audit row in one transaction.
+      mockPrisma.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(mockPrisma));
+    });
 
     it('404s for a role that does not exist and writes nothing', async () => {
       mockPrisma.role.findUnique.mockResolvedValue(null);
