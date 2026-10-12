@@ -36,6 +36,7 @@ import {
   isMktEnabled, mktFromExpMean,
 } from '@digilog/shared';
 import { invalidateIngestAuthCache } from './ingest-auth.js';
+import { kickMqttClient } from './broker-kick.js';
 import { invalidateChildMapCache } from './gateway-children.js';
 import {
   gatewayInvariantError, lockedGatewayRecheck, lockInstrumentRows, isDeadlock,
@@ -1949,6 +1950,14 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // read at resolution time.
     invalidateIngestAuthCache(id);
 
+    // ...and an OPEN MQTT session must be dropped at the broker too (audit
+    // 2026-10-12): EMQX asks the auth hook only at CONNECT. A rename kicks the
+    // OLD client id — which is also what stops that device's messages being
+    // attributed to whichever instrument is later given the old code — and a
+    // deactivation kicks the current one. Best effort, never throws.
+    if (priorCode !== null && priorCode !== updated.code) await kickMqttClient(priorCode, 'instrument code changed');
+    if (existing.isActive && !updated.isActive) await kickMqttClient(updated.code, 'instrument deactivated');
+
     // BOTH sides of a move: left to the 10s TTL a just-unlinked child stays
     // writable by its former gateway. The old parent is invalidated on EVERY
     // update, not only a re-link, because the cached child map also carries
@@ -2054,6 +2063,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     });
 
     invalidateIngestAuthCache(id);
+    // Its open MQTT session, if any, is dropped at the broker (see PUT).
+    await kickMqttClient(existing.code, 'instrument deleted');
     // The deleted row's own child map, and — if it was itself a child — its
     // former parent's, which still lists it.
     invalidateChildMapCache(id);
@@ -2138,6 +2149,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // Without this the OLD token keeps authenticating for up to the cache TTL,
     // which would make "revoked immediately" untrue.
     invalidateIngestAuthCache(id);
+    // A session already open on the OLD token is dropped at the broker; the
+    // reconnect is judged against the new one (see PUT).
+    await kickMqttClient(existing.code, 'access token regenerated');
 
     return { token, tokenPrefix: tokenPrefix(token) };
   });
@@ -2382,6 +2396,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // for up to the 10s cache TTL, which would make "the previous token is
     // revoked" untrue for exactly as long as it takes to notice.
     invalidateIngestAuthCache(id);
+    await kickMqttClient(existing.code, 'access token replaced');
 
     return { tokenPrefix: prefix };
   });
