@@ -2,6 +2,8 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import { ATTRIBUTE_ACCESS_MODES, type AttributeAccessMode } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAttributeLabels } from '@/hooks/use-attribute-labels';
 import { Button } from '@/components/ui/button';
@@ -38,6 +40,7 @@ interface RoleAccess {
 export function AttributeAccessTab() {
   const { toast } = useToast();
   const { labelFor } = useAttributeLabels();
+  const reauth = useReauth();
   const { data, mutate } = useSWR<{ roles: RoleAccess[]; availableKeys: string[] }>(
     '/api/roles/attribute-access',
   );
@@ -54,25 +57,36 @@ export function AttributeAccessTab() {
   const edit = (role: string, patch: Partial<RoleAccess>) =>
     setDraft((d) => ({ ...d, [role]: { ...(d[role] ?? {}), ...patch } }));
 
-  const save = async (r: RoleAccess) => {
+  // Through `reauth.execute` (audit 2026-10-12, finding 5): the server
+  // re-authenticates this PUT as UPDATE_ROLE_CONFIG. `saving` is cleared only by
+  // the three outcomes; `execute` returns while the dialog is still open.
+  const save = (r: RoleAccess) => {
     const next = current(r);
+    const url = `/api/roles/attribute-access/${encodeURIComponent(r.role)}`;
+    const body = {
+      mode: next.mode,
+      // Sent even in ALL_EDIT / ALL_VIEW so a role switched back to SELECTED
+      // does not silently reappear with the keys it had a month ago.
+      keys: next.mode === 'SELECTED' ? next.keys : [],
+      requireReauth: next.requireReauth,
+    };
     setSaving(r.role);
-    try {
-      await apiClient.put(`/api/roles/attribute-access/${encodeURIComponent(r.role)}`, {
-        mode: next.mode,
-        // Sent even in ALL_EDIT / ALL_VIEW so a role switched back to SELECTED
-        // does not silently reappear with the keys it had a month ago.
-        keys: next.mode === 'SELECTED' ? next.keys : [],
-        requireReauth: next.requireReauth,
-      });
-      setDraft((d) => { const { [r.role]: _drop, ...rest } = d; return rest; });
-      await mutate();
-      toast.success('Attribute access saved', `"${r.role}" updated.`);
-    } catch (e) {
-      toast.error('Could not save', (e as Error)?.message ?? 'The change was not saved.');
-    } finally {
-      setSaving(null);
-    }
+    void reauth.execute('UPDATE_ROLE_CONFIG', async (password?: string) => {
+      if (password) await apiClient.putWithReauth(url, body, password);
+      else await apiClient.put(url, body);
+    }, {
+      onSuccess: async () => {
+        setDraft((d) => { const { [r.role]: _drop, ...rest } = d; return rest; });
+        setSaving(null);
+        await mutate();
+        toast.success('Attribute access saved', `"${r.role}" updated.`);
+      },
+      onError: (e) => {
+        toast.error('Could not save', (e as Error)?.message ?? 'The change was not saved.');
+        setSaving(null);
+      },
+      onCancel: () => setSaving(null),
+    });
   };
 
   const toggleKey = (r: RoleAccess, key: string) => {
@@ -112,7 +126,7 @@ export function AttributeAccessTab() {
               <Button
                 type="button" size="sm"
                 disabled={!dirty(r) || saving === r.role}
-                onClick={() => void save(r)}
+                onClick={() => save(r)}
               >
                 {saving === r.role ? 'Saving…' : 'Save'}
               </Button>
@@ -187,6 +201,15 @@ export function AttributeAccessTab() {
       {roles.length === 0 && (
         <p className="text-sm text-slate-500">No active roles.</p>
       )}
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+      />
     </div>
   );
 }

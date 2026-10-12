@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { apiClient } from '@/lib/api-client';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { SIDEBAR_ITEMS } from '@digilog/shared';
 import type { RoleData } from '@digilog/shared';
@@ -29,6 +31,7 @@ interface SidebarTabProps {
 export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
   function SidebarTab({ activeRoles, onStateChange }, ref) {
     const { toast } = useToast();
+    const reauth = useReauth();
 
     const [sidebarSubTab, setSidebarSubTab] = useState<'role' | 'user'>('role');
     const [sidebarSelectedRole, setSidebarSelectedRole] = useState<string>('');
@@ -85,30 +88,48 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
     const enableAllSidebar = () => { setEnabledItems(SIDEBAR_ITEMS.map(i => i.id)); setSidebarDirty(true); };
     const disableAllSidebar = () => { setEnabledItems([]); setSidebarDirty(true); };
 
-    const handleSaveSidebarRole = useCallback(async () => {
+    /**
+     * Every write here goes through `reauth.execute` (audit 2026-10-12,
+     * finding 5): the server re-authenticates PUT /api/config/roles/:role as
+     * UPDATE_ROLE_CONFIG and PUT /api/config/users/:id as UPDATE_USER_CONFIG, and
+     * a bare put gave a role whose matrix asks for a password a bare 401. The
+     * saving flag is cleared ONLY by onSuccess / onError / onCancel: `execute`
+     * returns as soon as the dialog opens, so clearing it after the await
+     * re-enabled Save while the password was still being asked for.
+     */
+    const signedPut = useCallback((
+      action: 'UPDATE_ROLE_CONFIG' | 'UPDATE_USER_CONFIG', url: string, body: Record<string, unknown>,
+      onSaved: () => void, failTitle: string, failText: string,
+    ) => {
       setSidebarSaving(true);
-      try {
-        await apiClient.put(`/api/config/roles/${sidebarSelectedRole}`, { sidebarItems: enabledItems });
-        setSidebarDirty(false);
-      } catch (error: any) { toast.error('Save Failed', error.message || 'Failed to save sidebar configuration'); } finally { setSidebarSaving(false); }
-    }, [sidebarSelectedRole, enabledItems, sidebarRoleConfig, toast]);
+      void reauth.execute(action, async (password?: string) => {
+        if (password) await apiClient.putWithReauth(url, body, password);
+        else await apiClient.put(url, body);
+      }, {
+        onSuccess: () => { onSaved(); setSidebarSaving(false); },
+        onError: (error: unknown) => {
+          toast.error(failTitle, (error as { message?: string })?.message || failText);
+          setSidebarSaving(false);
+        },
+        onCancel: () => setSidebarSaving(false),
+      });
+    }, [reauth, toast]);
+
+    const handleSaveSidebarRole = useCallback(async () => {
+      signedPut('UPDATE_ROLE_CONFIG', `/api/config/roles/${sidebarSelectedRole}`, { sidebarItems: enabledItems },
+        () => setSidebarDirty(false), 'Save Failed', 'Failed to save sidebar configuration');
+    }, [signedPut, sidebarSelectedRole, enabledItems]);
 
     const handleSaveSidebarUser = useCallback(async () => {
       if (!selectedUser) return;
-      setSidebarSaving(true);
-      try {
-        await apiClient.put(`/api/config/users/${selectedUser.id}`, { sidebarItems: enabledItems });
-        setSidebarDirty(false);
-      } catch (error: any) { toast.error('Save Failed', error.message || 'Failed to save user sidebar configuration'); } finally { setSidebarSaving(false); }
-    }, [selectedUser, enabledItems, userConfig, toast]);
+      signedPut('UPDATE_USER_CONFIG', `/api/config/users/${selectedUser.id}`, { sidebarItems: enabledItems },
+        () => setSidebarDirty(false), 'Save Failed', 'Failed to save user sidebar configuration');
+    }, [signedPut, selectedUser, enabledItems]);
 
-    const resetUserToRoleDefault = async () => {
+    const resetUserToRoleDefault = () => {
       if (!selectedUser) return;
-      setSidebarSaving(true);
-      try {
-        await apiClient.put(`/api/config/users/${selectedUser.id}`, { sidebarItems: [] });
-        setEnabledItems([]); setSidebarDirty(false);
-      } catch (error: any) { toast.error('Reset Failed', error.message || 'Failed to reset user to role defaults'); } finally { setSidebarSaving(false); }
+      signedPut('UPDATE_USER_CONFIG', `/api/config/users/${selectedUser.id}`, { sidebarItems: [] },
+        () => { setEnabledItems([]); setSidebarDirty(false); }, 'Reset Failed', 'Failed to reset user to role defaults');
     };
 
     const filteredUsers = usersData?.data?.filter((u: User) =>
@@ -294,6 +315,7 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
     };
 
     return (
+      <>
       <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-soft overflow-hidden">
         {/* Inner tabs: Role / User */}
         <div className="flex border-b border-slate-200">
@@ -467,6 +489,16 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
           )}
         </div>
       </div>
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+      />
+      </>
     );
   }
 );

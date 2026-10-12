@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useMemo, forwardRef, useImperativeHan
 import useSWR, { useSWRConfig } from 'swr';
 import { Input } from '@/components/ui/input';
 import { apiClient } from '@/lib/api-client';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES } from '@digilog/shared';
 import type { RoleData, ReauthAction, ReauthActionCategory } from '@digilog/shared';
 import { Button } from '@/components/ui/button';
@@ -86,6 +88,7 @@ interface ReauthTabProps {
 export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
   function ReauthTab({ selectableRoles, onStateChange }, ref) {
     const { mutate } = useSWRConfig();
+    const reauth = useReauth();
 
     const { data: reauthConfig, isLoading: reauthLoading } = useSWR<Record<string, string[]>>(
       '/api/config/action-reauth',
@@ -201,21 +204,32 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
       });
     }, []);
 
+    // Through `reauth.execute` (audit 2026-10-12, finding 5): the server
+    // re-authenticates this PUT as UPDATE_REAUTH_CONFIG, exactly as the
+    // standalone Action Re-auth page already asked. Saving is cleared only by
+    // the three outcomes, never after the await (the dialog may still be open).
     const handleReauthSave = useCallback(async () => {
       setReauthSaving(true);
       setReauthSaveMessage(null);
-      try {
-        await apiClient.put('/api/config/action-reauth', reauthCurrentConfig);
-        mutate('/api/config/action-reauth');
-        mutate('/api/config/action-reauth/my-actions');
-        setReauthLocalConfig(null);
-        setReauthSaveMessage({ type: 'success', text: 'Action re-authentication settings saved successfully.' });
-      } catch (err: any) {
-        setReauthSaveMessage({ type: 'error', text: err.message ?? 'Failed to save settings.' });
-      } finally {
-        setReauthSaving(false);
-      }
-    }, [reauthCurrentConfig, mutate]);
+      const body = reauthCurrentConfig;
+      await reauth.execute('UPDATE_REAUTH_CONFIG', async (password?: string) => {
+        if (password) await apiClient.putWithReauth('/api/config/action-reauth', body, password);
+        else await apiClient.put('/api/config/action-reauth', body);
+      }, {
+        onSuccess: () => {
+          mutate('/api/config/action-reauth');
+          mutate('/api/config/action-reauth/my-actions');
+          setReauthLocalConfig(null);
+          setReauthSaveMessage({ type: 'success', text: 'Action re-authentication settings saved successfully.' });
+          setReauthSaving(false);
+        },
+        onError: (err: unknown) => {
+          setReauthSaveMessage({ type: 'error', text: (err as { message?: string })?.message ?? 'Failed to save settings.' });
+          setReauthSaving(false);
+        },
+        onCancel: () => setReauthSaving(false),
+      });
+    }, [reauthCurrentConfig, mutate, reauth]);
 
     const handleReauthReset = useCallback(() => {
       setReauthLocalConfig(null);
@@ -458,6 +472,15 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
             </div>
           </div>
         )}
+        <ReauthDialog
+          open={reauth.isOpen}
+          password={reauth.password}
+          error={reauth.error}
+          isVerifying={reauth.isVerifying}
+          onPasswordChange={reauth.setPassword}
+          onConfirm={reauth.confirm}
+          onCancel={reauth.cancel}
+        />
       </>
     );
   }
