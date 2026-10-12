@@ -963,19 +963,52 @@ export default async function floorplanRoutes(app: FastifyInstance) {
       .filter((i) => i.room && i.room.id !== roomId)
       .map((i) => ({ id: i.id, code: i.code, fromRoom: i.room }));
 
-    await prisma.$transaction([
-      prisma.instrument.updateMany({ where: { roomId }, data: { roomId: null } }),
-      prisma.instrument.updateMany({ where: { id: { in: wanted } }, data: { roomId } }),
-    ]);
+    // The change and every audit row in ONE transaction. A move changes TWO
+    // rooms, so the source room gets its own row too, naming what left and
+    // where it went, and the target's row names where each one came from —
+    // the functional-location twin's `movedFromElsewhere` (audit 2026-10-12
+    // finding 9: the source room's membership changed with no row on it).
+    const who = { userId: ctx.userId, userRole: ctx.userRole, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId };
+    const sources = new Map<string, { code: string; leaving: string[] }>();
+    for (const m of moved) {
+      const src = sources.get(m.fromRoom!.id) ?? { code: m.fromRoom!.code, leaving: [] };
+      src.leaving.push(m.code);
+      sources.set(m.fromRoom!.id, src);
+    }
+    await prisma.$transaction(async (tx) => {
+      const sourceBefore = await tx.floorplanRoom.findMany({
+        where: { id: { in: [...sources.keys()] } },
+        select: { id: true, instruments: { select: { code: true }, orderBy: { code: 'asc' } } },
+      });
+      await tx.instrument.updateMany({ where: { roomId }, data: { roomId: null } });
+      await tx.instrument.updateMany({ where: { id: { in: wanted } }, data: { roomId } });
 
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'FLOORPLAN_ROOM_UPDATED',
-      targetType: 'floorplan_room', targetId: roomId,
-      beforeValue: { code: room.code, instruments: room.instruments.map((i) => i.code) },
-      afterValue: { code: room.code, instruments: found.map((i) => i.code) },
-      signatureMeaning: `Room "${room.code}" membership set to ${found.length} instrument(s)`,
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      await auditLog({
+        ...who,
+        action: 'FLOORPLAN_ROOM_UPDATED',
+        targetType: 'floorplan_room', targetId: roomId,
+        beforeValue: { code: room.code, instruments: room.instruments.map((i) => i.code) },
+        afterValue: {
+          code: room.code, instruments: found.map((i) => i.code),
+          movedFrom: moved.map((m) => ({ instrument: m.code, room: m.fromRoom!.code })),
+        },
+        signatureMeaning: `Room "${room.code}" membership set to ${found.length} instrument(s)`,
+      }, tx);
+      for (const sb of sourceBefore) {
+        const src = sources.get(sb.id)!;
+        const before = sb.instruments.map((i) => i.code);
+        await auditLog({
+          ...who,
+          action: 'FLOORPLAN_ROOM_UPDATED',
+          targetType: 'floorplan_room', targetId: sb.id,
+          beforeValue: { code: src.code, instruments: before },
+          afterValue: {
+            code: src.code, instruments: before.filter((c) => !src.leaving.includes(c)),
+            movedTo: src.leaving.map((c) => ({ instrument: c, room: room.code })),
+          },
+          signatureMeaning: `${src.leaving.length} instrument(s) moved from room "${src.code}" to room "${room.code}"`,
+        }, tx);
+      }
     });
 
     return { roomId, instrumentIds: wanted, moved };

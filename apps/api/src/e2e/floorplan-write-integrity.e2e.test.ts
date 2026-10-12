@@ -88,3 +88,29 @@ describe('deletes record every link they take with them (finding 6)', () => {
     expect((await prisma.instrument.findUnique({ where: { id: inst.id } }))!.roomId).toBeNull();
   });
 });
+
+describe('room membership: a move is recorded on both rooms (finding 9)', () => {
+  it('writes a row on the SOURCE room and names where each moved instrument came from on the target', async () => {
+    const p = await blankPlan(`Members ${s}`);
+    const from = await room(p.id, 'FROM', box(0.1, 0.1));
+    const to = await room(p.id, 'TO', box(0.5, 0.5));
+    const inst = await instrument(`FPMOVE-${s}`);
+    const stay = await instrument(`FPSTAY-${s}`);
+    await prisma.instrument.updateMany({ where: { id: { in: [inst.id, stay.id] } }, data: { roomId: from.id } });
+
+    const res = await app.inject({
+      method: 'PUT', url: `/api/floorplans/${p.id}/rooms/${to.id}/instruments`, headers: auth,
+      payload: { instrumentIds: [inst.id] },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().moved).toHaveLength(1);
+
+    const target = await prisma.auditTrail.findFirst({ where: { action: 'FLOORPLAN_ROOM_UPDATED', targetId: to.id }, orderBy: { timestamp: 'desc' } });
+    expect((target!.afterValue as { movedFrom: unknown }).movedFrom).toEqual([{ instrument: inst.code, room: 'FROM' }]);
+    const source = await prisma.auditTrail.findFirst({ where: { action: 'FLOORPLAN_ROOM_UPDATED', targetId: from.id }, orderBy: { timestamp: 'desc' } });
+    expect(source, 'the source room has no audit row').not.toBeNull();
+    expect((source!.beforeValue as { instruments: string[] }).instruments.sort()).toEqual([inst.code, stay.code].sort());
+    expect((source!.afterValue as { instruments: string[] }).instruments).toEqual([stay.code]);
+    expect((source!.afterValue as { movedTo: unknown }).movedTo).toEqual([{ instrument: inst.code, room: 'TO' }]);
+  });
+});
