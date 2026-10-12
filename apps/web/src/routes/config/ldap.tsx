@@ -136,6 +136,8 @@ export default function LdapConfigPage() {
           setSaveMsg({ type: 'error', text: e.message || 'Failed to save' });
           setSaving(false);
         },
+        // Cancelling the password prompt is not a failure: just stop saving.
+        onCancel: () => setSaving(false),
       },
     );
   };
@@ -164,6 +166,7 @@ export default function LdapConfigPage() {
           setTestResult({ success: false, message: e.message || 'Test failed' });
           setTesting(false);
         },
+        onCancel: () => setTesting(false),
       },
     );
   };
@@ -467,6 +470,10 @@ export default function LdapConfigPage() {
           </div>
         </div>
         <div className="p-6 space-y-3">
+          {/* The rule is the server's (ldap.service mapGroupsToRole); this only states it. */}
+          <p className="text-xs text-slate-500" data-testid="ldap-mapping-precedence">
+            When a user matches several mappings, the highest-privilege role wins; row order only breaks a tie.
+          </p>
           {config.roleMappings.length === 0 ? (
             <p className="text-sm text-slate-400 text-center py-4">No group mappings configured. Users will be assigned the default role.</p>
           ) : (

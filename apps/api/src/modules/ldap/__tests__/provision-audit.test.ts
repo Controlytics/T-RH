@@ -19,7 +19,7 @@ const { mockPrisma, mockAuditLog, mockInvalidateCache } = vi.hoisted(() => ({
     // has no FK. Default this to "the role exists" so these audit tests keep
     // exercising the happy path; the fallback path has its own cover in
     // role-validation.test.ts.
-    role: { findFirst: vi.fn() },
+    role: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([{ name: 'ADMIN', hierarchyLevel: 5 }]) },
   },
   mockAuditLog: vi.fn(),
   mockInvalidateCache: vi.fn(),

@@ -105,8 +105,8 @@ Employees go into **exactly one** role group.
 Two rules to give them:
 
 - **One role group per person.** If someone lands in two, the application applies
-  the first matching rule in our configured order, which is a silent decision
-  nobody intended. Ask them to keep the groups mutually exclusive.
+  the higher-privilege role, which may not be what was intended. Ask them to
+  keep the groups mutually exclusive.
 - **Tell us the naming before they build it.** Renaming a group later breaks
   every mapping until we update the configuration.
 
@@ -231,7 +231,10 @@ work. Leaving the list empty imposes no restriction and the page warns you.
 
 ### Group-to-Role Mapping
 
-Order matters — **first match wins** — so list most-privileged first:
+Order does NOT matter (since 2026-10-12): when a person's groups match several
+rows, the **highest-privilege role wins** (the role's hierarchy level; the list
+order only breaks a tie between roles at the same level). A mapping to a role that
+does not exist or is inactive never wins over one that does.
 
 | LDAP Group | Role |
 |---|---|

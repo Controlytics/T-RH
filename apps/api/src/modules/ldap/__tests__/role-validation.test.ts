@@ -16,7 +16,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const { mockPrisma, mockAuditLog } = vi.hoisted(() => ({
   mockPrisma: {
     user: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
-    role: { findFirst: vi.fn() },
+    role: { findFirst: vi.fn(), findMany: vi.fn() },
   },
   mockAuditLog: vi.fn(),
 }));
@@ -38,10 +38,18 @@ const config: any = {
 function rolesTableHas(...names: string[]) {
   mockPrisma.role.findFirst.mockImplementation(({ where }: any) =>
     Promise.resolve(names.includes(where.name) ? { name: where.name } : null));
+  // The precedence lookup: every active candidate with its level (all level 1
+  // here unless a test sets `levels`).
+  mockPrisma.role.findMany.mockImplementation(({ where }: any) =>
+    Promise.resolve((where.name.in as string[]).filter((n) => names.includes(n))
+      .map((n) => ({ name: n, hierarchyLevel: levels[n] ?? 1 }))));
 }
+let levels: Record<string, number> = {};
 
 beforeEach(() => {
   vi.clearAllMocks();
+  levels = {};
+  mockPrisma.role.findMany.mockResolvedValue([]);
   mockPrisma.user.create.mockResolvedValue({ id: 'u-new', username: 'EMP1234' });
 });
 
@@ -134,5 +142,37 @@ describe('provisionUser with an unmapped role', () => {
     expect(data.passwordChangedAt).toBeInstanceOf(Date);
     expect(data.authSource).toBe('ldap');
     expect(data.passwordHash).toBe('LDAP_EXTERNAL_AUTH');
+  });
+});
+
+// Application review 2026-10-12, follow-up 5: when a user's groups match
+// several mappings, the HIGHEST-PRIVILEGE active role wins, whatever the
+// stored order; stored order only breaks a tie.
+describe('mapping precedence', () => {
+  const both = ['CN=Ops,DC=x', 'CN=Admins,DC=x'];
+  const cfg = (rows: Array<{ ldapGroup: string; role: string }>): any => ({ defaultRole: 'OPERATOR', roleMappings: rows, strictRoleMapping: false });
+
+  it('a higher role listed SECOND still wins', async () => {
+    rolesTableHas('OPERATOR', 'ADMIN'); levels = { OPERATOR: 2, ADMIN: 5 };
+    const r = await ldapService.resolveMappedRole(both, cfg([{ ldapGroup: 'Ops', role: 'OPERATOR' }, { ldapGroup: 'Admins', role: 'ADMIN' }]));
+    expect(r.role).toBe('ADMIN');
+  });
+
+  it('the same answer whatever the order', async () => {
+    rolesTableHas('OPERATOR', 'ADMIN'); levels = { OPERATOR: 2, ADMIN: 5 };
+    const r = await ldapService.resolveMappedRole(both, cfg([{ ldapGroup: 'Admins', role: 'ADMIN' }, { ldapGroup: 'Ops', role: 'OPERATOR' }]));
+    expect(r.role).toBe('ADMIN');
+  });
+
+  it('a missing or inactive higher role never beats an active lower one', async () => {
+    rolesTableHas('OPERATOR'); levels = { OPERATOR: 2 };
+    const r = await ldapService.resolveMappedRole(both, cfg([{ ldapGroup: 'Admins', role: 'GHOST_ADMIN' }, { ldapGroup: 'Ops', role: 'OPERATOR' }]));
+    expect(r).toEqual({ role: 'OPERATOR', mappedRole: 'OPERATOR', fellBack: false });
+  });
+
+  it('a tie at one level goes to the stored order', async () => {
+    rolesTableHas('QA', 'OPS2'); levels = { QA: 3, OPS2: 3 };
+    const r = await ldapService.resolveMappedRole(both, cfg([{ ldapGroup: 'Admins', role: 'OPS2' }, { ldapGroup: 'Ops', role: 'QA' }]));
+    expect(r.role).toBe('OPS2');
   });
 });

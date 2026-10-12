@@ -21,7 +21,7 @@ import { join, relative } from 'node:path';
  * to the lead. Remove an entry once that file declares `onCancel`.
  */
 const SRC = join(__dirname, '..', '..');
-const KNOWN_OUTSIDE_AREA = new Set<string>(['routes/config/ldap.tsx']);
+const KNOWN_OUTSIDE_AREA = new Set<string>([]);
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {

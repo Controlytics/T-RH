@@ -234,8 +234,29 @@ export const authService = {
         }
       } catch (err: any) {
         if (err instanceof AppError) throw err;
-        logger.error('[LDAP] Auth error: LDAP authentication failed');
-        throw new AppError(401, 'LDAP_ERROR', 'LDAP authentication failed. Contact administrator.');
+        // The CALLER gets the generic answer (application review 2026-10-12,
+        // follow-up 4): a distinct `LDAP_ERROR` told an anonymous caller that
+        // this username is a DIRECTORY account. The operator keeps the detail —
+        // the server log names the account and the error, and the LOGIN_FAILED
+        // row (visible on the Audit Trail) records that the directory errored,
+        // so "nobody can log in" is diagnosable as a directory fault, not read
+        // as a wrong password. No lockout count: the credential was never judged.
+        const detail = String(err?.message ?? err).slice(0, 300);
+        logger.error(`[LDAP] Directory error while authenticating "${user.username}": ${detail}`);
+        try {
+          await auditLog({
+            userId: user.username, userRole: user.role, action: 'LOGIN_FAILED',
+            targetType: 'user', targetId: user.id,
+            afterValue: { username: user.username, authSource: 'ldap', directoryError: detail },
+            signatureMeaning: 'Directory (LDAP/AD) error during authentication',
+            ipAddress: ip, userAgent,
+          });
+        } catch (auditErr: any) {
+          // Logged, then the generic refusal below still goes out: a failed
+          // audit insert must not turn into a distinguishable 500 here.
+          logger.error('[LDAP] LOGIN_FAILED audit write failed:', auditErr?.message ?? auditErr);
+        }
+        throw new AppError(401, 'INVALID_CREDENTIALS', 'Username or password is incorrect.');
       }
     }
 
