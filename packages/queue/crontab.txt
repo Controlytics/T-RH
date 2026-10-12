@@ -17,15 +17,23 @@
 #     0 2 * * * retention_cleanup   (retention module + retention.def removed)
 # The two per-minute entries accrued ~120 rows/hour between them; the queue had
 # reached 51,798 orphan jobs when this was found. The `?id=…&max=1` dedup added
-# by the 2026-05-04 queue review capped how many were IN FLIGHT at once, but
-# nothing ever completed them, so the table still grew without bound.
+# was believed to cap how many were IN FLIGHT at once — it never did (see below),
+# and nothing ever completed them, so the table grew without bound.
 #
-# `?id=…&fill=…&max=…` on the surviving crons (2026-05-04 queue review H2):
-#   - id=…   — opaque key for graphile-worker's "skip if same id already
-#              queued" semantics, so a slow handler can't overlap itself.
-#   - max=1  — hard ceiling on queued instances; belt-and-braces with the id.
-#   - fill=… — don't backfill missed runs after a restart. For periodic sweeps,
-#              replaying missed minutes adds load without value.
+# WHAT THE OPTIONS ACTUALLY MEAN in graphile-worker 0.16.6 (read from
+# node_modules/graphile-worker/dist/crontab.js; corrected 2026-10-12 — this block
+# used to claim `id` de-duplicated queued jobs and `max` capped queued instances,
+# and the alarm evaluator's overlap bug, audit 2026-10-12 #2, hid behind that):
+#   - id=…       — the cron item's IDENTIFIER, used only to track its last run
+#                  in graphile_worker.known_crontabs (for backfill). It does NOT
+#                  de-duplicate jobs and does NOT stop a slow handler overlapping.
+#   - max=N      — maxAttempts for the job: how many times a FAILING run is
+#                  retried. NOT a concurrency limit, NOT a queue ceiling.
+#   - fill=…     — backfill window for runs missed while the process was down.
+#   - queue=…    — the named queue. Jobs sharing a queue run ONE AT A TIME; this
+#                  is the only option that serialises anything.
+#   - jobKey=…   — a pending job with this key is REPLACED by the next tick
+#                  (jobKeyMode=replace) instead of a second one being queued.
 
 # Session reaper — every 5 min. Terminates idle/expired sessions + records a
 # LOGOUT audit so app-close / window-close / crash logouts are captured.
@@ -44,8 +52,11 @@
 # insert whose ts falls outside every partition, so if this never runs, device
 # telemetry stops being accepted at midnight on the 1st. Twice a month so a
 # single missed run (machine off on the 1st) is still covered.
-5 0 1 * * telemetry_partition_maintenance ?id=telemetry_partition_dom01&max=1&fill=4w
-5 0 15 * * telemetry_partition_maintenance ?id=telemetry_partition_dom15&max=1&fill=4w
+# max=5 (audit 2026-10-12 #11): `max` is maxAttempts, so `max=1` meant a single
+# failed run — a DB blip at 00:05 — was never retried. The handler is idempotent
+# (CREATE ... IF NOT EXISTS per month), so retrying with graphile's backoff is safe.
+5 0 1 * * telemetry_partition_maintenance ?id=telemetry_partition_dom01&max=5&fill=4w
+5 0 15 * * telemetry_partition_maintenance ?id=telemetry_partition_dom15&max=5&fill=4w
 # Alarm evaluation — every minute. Raises an alarm when a configurable rule's
 # condition is met and clears it when the condition ends. Per-minute because an
 # excursion nobody is told about for five minutes is five minutes of unrecorded
@@ -59,4 +70,12 @@
 #     instrument ingests nothing. This tick is the only thing that can raise one.
 #   * It is the safety net when an enqueue fails (that helper never throws, so a
 #     queue outage costs promptness, not the reading).
-* * * * * alarm_evaluation ?id=alarm_evaluation&max=1&fill=0s
+# queue=alarm_evaluation (audit 2026-10-12 #2): the cron pass and the on-ingest
+# pass run on ONE serial named queue (ALARM_EVALUATION_QUEUE in src/queues.ts,
+# also passed by enqueue-evaluation.ts), so two passes can never overlap. Before
+# this, `max=1` was taken for a concurrency limit; it is maxAttempts, and with the
+# runner's concurrency of 10 a pass holding a stale reading could clear an alarm a
+# parallel pass had just raised.
+# jobKey=alarm_evaluation:cron: if the serial queue is busy and a tick is still
+# pending, the next tick REPLACES it rather than stacking a second one behind it.
+* * * * * alarm_evaluation ?id=alarm_evaluation&max=1&fill=0s&queue=alarm_evaluation&jobKey=alarm_evaluation:cron

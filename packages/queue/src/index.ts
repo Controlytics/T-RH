@@ -1,4 +1,4 @@
-export { QUEUES } from './queues.js';
+export { QUEUES, ALARM_EVALUATION_QUEUE } from './queues.js';
 export type { QueueName } from './queues.js';
 
 export { JOB_PRIORITY } from './priorities.js';

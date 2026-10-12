@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseCrontab } from 'graphile-worker';
+import { ALARM_EVALUATION_QUEUE } from '../queues.js';
 
 /**
  * Every crontab identifier must have a handler registered in app.ts's taskList.
@@ -81,5 +83,41 @@ describe('crontab ↔ taskList', () => {
       'session_sweep',
       'telemetry_partition_maintenance',
     ]);
+  });
+});
+
+/**
+ * Audit 2026-10-12 #2 — the cron pass and the on-ingest pass of alarm_evaluation
+ * must never run at the same time. graphile-worker runs up to `concurrency` (10)
+ * jobs at once; the ONLY thing that serialises two jobs is a shared `queue_name`.
+ * `max=1` is maxAttempts, not a concurrency limit, and the ingest jobKey only
+ * coalesces QUEUED ingest jobs. A pass that read the overview before an excursion
+ * could therefore clear an alarm a parallel pass had just raised.
+ *
+ * Parsed with graphile-worker's OWN parser, so this asserts what the runner
+ * will actually do with the line, not what a regex thinks it says.
+ */
+describe('crontab options as graphile-worker parses them', () => {
+  const items = parseCrontab(readFileSync(crontabPath, 'utf8'));
+  const byTask = (t: string) => items.filter((i) => i.task === t);
+
+  it('alarm_evaluation runs on the ONE serial queue the ingest enqueue also uses', () => {
+    const [cron] = byTask('alarm_evaluation');
+    expect(cron).toBeDefined();
+    // Truthy first: undefined === undefined would pass with no queue at all.
+    expect(cron.options.queueName).toBeTruthy();
+    expect(cron.options.queueName).toBe(ALARM_EVALUATION_QUEUE);
+  });
+
+  it('alarm_evaluation cron ticks coalesce while the serial queue is busy (no pile-up)', () => {
+    const [cron] = byTask('alarm_evaluation');
+    expect(cron.options.jobKey).toBeTruthy();
+    expect(cron.options.jobKeyMode).toBe('replace');
+  });
+
+  it('telemetry partition maintenance gets more than one attempt (max= is maxAttempts)', () => {
+    const lines = byTask('telemetry_partition_maintenance');
+    expect(lines.length).toBe(2);
+    for (const l of lines) expect(l.options.maxAttempts).toBeGreaterThan(1);
   });
 });

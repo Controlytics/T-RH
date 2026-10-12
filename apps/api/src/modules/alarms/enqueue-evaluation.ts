@@ -1,4 +1,4 @@
-import { getProducer } from '@digilog/queue';
+import { getProducer, ALARM_EVALUATION_QUEUE } from '@digilog/queue';
 import { logger } from '../../lib/logger.js';
 
 /**
@@ -48,6 +48,11 @@ export async function enqueueAlarmEvaluation(
         // evaluation further out on every reading and could starve it indefinitely —
         // the queue would look busy while the alarm never fired.
         jobKeyMode: 'preserve_run_at',
+        // The SAME serial queue as the one-minute cron (crontab.txt `queue=`), so an
+        // ingest pass and a cron pass can never run at once (audit 2026-10-12 #2).
+        // The jobKey above only coalesces QUEUED ingest jobs; it does nothing about a
+        // cron pass already running, and the runner's concurrency is 10.
+        queueName: ALARM_EVALUATION_QUEUE,
         // One attempt. A retry would evaluate against a state that has already moved
         // on, and the one-minute cron re-evaluates everything anyway.
         maxAttempts: 1,

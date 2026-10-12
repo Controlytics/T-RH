@@ -80,8 +80,10 @@ function snapshotDecimals(snapshot: unknown): number | null {
 /**
  * Clears an alarm as an ATOMIC CLAIM (audit 2026-10-03, INGEST-4). The
  * on-ingest pass (`jobKey alarm_evaluation:on-ingest`) and the cron pass
- * (`id=alarm_evaluation`) are two graphile jobs on a worker that runs ten
- * concurrently, so both can read the same alarm ACTIVE and both clear it —
+ * were two graphile jobs on a worker that runs ten concurrently — since
+ * 2026-10-12 (#2) they share ONE serial queue, so this claim is now the
+ * second line, kept for anything else that clears (a manual run, a future
+ * caller). Without it both could read the same alarm ACTIVE and both clear it —
  * two emails, two hooter "off" posts, two delivery rows, `cleared` counted
  * twice. The raise paths were already guarded by the partial unique indexes;
  * the five clear paths were plain updates. `updateMany … WHERE state =
@@ -145,6 +147,51 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
     return key ? alarmTypeName(typeNames, key) : fallback;
   };
 
+  // ── Configuration and OPEN ALARM SETS first, the overview LAST ───────────
+  //
+  // Audit 2026-10-12 #2. Every open set below is read BEFORE the overview. In the
+  // other order, an alarm another pass raised between this pass's overview read
+  // and its open-set read would be visible here alongside a reading OLDER than the
+  // one that raised it — and an in-spec stale reading would "clear" it: a false
+  // "returned to spec" record, email and hooter-off. In this order an alarm opened
+  // mid-pass is simply not in this pass's sets; the raise paths are guarded by the
+  // partial unique indexes and the clear paths by `claimClear`, so missing a newer
+  // alarm costs nothing but one pass of latency.
+  //
+  // The serial `alarm_evaluation` graphile queue (ALARM_EVALUATION_QUEUE) is what
+  // stops two passes overlapping at all; this ordering is the defence in depth.
+  const [limitCfg, inactivityCfg, rs485Cfg, rangeCfg] = await Promise.all([
+    loadLimitConfig(), loadInactivityConfig(), loadRs485Config(), loadRangeConfig(),
+  ]);
+  const [openLimitAlarms, openInactivity, openRs485, openRange] = await Promise.all([
+    limitCfg.enabled
+      ? prisma.alarm.findMany({
+          where: { source: 'INSTRUMENT_LIMIT', state: 'ACTIVE' },
+          select: { id: true, instrumentId: true, metric: true, limitKind: true },
+        })
+      : Promise.resolve([]),
+    inactivityCfg.enabled
+      ? prisma.alarm.findMany({
+          where: { source: 'INACTIVITY', state: 'ACTIVE' },
+          // `ruleSnapshot` so the clear can MERGE onto the frozen raise fields
+          // rather than overwrite them — see the clear branch below.
+          select: { id: true, instrumentId: true, ruleSnapshot: true },
+        })
+      : Promise.resolve([]),
+    rs485Cfg.enabled
+      ? prisma.alarm.findMany({
+          where: { state: 'ACTIVE', source: 'RS485_FAILURE' },
+          select: { id: true, instrumentId: true, metric: true },
+        })
+      : Promise.resolve([]),
+    rangeCfg.enabled
+      ? prisma.alarm.findMany({
+          where: { state: 'ACTIVE', source: 'SENSOR_RANGE' },
+          select: { id: true, instrumentId: true, metric: true },
+        })
+      : Promise.resolve([]),
+  ]);
+
   // Alarm RULES were removed 2026-08-31 — see `modules/alarms/routes.ts` for
   // the note. Every remaining source derives from the instrument itself, so
   // this pass needs only the fleet overview.
@@ -160,7 +207,6 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
   // (instrument, metric, limitKind) rather than (rule, instrument), because these
   // alarms have no rule.
   let instrumentsEvaluated = 0;
-  const limitCfg = await loadLimitConfig();
   if (limitCfg.enabled) {
     const attrRows = await prisma.instrumentAttribute.findMany({
       select: { instrumentId: true, key: true, value: true },
@@ -172,10 +218,6 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
       attrsByInstrument.set(a.instrumentId, list);
     }
 
-    const openLimitAlarms = await prisma.alarm.findMany({
-      where: { source: 'INSTRUMENT_LIMIT', state: 'ACTIVE' },
-      select: { id: true, instrumentId: true, metric: true, limitKind: true },
-    });
     const openKey = (instrumentId: string, metric: string, kind: string) =>
       `${instrumentId}:${metric}:${kind}`;
     const openMap = new Map(
@@ -438,20 +480,13 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
   // Identity is the INSTRUMENT alone. There is no metric or bound to key on: an
   // instrument is either reporting or it is not.
   let inactivityEvaluated = 0;
-  const inactivityCfg = await loadInactivityConfig();
   if (inactivityCfg.enabled) {
-    const [activeWindowMinutes, seen, openInactivity] = await Promise.all([
+    const [activeWindowMinutes, seen] = await Promise.all([
       loadActiveWindowMinutes(),
       // `reporting` is NOT recomputed from these — that comes from the overview,
       // which carries the ONE definition. These two are for the GRACE period and
       // for the frozen snapshot, neither of which the overview holds.
       prisma.instrument.findMany({ select: { id: true, lastSeenAt: true, expectedIntervalSec: true } }),
-      prisma.alarm.findMany({
-        where: { source: 'INACTIVITY', state: 'ACTIVE' },
-        // `ruleSnapshot` so the clear can MERGE onto the frozen raise fields
-        // rather than overwrite them — see the clear branch below.
-        select: { id: true, instrumentId: true, ruleSnapshot: true },
-      }),
     ]);
     const seenById = new Map(seen.map((i) => [i.id, i]));
     const openById = new Map(openInactivity.map((a) => [a.instrumentId, a]));
@@ -643,12 +678,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
   // probes on one logger fail independently and must be able to hold two open
   // alarms at once — which is what `alarms_active_rs485_unique` is keyed on.
   let rs485Evaluated = 0;
-  const rs485Cfg = await loadRs485Config();
   if (rs485Cfg.enabled) {
-    const openRs485 = await prisma.alarm.findMany({
-      where: { state: 'ACTIVE', source: 'RS485_FAILURE' },
-      select: { id: true, instrumentId: true, metric: true },
-    });
     // Keyed by instrument AND metric. A map on instrumentId alone would let an
     // open temperature failure hide a humidity one, and the second fault would
     // never be recorded.
@@ -811,12 +841,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
   // Identity is the INSTRUMENT AND THE METRIC, like the RS485 pass: two probes
   // on one logger saturate independently.
   let rangeEvaluated = 0;
-  const rangeCfg = await loadRangeConfig();
   if (rangeCfg.enabled) {
-    const openRange = await prisma.alarm.findMany({
-      where: { state: 'ACTIVE', source: 'SENSOR_RANGE' },
-      select: { id: true, instrumentId: true, metric: true },
-    });
     const openByKey = new Map(openRange.map((a) => [`${a.instrumentId}:${a.metric}`, a]));
     const METRICS: RangeMetric[] = ['TEMPERATURE', 'HUMIDITY'];
     // Attributes for the frozen snapshot's key names. The overview resolved the
