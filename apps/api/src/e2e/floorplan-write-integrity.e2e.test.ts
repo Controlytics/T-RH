@@ -89,6 +89,22 @@ describe('deletes record every link they take with them (finding 6)', () => {
   });
 });
 
+const L6 = [{ x: 0.1, y: 0.1 }, { x: 0.5, y: 0.1 }, { x: 0.5, y: 0.3 }, { x: 0.3, y: 0.3 }, { x: 0.3, y: 0.5 }, { x: 0.1, y: 0.5 }];
+
+describe('room PUT without points validates doors against the stored polygon (finding 8)', () => {
+  it('accepts a door on edge 5 of a six-edge room when the outline is not resent', async () => {
+    const p = await blankPlan(`Hex ${s}`);
+    const r = await room(p.id, 'HEX', { ...box(0.1, 0.1), points: L6, doors: [{ edge: 5, offset: 0.2, width: 0.2, kind: 'ENTRY' }] });
+    const res = await app.inject({
+      method: 'PUT', url: `/api/floorplans/${p.id}/rooms/${r.id}`, headers: auth,
+      payload: { code: 'HEX', label: 'renamed', x: 0.1, y: 0.1, w: 0.4, h: 0.4, doors: [{ edge: 5, offset: 0.3, width: 0.2, kind: 'ENTRY' }] },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().points).toHaveLength(6);
+    expect(res.json().doors[0]).toMatchObject({ edge: 5, offset: 0.3 });
+  });
+});
+
 describe('room membership: a move is recorded on both rooms (finding 9)', () => {
   it('writes a row on the SOURCE room and names where each moved instrument came from on the target', async () => {
     const p = await blankPlan(`Members ${s}`);

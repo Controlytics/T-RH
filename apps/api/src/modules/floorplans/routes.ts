@@ -520,7 +520,9 @@ export default async function floorplanRoutes(app: FastifyInstance) {
     // stripHtml would blank "NMT 25 <per SOP-114>" out of a regulated record.
     const rawBody = sanitizeStrings((req.body ?? {}) as Record<string, unknown>, [...IDENTITY_FIELDS, 'reason']);
     const reason = typeof rawBody.reason === 'string' ? rawBody.reason.trim() : '';
-    const result = validateRoomPayload(rawBody);
+    // Doors are checked against the outline the room will HAVE: the sent
+    // `points`, else the stored polygon an omitted `points` keeps.
+    const result = validateRoomPayload(rawBody, Array.isArray(before.points) ? (before.points as unknown as Point[]) : null);
     if (!result.ok) return reply.code(400).send({ error: 'VALIDATION_ERROR', message: result.error });
 
     // A change to the room's LIMITS is a change to the quality specification

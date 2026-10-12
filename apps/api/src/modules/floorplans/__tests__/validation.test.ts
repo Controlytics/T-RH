@@ -279,6 +279,18 @@ describe('polygon rooms (Layout Designer, 2026-09-22)', () => {
     expect(validateRoomPayload({ ...base, doors: [{ offset: 0.2, width: 0.2, kind: 'ENTRY' }] }).ok).toBe(false);
   });
 
+  it('a PUT that omits points checks doors against the STORED polygon, not a 4-edge box (finding 8)', () => {
+    const door = { edge: 5, offset: 0.2, width: 0.2, kind: 'ENTRY' as const };
+    // L has six edges; edge 5 exists on the stored outline.
+    expect(validateRoomPayload({ ...base, doors: [door] }, L).ok).toBe(true);
+    // Without the stored outline the room is a rectangle, which has no edge 5.
+    expect(validateRoomPayload({ ...base, doors: [door] }).ok).toBe(false);
+    // An explicit points:null clears the polygon: the rectangle rule applies again.
+    expect(validateRoomPayload({ ...base, points: null, doors: [door] }, L).ok).toBe(false);
+    // Points SENT win over the stored ones.
+    expect(validateRoomPayload({ ...base, points: tri, doors: [door] }, L).ok).toBe(false);
+  });
+
   it('two doors overlapping on one polygon edge are refused', () => {
     const r = validateRoomPayload({ ...base, points: tri, doors: [
       { edge: 0, offset: 0.1, width: 0.3, kind: 'ENTRY' },
