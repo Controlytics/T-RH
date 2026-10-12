@@ -899,7 +899,7 @@ export function FloorplanView({ functionalLocationId, directOnly, trail }: {
   // that was never taken (operator: "same in area trends also").
   const goTrend = (instrumentId: string) =>
     navigate(`/instruments/${instrumentId}/trend`, { state: { from: 'dashboard', trail } });
-  const { plans, isLoading: plansLoading } = useFloorplans();
+  const { plans, isLoading: plansLoading, error: plansError } = useFloorplans();
   // Scoped server-side. When a functional location is selected the rows are only
   // that location's instruments, so the rooms drawn below narrow with it.
   const { rows, isLoading: rowsLoading } = useTelemetryOverview({ functionalLocationId, directOnly });
@@ -1011,6 +1011,20 @@ export function FloorplanView({ functionalLocationId, directOnly, trail }: {
       })}
     </div>
   ) : null;
+
+  // A FAILED load is not an empty list (audit 2026-10-12 finding 5): a role
+  // the plan list refused was told "No floor layout yet. Draw one…", false
+  // and not something it could act on. Say the layouts could not be loaded,
+  // with the server's reason, and never the empty state.
+  if (plansError) {
+    const reason = (plansError as { message?: string } | null)?.message;
+    return (
+      <div role="alert" data-testid="fp-load-error" className="rounded-2xl border border-red-200 bg-red-50 p-10 text-center">
+        <p className="text-sm font-medium text-red-800">The floor layouts could not be loaded.</p>
+        <p className="mt-1 text-xs text-red-700">{reason ? `${reason}. ` : ''}The Tabular view shows the same readings.</p>
+      </div>
+    );
+  }
 
   if (!plansLoading && plans.length === 0) {
     return (
