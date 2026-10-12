@@ -478,7 +478,9 @@ async function main() {
   // with the limits it will carry (audit 2026-10-12).
 
   const overview = await prisma.floorplan.findFirst({ where: { name: OVERVIEW_PLAN }, select: { id: true, imagePath: true, imageWidth: true, imageHeight: true } });
-  if (!overview) throw new Error(`overview plan "${OVERVIEW_PLAN}" not found`);
+  // --apply needs it (its image is reused, its rooms redrawn); a dry run reports it missing and goes on.
+  if (!overview && APPLY) throw new Error(`overview plan "${OVERVIEW_PLAN}" not found`);
+  if (!overview) console.log(`overview plan "${OVERVIEW_PLAN}" not found — --apply will refuse`);
 
   // ── One plan per area ──────────────────────────────────────────────────
   let totalRooms = 0, totalPlaced = 0;
@@ -509,7 +511,7 @@ async function main() {
           // The dashboard DRAWS rooms and never renders this image; it is only a
           // tracing guide in the editor. Reusing the block's own scan is honest
           // — it is the same building — and avoids inventing a second asset.
-          imagePath: overview.imagePath,
+          imagePath: overview!.imagePath,
           imageWidth: shape.width, imageHeight: shape.height,
           sortOrder: idx + 1,
         };
@@ -608,8 +610,8 @@ async function main() {
       door: [{ wall: 'bottom', offset: 0.4, width: 0.18, kind: 'PASSAGE' }],
     });
   }
-  if (ONLY) {
-    console.log(`  ${OVERVIEW_PLAN.padEnd(28)} skipped (--only "${ONLY}")`);
+  if (ONLY || !overview) {
+    console.log(`  ${OVERVIEW_PLAN.padEnd(28)} skipped (${ONLY ? `--only "${ONLY}"` : 'not on the plan list'})`);
   } else {
     if (APPLY) await prisma.$transaction((tx) => drawPlan(tx, overview.id, OVERVIEW_PLAN, overviewRooms), REDRAW_TX_OPTIONS);
     else await drawPlan(prisma, overview.id, OVERVIEW_PLAN, overviewRooms);
