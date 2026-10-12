@@ -144,8 +144,14 @@ async function loadOwnCounts(visibility?: ScopeWhere): Promise<Map<string, Locat
 
 export default async function functionalLocationRoutes(app: FastifyInstance) {
   // GET / — the whole tree with counts.
+  //
+  // INSTRUMENT_READ may read it too (audit 2026-10-12 finding 7): the
+  // Settings page, the Data Report and the trend PDF's Block/Area are
+  // INSTRUMENT_READ pages that place instruments in this tree, and showed empty
+  // pickers / blank Block and Area without it. The counts are visibility-scoped
+  // below; the other routes here keep FUNCTIONAL_LOCATION_READ.
   app.get('/', {
-    preHandler: [app.requirePermission('FUNCTIONAL_LOCATION_READ')],
+    preHandler: [app.requireAnyPermission('FUNCTIONAL_LOCATION_READ', 'INSTRUMENT_READ')],
     schema: {
       tags: ['Functional Locations'],
       summary: 'The Block > Area tree with instrument counts',
@@ -709,8 +715,14 @@ export default async function functionalLocationRoutes(app: FastifyInstance) {
     if (!current) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Functional location not found.' });
 
     const wanted = [...new Set(instrumentIds)];
+    // The request is the membership AS THE CALLER CAN SEE IT (audit
+    // 2026-10-12 finding 2): the panel builds it from the visibility-scoped
+    // `/linkable-instruments`, so treating it as the WHOLE membership unlinked
+    // every member outside the caller's scope. Only visible instruments are
+    // added or removed; out-of-scope members are left exactly as they are.
+    const { where: visibility } = await resolveVisibility(ctx);
     const existing = await prisma.instrument.findMany({
-      where: { OR: [{ functionalLocationId: id }, { id: { in: wanted } }] },
+      where: withVisibility({ OR: [{ functionalLocationId: id }, { id: { in: wanted } }] }, visibility) as never,
       select: { id: true, code: true, functionalLocationId: true },
     });
 
@@ -719,6 +731,8 @@ export default async function functionalLocationRoutes(app: FastifyInstance) {
     // (audit 2026-10-03, API-20). This route used to skip an unknown id
     // silently AND write the raw uuid into the audit row's `linked` list, so a
     // typo read as a linked instrument in the §11 record and nothing else.
+    // An id outside the caller's scope is refused the same way — the answer
+    // must not say whether it exists.
     const unknown = wanted.filter((w) => !existing.some((i) => i.id === w));
     if (unknown.length) {
       return reply.code(400).send({
@@ -730,6 +744,13 @@ export default async function functionalLocationRoutes(app: FastifyInstance) {
     const toLink = existing.filter((i) => wanted.includes(i.id) && i.functionalLocationId !== id);
     const toUnlink = existing.filter((i) => i.functionalLocationId === id && !wanted.includes(i.id));
     const moved = toLink.filter((i) => i.functionalLocationId !== null);
+    // For the §11 row only: the members the caller cannot see stay linked, and
+    // the record must say so rather than describe a membership that is not true.
+    const visibleIds = new Set(existing.map((i) => i.id));
+    const untouched = (await prisma.instrument.findMany({
+      where: { functionalLocationId: id },
+      select: { id: true, code: true },
+    })).filter((i) => !visibleIds.has(i.id));
 
     const path = locationPath(id, nodes);
     // Links and their audit row in ONE transaction (audit 2026-10-03, API-4).
@@ -746,13 +767,15 @@ export default async function functionalLocationRoutes(app: FastifyInstance) {
         targetType: 'functional_location', targetId: id,
         beforeValue: {
           location: path,
-          linked: existing.filter((i) => i.functionalLocationId === id).map((i) => i.code),
+          linked: [...existing.filter((i) => i.functionalLocationId === id).map((i) => i.code), ...untouched.map((i) => i.code)],
         },
         afterValue: {
           location: path,
           // Every id resolved above, so this is a list of CODES, never a raw uuid.
-          linked: wanted.map((w) => existing.find((i) => i.id === w)!.code),
+          linked: [...wanted.map((w) => existing.find((i) => i.id === w)!.code), ...untouched.map((i) => i.code)],
           movedFromElsewhere: moved.map((i) => i.code),
+          // Outside the caller's instrument scope: neither shown nor changed.
+          ...(untouched.length ? { untouchedOutOfScope: untouched.map((i) => i.code) } : {}),
         },
         signatureMeaning: `Instruments linked to functional location "${path}" changed`,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
