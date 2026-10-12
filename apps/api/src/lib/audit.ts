@@ -49,6 +49,7 @@ export interface AuditEntry {
  */
 const SYSTEM_AUDIT_ACTIONS = new Set<string>([
   'INSTRUMENT_ATTRIBUTE_REPORTED', // an attribute written by the DEVICE over MQTT (2026-09-05) — the device's code is in the row, there is no user
+  'TELEMETRY_READING_REWRITTEN',   // a stored reading overwritten by a device re-send with a different value (2026-10-12) — sender + transport in the row, there is no user
   'ADMIN_REQUEST_SUBMITTED',    // the PUBLIC admin-request form (2026-10-03): the caller is unauthenticated, the typed employee id is data in afterValue
   'RETENTION_EXECUTED',         // a telemetry partition dropped by the retention cron (2026-10-05, DATA-9): no user, the partition and its row count are in the row
 ]);

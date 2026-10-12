@@ -564,6 +564,15 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Attribute "{attribute}" on instrument "{instrument}" reported by the device',
     placeholders: ['instrument', 'attribute'],
   },
+  TELEMETRY_READING_REWRITTEN: {
+    label: 'Stored Reading Rewritten by Device',
+    category: 'Instruments',
+    // No {actor}: a device re-sent the instant. The key is `{attribute}` (the
+    // placeholder the audit view already substitutes); the instant, both
+    // values and the sender are in the row's before/after values.
+    template: 'Stored reading "{attribute}" on instrument "{instrument}" rewritten by a device re-send',
+    placeholders: ['instrument', 'attribute'],
+  },
   INSTRUMENT_ATTRIBUTE_REMOVED: {
     label: 'Instrument Attribute Removed',
     category: 'Instruments',

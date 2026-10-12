@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { buildApp, loginAs } from './test-helper.js';
 import type { FastifyInstance } from 'fastify';
 import { fixtureProfileId } from '../test-support/fixture-profile.js';
+import { prisma } from '../lib/prisma.js';
 
 let app: FastifyInstance;
 let auth: Record<string, string>;
@@ -301,6 +302,22 @@ describe('ingest — unplaceable readings and empty payloads', () => {
     expect(ta.json().latest).toEqual([]);
     const dl = await app.inject({ method: 'GET', url: `/api/instruments/${gw.id}/dead-letters`, headers: auth });
     expect(JSON.stringify(dl.json())).toContain('earliest stored partition');
+  });
+
+  it('a gateway re-sending a stored instant with a new value is audited against the CHILD, naming the gateway', async () => {
+    const s = Date.now();
+    const gw = await mk({ name: 'GWR', code: `GWR-${s}`, isGateway: true });
+    const c = await mk({ name: 'RC', code: `RC-${s}`, gatewayId: gw.id });
+    const at = new Date(Math.floor(Date.now() / 1000) * 1000 - 60_000).toISOString();
+    const send = (t: number) => ingest(gw.token, { devices: { [`RC-${s}`]: { t, ts: at } } });
+    expect((await send(20)).json()).toEqual({ accepted: 1, rejected: 0 });
+    expect((await send(20)).json()).toEqual({ accepted: 1, rejected: 0 });   // identical: no record
+    expect(await prisma.auditTrail.count({ where: { targetId: c.id, action: 'TELEMETRY_READING_REWRITTEN' } })).toBe(0);
+    expect((await send(25)).json()).toEqual({ accepted: 1, rejected: 0 });   // changed: one record
+    const rows = await prisma.auditTrail.findMany({ where: { targetId: c.id, action: 'TELEMETRY_READING_REWRITTEN' } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].beforeValue).toMatchObject({ code: `RC-${s}`, attribute: 't', value: 20 });
+    expect(rows[0].afterValue).toMatchObject({ code: `RC-${s}`, attribute: 't', value: 25, reportedBy: `GWR-${s}`, transport: 'http' });
   });
 
   it('refuses a flat reading older than every partition with a non-retryable 422', async () => {

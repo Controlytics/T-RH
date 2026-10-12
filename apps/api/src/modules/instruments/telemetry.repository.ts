@@ -6,8 +6,14 @@
  *  - ingest writes must be BATCHED; one Prisma call per reading will not survive
  *    a real fleet.
  *
- * NOTE: telemetry writes are deliberately NOT audited (spec D5). Telemetry is
- * process data, not a 21 CFR §11 electronic record. Do not add auditLog() here.
+ * AUDIT: a NEW reading is not audited (spec D5) — telemetry is process data, and
+ * one audit row per reading would drown the trail. A REWRITE is (operator,
+ * 2026-10-12, audit finding 9): when a device re-sends an instant already stored
+ * with a DIFFERENT value, the last arrival still wins, and `writeBatch` writes
+ * one `TELEMETRY_READING_REWRITTEN` row per changed (instrument, key, ts) — old
+ * and new value and raw value, the sender and the transport — in the SAME
+ * transaction as the overwrite. An identical redelivery is a no-op and writes
+ * nothing. Do not add auditLog() for anything else here.
  *
  * Ported from the pre-data-injection-drop tag's `data-injection/telemetry.repository.ts`
  * and adapted to the CURRENT schema (see apps/api/prisma/schema.prisma +
@@ -28,6 +34,7 @@ import { Prisma } from '@prisma/client';
 import { MKT_DELTA_H_OVER_R_K, KELVIN_OFFSET } from '@digilog/shared';
 import { resolvePageSize } from '../../lib/page-size.js';
 import { prisma } from '../../lib/prisma.js';
+import { auditLog } from '../../lib/audit.js';
 import type { Reading } from './payload-parser.js';
 
 export interface TelemetryRow {
@@ -99,9 +106,11 @@ export async function writeBatch(
 
   // `raw_value` is what the device sent when a sensor offset corrected the
   // reading (2026-10-01) — kept for the record, NULL otherwise, never shown.
+  // Every column is cast: these VALUES feed a CTE, where an untyped parameter
+  // would not take the target column's type.
   const histValues = Prisma.join(lastPerInstant(rows).map((r) => Prisma.sql`(
-    ${r.instrumentId}, ${r.key}, ${JSON.stringify(r.value)}::jsonb, ${r.valueType}, ${r.ts},
-    ${r.rawValue === undefined ? null : JSON.stringify(r.rawValue)}::jsonb)`));
+    ${r.instrumentId}::text, ${r.key}::text, ${JSON.stringify(r.value)}::jsonb, ${r.valueType}::text,
+    ${r.ts}::timestamptz, ${r.rawValue === undefined ? null : JSON.stringify(r.rawValue)}::jsonb)`));
 
   // Collapse to ONE row per (instrument, key), keeping the newest ts — and on
   // a tie the LAST in arrival order, the same rule `lastPerInstant` applies to
@@ -125,27 +134,83 @@ export async function writeBatch(
   const latestValues = Prisma.join([...newestPerKey.values()].map((r) => Prisma.sql`(
     ${r.instrumentId}, ${r.key}, ${JSON.stringify(r.value)}::jsonb, ${r.valueType}, ${r.ts})`));
 
-  await prisma.$transaction([
+  await prisma.$transaction(async (tx) => {
     // Same (instrument, key, ts) again → the LAST arrival wins (see
-    // `lastPerInstant`). An identical redelivery rewrites the row with the
-    // value it already holds, so history stays idempotent under QoS 1.
-    prisma.$executeRaw`
-      INSERT INTO instrument_telemetry_history
-        (instrument_id, key, value, value_type, ts, raw_value)
-      VALUES ${histValues}
-      ON CONFLICT (instrument_id, key, ts) DO UPDATE SET
-        value = EXCLUDED.value, value_type = EXCLUDED.value_type, raw_value = EXCLUDED.raw_value`,
-    prisma.$executeRaw`
+    // `lastPerInstant`) — and a rewrite that CHANGES the stored reading is
+    // audited (operator, 2026-10-12). ONE statement, no per-row round trip:
+    //  - `prior` reads the instants already stored. Every CTE shares the
+    //    statement's snapshot, so it sees the values BEFORE the upsert below.
+    //  - the DO UPDATE fires only when something actually differs, so an
+    //    identical redelivery (QoS 1) is a true no-op: no write, no audit row.
+    //  - the outer SELECT returns exactly the rows that were OVERWRITTEN with a
+    //    different value — upserted AND already present — with both values.
+    // Residual, accepted: an instant first inserted by a CONCURRENT
+    // transaction after this statement's snapshot and then overwritten here is
+    // not in `prior`, so that rewrite goes unaudited. It needs two deliveries
+    // of one instant, with different values, racing within milliseconds.
+    const changed = await tx.$queryRaw<{
+      instrument_id: string; key: string; ts: Date;
+      old_value: unknown; old_raw: unknown; new_value: unknown; new_raw: unknown; code: string | null;
+    }[]>`
+      WITH incoming (instrument_id, key, value, value_type, ts, raw_value) AS (VALUES ${histValues}),
+      prior AS (
+        SELECT h.instrument_id, h.key, h.ts, h.value, h.raw_value
+        FROM instrument_telemetry_history h
+        JOIN incoming i ON i.instrument_id = h.instrument_id AND i.key = h.key AND i.ts = h.ts
+      ),
+      up AS (
+        INSERT INTO instrument_telemetry_history
+          (instrument_id, key, value, value_type, ts, raw_value)
+        SELECT instrument_id, key, value, value_type, ts, raw_value FROM incoming
+        ON CONFLICT (instrument_id, key, ts) DO UPDATE SET
+          value = EXCLUDED.value, value_type = EXCLUDED.value_type, raw_value = EXCLUDED.raw_value
+        WHERE (instrument_telemetry_history.value, instrument_telemetry_history.value_type, instrument_telemetry_history.raw_value)
+          IS DISTINCT FROM (EXCLUDED.value, EXCLUDED.value_type, EXCLUDED.raw_value)
+        RETURNING instrument_id, key, ts, value, raw_value
+      )
+      SELECT up.instrument_id, up.key, up.ts,
+             p.value AS old_value, p.raw_value AS old_raw, up.value AS new_value, up.raw_value AS new_raw,
+             ins.code
+      FROM up
+      JOIN prior p ON p.instrument_id = up.instrument_id AND p.key = up.key AND p.ts = up.ts
+      LEFT JOIN instruments ins ON ins.id = up.instrument_id`;
+
+    await tx.$executeRaw`
       INSERT INTO instrument_telemetry_latest
         (instrument_id, key, value, value_type, ts)
       VALUES ${latestValues}
       ON CONFLICT (instrument_id, key) DO UPDATE SET
         value = EXCLUDED.value, value_type = EXCLUDED.value_type, ts = EXCLUDED.ts
-      WHERE instrument_telemetry_latest.ts <= EXCLUDED.ts`,
+      WHERE instrument_telemetry_latest.ts <= EXCLUDED.ts`;
     // The WHERE guard stops an out-of-order arrival overwriting a NEWER value;
     // `<=`, not `<`, is what lets the last arrival at one instant win here too.
-  ]);
+
+    // One row per changed instant, in this transaction: a rollback of the
+    // overwrite takes its record with it, and vice versa. Normally empty, so
+    // the hot path pays nothing for it.
+    for (const c of changed) {
+      const code = c.code ?? c.instrument_id;
+      const at = c.ts.toISOString();
+      const by = source?.code ?? null;
+      const via = source?.transport ?? null;
+      await auditLog({
+        action: 'TELEMETRY_READING_REWRITTEN', targetType: 'Instrument', targetId: c.instrument_id,
+        beforeValue: { code, attribute: c.key, ts: at, value: c.old_value, rawValue: c.old_raw ?? null },
+        afterValue: {
+          code, attribute: c.key, ts: at, value: c.new_value, rawValue: c.new_raw ?? null,
+          reportedBy: by, transport: via,
+        },
+        reason: by
+          ? `Re-sent with a different value by device "${by}"${via ? ` over ${via.toUpperCase()}` : ''}; the last arrival is kept`
+          : 'Re-sent with a different value; the last arrival is kept',
+        signatureMeaning: `Stored reading "${clip(c.key)}" at ${at} on instrument "${clip(code)}" rewritten by a device re-send`,
+      }, tx);
+    }
+  });
 }
+
+/** Keeps a name inside `signature_meaning`'s VARCHAR(255) next to the fixed text. */
+const clip = (s: string) => (s.length <= 60 ? s : `${s.slice(0, 60)}…`);
 
 /**
  * The lower bound of the OLDEST partition of the history table, or null when
