@@ -50,6 +50,7 @@ import { publishAttributeDownlink, publishRetained, attributeDownlinkTopic } fro
 import { publishChildRoster, clearChildRoster } from './child-roster.js';
 import { announceChildAttributeChange } from './child-attributes-bundle.js';
 import { logger } from '../../lib/logger.js';
+import { roleHasPermission } from '../../plugins/rbac.js';
 
 /**
  * Registry (operator-facing, JWT + permission gated). The device-facing ingest
@@ -1584,6 +1585,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // SEC-7; found 2026-10-05 by the web sweep): a bulk upload is N creates,
     // and a policy that challenged one but not a hundred would be bypassed by
     // the CSV form. FIRST, so `_currentPassword` never reaches the parser.
+    // The password is read before that strip: the attribute re-auth below may
+    // need it again (audit 2026-10-12).
+    const sentPassword = ((req.body as Record<string, unknown> | undefined)?._currentPassword as string | undefined)
+      ?? (req.headers['x-reauth-password'] as string | undefined);
     const { ok: reauthOk } = await enforceReauth('CREATE_INSTRUMENT', req, reply);
     if (!reauthOk) return;
     const parsed = bulkCreateInstrumentsSchema.safeParse(req.body);
@@ -1608,6 +1613,31 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       .filter((c) => req.user?.role === 'SUPER_ADMIN' || !isOffset(c.key));
     const { rows, rowNumbers, errors, warnings, codeHeading } = parseInstrumentCsv(parsed.data.csv, attributeColumns);
     const ctx = buildContext(req);
+
+    // The attribute cells answer to the SAME gate as the single form's
+    // per-attribute POSTs (audit 2026-10-12): the role's Attribute Access rule
+    // (adding a key, which needs INSTRUMENT_UPDATE as that route does) and its
+    // attribute re-auth. Decided ONCE, before anything is created, so a
+    // refusal registers nothing — not a hundred instruments with their
+    // attributes silently dropped. A file with no filled attribute cell is not
+    // an attribute write and is not gated.
+    const writesAttributes = rows.some((r) => Object.values(r.attributes ?? {}).some((v) => v.trim() !== ''));
+    if (writesAttributes) {
+      const role = req.user?.role;
+      const access = await loadAttributeAccess(role);
+      const refusal = refuseAttributeWrite({
+        access,
+        hasUpdatePermission: role === 'SUPER_ADMIN' || (!!role && await roleHasPermission(role, 'INSTRUMENT_UPDATE')),
+        key: '', isNewKey: true,
+      });
+      if (refusal) return reply.code(refusal.status).send(refusal.body);
+      if (needsReauth(access) && !(req as unknown as { _reauthVerified?: boolean })._reauthVerified) {
+        const body = (req.body ?? {}) as Record<string, unknown>;
+        if (sentPassword) body._currentPassword = sentPassword;
+        const { ok: signed } = await enforceReauthAlways('UPDATE_INSTRUMENT_ATTRIBUTE', req, reply);
+        if (!signed) return;
+      }
+    }
     const created: { id: string; code: string; name: string; token: string }[] = [];
     // Rows are created one transaction at a time, not one big one: a code that
     // collides with an EXISTING instrument (the realistic case — a re-uploaded
@@ -1639,13 +1669,30 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         // AFTER the instrument's own transaction, as the single form does with
         // its per-attribute POSTs: a bad attribute must not undo a registered
         // instrument, and each attribute is a §11 record of its own.
-        if (attributes) await writeInitialAttributes(row.id, row.code, attributes, ctx);
+        //
+        // A failure here is reported ON THIS ROW (audit 2026-10-12): it used to
+        // escape the loop as a 500, after instruments had been created, and
+        // their one-time tokens — returned only in this response — were lost.
+        if (attributes) {
+          try {
+            await writeInitialAttributes(row.id, row.code, attributes, ctx);
+          } catch (err) {
+            req.log.error({ err, instrumentId: row.id, code: row.code }, 'bulk upload: attributes not written');
+            errors.push({
+              row: rowNumbers[i],
+              message: `Instrument "${row.code}" was registered, but its attributes were not written: ${(err as Error).message.slice(0, 200)}`,
+            });
+          }
+        }
       } catch (err) {
         if (isDuplicateCode(err)) {
           errors.push({ row: rowNumbers[i], column: codeHeading, message: `Instrument ID "${draft.code}" already exists` });
           continue;
         }
-        throw err;
+        // Any other failure fails THIS row, never the upload: the rows already
+        // created must still get their tokens back.
+        req.log.error({ err, row: rowNumbers[i] }, 'bulk upload: row not created');
+        errors.push({ row: rowNumbers[i], message: `Not created: ${(err as Error).message.slice(0, 200)}` });
       }
     }
 
