@@ -100,16 +100,16 @@ digilog_ensure_env() {
   umask 027
   # VERIFICATION_TOKEN_SECRET is no longer written: the /api/auth/verify route it
   # signed for was removed (audit 2026-10-03, SEC-5); nothing reads it.
-  # AUDIT_HARD_DELETE_ENABLED=false (audit 2026-10-03, DATA-8): a customer install
-  # must not be able to physically destroy §11 audit rows out of the box. The
-  # code default with the line ABSENT is enabled, so it is written explicitly.
+  # Permanent deletion of audit records is NOT an environment setting since
+  # 2026-10-12: it is the Configuration -> Audit Hard Delete toggle, OFF on a
+  # fresh install (system_config 'audit-hard-delete'). AUDIT_HARD_DELETE_ENABLED
+  # is no longer read and is not written.
   cat > "$ENV_FILE" <<EOF
 DATABASE_URL=postgresql://digilog:$db_pw@localhost:$PG_PORT/digilog_db?schema=public
 JWT_SECRET=$(secret 48)
 OFFLINE_REPLAY_SECRET=$(secret 48)
 AUDIT_CHAIN_KEY=$(secret 48)
 AUDIT_CHAIN_KEYED_FROM=0
-AUDIT_HARD_DELETE_ENABLED=false
 JWT_EXPIRES_IN=1h
 NODE_ENV=production
 PORT=$API_PORT

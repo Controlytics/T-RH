@@ -67,10 +67,11 @@ exactly this direction:
 - A Postgres trigger, `audit_trail_no_delete`, blocks physical deletes.
 - **Two endpoints can still suspend that trigger and hard-delete records**,
   breaking the chain. They are permission-gated, re-authenticated, rate-limited
-  and meta-audited, and `AUDIT_HARD_DELETE_ENABLED=false` removes them
-  entirely. **The default is enabled — whether it should be is a QA/RA
-  decision, not an engineering one.** See
-  `docs/audit/2026-08-29-technical-audit.md` finding H3.
+  and meta-audited, and they are switched on or off by the **Configuration →
+  Audit Hard Delete** toggle, **OFF by default** (operator decision 2026-10-12;
+  it replaced the `AUDIT_HARD_DELETE_ENABLED` environment variable, no longer
+  read). The records of a deletion or a redaction can never be deleted or
+  redacted. History: `docs/audit/2026-08-29-technical-audit.md` finding H3.
 - Governed actions require re-auth (55 actions, 8 categories — re-derived 2026-10-05) and, for
   attribute changes and report downloads, a mandatory reason.
 

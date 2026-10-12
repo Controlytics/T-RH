@@ -141,17 +141,16 @@ if (Test-Path $envFile) {
   # table is empty, so the keyed era starts at 0 (every row, forever).
   $auditKey      = NewSecret 48
   $dbUrl = "postgresql://digilog:$appDbPassword@localhost:$PgPort/digilog_db?schema=public"
-  # AUDIT_HARD_DELETE_ENABLED=false (audit 2026-10-03, DATA-8): a customer
-  # install must not be able to physically destroy §11 audit rows out of the
-  # box. The code default with the line ABSENT is enabled, so the template
-  # writes it explicitly; a validated site that needs the capability flips it.
+  # Permanent deletion of audit records is NOT an environment setting since
+  # 2026-10-12: it is the Configuration -> Audit Hard Delete toggle, OFF on a
+  # fresh install (system_config 'audit-hard-delete'). AUDIT_HARD_DELETE_ENABLED
+  # is no longer read and is not written.
   $envBody = @"
 DATABASE_URL=$dbUrl
 JWT_SECRET=$jwt
 OFFLINE_REPLAY_SECRET=$offline
 AUDIT_CHAIN_KEY=$auditKey
 AUDIT_CHAIN_KEYED_FROM=0
-AUDIT_HARD_DELETE_ENABLED=false
 JWT_EXPIRES_IN=1h
 NODE_ENV=production
 PORT=$ApiPort

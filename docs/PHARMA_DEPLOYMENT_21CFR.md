@@ -94,7 +94,7 @@ Place the issued `server.key` / `server.crt` where `API_HTTPS` reads them (`cert
 | `NODE_ENV` | `development` | **`production`** |
 | `JWT_SECRET` | `LOCAL_DEV_SECRET_CHANGE_IN_PRODUCTION…` | **strong random** — `node -e "console.log(require('crypto').randomBytes(64).toString('base64'))"` |
 | ~~`OFFLINE_REPLAY_SECRET`~~ | — | *(removed 2026-10-05 from this table: nothing reads it — `grep -rn OFFLINE_REPLAY_SECRET apps/api/src` is empty; the offline queue it signed went 2026-07-18)* |
-| `AUDIT_HARD_DELETE_ENABLED` | unset (= enabled) | **`false`** — both installers write it (audit 2026-10-03, DATA-8); physical deletion of audit rows then answers 403 and `bulk-redact` is the only removal path. Add the line by hand on an install whose `.env` predates it |
+| ~~`AUDIT_HARD_DELETE_ENABLED`~~ | — | *(no longer read since 2026-10-12)* Permanent deletion of audit rows is the **Configuration → Audit Hard Delete** toggle, **OFF** on a fresh install (SUPER_ADMIN; re-auth per the Action Re-auth policy, entry UPDATE_AUDIT_HARD_DELETE; audited as CONFIG_CHANGED). While off, physical deletion answers 403 and `bulk-redact` is the only removal path. Remove the line from an existing `.env`; it changes nothing |
 | `PUBLIC_BASE_URL` | unset | the address registered with Azure AD / Google for the OAuth2 mail redirect, e.g. `https://digilog.pharma.local` (audit 2026-10-03, SEC-6); unset = derived from each request |
 | `DATABASE_URL` | `digilog:…@localhost/digilog_db` | same DB, **strong DB password** |
 | `CORS_ORIGIN` / `ALLOWED_ORIGINS` | localhost dev ports | the production hostname only |
