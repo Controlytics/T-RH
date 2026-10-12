@@ -131,6 +131,36 @@ describe('PUT /:id/instruments only changes what the caller can see (finding 2)'
   });
 });
 
+describe('GET /api/floorplans for a dashboard role without CONFIG_READ (finding 5)', () => {
+  it('is readable with DASHBOARD_VIEW, while the editor detail and writes stay CONFIG_*', async () => {
+    await setOperatorPerms(['DASHBOARD_VIEW', 'INSTRUMENT_READ']);
+    try {
+      const res = await app.inject({ method: 'GET', url: '/api/floorplans', headers: operator });
+      expect(res.statusCode, res.body).toBe(200);
+      expect(Array.isArray(res.json().data)).toBe(true);
+      const plan = await prisma.floorplan.findFirst({ select: { id: true } });
+      if (plan) {
+        const detail = await app.inject({ method: 'GET', url: `/api/floorplans/${plan.id}`, headers: operator });
+        expect(detail.statusCode).toBe(403);
+      }
+      const write = await app.inject({ method: 'POST', url: '/api/floorplans', headers: operator, payload: { name: `nope ${s}`, imageWidth: 10, imageHeight: 10 } });
+      expect(write.statusCode).toBe(403);
+    } finally {
+      await setOperatorPerms(['INSTRUMENT_READ', 'FUNCTIONAL_LOCATION_READ', 'FUNCTIONAL_LOCATION_UPDATE']);
+    }
+  });
+
+  it('is still refused to a role with neither CONFIG_READ nor DASHBOARD_VIEW', async () => {
+    await setOperatorPerms(['ALARM_READ']);
+    try {
+      const res = await app.inject({ method: 'GET', url: '/api/floorplans', headers: operator });
+      expect(res.statusCode).toBe(403);
+    } finally {
+      await setOperatorPerms(['INSTRUMENT_READ', 'FUNCTIONAL_LOCATION_READ', 'FUNCTIONAL_LOCATION_UPDATE']);
+    }
+  });
+});
+
 describe('GET / (the tree) for an INSTRUMENT_READ-only role (finding 7)', () => {
   it('is readable with INSTRUMENT_READ alone, and still scoped', async () => {
     await setOperatorPerms(['INSTRUMENT_READ']);

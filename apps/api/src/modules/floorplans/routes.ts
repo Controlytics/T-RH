@@ -218,8 +218,14 @@ const planProps = {
 export default async function floorplanRoutes(app: FastifyInstance) {
   // ───────────────────────────── Plans ─────────────────────────────
 
+  // The DASHBOARD reads this list (`use-telemetry.ts`) to draw its floors, so
+  // the dashboard node's gate, DASHBOARD_VIEW, reads it too (audit 2026-10-12
+  // finding 5: a DASHBOARD_VIEW + INSTRUMENT_READ role was 403'd and the
+  // dashboard said "No floor layout yet"). It carries geometry and room limits,
+  // no instruments. `GET /:id` (instruments per room, the editor's) and every
+  // write stay CONFIG_*.
   app.get('/', {
-    preHandler: [app.requirePermission('CONFIG_READ')],
+    preHandler: [app.requireAnyPermission('CONFIG_READ', 'DASHBOARD_VIEW')],
     schema: {
       tags: ['Floorplans'],
       summary: 'List floorplans with their rooms',
