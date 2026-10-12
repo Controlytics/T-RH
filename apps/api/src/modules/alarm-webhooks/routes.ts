@@ -9,7 +9,8 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { clampSignature } from '../alarms/validation.js';
 import { resolveVisibility } from '../instruments/visibility.js';
-import { validateTargetDraft, type TargetDraft } from './validation.js';
+import { validateTargetDraft, type TargetDraft, type TargetFieldError } from './validation.js';
+import { resolveBlockedReason } from '../../lib/outbound-guard.js';
 import { expandLocations, targetMatches } from './target-scope.js';
 import { deliverToTarget } from './send.js';
 import { buildWebhookVariables } from './build-variables.js';
@@ -267,6 +268,20 @@ function draftFrom(body: Record<string, unknown>, base: Partial<TargetDraft>): T
   };
 }
 
+/**
+ * The pure draft checks, then the one that needs the network: a URL whose HOST
+ * NAME resolves to a blocked address (`localhost`, a name pointed at
+ * 169.254.169.254) is refused before storage (audit 2026-10-12 #1, SSRF). The
+ * send path judges the address it actually connects to as well, so a name that
+ * rebinds after it was saved is still refused.
+ */
+async function refuseDraft(draft: TargetDraft): Promise<TargetFieldError | null> {
+  const refusal = validateTargetDraft(draft);
+  if (refusal) return refusal;
+  const blocked = await resolveBlockedReason(draft.url);
+  return blocked ? { field: 'url', message: `This address cannot be a webhook target: ${blocked}.` } : null;
+}
+
 export default async function alarmWebhookRoutes(app: FastifyInstance) {
   // ── GET / ─────────────────────────────────────────────────────────────────
   app.get('/', {
@@ -326,7 +341,7 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
     const body = sanitizeStrings((req.body ?? {}) as Record<string, unknown>, ['url', 'bodyTemplate', 'successRegex']);
 
     const draft = draftFrom(body, {});
-    const refusal = validateTargetDraft(draft);
+    const refusal = await refuseDraft(draft);
     if (refusal) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', message: refusal.message, field: refusal.field });
     }
@@ -404,7 +419,7 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
       scopeLocationIds: asStringArray(current.scopeLocationIds),
       scopeInstrumentIds: asStringArray(current.scopeInstrumentIds),
     });
-    const refusal = validateTargetDraft(draft);
+    const refusal = await refuseDraft(draft);
     if (refusal) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', message: refusal.message, field: refusal.field });
     }

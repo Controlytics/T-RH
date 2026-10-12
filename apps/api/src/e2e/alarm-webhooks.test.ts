@@ -8,6 +8,7 @@ import { invalidateReauthCache } from '../lib/reauth-check.js';
 import { fixtureProfileId } from '../test-support/fixture-profile.js';
 import { Prisma } from '@prisma/client';
 import { invalidateRolePermsCache } from '../plugins/rbac.js';
+import { allowLoopbackForTests } from '../lib/outbound-guard.js';
 
 /**
  * HTTP-level coverage of the alarm-webhook target module.
@@ -59,6 +60,9 @@ beforeAll(async () => {
   });
   invalidateReauthCache();
 
+  // The hooter below listens on 127.0.0.1, which the outbound guard refuses in
+  // production (audit 2026-10-12 #1). The SSRF tests at the end switch it back off.
+  allowLoopbackForTests(true);
   hooter = http.createServer((req, res) => {
     hooterHits++;
     let body = '';
@@ -98,6 +102,7 @@ afterAll(async () => {
     await prisma.systemConfig.deleteMany({ where: { configKey: 'action-reauth' } });
   }
   invalidateReauthCache();
+  allowLoopbackForTests(false);
   await new Promise<void>((resolve) => hooter.close(() => resolve()));
   await app.close();
 });
@@ -227,8 +232,10 @@ describe('alarm webhook targets', () => {
   });
 
   it('does not sanitise a tag-shaped url path — `url` is exempt', async () => {
-    // stripHtml turns this into 'http://127.0.0.1:9/trigger', a DIFFERENT hooter.
-    const url = 'http://127.0.0.1:9/<alarm>/trigger';
+    // stripHtml turns this into 'http://192.168.1.60:9/trigger', a DIFFERENT hooter.
+    // (A LAN literal, not loopback: saving never contacts it, and loopback is now
+    // refused outright — audit 2026-10-12 #1.)
+    const url = 'http://192.168.1.60:9/<alarm>/trigger';
     const res = await newTarget({ url });
     expect(res.statusCode).toBe(201);
     expect(res.json().url).toBe(url);
@@ -662,5 +669,63 @@ describe('alarm webhook delivery log — instrument visibility', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().total).toBe(0);
+  });
+});
+
+/**
+ * Audit 2026-10-12 #1 — SSRF to the EC2 metadata service. An ALARM_RULE_MANAGE
+ * holder could save http://169.254.169.254/… with PUT/GET and any headers, and the
+ * test-fire returned 1,000 characters of the answer: an IMDSv2 token, then the
+ * instance role's credentials. Refused at save (literal AND resolved name) and at
+ * send (for a row stored before the fix, or a name that rebinds).
+ */
+describe('alarm webhook targets — outbound guard (SSRF)', () => {
+  beforeAll(() => allowLoopbackForTests(false));
+  afterAll(() => allowLoopbackForTests(true));
+
+  it('refuses to save the metadata service as a target', async () => {
+    const res = await newTarget({
+      url: 'http://169.254.169.254/latest/api/token', method: 'PUT',
+      headers: { 'X-aws-ec2-metadata-token-ttl-seconds': '21600' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().field).toBe('url');
+  });
+
+  it('refuses to save a NAME that resolves to loopback', async () => {
+    const port = new URL(hooterUrl).port;
+    const res = await newTarget({ url: `http://localhost:${port}/alarm` });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().field).toBe('url');
+  });
+
+  it('refuses to move an existing target onto the metadata service', async () => {
+    allowLoopbackForTests(true);
+    const id = (await newTarget()).json().id;
+    allowLoopbackForTests(false);
+    const res = await app.inject({
+      method: 'PUT', url: `/api/alarm-webhooks/${id}`, headers: headers(),
+      payload: { url: 'http://169.254.169.254/latest/meta-data/iam/security-credentials/' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().field).toBe('url');
+  });
+
+  it('a target stored before the fix is refused at SEND, and returns nothing', async () => {
+    // Written straight to the table: the row an upgraded install may already hold.
+    const row = await prisma.alarmWebhookTarget.create({
+      data: {
+        name: `legacy-imds-${Date.now()}`, url: 'http://169.254.169.254/latest/api/token', method: 'PUT',
+        headers: {}, contentType: 'application/json', bodyTemplate: '{"event":"${event}"}',
+        timeoutMs: 2000, cooldownSeconds: 0, scopeLocationIds: [], scopeInstrumentIds: [],
+      },
+    });
+    targets.push(row.id);
+    const res = await app.inject({ method: 'POST', url: `/api/alarm-webhooks/${row.id}/test`, headers: headers() });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(false);
+    expect(res.json().httpStatus).toBeNull();
+    expect(res.json().responseSnippet).toBeNull();
+    expect(res.json().error).toMatch(/Refused/);
   });
 });
