@@ -272,3 +272,56 @@ describe('gateway ingest', () => {
       .toEqual({ accepted: 0, rejected: 1 });
   });
 });
+
+/**
+ * Audit 2026-10-12, findings 4 and 5, through the real database: a block
+ * older than every partition is dead-lettered and counted rejected while the
+ * good child still lands (it used to sink the batch with a 503 the gateway
+ * retried forever); a flat reading that old is a non-retryable 422; and a
+ * payload that stores nothing does not stamp last-seen.
+ */
+describe('ingest — unplaceable readings and empty payloads', () => {
+  const OLD = '2019-06-01T00:00:00Z';
+
+  it('stores the good child and rejects only the block older than every partition', async () => {
+    const s = Date.now();
+    const gw = await mk({ name: 'GWP', code: `GWP-${s}`, isGateway: true });
+    const a = await mk({ name: 'PA', code: `PA-${s}`, gatewayId: gw.id });
+    const b = await mk({ name: 'PB', code: `PB-${s}`, gatewayId: gw.id });
+
+    const res = await ingest(gw.token, {
+      devices: { [`PA-${s}`]: { temperature: 1, ts: OLD }, [`PB-${s}`]: { temperature: 2 } },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ accepted: 1, rejected: 1 });
+
+    const tb = await app.inject({ method: 'GET', url: `/api/instruments/${b.id}/telemetry`, headers: auth });
+    expect(tb.json().latest.find((r: { key: string }) => r.key === 'temperature').value).toBe(2);
+    const ta = await app.inject({ method: 'GET', url: `/api/instruments/${a.id}/telemetry`, headers: auth });
+    expect(ta.json().latest).toEqual([]);
+    const dl = await app.inject({ method: 'GET', url: `/api/instruments/${gw.id}/dead-letters`, headers: auth });
+    expect(JSON.stringify(dl.json())).toContain('earliest stored partition');
+  });
+
+  it('refuses a flat reading older than every partition with a non-retryable 422', async () => {
+    const s = Date.now();
+    const x = await mk({ name: 'PX', code: `PX-${s}` });
+    const res = await ingest(x.token, { temperature: 3, ts: OLD });
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error).toBe('TIMESTAMP_OUT_OF_RANGE');
+  });
+
+  it('an all-null or empty payload does not stamp last-seen', async () => {
+    const s = Date.now();
+    const x = await mk({ name: 'PN', code: `PN-${s}` });
+    expect((await ingest(x.token, { t: null, h: null })).statusCode).toBe(200);
+    expect((await ingest(x.token, {})).statusCode).toBe(200);
+    const row = await app.inject({ method: 'GET', url: `/api/instruments/${x.id}`, headers: auth });
+    expect(row.json().lastSeenAt ?? null).toBeNull();
+    // Positive control: a real reading DOES stamp, so the null above is not
+    // just a field the response never carries.
+    expect((await ingest(x.token, { t: 21 })).statusCode).toBe(200);
+    const after = await app.inject({ method: 'GET', url: `/api/instruments/${x.id}`, headers: auth });
+    expect(after.json().lastSeenAt).toBeTruthy();
+  });
+});

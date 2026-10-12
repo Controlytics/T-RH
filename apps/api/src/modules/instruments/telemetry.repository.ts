@@ -88,8 +88,12 @@ export function lastPerInstant<R extends { instrumentId: string; key: string; ts
   return [...byInstant.values()];
 }
 
+/** Who delivered a batch: the authenticated sender's code and the transport it arrived on. */
+export interface WriteSource { code: string; transport: string }
+
 export async function writeBatch(
   rows: (Reading & { instrumentId: string })[],
+  source?: WriteSource,
 ): Promise<void> {
   if (rows.length === 0) return;
 
@@ -141,6 +145,28 @@ export async function writeBatch(
     // The WHERE guard stops an out-of-order arrival overwriting a NEWER value;
     // `<=`, not `<`, is what lets the last arrival at one instant win here too.
   ]);
+}
+
+/**
+ * The lower bound of the OLDEST partition of the history table, or null when
+ * there is none (audit 2026-10-12, finding 5). A reading older than this can
+ * never be stored — retention dropped its month, or it was never kept — so it
+ * is refused for good rather than retried. A reading NEWER than this that still
+ * has no partition means partition maintenance is behind, which a retry fixes.
+ *
+ * Read from the catalogue on the failure path only, never on the hot path.
+ */
+export async function earliestPartitionStart(): Promise<Date | null> {
+  // The bound text is `FOR VALUES FROM ('2026-08-01 05:30:00+05:30') TO (…)`
+  // (a DEFAULT partition prints `DEFAULT` and yields NULL here, so it is
+  // ignored). Backslashes are DOUBLED: in a template literal `\(` is just `(`,
+  // which silently turned the escaped parenthesis into a capture group.
+  const rows = await prisma.$queryRaw<{ start: Date | null }[]>`
+    SELECT min(substring(pg_get_expr(c.relpartbound, c.oid) from 'FROM \\(''([^'']+)''\\)')::timestamptz) AS start
+    FROM pg_inherits i
+    JOIN pg_class c ON c.oid = i.inhrelid
+    WHERE i.inhparent = 'instrument_telemetry_history'::regclass`;
+  return rows[0]?.start ?? null;
 }
 
 export async function getLatest(instrumentId: string): Promise<TelemetryRow[]> {

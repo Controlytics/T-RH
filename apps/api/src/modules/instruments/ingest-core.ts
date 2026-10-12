@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { parsePayload, toReadings, nullReadingKeys } from './payload-parser.js';
-import { writeBatch, writeDeadLetters } from './telemetry.repository.js';
+import { writeBatch, writeDeadLetters, earliestPartitionStart } from './telemetry.repository.js';
 import { stampLastSeen } from './last-seen.js';
 import { enqueueAlarmEvaluation } from '../alarms/enqueue-evaluation.js';
 import { fanoutDevices } from './gateway-fanout.js';
@@ -46,7 +46,7 @@ const MAX_DEAD_LETTERS_PER_BATCH = 20;
 // `rejected ?? 0` and never has to know which shape it got.
 export type IngestOutcome =
   | { ok: true; accepted: number; rejected?: number }
-  | { ok: false; code: 'UNPARSEABLE' | 'NOT_A_GATEWAY' | 'TOO_MANY_KEYS' | 'WRITE_FAILED'; message: string };
+  | { ok: false; code: 'UNPARSEABLE' | 'NOT_A_GATEWAY' | 'TOO_MANY_KEYS' | 'WRITE_FAILED' | 'TIMESTAMP_OUT_OF_RANGE'; message: string };
 
 interface DeadLetterRow {
   id: string;
@@ -75,25 +75,101 @@ interface DeadLetterRow {
  * `WRITE_FAILED` (503 on HTTP so a device retries after the partition is
  * created). Never throws.
  */
+type BatchReading = Parameters<typeof writeBatch>[0][number];
+
+interface WriteResult {
+  /** The readings now stored. */
+  stored: BatchReading[];
+  /**
+   * Readings timestamped before the OLDEST partition: no retry can ever store
+   * them, so they are dead-lettered and reported as refused, not as a failure.
+   */
+  unplaceable: BatchReading[];
+  /**
+   * Set when readings that COULD be stored were not (an outage, partition
+   * maintenance behind) — already dead-lettered; the caller answers
+   * WRITE_FAILED so the sender retries.
+   */
+  failure: string | null;
+}
+
+/** Postgres's refusal of a row whose `ts` falls in no partition of the history table. */
+function isNoPartitionError(e: unknown): boolean {
+  return /no partition of relation/i.test((e as { message?: string })?.message ?? String(e));
+}
+
+/**
+ * ONE UNPLACEABLE BLOCK NO LONGER SINKS THE BATCH (audit 2026-10-12, finding 5).
+ * `writeBatch` is one statement, so a single reading older than every
+ * partition (a gateway replaying a buffer from before the retention window)
+ * refused the WHOLE multi-child batch — every good child's readings lost, and
+ * on HTTP a 503 the gateway retried with the same doomed block forever. Now,
+ * only when the refusal is "no partition", the batch is split on the oldest
+ * partition's lower bound: the rest is written, the too-old readings are
+ * dead-lettered and returned as `unplaceable`. The hot path is untouched — the
+ * catalogue is read only after a refusal. A missing partition AHEAD of the
+ * oldest one (maintenance behind) is still a retryable failure.
+ */
 async function writeBatchOrDeadLetter(
-  readings: Parameters<typeof writeBatch>[0],
+  readings: BatchReading[],
   sender: { id: string; code: string },
   transport: string,
   raw: Buffer,
-): Promise<string | null> {
-  try {
-    await writeBatch(await applySensorOffsets(readings));
-    return null;
-  } catch (e) {
+): Promise<WriteResult> {
+  const source = { code: sender.code, transport };
+  const recordLoss = async (e: unknown, lost: number): Promise<string> => {
     const message = (e as { message?: string })?.message ?? String(e);
-    logger.error({ err: e, instrumentId: sender.id, code: sender.code, readings: readings.length, transport },
+    logger.error({ err: e, instrumentId: sender.id, code: sender.code, readings: lost, transport },
       'telemetry write failed — batch dead-lettered');
     await safeWriteDeadLetters([{
       id: randomUUID(), instrumentId: sender.id, transport,
-      reason: `Telemetry write failed (${readings.length} reading${readings.length === 1 ? '' : 's'} lost): ${message.slice(0, 500)}`,
+      reason: `Telemetry write failed (${lost} reading${lost === 1 ? '' : 's'} lost): ${message.slice(0, 500)}`,
       rawPayload: raw.toString('utf8').slice(0, 4000),
     }]);
     return message;
+  };
+
+  let corrected = readings;
+  try {
+    corrected = await applySensorOffsets(readings);
+    await writeBatch(corrected, source);
+    return { stored: corrected, unplaceable: [], failure: null };
+  } catch (e) {
+    if (!isNoPartitionError(e)) return { stored: [], unplaceable: [], failure: await recordLoss(e, readings.length) };
+
+    let earliest: Date | null = null;
+    try {
+      earliest = await earliestPartitionStart();
+    } catch (err) {
+      logger.error({ err, instrumentId: sender.id }, 'could not read the telemetry partition bounds');
+    }
+    const doomed = earliest ? corrected.filter((r) => r.ts < earliest) : [];
+    // Nothing is older than the oldest partition: the gap is maintenance
+    // falling behind (or the bounds could not be read) — retryable, as before.
+    if (!earliest || doomed.length === 0) return { stored: [], unplaceable: [], failure: await recordLoss(e, readings.length) };
+
+    const placeable = corrected.filter((r) => r.ts >= earliest);
+    let stored: BatchReading[] = [];
+    let failure: string | null = null;
+    if (placeable.length > 0) {
+      try {
+        await writeBatch(placeable, source);
+        stored = placeable;
+      } catch (e2) {
+        failure = await recordLoss(e2, placeable.length);
+      }
+    }
+    const instants = [...new Set(doomed.map((r) => r.ts.toISOString()))];
+    logger.warn({ instrumentId: sender.id, code: sender.code, discarded: doomed.length, earliest, transport },
+      'telemetry older than every partition — dead-lettered, not retried');
+    await safeWriteDeadLetters([{
+      id: randomUUID(), instrumentId: sender.id, transport,
+      reason: `${doomed.length} reading${doomed.length === 1 ? '' : 's'} timestamped before the earliest stored partition `
+        + `(${earliest.toISOString()}) can never be stored and ${doomed.length === 1 ? 'was' : 'were'} discarded, not retried: `
+        + `${instants.slice(0, 5).join(', ')}${instants.length > 5 ? ` and ${instants.length - 5} more` : ''}`,
+      rawPayload: raw.toString('utf8').slice(0, 4000),
+    }]);
+    return { stored, unplaceable: doomed, failure };
   }
 }
 
@@ -198,13 +274,20 @@ export async function ingestPayload(args: {
       await safeWriteDeadLetters(rows);
     }
 
+    let stored: BatchReading[] = [];
+    let unplaceableBlocks = 0;
     if (readings.length > 0) {
       // Each child's own sensor offset, applied before the write (2026-10-01).
-      const failure = await writeBatchOrDeadLetter(readings, identity, transport, raw);
-      if (failure !== null) {
-        return { ok: false, code: 'WRITE_FAILED', message: `Readings could not be stored: ${failure}` };
+      const result = await writeBatchOrDeadLetter(readings, identity, transport, raw);
+      if (result.failure !== null) {
+        return { ok: false, code: 'WRITE_FAILED', message: `Readings could not be stored: ${result.failure}` };
       }
-      await stampLastSeen([...new Set(readings.map((r) => r.instrumentId))], 'gateway');
+      stored = result.stored;
+      unplaceableBlocks = new Set(result.unplaceable.map((r) => r.instrumentId)).size;
+    }
+    if (stored.length > 0) {
+      // Only the children whose readings actually LANDED are stamped.
+      await stampLastSeen([...new Set(stored.map((r) => r.instrumentId))], 'gateway');
       // Readings landed, so judge them now rather than at the next minute tick.
       // ENQUEUES, never evaluates: the evaluator must stay out of this path, or a
       // broken evaluation could reject a telemetry write. Never throws.
@@ -225,7 +308,9 @@ export async function ingestPayload(args: {
     // ok, not a partial-failure code: the request was handled correctly and
     // every accepted reading is stored. `rejected` tells an integrator about
     // partial failure without making them read the dead-letter table.
-    return { ok: true, accepted: readings.length, rejected: rejected.length };
+    // A block older than every partition counts as rejected — it is
+    // dead-lettered and will never be stored, so retrying it is pointless.
+    return { ok: true, accepted: stored.length, rejected: rejected.length + unplaceableBlocks };
   }
 
   const keyCount = Object.keys(parsed.values).length;
@@ -255,11 +340,28 @@ export async function ingestPayload(args: {
   }
   // The instrument's sensor offset, applied BEFORE the write (2026-10-01): the
   // corrected value is what is stored, shown and alarmed on.
-  const failure = await writeBatchOrDeadLetter(
+  // Nothing to write — every key was null, or there were no keys (audit
+  // 2026-10-12, finding 4). NOT a sign of life: stamping last-seen here kept a
+  // dead probe sending `{"t":null}` from ever going INACTIVE, and the enqueued
+  // evaluation kept judging its last, stale value. The nulls are dead-lettered
+  // above; the gateway child path has always stamped only on stored readings.
+  if (readings.length === 0) return { ok: true, accepted: 0 };
+
+  const result = await writeBatchOrDeadLetter(
     readings.map((r) => ({ ...r, instrumentId: identity.id })), identity, transport, raw,
   );
-  if (failure !== null) {
-    return { ok: false, code: 'WRITE_FAILED', message: `Readings could not be stored: ${failure}` };
+  if (result.failure !== null) {
+    return { ok: false, code: 'WRITE_FAILED', message: `Readings could not be stored: ${result.failure}` };
+  }
+  if (result.stored.length === 0) {
+    // Every reading is older than the oldest partition (finding 5): dead-
+    // lettered, and refused as NON-retryable — a 503 here made the device
+    // resend the same reading forever.
+    return {
+      ok: false,
+      code: 'TIMESTAMP_OUT_OF_RANGE',
+      message: 'The reading\'s timestamp is older than the telemetry the server keeps; it cannot be stored. Check the device clock. Do not resend it.',
+    };
   }
   // "Is it talking?" is answered by the INSTRUMENT's own column, not by the
   // credential's lastUsedAt (spec D9) — a gateway-reported child never
@@ -269,5 +371,5 @@ export async function ingestPayload(args: {
   // Same as the gateway path above: enqueue an evaluation so an excursion is raised
   // (or cleared) within seconds of the reading rather than on the next minute tick.
   await enqueueAlarmEvaluation();
-  return { ok: true, accepted: readings.length };
+  return { ok: true, accepted: result.stored.length };
 }
