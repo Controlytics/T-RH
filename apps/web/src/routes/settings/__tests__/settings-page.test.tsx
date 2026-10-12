@@ -267,6 +267,42 @@ describe('SettingsPage', () => {
       expect(within(widget()).queryByRole('textbox')).toBeNull();
     });
 
+    // Audit 2026-10-12, finding 7. Keys are written one by one, so a failure on
+    // the second leaves the first SAVED. The page did not refresh on failure, so
+    // a re-Save compared against the stale values and PUT the saved key again —
+    // a before == after §11 row. It now re-reads the server's values on any
+    // failure, and a re-Save writes only what still differs from them.
+    it('after a partial failure it re-reads the server, and a re-Save writes only what is still different', async () => {
+      const original = attributes['i-1'];
+      try {
+        put.mockImplementation((url: string) => (String(url).endsWith('/attributes/Location')
+          ? Promise.reject(new Error('Location refused')) : Promise.resolve({})));
+        // The server's answer after the failure: Building WAS saved.
+        mutateAttrs.mockImplementation(async () => {
+          attributes['i-1'] = original.map((a) => (a.key === 'Building' ? { ...a, value: 'CWH Annex' } : a));
+        });
+        startEdit();
+        fireEvent.change(field('Location'), { target: { value: 'QC LAB' } });
+        fireEvent.change(field('Building'), { target: { value: 'CWH Annex' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        remark('Room renamed after the relayout');
+        await waitFor(() => expect(mutateAttrs).toHaveBeenCalled());
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
+
+        put.mockReset().mockResolvedValue({});
+        if (!screen.queryByRole('textbox', { name: /remarks/i })) {
+          fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        }
+        remark('Second attempt after the refusal');
+        await waitFor(() => expect(put).toHaveBeenCalledWith(
+          '/api/instruments/i-1/attributes/Location', { value: 'QC LAB', reason: 'Second attempt after the refusal' },
+        ));
+        expect(put.mock.calls.some(([url]) => String(url).endsWith('/attributes/Building'))).toBe(false);
+      } finally {
+        attributes['i-1'] = original;
+      }
+    });
+
     it('Save with nothing changed writes nothing and just leaves edit mode', () => {
       startEdit();
       fireEvent.click(screen.getByRole('button', { name: 'Save' }));
