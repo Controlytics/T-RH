@@ -50,6 +50,8 @@ import { fixtureProfileId } from '../../../test-support/fixture-profile.js';
 import { formatConfiguredDateTime } from '../../../lib/format-datetime.js';
 import { dispatchNotification } from '../notification-dispatcher.js';
 import { resetNotificationCooldowns } from '../cooldown.js';
+import { notificationService } from '../../notifications/notification.service.js';
+import { NotificationEventType, NotificationType } from '@prisma/client';
 
 const S = `${Date.now()}`;
 const ROLE_READ = `NDT_READ_${S}`.slice(0, 50);
@@ -206,10 +208,52 @@ describe('#9 a retried notification job does not re-send to recipients already r
     await raised(ids.instD, 'job:ndt-1');
     expect(sentTo('dedup1')).toHaveLength(1);
     expect(sentTo('dedup2')).toHaveLength(1);
-    // Rule 1 has in-app ON. NotificationType has no ALARM_RAISED, so no in-app row
-    // can be stored for an alarm (a pre-existing gap, reported); what this pins is
-    // that the gap no longer fails the job on every attempt.
-    const inApp = await prisma.notification.count({ where: { forUserId: { startsWith: 'ndt_dedup1_' } } });
-    expect(inApp).toBe(0);
+    // Rule 1 has in-app ON: exactly ONE in-app row, though the job ran twice.
+    // (Until migration 20261012140000 NotificationType had no ALARM_RAISED and no
+    // in-app alarm row could be stored at all.)
+    const inApp = await prisma.notification.findMany({ where: { forUserId: { startsWith: 'ndt_dedup1_' } } });
+    expect(inApp).toHaveLength(1);
+    expect(inApp[0].type).toBe('ALARM_RAISED');
+  });
+});
+
+describe('in-app alarm notifications are stored and shown', () => {
+  it('a rule with in-app ON stores an ALARM_CLEARED row the recipient\'s notification list returns', async () => {
+    await prisma.notificationRule.update({ where: { id: ids.rule1 }, data: { eventTypes: ['ALARM_RAISED', 'ALARM_CLEARED'] } });
+    await dispatchNotification({
+      eventType: 'ALARM_CLEARED',
+      context: { metric: 'TEMPERATURE', instrumentId: ids.instD },
+      variables: { instrument: 'X', metric: 'TEMPERATURE', condition: 'above 25', ruleName: 'High Temperature', raisedAt: new Date().toISOString(), duration: '5 min', timestamp: new Date().toISOString() },
+    });
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: ids.uDedup1 } });
+    const list = await notificationService.list({ page: '1', limit: '50' }, user.role, user.username);
+    const cleared = (list.data as { type: string; message: string }[]).filter((n) => n.type === 'ALARM_CLEARED');
+    expect(cleared).toHaveLength(1);
+    expect(cleared[0].message).toContain('cleared');
+  });
+});
+
+describe('the dedup lookup is indexed (#9)', () => {
+  it('both tables answer metadata->>\'dedupKey\' from an index', async () => {
+    for (const table of ['notification_logs', 'notifications']) {
+      const plan = await prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe('SET LOCAL enable_seqscan = off');
+        return tx.$queryRawUnsafe<{ 'QUERY PLAN': string }[]>(
+          `EXPLAIN SELECT 1 FROM ${table} WHERE metadata->>'dedupKey' = 'job:x'`,
+        );
+      });
+      expect(plan.map((r) => r['QUERY PLAN']).join('\n')).toMatch(/dedup_key_idx/);
+    }
+  });
+});
+
+describe('enum parity', () => {
+  // `notifications.type` stores the rule's EVENT type, so every value a rule can
+  // subscribe to must be storable there. ALARM_RAISED/ALARM_CLEARED were missing
+  // for two months and every in-app alarm row failed at insert.
+  it('every NotificationEventType is a NotificationType', () => {
+    for (const v of Object.values(NotificationEventType)) {
+      expect(Object.values(NotificationType), v).toContain(v);
+    }
   });
 });

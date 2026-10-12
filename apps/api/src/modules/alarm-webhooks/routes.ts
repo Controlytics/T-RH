@@ -11,10 +11,18 @@ import { clampSignature } from '../alarms/validation.js';
 import { resolveVisibility } from '../instruments/visibility.js';
 import { validateTargetDraft, type TargetDraft, type TargetFieldError } from './validation.js';
 import { resolveBlockedReason } from '../../lib/outbound-guard.js';
-import { maskHeaderValues, restoreMaskedHeaders } from '../../lib/mask-secrets.js';
+import { maskHeaderValues, restoreMaskedHeaders, maskUrlSecrets, restoreMaskedUrl } from '../../lib/mask-secrets.js';
+
+/**
+ * The target URL as it may be SHOWN — on a response, in the delivery log, in the
+ * audit trail: secret-NAMED query values (`?token=…`, `?key=…`) and any userinfo
+ * password masked, every other part readable (audit 2026-10-12 follow-up). The
+ * stored URL, and the one actually sent, are never masked.
+ */
+const shownUrl = (url: string): string => maskUrlSecrets(url, { secretNamesOnly: true }) ?? url;
 import { expandLocations, targetMatches } from './target-scope.js';
 import { deliverToTarget } from './send.js';
-import { buildWebhookVariables } from './build-variables.js';
+import { buildWebhookVariablesWithLocal } from './build-variables.js';
 import type { FlNode } from '../functional-locations/tree.js';
 import { ALARM_WEBHOOK_DELIVERY_STATUSES, DEFAULT_WEBHOOK_BODY_TEMPLATE } from '@digilog/shared';
 
@@ -107,7 +115,7 @@ function toTargetResponse(row: TargetRow, instrumentCount: number, last: LastDel
     id: row.id,
     name: row.name,
     description: row.description ?? null,
-    url: row.url,
+    url: shownUrl(row.url),
     method: row.method,
     // VALUES masked, names kept (audit 2026-10-12 #6): a hooter's header is where
     // its bearer token or API key lives, and ALARM_RULE_READ is a read permission.
@@ -147,7 +155,7 @@ function auditSnapshot(row: TargetRow) {
   return {
     name: row.name,
     description: row.description ?? null,
-    url: row.url,
+    url: shownUrl(row.url),
     method: row.method,
     headerNames: Object.keys(asHeaders(row.headers)),
     contentType: row.contentType,
@@ -181,6 +189,16 @@ function resolveHeaders(
     };
   }
   draft.headers = r.headers;
+  return null;
+}
+
+/** Mask-means-keep for the URL's masked query values (see `shownUrl`). */
+function resolveUrl(draft: TargetDraft, stored: string | null): TargetFieldError | null {
+  const r = restoreMaskedUrl(draft.url, stored);
+  if ('unresolved' in r) {
+    return { field: 'url', message: `The URL's ${r.unresolved} has no saved value to keep — type it again.` };
+  }
+  draft.url = r.url;
   return null;
 }
 
@@ -224,6 +242,7 @@ function toDeliveryResponse(row: {
 }) {
   return {
     ...row,
+    url: shownUrl(row.url),
     createdAt: row.createdAt.toISOString(),
     sentAt: row.sentAt?.toISOString() ?? null,
   };
@@ -395,7 +414,7 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
     const body = sanitizeStrings((req.body ?? {}) as Record<string, unknown>, ['url', 'bodyTemplate', 'successRegex']);
 
     const draft = draftFrom(body, {});
-    const refusal = resolveHeaders(draft, {}) ?? await refuseDraft(draft);
+    const refusal = resolveHeaders(draft, {}) ?? resolveUrl(draft, null) ?? await refuseDraft(draft);
     if (refusal) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', message: refusal.message, field: refusal.field });
     }
@@ -432,7 +451,7 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
         targetType: 'AlarmWebhookTarget', targetId: row.id,
         // `name` is what the audit trail's {targetName} placeholder reads.
         afterValue: auditSnapshot(row),
-        signatureMeaning: clampSignature(`Created alarm webhook "${row.name}" -> ${row.url}`),
+        signatureMeaning: clampSignature(`Created alarm webhook "${row.name}" -> ${shownUrl(row.url)}`),
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       }, tx);
       return row;
@@ -478,7 +497,7 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
       scopeLocationIds: asStringArray(current.scopeLocationIds),
       scopeInstrumentIds: asStringArray(current.scopeInstrumentIds),
     });
-    const refusal = resolveHeaders(draft, asHeaders(current.headers)) ?? await refuseDraft(draft);
+    const refusal = resolveHeaders(draft, asHeaders(current.headers)) ?? resolveUrl(draft, current.url) ?? await refuseDraft(draft);
     if (refusal) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', message: refusal.message, field: refusal.field });
     }
@@ -513,7 +532,7 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
         targetType: 'AlarmWebhookTarget', targetId: id,
         beforeValue: auditSnapshot(current),
         afterValue: auditSnapshot(row),
-        signatureMeaning: clampSignature(`Updated alarm webhook "${row.name}" -> ${row.url}`),
+        signatureMeaning: clampSignature(`Updated alarm webhook "${row.name}" -> ${shownUrl(row.url)}`),
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       }, tx);
       return row;
@@ -630,7 +649,7 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
     // Fires REGARDLESS of scope, isActive and the fire flags —
     // commissioning a hooter must not require first configuring the conditions you
     // are trying to test.
-    const variables = buildWebhookVariables('TEST', {
+    const variables = await buildWebhookVariablesWithLocal('TEST', {
       alarmId: 'TEST',
       instrumentId: 'TEST',
       instrumentCode: 'TEST',
@@ -678,13 +697,13 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
       // evidence that anything sounded.
       afterValue: {
         name: target.name,
-        url: target.url,
+        url: shownUrl(target.url),
         ok: delivered,
         httpStatus: last?.httpStatus ?? null,
         error: last?.error ?? null,
       },
       signatureMeaning: clampSignature(
-        `Test-fired alarm webhook "${target.name}" -> ${target.url} — ${delivered ? 'delivered' : 'failed'}`,
+        `Test-fired alarm webhook "${target.name}" -> ${shownUrl(target.url)} — ${delivered ? 'delivered' : 'failed'}`,
       ),
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });

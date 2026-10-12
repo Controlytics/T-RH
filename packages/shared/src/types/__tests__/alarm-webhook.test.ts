@@ -31,6 +31,20 @@ describe('alarm webhook contract', () => {
     expect(DEFAULT_WEBHOOK_BODY_TEMPLATE).not.toContain('severity');
   });
 
+  // Audit 2026-10-12 follow-up: the ISO variables stay (a machine parses them);
+  // a `…Local` twin prints the same instant in the administered zone/format.
+  it('offers a configured-zone twin beside every ISO time variable', () => {
+    for (const event of ALARM_WEBHOOK_EVENTS) {
+      expect(ALARM_WEBHOOK_VARIABLES[event]).toContain('timestamp');
+      expect(ALARM_WEBHOOK_VARIABLES[event]).toContain('timestampLocal');
+    }
+    for (const event of ['CLEARED', 'ACKNOWLEDGED'] as const) {
+      expect(ALARM_WEBHOOK_VARIABLES[event]).toContain('raisedAt');
+      expect(ALARM_WEBHOOK_VARIABLES[event]).toContain('raisedAtLocal');
+    }
+    expect(ALARM_WEBHOOK_VARIABLES.RAISED).not.toContain('raisedAtLocal');
+  });
+
   it('promises the event-specific variables', () => {
     expect(ALARM_WEBHOOK_VARIABLES.CLEARED).toContain('duration');
     expect(ALARM_WEBHOOK_VARIABLES.CLEARED).toContain('raisedAt');

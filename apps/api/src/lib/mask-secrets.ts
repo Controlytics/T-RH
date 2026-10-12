@@ -130,12 +130,100 @@ function joinUrl(s: ReturnType<typeof splitUrl>): string {
  * `apikey`, `key`, `token`, `pwd`…), so a list of "secret-looking" names would
  * leak the next one. The KEYS stay readable.
  */
-export function maskUrlSecrets(url: string | null | undefined): string | null | undefined {
+export function maskUrlSecrets(
+  url: string | null | undefined,
+  opts: { secretNamesOnly?: boolean } = {},
+): string | null | undefined {
   if (!url) return url;
   const s = splitUrl(url);
   if (s.password) s.password = SECRET_MASK;
-  if (s.params) for (const p of s.params) if (p.value && !PLACEHOLDER.test(p.value)) p.value = SECRET_MASK;
+  if (s.params) {
+    for (const p of s.params) {
+      if (!p.value || PLACEHOLDER.test(p.value)) continue;
+      // `secretNamesOnly` — for a WEBHOOK URL (audit 2026-10-12 follow-up): a
+      // hooter's query is mostly device settings (`?relay=1&mode=pulse`), and
+      // masking those would hide the configuration the page exists to show.
+      // The SMS gateway URL stays fail-closed (every value masked).
+      if (opts.secretNamesOnly && !isSecretName(p.key)) continue;
+      p.value = SECRET_MASK;
+    }
+  }
   return joinUrl(s);
+}
+
+/**
+ * Does a field / parameter NAME say it carries a credential? Matched as a
+ * substring, case-insensitively: `authkey`, `api_key`, `apiKey`, `access_token`,
+ * `password`, `pwd`, `signature`, `Authorization`, `credential`…  Used only
+ * where masking EVERY value would destroy what an operator must read (a body
+ * template, a webhook URL); it is a recognisable-shape rule, not a guarantee.
+ */
+const SECRET_NAME = /(key|token|secret|pass(word|wd)?|pwd|sig(nature)?|credential|auth)/i;
+export function isSecretName(name: string): boolean {
+  return SECRET_NAME.test(name);
+}
+
+/** `"name": "value"` (JSON) — value may contain escaped quotes. */
+const JSON_PAIR = /"([^"\\]+)"(\s*:\s*)"((?:[^"\\]|\\.)*)"/g;
+/** `name=value` at the start or after `&`, `?` or whitespace (form / query). */
+const FORM_PAIR = /(^|[?&\s])([A-Za-z0-9_.\-]+)=([^&\s"]*)/g;
+
+type Pair = { name: string; value: string };
+
+function templatePairs(tpl: string): Pair[] {
+  const out: Pair[] = [];
+  for (const m of tpl.matchAll(JSON_PAIR)) out.push({ name: m[1], value: m[3] });
+  for (const m of tpl.matchAll(FORM_PAIR)) out.push({ name: m[2], value: m[3] });
+  return out;
+}
+
+/** Rewrite each secret-named pair's value through `fn(name, value, nthOfName)`. */
+function rewriteSecretPairs(tpl: string, fn: (name: string, value: string, nth: number) => string): string {
+  const seen = new Map<string, number>();
+  const nth = (name: string) => { const n = seen.get(name) ?? 0; seen.set(name, n + 1); return n; };
+  const afterJson = tpl.replace(JSON_PAIR, (whole, name: string, sep: string, value: string) => {
+    if (!isSecretName(name)) return whole;
+    return `"${name}"${sep}"${fn(name, value, nth(name))}"`;
+  });
+  return afterJson.replace(FORM_PAIR, (whole, lead: string, name: string, value: string) => {
+    if (!isSecretName(name)) return whole;
+    return `${lead}${name}=${fn(name, value, nth(name))}`;
+  });
+}
+
+/**
+ * The SMS gateway BODY TEMPLATE with every secret-NAMED field's value masked
+ * (audit 2026-10-12 follow-up). Not every value, unlike the gateway URL: the
+ * template is the operator's message layout, and masking `{"sender":"DIGLOG"}`
+ * or the field names would make it uneditable. A placeholder is never masked.
+ */
+export function maskTemplateSecrets(tpl: string | null | undefined): string | null | undefined {
+  if (!tpl) return tpl;
+  return rewriteSecretPairs(tpl, (_n, value) => (value && !PLACEHOLDER.test(value) ? SECRET_MASK : value));
+}
+
+/** Mask-means-keep for a template: the n-th masked `name` takes the n-th stored `name`'s value. */
+export function restoreMaskedTemplate(
+  submitted: string,
+  stored: string | null | undefined,
+): { value: string } | { unresolved: string } {
+  if (!submitted.includes(SECRET_MASK)) return { value: submitted };
+  const storedByName = new Map<string, string[]>();
+  for (const p of templatePairs(stored ?? '')) {
+    const list = storedByName.get(p.name) ?? [];
+    list.push(p.value);
+    storedByName.set(p.name, list);
+  }
+  let unresolved: string | null = null;
+  const value = rewriteSecretPairs(submitted, (name, v, n) => {
+    if (v !== SECRET_MASK) return v;
+    const kept = storedByName.get(name)?.[n];
+    if (kept === undefined || kept === '') { unresolved ??= name; return v; }
+    return kept;
+  });
+  if (unresolved) return { unresolved };
+  if (value.includes(SECRET_MASK)) return { unresolved: 'a masked part of the template' };
+  return { value };
 }
 
 /**

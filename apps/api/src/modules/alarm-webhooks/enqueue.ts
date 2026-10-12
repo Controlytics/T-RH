@@ -1,6 +1,6 @@
 import { getProducer } from '@digilog/queue';
 import type { AlarmWebhookEvent } from '@digilog/shared';
-import { buildWebhookVariables, type WebhookAlarmInput } from './build-variables.js';
+import { buildWebhookVariablesWithLocal, type WebhookAlarmInput } from './build-variables.js';
 import { logger } from '../../lib/logger.js';
 
 /**
@@ -28,7 +28,7 @@ export async function enqueueAlarmWebhook(
         event,
         alarmId: input.alarmId,
         instrumentId: input.instrumentId,
-        variables: buildWebhookVariables(event, input),
+        variables: await buildWebhookVariablesWithLocal(event, input),
       },
       { maxAttempts: 1 },
     );

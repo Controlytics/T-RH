@@ -461,6 +461,43 @@ describe('alarm webhook targets', () => {
       .toEqual({ Authorization: 'Bearer real-secret' });
   });
 
+  /**
+   * Audit 2026-10-12 follow-up — a hooter or relay that authenticates by a query
+   * token (`?token=…`) had it shown to every ALARM_RULE_READ holder, in the
+   * delivery log and in the audit trail. Secret-NAMED query values are masked
+   * (device settings like `relay=1` stay readable); a mask on save keeps the
+   * stored value.
+   */
+  it('masks a secret-named URL query value everywhere it is shown, and a round trip keeps it', async () => {
+    const secretUrl = `${hooterUrl}?token=URL-SECRET-1&relay=1`;
+    const created = await newTarget({ url: secretUrl });
+    expect(created.statusCode).toBe(201);
+    const id = created.json().id;
+    const shownUrl = `${hooterUrl}?token=${SECRET_MASK}&relay=1`;
+    expect(created.json().url).toBe(shownUrl);
+
+    const got = await app.inject({ method: 'GET', url: `/api/alarm-webhooks/${id}`, headers: auth });
+    expect(got.json().url).toBe(shownUrl);
+
+    // The screen saves what it was shown: the stored URL is unchanged.
+    const put = await app.inject({
+      method: 'PUT', url: `/api/alarm-webhooks/${id}`, headers: headers(),
+      payload: { url: shownUrl, name: `renamed-${Date.now()}` },
+    });
+    expect(put.statusCode).toBe(200);
+    expect((await prisma.alarmWebhookTarget.findUnique({ where: { id } }))!.url).toBe(secretUrl);
+
+    // The test fire still SENDS the real URL (the hooter checks the token)…
+    await app.inject({ method: 'POST', url: `/api/alarm-webhooks/${id}/test`, headers: headers() });
+    // …but neither the delivery log nor the audit trail shows it.
+    const log = await app.inject({ method: 'GET', url: `/api/alarm-webhooks/${id}/deliveries`, headers: auth });
+    expect(JSON.stringify(log.json())).not.toContain('URL-SECRET-1');
+    const audits = await prisma.auditTrail.findMany({ where: { targetId: id } });
+    for (const a of audits) {
+      expect(JSON.stringify([a.beforeValue, a.afterValue, a.signatureMeaning])).not.toContain('URL-SECRET-1');
+    }
+  });
+
   it('refuses a mask for a header name that has no stored value', async () => {
     const id = (await newTarget({ headers: { Authorization: 'Bearer x' } })).json().id;
     const res = await app.inject({

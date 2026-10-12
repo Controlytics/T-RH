@@ -9,6 +9,8 @@
 import { formatDecimals, TELEMETRY_DECIMALS_FALLBACK, type AlarmWebhookEvent } from '@digilog/shared';
 import { formatDuration } from '../alarms/notify.js';
 import { describeLimit } from '../alarms/limit-decide.js';
+import { formatConfiguredDateTime } from '../../lib/format-datetime.js';
+import { logger } from '../../lib/logger.js';
 
 export interface WebhookAlarmInput {
   alarmId: string;
@@ -76,6 +78,39 @@ export function buildWebhookVariables(
     vars.acknowledgedBy = a.acknowledgedBy ?? '';
     vars.acknowledgeReason = a.acknowledgeReason ?? '';
   }
+  return vars;
+}
+
+/**
+ * The full variable set a payload is rendered from: `buildWebhookVariables` plus
+ * the `…Local` twins of its time variables (2026-10-12) — `timestampLocal` and,
+ * where the event has one, `raisedAtLocal` — each the SAME instant printed in the
+ * administered timezone and date/time format by the one server formatter
+ * (`formatConfiguredDateTime`, as the email uses). The ISO variables are kept
+ * unchanged, so no existing template's output moves.
+ *
+ * Async because the administered format is read from config; every caller (the
+ * enqueue and the test fire) is already async. A formatter that cannot read a
+ * value returns '', which then prints as an empty field — never a guessed time.
+ */
+export async function buildWebhookVariablesWithLocal(
+  event: AlarmWebhookEvent,
+  a: WebhookAlarmInput,
+): Promise<Record<string, string>> {
+  const vars = buildWebhookVariables(event, a);
+  // A config read that fails must not cost the ANNUNCIATION (the hooter is the
+  // point; the local-time twin is a display nicety): the twin is left empty and
+  // the failure logged, never a thrown enqueue.
+  const local = async (iso: string) => {
+    try {
+      return await formatConfiguredDateTime(iso);
+    } catch (e) {
+      logger.error(`[alarm-webhook] could not format ${iso} in the configured zone: ${e instanceof Error ? e.message : String(e)}`);
+      return '';
+    }
+  };
+  vars.timestampLocal = await local(vars.timestamp);
+  if (vars.raisedAt) vars.raisedAtLocal = await local(vars.raisedAt);
   return vars;
 }
 

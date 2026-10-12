@@ -2,7 +2,6 @@
  * Notification Dispatcher — Central service that matches events to notification rules,
  * resolves recipients, and dispatches via the delivery service.
  */
-import { NotificationType } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { sendNotification } from './delivery.service.js';
 import { resolveTemplate } from './template-engine.js';
@@ -26,10 +25,6 @@ interface DispatchEvent {
    * Absent for the direct (un-queued) callers, which are never retried.
    */
   dedupKey?: string;
-}
-
-function inAppStorable(eventType: string): boolean {
-  return Object.prototype.hasOwnProperty.call(NotificationType, eventType);
 }
 
 /** Variables the callers pass as UTC ISO that must print in the configured zone. */
@@ -114,18 +109,20 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
   // durable retry chain, and a second row would be a second message.
   const done = new Set<string>();
   if (dedupKey) {
+    // Raw SQL with `metadata->>'dedupKey'` — the exact expression the indexes
+    // `notification_logs_dedup_key_idx` / `notifications_dedup_key_idx` are built
+    // on (migration 20261012140100_notification_dedup_key_index). Prisma's JSON
+    // path filter compiles to `#>` and would not use them: both tables only grow.
     const [logs, inApp] = await Promise.all([
-      prisma.notificationLog.findMany({
-        where: { metadata: { path: ['dedupKey'], equals: dedupKey } },
-        select: { channel: true, recipient: true, metadata: true },
-      }),
-      prisma.notification.findMany({
-        where: { metadata: { path: ['dedupKey'], equals: dedupKey } },
-        select: { forUserId: true, metadata: true },
-      }),
+      prisma.$queryRaw<{ channel: string; recipient: string; rule_id: string | null }[]>`
+        SELECT channel::text AS channel, recipient, metadata->>'ruleId' AS rule_id
+          FROM notification_logs WHERE metadata->>'dedupKey' = ${dedupKey}`,
+      prisma.$queryRaw<{ for_user_id: string | null; rule_id: string | null }[]>`
+        SELECT for_user_id, metadata->>'ruleId' AS rule_id
+          FROM notifications WHERE metadata->>'dedupKey' = ${dedupKey}`,
     ]);
-    for (const l of logs) done.add(`${(l.metadata as { ruleId?: string } | null)?.ruleId}|${l.channel}|${l.recipient}`);
-    for (const n of inApp) done.add(`${(n.metadata as { ruleId?: string } | null)?.ruleId}|INAPP|${n.forUserId}`);
+    for (const l of logs) done.add(`${l.rule_id}|${l.channel}|${l.recipient}`);
+    for (const n of inApp) done.add(`${n.rule_id}|INAPP|${n.for_user_id}`);
   }
 
   // A fault in one rule (or one recipient) must not cost the others their
@@ -222,15 +219,12 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
           }
         }
 
-        // In-App. Only for an event the `notifications.type` enum can hold. KNOWN GAP
-        // (found 2026-10-12): NotificationType has no ALARM_RAISED / ALARM_CLEARED,
-        // so an in-app row for an alarm rule has ALWAYS failed at insert — the error
-        // used to be caught and logged per recipient, invisibly. It is now refused
-        // up front with one warning instead of failing the whole job on every
-        // attempt; making it work needs a migration adding the two enum values.
-        if (rule.inAppEnabled && !inAppStorable(eventType)) {
-          logger.warn(`[Dispatcher] rule "${rule.name}": in-app delivery is not available for ${eventType} (no such NotificationType); email/SMS unaffected`);
-        } else if (rule.inAppEnabled && !done.has(`${rule.id}|INAPP|${user.username}`)) {
+        // In-App. `notifications.type` holds the rule's EVENT type, so every
+        // NotificationEventType value must also be a NotificationType value —
+        // ALARM_RAISED / ALARM_CLEARED were not until migration
+        // 20261012140000_notification_type_alarm_events, and every in-app alarm
+        // row failed at insert. A unit test now pins the two enums together.
+        if (rule.inAppEnabled && !done.has(`${rule.id}|INAPP|${user.username}`)) {
           sends.push((async () => {
             const message = resolveTemplate(getDefaultInAppMessage(eventType), userVars);
             await prisma.notification.create({

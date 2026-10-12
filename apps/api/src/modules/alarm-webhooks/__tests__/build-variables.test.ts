@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { buildWebhookVariables, describeSnapshot, decimalsFromSnapshot } from '../build-variables.js';
+import { buildWebhookVariables, buildWebhookVariablesWithLocal, describeSnapshot, decimalsFromSnapshot } from '../build-variables.js';
+import { formatConfiguredDateTime } from '../../../lib/format-datetime.js';
 import { ALARM_WEBHOOK_VARIABLES } from '@digilog/shared';
 
 const base = {
@@ -16,19 +17,33 @@ const base = {
 };
 
 describe('buildWebhookVariables', () => {
-  it('produces every variable RAISED promises', () => {
-    const v = buildWebhookVariables('RAISED', base);
+
+  // 2026-10-12: the `…Local` twins print the SAME instant through the server's
+  // one configured formatter; the ISO variables are unchanged beside them.
+  it('adds configured-zone twins and keeps the ISO variables as they were', async () => {
+    const cleared = { ...base, clearedAt: new Date('2026-08-27T11:30:00.000Z') };
+    const v = await buildWebhookVariablesWithLocal('CLEARED', cleared);
+    const iso = buildWebhookVariables('CLEARED', cleared);
+    expect(v.timestamp).toBe(iso.timestamp);
+    expect(v.raisedAt).toBe('2026-08-27T10:00:00.000Z');
+    expect(v.timestampLocal).toBe(await formatConfiguredDateTime(iso.timestamp));
+    expect(v.raisedAtLocal).toBe(await formatConfiguredDateTime('2026-08-27T10:00:00.000Z'));
+    expect(v.raisedAtLocal).not.toBe('');
+    expect(v.raisedAtLocal).not.toContain('T10:00:00');
+  });
+  it('produces every variable RAISED promises', async () => {
+    const v = await buildWebhookVariablesWithLocal('RAISED', base);
     for (const key of ALARM_WEBHOOK_VARIABLES.RAISED) expect(v).toHaveProperty(key);
   });
 
-  it('produces every variable CLEARED promises', () => {
-    const v = buildWebhookVariables('CLEARED', { ...base, clearedAt: new Date('2026-08-27T11:30:00.000Z') });
+  it('produces every variable CLEARED promises', async () => {
+    const v = await buildWebhookVariablesWithLocal('CLEARED', { ...base, clearedAt: new Date('2026-08-27T11:30:00.000Z') });
     for (const key of ALARM_WEBHOOK_VARIABLES.CLEARED) expect(v).toHaveProperty(key);
     expect(v.duration).toBe('1 h 30 min');
   });
 
-  it('produces every variable ACKNOWLEDGED promises', () => {
-    const v = buildWebhookVariables('ACKNOWLEDGED', { ...base, acknowledgedBy: 'jdoe', acknowledgeReason: 'door left open' });
+  it('produces every variable ACKNOWLEDGED promises', async () => {
+    const v = await buildWebhookVariablesWithLocal('ACKNOWLEDGED', { ...base, acknowledgedBy: 'jdoe', acknowledgeReason: 'door left open' });
     for (const key of ALARM_WEBHOOK_VARIABLES.ACKNOWLEDGED) expect(v).toHaveProperty(key);
     expect(v.acknowledgedBy).toBe('jdoe');
     expect(v.acknowledgeReason).toBe('door left open');

@@ -14,6 +14,7 @@ import { auditLog } from '../../lib/audit.js';
 import { NotFoundError } from '../../lib/errors.js';
 import {
   maskSecrets, SECRET_MASK, maskHeaderValues, restoreMaskedHeaders, maskUrlSecrets, restoreMaskedUrl,
+  maskTemplateSecrets, restoreMaskedTemplate,
 } from '../../lib/mask-secrets.js';
 
 // HTML-escape any value reflected into the OAuth2 callback HTML responses
@@ -436,6 +437,12 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
       value.httpGatewayHeaders = maskHeaderValues(value.httpGatewayHeaders as Record<string, string>);
     }
     if (typeof value.httpGatewayUrl === 'string') value.httpGatewayUrl = maskUrlSecrets(value.httpGatewayUrl);
+    // The body template's secret-NAMED fields (MSG91 `authkey`, `"api_key"`,
+    // `password=`) — names, placeholders and the rest of the layout stay
+    // readable so the template can still be edited.
+    if (typeof value.httpGatewayBodyTemplate === 'string') {
+      value.httpGatewayBodyTemplate = maskTemplateSecrets(value.httpGatewayBodyTemplate);
+    }
     return value;
   });
 
@@ -499,6 +506,13 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: 'VALIDATION_ERROR', message: `The gateway URL's ${r.unresolved} has no saved value to keep — type it again.`, field: 'httpGatewayUrl' });
       }
       body.httpGatewayUrl = r.url;
+    }
+    if (typeof body.httpGatewayBodyTemplate === 'string') {
+      const r = restoreMaskedTemplate(body.httpGatewayBodyTemplate, existingValue.httpGatewayBodyTemplate as string | undefined);
+      if ('unresolved' in r) {
+        return reply.code(400).send({ error: 'VALIDATION_ERROR', message: `The body template's "${r.unresolved}" has no saved value to keep — type it again.`, field: 'httpGatewayBodyTemplate' });
+      }
+      body.httpGatewayBodyTemplate = r.value;
     }
 
     stripPrivateFields(body);
