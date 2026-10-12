@@ -91,6 +91,10 @@ export function ProfilePage() {
           setError(err?.message || 'Failed to update profile');
           setIsSubmitting(false);
         },
+        // A cancel is not an error (audit 2026-10-12, finding 10): without this
+        // the hook's fallback routed it to onError and the page showed a red
+        // "Cancelled" banner over a form nothing had gone wrong with.
+        onCancel: () => setIsSubmitting(false),
       },
     );
   };

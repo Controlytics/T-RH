@@ -266,6 +266,8 @@ export function DynamicConfigPage() {
           setError(err?.message || 'Failed to save');
           setSaving(false);
         },
+        // A cancel is not an error (audit 2026-10-12, finding 10).
+        onCancel: () => setSaving(false),
       });
     } catch (err: any) {
       setError(err?.message || 'Failed to save');
