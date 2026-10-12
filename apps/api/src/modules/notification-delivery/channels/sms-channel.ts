@@ -11,6 +11,17 @@
 
 import type { SmsConfig, NotificationPayload, DeliveryResult, NotificationChannel as IChannel } from '../types.js';
 import { getSmsConfig } from '../config-loader.js';
+import { guardedRequest } from '../../../lib/outbound-guard.js';
+import { testRegexWithBudget } from '../../../lib/regex-budget.js';
+
+/**
+ * How long one SMS provider call may take (audit 2026-10-12 #12). There was no
+ * timeout at all: a gateway that accepted the connection and never answered held
+ * the notification job — and the retry behind it — forever.
+ */
+export const SMS_HTTP_TIMEOUT_MS = 15_000;
+/** How much of a gateway's answer is read. A gateway acknowledgement is small. */
+const GATEWAY_BODY_MAX = 64 * 1024;
 
 /**
  * Normalize phone number by adding country code if missing.
@@ -53,6 +64,8 @@ async function sendViaTwilio(config: SmsConfig, to: string, message: string): Pr
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: body.toString(),
+    redirect: 'error',
+    signal: AbortSignal.timeout(SMS_HTTP_TIMEOUT_MS),
   });
 
   const data = await res.json() as Record<string, unknown>;
@@ -71,6 +84,8 @@ async function sendViaVonage(config: SmsConfig, to: string, message: string): Pr
 
   const res = await fetch('https://rest.nexmo.com/sms/json', {
     method: 'POST',
+    redirect: 'error',
+    signal: AbortSignal.timeout(SMS_HTTP_TIMEOUT_MS),
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       api_key: vonageApiKey,
@@ -137,10 +152,13 @@ export function interpretHttpGatewayResult(
   }
   const pattern = successRegex?.trim();
   if (pattern) {
-    let re: RegExp | null = null;
-    try { re = new RegExp(pattern); } catch { re = null; } // invalid config → skip, don't fail the send on it
-    if (re) {
-      return re.test(bodyText)
+    // Judged on the first 1,000 characters under the shared time budget (audit
+    // 2026-10-12 #12), like the alarm-webhook check: an operator-typed nested
+    // quantifier no longer stalls the worker — a runaway pattern fails closed.
+    // An invalid pattern is still IGNORED (never fails a send on config), as before.
+    const matched = testRegexWithBudget(pattern, bodyText);
+    if (matched !== 'invalid') {
+      return matched
         ? { ok: true }
         : { ok: false, error: `HTTP Gateway 2xx but body did not match success pattern /${pattern}/: ${bodyText.substring(0, 200)}` };
     }
@@ -150,7 +168,15 @@ export function interpretHttpGatewayResult(
   return { ok: true };
 }
 
-async function sendViaHttpGateway(config: SmsConfig, to: string, message: string): Promise<DeliveryResult> {
+/**
+ * Sent through `guardedRequest` (audit 2026-10-12): the URL is operator-typed, so
+ * the same SSRF guard as the alarm webhooks applies — link-local / metadata,
+ * loopback and unspecified addresses are refused after DNS, redirects are not
+ * followed (a 3xx is not a 2xx), and the call is bounded by `timeoutMs`.
+ */
+export async function sendViaHttpGateway(
+  config: SmsConfig, to: string, message: string, timeoutMs: number = SMS_HTTP_TIMEOUT_MS,
+): Promise<DeliveryResult> {
   const { httpGatewayUrl, httpGatewayMethod, httpGatewayHeaders, httpGatewayBodyTemplate } = config;
   if (!httpGatewayUrl) {
     return { success: false, error: 'HTTP Gateway URL not configured' };
@@ -172,17 +198,27 @@ async function sendViaHttpGateway(config: SmsConfig, to: string, message: string
       .replace(/\{message\}/g, message);
   }
 
-  const res = await fetch(url, {
-    method,
-    headers: httpGatewayHeaders ?? { 'Content-Type': 'application/json' },
-    ...(body ? { body } : {}),
-  });
+  let res: { status: number; text: string };
+  try {
+    res = await guardedRequest({
+      url,
+      method,
+      headers: httpGatewayHeaders ?? { 'Content-Type': 'application/json' },
+      body,
+      timeoutMs,
+      maxBodyChars: GATEWAY_BODY_MAX,
+    });
+  } catch (e) {
+    // Refused, unreachable or timed out: a failed attempt, recorded and retried
+    // by the delivery service — never a throw out of the channel.
+    return { success: false, error: `HTTP Gateway request failed: ${e instanceof Error ? `${e.name}: ${e.message}` : String(e)}` };
+  }
 
   // A 2xx alone is NOT proof of delivery — many gateways return HTTP 200 with an
   // error body. Interpret the body (operator-configured success regex when set,
   // else an unambiguous JSON-failure check) instead of trusting the status code.
-  const text = await res.text();
-  const outcome = interpretHttpGatewayResult(res.ok, res.status, text, config.httpGatewaySuccessRegex);
+  const httpOk = res.status >= 200 && res.status < 300;
+  const outcome = interpretHttpGatewayResult(httpOk, res.status, res.text, config.httpGatewaySuccessRegex);
   if (!outcome.ok) return { success: false, error: outcome.error };
 
   return { success: true, messageId: `http-${Date.now()}` };

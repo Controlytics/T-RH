@@ -32,6 +32,16 @@ describe('validateTargetDraft', () => {
     expect(validateTargetDraft(draft({ url: 'https://192.168.1.60/a' }) as never)).toBeNull();
   });
 
+  // Audit 2026-10-12 #1 — SSRF. A NAME is checked by the route after DNS, and
+  // again at send; an IP literal is refused here, before storage.
+  it('refuses a link-local / metadata or loopback IP literal, and keeps the LAN allowed', () => {
+    expect(validateTargetDraft(draft({ url: 'http://169.254.169.254/latest/api/token' }) as never)?.field).toBe('url');
+    expect(validateTargetDraft(draft({ url: 'http://127.0.0.1:8080/x' }) as never)?.field).toBe('url');
+    expect(validateTargetDraft(draft({ url: 'http://[::ffff:169.254.169.254]/x' }) as never)?.field).toBe('url');
+    expect(validateTargetDraft(draft({ url: 'http://0.0.0.0/x' }) as never)?.field).toBe('url');
+    expect(validateTargetDraft(draft({ url: 'http://10.1.2.3/x' }) as never)).toBeNull();
+  });
+
   it('rejects an unknown method', () => {
     expect(validateTargetDraft(draft({ method: 'DELETE' }) as never)?.field).toBe('method');
   });

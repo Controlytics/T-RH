@@ -3,7 +3,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const addJob = vi.fn();
 const getProducer = vi.fn(async () => ({ addJob }));
 
-vi.mock('@digilog/queue', () => ({ getProducer: (...a: unknown[]) => getProducer(...(a as [])) }));
+// The REAL constants (ALARM_EVALUATION_QUEUE) with only the producer stubbed, so the
+// queue-name assertion below compares against the value the crontab test pins.
+vi.mock('@digilog/queue', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@digilog/queue')>()),
+  getProducer: (...a: unknown[]) => getProducer(...(a as [])),
+}));
+import { ALARM_EVALUATION_QUEUE } from '@digilog/queue';
 
 import { enqueueAlarmEvaluation, ALARM_EVALUATION_JOB_KEY } from '../enqueue-evaluation.js';
 
@@ -70,6 +76,18 @@ describe('enqueueAlarmEvaluation', () => {
   it('never throws when addJob fails', async () => {
     addJob.mockRejectedValue(new Error('nope'));
     await expect(enqueueAlarmEvaluation(vi.fn())).resolves.toBe(false);
+  });
+
+  /**
+   * Audit 2026-10-12 #2. The ingest pass and the cron pass must share ONE serial
+   * graphile queue, or a pass holding a stale reading can clear an alarm a
+   * concurrent pass just raised. The cron side is pinned in
+   * packages/queue/src/__tests__/crontab-handlers.test.ts against the same constant.
+   */
+  it('runs on the serial alarm_evaluation queue the cron also uses', async () => {
+    await enqueueAlarmEvaluation();
+    expect(ALARM_EVALUATION_QUEUE).toBeTruthy();
+    expect(addJob.mock.calls[0][2]?.queueName).toBe(ALARM_EVALUATION_QUEUE);
   });
 
   it('reports success so a caller can tell the two apart', async () => {

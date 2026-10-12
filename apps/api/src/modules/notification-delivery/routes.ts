@@ -12,7 +12,9 @@ import { invalidateNotificationConfigCache } from './config-loader.js';
 import { sendNotification, sendTestNotification, testChannel } from './delivery.service.js';
 import { auditLog } from '../../lib/audit.js';
 import { NotFoundError } from '../../lib/errors.js';
-import { maskSecrets } from '../../lib/mask-secrets.js';
+import {
+  maskSecrets, SECRET_MASK, maskHeaderValues, restoreMaskedHeaders, maskUrlSecrets, restoreMaskedUrl,
+} from '../../lib/mask-secrets.js';
 
 // HTML-escape any value reflected into the OAuth2 callback HTML responses
 // (the provider-controlled error / error_description / token-exchange message
@@ -21,7 +23,8 @@ const escapeHtml = (s: unknown): string =>
   String(s ?? '').replace(/[&<>"']/g, (c) => (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string));
 import { stripPrivateFields, enforceReauth } from '../../lib/reauth-check.js';
 
-const MASK = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
+// The one mask (lib/mask-secrets.ts) — the alarm-webhook routes use the same.
+const MASK = SECRET_MASK;
 
 /**
  * The public origin of THIS server, for the OAuth2 redirect URI the provider
@@ -426,6 +429,13 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     const value = (config?.configValue ?? {}) as Record<string, unknown>;
     const sensitiveKeys = ['twilioAuthToken', 'vonageApiSecret'];
     for (const key of sensitiveKeys) { if (value[key]) value[key] = MASK; }
+    // Audit 2026-10-12 #6: the gateway's header VALUES (bearer tokens) and the
+    // API key the common gateways carry in the URL query went out in plain text.
+    // Header names and query keys stay readable; `{phone}`/`{message}` too.
+    if (value.httpGatewayHeaders && typeof value.httpGatewayHeaders === 'object') {
+      value.httpGatewayHeaders = maskHeaderValues(value.httpGatewayHeaders as Record<string, string>);
+    }
+    if (typeof value.httpGatewayUrl === 'string') value.httpGatewayUrl = maskUrlSecrets(value.httpGatewayUrl);
     return value;
   });
 
@@ -471,6 +481,25 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     const existing = await prisma.systemConfig.findUnique({ where: { configKey: 'notification-sms' } });
     const existingValue = (existing?.configValue ?? {}) as Record<string, unknown>;
     for (const key of sensitiveKeys) { if (body[key] === MASK) body[key] = existingValue[key]; }
+    // Mask-means-keep for the gateway headers and URL (see GET /sms). A mask with
+    // nothing stored behind it is refused rather than saved as bullets.
+    if (body.httpGatewayHeaders && typeof body.httpGatewayHeaders === 'object') {
+      const r = restoreMaskedHeaders(
+        body.httpGatewayHeaders as Record<string, string>,
+        (existingValue.httpGatewayHeaders ?? {}) as Record<string, string>,
+      );
+      if ('unresolved' in r) {
+        return reply.code(400).send({ error: 'VALIDATION_ERROR', message: `Header "${r.unresolved}" has no saved value to keep — type its value again.`, field: 'httpGatewayHeaders' });
+      }
+      body.httpGatewayHeaders = r.headers;
+    }
+    if (typeof body.httpGatewayUrl === 'string') {
+      const r = restoreMaskedUrl(body.httpGatewayUrl, existingValue.httpGatewayUrl as string | undefined);
+      if ('unresolved' in r) {
+        return reply.code(400).send({ error: 'VALIDATION_ERROR', message: `The gateway URL's ${r.unresolved} has no saved value to keep — type it again.`, field: 'httpGatewayUrl' });
+      }
+      body.httpGatewayUrl = r.url;
+    }
 
     stripPrivateFields(body);
     await prisma.systemConfig.upsert({

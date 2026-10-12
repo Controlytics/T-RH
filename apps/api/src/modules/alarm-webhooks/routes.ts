@@ -9,7 +9,9 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { clampSignature } from '../alarms/validation.js';
 import { resolveVisibility } from '../instruments/visibility.js';
-import { validateTargetDraft, type TargetDraft } from './validation.js';
+import { validateTargetDraft, type TargetDraft, type TargetFieldError } from './validation.js';
+import { resolveBlockedReason } from '../../lib/outbound-guard.js';
+import { maskHeaderValues, restoreMaskedHeaders } from '../../lib/mask-secrets.js';
 import { expandLocations, targetMatches } from './target-scope.js';
 import { deliverToTarget } from './send.js';
 import { buildWebhookVariables } from './build-variables.js';
@@ -107,7 +109,10 @@ function toTargetResponse(row: TargetRow, instrumentCount: number, last: LastDel
     description: row.description ?? null,
     url: row.url,
     method: row.method,
-    headers: asHeaders(row.headers),
+    // VALUES masked, names kept (audit 2026-10-12 #6): a hooter's header is where
+    // its bearer token or API key lives, and ALARM_RULE_READ is a read permission.
+    // A mask sent back on PUT means "keep the stored value" — see `resolveHeaders`.
+    headers: maskHeaderValues(asHeaders(row.headers)),
     contentType: row.contentType,
     bodyTemplate: row.bodyTemplate,
     successRegex: row.successRegex ?? null,
@@ -128,6 +133,56 @@ function toTargetResponse(row: TargetRow, instrumentCount: number, last: LastDel
 }
 
 interface LastDelivery { status: string; createdAt: Date; sentAt: Date | null }
+
+/**
+ * What the audit trail records about a target: EVERY stored field except the
+ * header values, which are secrets (header NAMES are kept, so "an Authorization
+ * header was added" is still on the record). Audit 2026-10-12 #7: the update row
+ * used to carry name / url / method / isActive only, so changing which
+ * instruments sound a hooter, or switching off its CLEARED fire, left no
+ * before/after in the §11 trail. One function for create, update and delete so
+ * the three cannot drift.
+ */
+function auditSnapshot(row: TargetRow) {
+  return {
+    name: row.name,
+    description: row.description ?? null,
+    url: row.url,
+    method: row.method,
+    headerNames: Object.keys(asHeaders(row.headers)),
+    contentType: row.contentType,
+    bodyTemplate: row.bodyTemplate,
+    successRegex: row.successRegex ?? null,
+    timeoutMs: row.timeoutMs,
+    cooldownSeconds: row.cooldownSeconds,
+    fireOnRaised: row.fireOnRaised,
+    fireOnCleared: row.fireOnCleared,
+    fireOnAcknowledged: row.fireOnAcknowledged,
+    isActive: row.isActive,
+    scopeLocationIds: asStringArray(row.scopeLocationIds),
+    scopeInstrumentIds: asStringArray(row.scopeInstrumentIds),
+  };
+}
+
+/**
+ * Resolve masked header values against what is stored (empty for a create). A
+ * mask for a name with nothing stored is refused: the operator renamed a header
+ * without retyping its secret, and storing eight bullets would fail every send.
+ */
+function resolveHeaders(
+  draft: TargetDraft,
+  stored: Record<string, string>,
+): TargetFieldError | null {
+  const r = restoreMaskedHeaders(draft.headers, stored);
+  if ('unresolved' in r) {
+    return {
+      field: 'headers',
+      message: `Header "${r.unresolved}" has no saved value to keep — type its value again.`,
+    };
+  }
+  draft.headers = r.headers;
+  return null;
+}
 
 /**
  * The newest delivery per target, in TWO queries regardless of how many targets there
@@ -267,6 +322,20 @@ function draftFrom(body: Record<string, unknown>, base: Partial<TargetDraft>): T
   };
 }
 
+/**
+ * The pure draft checks, then the one that needs the network: a URL whose HOST
+ * NAME resolves to a blocked address (`localhost`, a name pointed at
+ * 169.254.169.254) is refused before storage (audit 2026-10-12 #1, SSRF). The
+ * send path judges the address it actually connects to as well, so a name that
+ * rebinds after it was saved is still refused.
+ */
+async function refuseDraft(draft: TargetDraft): Promise<TargetFieldError | null> {
+  const refusal = validateTargetDraft(draft);
+  if (refusal) return refusal;
+  const blocked = await resolveBlockedReason(draft.url);
+  return blocked ? { field: 'url', message: `This address cannot be a webhook target: ${blocked}.` } : null;
+}
+
 export default async function alarmWebhookRoutes(app: FastifyInstance) {
   // ── GET / ─────────────────────────────────────────────────────────────────
   app.get('/', {
@@ -326,42 +395,47 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
     const body = sanitizeStrings((req.body ?? {}) as Record<string, unknown>, ['url', 'bodyTemplate', 'successRegex']);
 
     const draft = draftFrom(body, {});
-    const refusal = validateTargetDraft(draft);
+    const refusal = resolveHeaders(draft, {}) ?? await refuseDraft(draft);
     if (refusal) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', message: refusal.message, field: refusal.field });
     }
 
-    const created = await prisma.alarmWebhookTarget.create({
-      data: {
-        name: draft.name.trim(),
-        description: draft.description || null,
-        url: draft.url,
-        method: draft.method,
-        headers: draft.headers as Prisma.InputJsonValue,
-        contentType: draft.contentType,
-        bodyTemplate: draft.bodyTemplate,
-        successRegex: draft.successRegex,
-        timeoutMs: draft.timeoutMs,
-        cooldownSeconds: draft.cooldownSeconds,
-        scopeLocationIds: draft.scopeLocationIds as Prisma.InputJsonValue,
-        scopeInstrumentIds: draft.scopeInstrumentIds as Prisma.InputJsonValue,
-        fireOnRaised: body.fireOnRaised !== false,
-        fireOnCleared: body.fireOnCleared !== false,
-        fireOnAcknowledged: body.fireOnAcknowledged !== false,
-        isActive: body.isActive !== false,
-        createdBy: ctx.userId,
-        updatedBy: ctx.userId,
-      },
-    });
-
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'ALARM_WEBHOOK_CREATED',
-      targetType: 'AlarmWebhookTarget', targetId: created.id,
-      // `name` is what the audit trail's {targetName} placeholder reads.
-      afterValue: { name: created.name, url: created.url, method: created.method, isActive: created.isActive },
-      signatureMeaning: clampSignature(`Created alarm webhook "${created.name}" -> ${created.url}`),
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    // The row and its audit entry commit together (`auditLog(entry, tx)`): a create
+    // that committed with its audit row still to be written could leave a signed
+    // configuration change with no record.
+    const created = await prisma.$transaction(async (tx) => {
+      const row = await tx.alarmWebhookTarget.create({
+        data: {
+          name: draft.name.trim(),
+          description: draft.description || null,
+          url: draft.url,
+          method: draft.method,
+          headers: draft.headers as Prisma.InputJsonValue,
+          contentType: draft.contentType,
+          bodyTemplate: draft.bodyTemplate,
+          successRegex: draft.successRegex,
+          timeoutMs: draft.timeoutMs,
+          cooldownSeconds: draft.cooldownSeconds,
+          scopeLocationIds: draft.scopeLocationIds as Prisma.InputJsonValue,
+          scopeInstrumentIds: draft.scopeInstrumentIds as Prisma.InputJsonValue,
+          fireOnRaised: body.fireOnRaised !== false,
+          fireOnCleared: body.fireOnCleared !== false,
+          fireOnAcknowledged: body.fireOnAcknowledged !== false,
+          isActive: body.isActive !== false,
+          createdBy: ctx.userId,
+          updatedBy: ctx.userId,
+        },
+      });
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole,
+        action: 'ALARM_WEBHOOK_CREATED',
+        targetType: 'AlarmWebhookTarget', targetId: row.id,
+        // `name` is what the audit trail's {targetName} placeholder reads.
+        afterValue: auditSnapshot(row),
+        signatureMeaning: clampSignature(`Created alarm webhook "${row.name}" -> ${row.url}`),
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
+      return row;
     });
 
     const counts = await resolveInstrumentCounts([created]);
@@ -404,42 +478,45 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
       scopeLocationIds: asStringArray(current.scopeLocationIds),
       scopeInstrumentIds: asStringArray(current.scopeInstrumentIds),
     });
-    const refusal = validateTargetDraft(draft);
+    const refusal = resolveHeaders(draft, asHeaders(current.headers)) ?? await refuseDraft(draft);
     if (refusal) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', message: refusal.message, field: refusal.field });
     }
 
-    const updated = await prisma.alarmWebhookTarget.update({
-      where: { id },
-      data: {
-        name: draft.name.trim(),
-        description: draft.description || null,
-        url: draft.url,
-        method: draft.method,
-        headers: draft.headers as Prisma.InputJsonValue,
-        contentType: draft.contentType,
-        bodyTemplate: draft.bodyTemplate,
-        successRegex: draft.successRegex,
-        timeoutMs: draft.timeoutMs,
-        cooldownSeconds: draft.cooldownSeconds,
-        scopeLocationIds: draft.scopeLocationIds as Prisma.InputJsonValue,
-        scopeInstrumentIds: draft.scopeInstrumentIds as Prisma.InputJsonValue,
-        fireOnRaised: typeof body.fireOnRaised === 'boolean' ? body.fireOnRaised : current.fireOnRaised,
-        fireOnCleared: typeof body.fireOnCleared === 'boolean' ? body.fireOnCleared : current.fireOnCleared,
-        fireOnAcknowledged: typeof body.fireOnAcknowledged === 'boolean' ? body.fireOnAcknowledged : current.fireOnAcknowledged,
-        isActive: typeof body.isActive === 'boolean' ? body.isActive : current.isActive,
-        updatedBy: ctx.userId,
-      },
-    });
-
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'ALARM_WEBHOOK_UPDATED',
-      targetType: 'AlarmWebhookTarget', targetId: id,
-      beforeValue: { name: current.name, url: current.url, method: current.method, isActive: current.isActive },
-      afterValue: { name: updated.name, url: updated.url, method: updated.method, isActive: updated.isActive },
-      signatureMeaning: clampSignature(`Updated alarm webhook "${updated.name}" -> ${updated.url}`),
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    // Change and audit entry in ONE transaction, as the delete route already is.
+    const updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.alarmWebhookTarget.update({
+        where: { id },
+        data: {
+          name: draft.name.trim(),
+          description: draft.description || null,
+          url: draft.url,
+          method: draft.method,
+          headers: draft.headers as Prisma.InputJsonValue,
+          contentType: draft.contentType,
+          bodyTemplate: draft.bodyTemplate,
+          successRegex: draft.successRegex,
+          timeoutMs: draft.timeoutMs,
+          cooldownSeconds: draft.cooldownSeconds,
+          scopeLocationIds: draft.scopeLocationIds as Prisma.InputJsonValue,
+          scopeInstrumentIds: draft.scopeInstrumentIds as Prisma.InputJsonValue,
+          fireOnRaised: typeof body.fireOnRaised === 'boolean' ? body.fireOnRaised : current.fireOnRaised,
+          fireOnCleared: typeof body.fireOnCleared === 'boolean' ? body.fireOnCleared : current.fireOnCleared,
+          fireOnAcknowledged: typeof body.fireOnAcknowledged === 'boolean' ? body.fireOnAcknowledged : current.fireOnAcknowledged,
+          isActive: typeof body.isActive === 'boolean' ? body.isActive : current.isActive,
+          updatedBy: ctx.userId,
+        },
+      });
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole,
+        action: 'ALARM_WEBHOOK_UPDATED',
+        targetType: 'AlarmWebhookTarget', targetId: id,
+        beforeValue: auditSnapshot(current),
+        afterValue: auditSnapshot(row),
+        signatureMeaning: clampSignature(`Updated alarm webhook "${row.name}" -> ${row.url}`),
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
+      return row;
     });
 
     const [counts, last] = await Promise.all([resolveInstrumentCounts([updated]), resolveLastDeliveries([updated.id])]);
@@ -504,7 +581,7 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
           userId: ctx.userId, userRole: ctx.userRole,
           action: 'ALARM_WEBHOOK_DELETED',
           targetType: 'AlarmWebhookTarget', targetId: id,
-          beforeValue: { name: current.name, url: current.url, method: current.method, isActive: current.isActive },
+          beforeValue: auditSnapshot(current),
           reason,
           signatureMeaning: clampSignature(`Deleted alarm webhook "${current.name}" — ${reason}`),
           ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,

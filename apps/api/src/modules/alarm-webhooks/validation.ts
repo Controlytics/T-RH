@@ -8,6 +8,8 @@
  * during an excursion, which is the worst possible moment to discover it.
  */
 
+import { validateHeaderName, validateHeaderValue } from 'node:http';
+import { literalHostBlockedReason } from '../../lib/outbound-guard.js';
 import {
   ALARM_WEBHOOK_METHODS,
   ALARM_WEBHOOK_VARIABLES,
@@ -36,7 +38,8 @@ const KNOWN_VARIABLES = new Set(Object.values(ALARM_WEBHOOK_VARIABLES).flatMap((
 
 /**
  * Why the stored headers could not be sent, or null. Judged by the SAME
- * `Headers` constructor `fetch` applies at delivery, so the two cannot drift;
+ * validators `node:http` applies at delivery (deliver.ts sends through
+ * `guardedRequest`, not `fetch`, since 2026-10-12), so the two cannot drift;
  * each pair is tried alone so the message names the offending header.
  */
 export function invalidHeader(headers: unknown): string | null {
@@ -45,7 +48,8 @@ export function invalidHeader(headers: unknown): string | null {
   for (const [name, value] of Object.entries(headers as Record<string, unknown>)) {
     if (typeof value !== 'string') return `Header "${name}" must have a string value.`;
     try {
-      new Headers({ [name]: value });
+      validateHeaderName(name);
+      validateHeaderValue(name, value);
     } catch {
       return `Header "${name}" cannot be sent: the name or its value is not a valid HTTP header (check for spaces in the name or line breaks in the value).`;
     }
@@ -63,6 +67,13 @@ export function validateTargetDraft(d: TargetDraft): TargetFieldError | null {
   try { parsed = new URL(d.url); } catch { return { field: 'url', message: 'Enter a full URL, e.g. http://192.168.1.60/alarm' }; }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     return { field: 'url', message: 'URL must start with http:// or https://' };
+  }
+  // What no hooter can be (audit 2026-10-12 #1, SSRF): link-local / cloud
+  // metadata, loopback, unspecified — judged here for an IP LITERAL. A NAME is
+  // resolved and judged by the route (`resolveBlockedReason`) and again at send.
+  const blocked = literalHostBlockedReason(d.url);
+  if (blocked) {
+    return { field: 'url', message: `This address cannot be a webhook target: ${parsed.hostname} is ${blocked}.` };
   }
 
   if (!ALARM_WEBHOOK_METHODS.includes(d.method as AlarmWebhookMethod)) {

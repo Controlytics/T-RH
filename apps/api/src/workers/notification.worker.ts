@@ -35,6 +35,14 @@ export const notificationTask: Task = async (rawPayload, helpers) => {
   // Let this THROW on failure rather than swallowing it: graphile-worker retries the job,
   // which is the whole reason delivery was moved onto the queue. A dropped alarm
   // notification is the failure mode this feature exists to prevent.
-  await dispatchNotification({ eventType, context, variables });
+  //
+  // The graphile job id is stable across that job's retries, so it is the event's
+  // dedup key (audit 2026-10-12 #9): a retry skips every (rule, channel, recipient)
+  // the earlier attempt already wrote a log row for, instead of re-sending to them.
+  const jobId = (helpers as { job?: { id?: string | number } }).job?.id;
+  await dispatchNotification({
+    eventType, context, variables,
+    ...(jobId !== undefined && jobId !== null ? { dedupKey: `job:${jobId}` } : {}),
+  });
   helpers.logger.info(`[notification] dispatched ${eventType}`);
 };

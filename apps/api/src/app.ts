@@ -40,6 +40,7 @@ import userGroupRoutes from './modules/user-groups/routes.js';
 import notificationRulesRoutes from './modules/notification-rules/routes.js';
 
 import { notificationTask } from './workers/notification.worker.js';
+import { notificationRetryTask } from './workers/notification-retry.worker.js';
 import { passwordExpiryCheckTask } from './workers/password-expiry.worker.js';
 import { sessionSweepTask } from './workers/session-sweep.worker.js';
 import { telemetryPartitionTask, ensurePartitionsAtBoot } from './workers/telemetry-partition.worker.js';
@@ -499,6 +500,11 @@ try {
         // apps/api/src/workers/notification.worker.ts for the mapping
         // from queue payload to `dispatchNotification` event types.
         notification: notificationTask,
+
+        // Durable email/SMS retry (audit 2026-10-12 #3) — event-driven, enqueued
+        // by delivery.service.ts with runAt = next_retry_at. Replaces in-process
+        // setTimeout retries that every restart dropped. No crontab entry.
+        notification_retry: notificationRetryTask,
 
         password_expiry_check: passwordExpiryCheckTask,
         session_sweep: sessionSweepTask,

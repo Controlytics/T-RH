@@ -34,6 +34,18 @@ export const notificationEventJobSchema = z.object({
 export type NotificationEventJob = z.infer<typeof notificationEventJobSchema>;
 
 /**
+ * One durable retry of one email/SMS delivery (audit 2026-10-12 #3). Enqueued by
+ * `notification-delivery/delivery.service.ts` with `runAt` = the log row's
+ * `next_retry_at`; the `notification_retry` task resends from the stored
+ * `notification_logs` row. Replaces in-process `setTimeout` retries, which every
+ * restart dropped while the row went on claiming RETRYING.
+ */
+export const notificationRetryJobSchema = z.object({
+  logId: z.string().uuid(),
+});
+export type NotificationRetryJob = z.infer<typeof notificationRetryJobSchema>;
+
+/**
  * Alarm webhook (hooter) job — what the evaluator and the acknowledge route enqueue.
  *
  * Enqueued with maxAttempts: 1 on purpose. Retry is BOUNDED INSIDE the job (3 attempts,

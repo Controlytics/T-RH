@@ -8,6 +8,8 @@ import { invalidateReauthCache } from '../lib/reauth-check.js';
 import { fixtureProfileId } from '../test-support/fixture-profile.js';
 import { Prisma } from '@prisma/client';
 import { invalidateRolePermsCache } from '../plugins/rbac.js';
+import { allowLoopbackForTests } from '../lib/outbound-guard.js';
+import { SECRET_MASK } from '../lib/mask-secrets.js';
 
 /**
  * HTTP-level coverage of the alarm-webhook target module.
@@ -59,6 +61,9 @@ beforeAll(async () => {
   });
   invalidateReauthCache();
 
+  // The hooter below listens on 127.0.0.1, which the outbound guard refuses in
+  // production (audit 2026-10-12 #1). The SSRF tests at the end switch it back off.
+  allowLoopbackForTests(true);
   hooter = http.createServer((req, res) => {
     hooterHits++;
     let body = '';
@@ -98,6 +103,7 @@ afterAll(async () => {
     await prisma.systemConfig.deleteMany({ where: { configKey: 'action-reauth' } });
   }
   invalidateReauthCache();
+  allowLoopbackForTests(false);
   await new Promise<void>((resolve) => hooter.close(() => resolve()));
   await app.close();
 });
@@ -227,8 +233,10 @@ describe('alarm webhook targets', () => {
   });
 
   it('does not sanitise a tag-shaped url path — `url` is exempt', async () => {
-    // stripHtml turns this into 'http://127.0.0.1:9/trigger', a DIFFERENT hooter.
-    const url = 'http://127.0.0.1:9/<alarm>/trigger';
+    // stripHtml turns this into 'http://192.168.1.60:9/trigger', a DIFFERENT hooter.
+    // (A LAN literal, not loopback: saving never contacts it, and loopback is now
+    // refused outright — audit 2026-10-12 #1.)
+    const url = 'http://192.168.1.60:9/<alarm>/trigger';
     const res = await newTarget({ url });
     expect(res.statusCode).toBe(201);
     expect(res.json().url).toBe(url);
@@ -391,10 +399,13 @@ describe('alarm webhook targets', () => {
     // annunciated when it was not.
     const authHeader = { Authorization: 'Bearer hooter-token' };
     const regex = '^OK$';
+    // Header VALUES are masked on every response since audit 2026-10-12 #6; the
+    // name survives so the page can show which header is set.
+    const masked = { Authorization: SECRET_MASK };
     const created = await newTarget({ headers: authHeader, successRegex: regex });
     expect(created.statusCode).toBe(201);
     const id = created.json().id;
-    expect(created.json().headers).toEqual(authHeader);
+    expect(created.json().headers).toEqual(masked);
     expect(created.json().successRegex).toBe(regex);
 
     const newUrl = `${hooterUrl}?moved=1`;
@@ -403,7 +414,7 @@ describe('alarm webhook targets', () => {
     });
     expect(put.statusCode).toBe(200);
     expect(put.json().url).toBe(newUrl);
-    expect(put.json().headers).toEqual(authHeader);
+    expect(put.json().headers).toEqual(masked);
     expect(put.json().successRegex).toBe(regex);
 
     // Asserted on the stored row too: a correct response over a wrong column would pass
@@ -413,8 +424,84 @@ describe('alarm webhook targets', () => {
     expect(stored!.successRegex).toBe(regex);
 
     const fetched = await app.inject({ method: 'GET', url: `/api/alarm-webhooks/${id}`, headers: auth });
-    expect(fetched.json().headers).toEqual(authHeader);
+    expect(fetched.json().headers).toEqual(masked);
     expect(fetched.json().successRegex).toBe(regex);
+  });
+
+  /**
+   * Audit 2026-10-12 #6 — header VALUES (bearer tokens, API keys) were returned in
+   * plain text to every ALARM_RULE_READ holder. Masked now; the page round-trips the
+   * mask, which means "keep the stored value".
+   */
+  it('masks header values on the list and the item, and a masked value on PUT keeps the stored one', async () => {
+    const created = await newTarget({ headers: { Authorization: 'Bearer real-secret', 'X-Site': 'QC-3' } });
+    const id = created.json().id;
+
+    const list = await app.inject({ method: 'GET', url: '/api/alarm-webhooks', headers: auth });
+    const row = (list.json().data as { id: string; headers: Record<string, string> }[]).find((t) => t.id === id)!;
+    expect(row.headers).toEqual({ Authorization: SECRET_MASK, 'X-Site': SECRET_MASK });
+    expect(JSON.stringify(list.json())).not.toContain('real-secret');
+
+    // The page sends back what it was given, plus one changed value and one new header.
+    const put = await app.inject({
+      method: 'PUT', url: `/api/alarm-webhooks/${id}`, headers: headers(),
+      payload: { headers: { Authorization: SECRET_MASK, 'X-Site': 'QC-4', 'X-New': 'n' } },
+    });
+    expect(put.statusCode).toBe(200);
+    const stored = await prisma.alarmWebhookTarget.findUnique({ where: { id } });
+    expect(stored!.headers).toEqual({ Authorization: 'Bearer real-secret', 'X-Site': 'QC-4', 'X-New': 'n' });
+
+    // A header OMITTED from the map is removed — that is how the page deletes one.
+    const drop = await app.inject({
+      method: 'PUT', url: `/api/alarm-webhooks/${id}`, headers: headers(),
+      payload: { headers: { Authorization: SECRET_MASK } },
+    });
+    expect(drop.statusCode).toBe(200);
+    expect((await prisma.alarmWebhookTarget.findUnique({ where: { id } }))!.headers)
+      .toEqual({ Authorization: 'Bearer real-secret' });
+  });
+
+  it('refuses a mask for a header name that has no stored value', async () => {
+    const id = (await newTarget({ headers: { Authorization: 'Bearer x' } })).json().id;
+    const res = await app.inject({
+      method: 'PUT', url: `/api/alarm-webhooks/${id}`, headers: headers(),
+      payload: { headers: { 'X-Renamed': SECRET_MASK } },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().field).toBe('headers');
+    expect((await prisma.alarmWebhookTarget.findUnique({ where: { id } }))!.headers).toEqual({ Authorization: 'Bearer x' });
+  });
+
+  /**
+   * Audit 2026-10-12 #7 — the update audit row recorded only name/url/method/
+   * isActive, so a change of SCOPE (which instruments sound this hooter) or of a
+   * fire flag left no before/after in the §11 trail.
+   */
+  it('the update audit row carries scope, fire flags and every stored field except header values', async () => {
+    const id = (await newTarget({ headers: { Authorization: 'Bearer audit-secret' } })).json().id;
+    const res = await app.inject({
+      method: 'PUT', url: `/api/alarm-webhooks/${id}`, headers: headers(),
+      payload: { scopeInstrumentIds: [], fireOnCleared: false, timeoutMs: 1500 },
+    });
+    expect(res.statusCode).toBe(200);
+    const audit = await prisma.auditTrail.findFirst({
+      where: { action: 'ALARM_WEBHOOK_UPDATED', targetId: id },
+      orderBy: { timestamp: 'desc' },
+    });
+    const before = audit!.beforeValue as Record<string, unknown>;
+    const after = audit!.afterValue as Record<string, unknown>;
+    expect(before.scopeInstrumentIds).toEqual([instrumentId]);
+    expect(after.scopeInstrumentIds).toEqual([]);
+    expect(before.fireOnCleared).toBe(true);
+    expect(after.fireOnCleared).toBe(false);
+    expect(before.timeoutMs).toBe(5000);
+    expect(after.timeoutMs).toBe(1500);
+    for (const k of ['scopeLocationIds', 'fireOnRaised', 'fireOnAcknowledged', 'cooldownSeconds', 'contentType',
+      'bodyTemplate', 'successRegex', 'description', 'headerNames']) {
+      expect(after, `afterValue missing ${k}`).toHaveProperty(k);
+    }
+    expect(after.headerNames).toEqual(['Authorization']);
+    expect(JSON.stringify([before, after, audit!.signatureMeaning])).not.toContain('audit-secret');
   });
 
   it('breaks a same-millisecond delivery tie by attempt, agreeing with the delivery log', async () => {
@@ -662,5 +749,63 @@ describe('alarm webhook delivery log — instrument visibility', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().total).toBe(0);
+  });
+});
+
+/**
+ * Audit 2026-10-12 #1 — SSRF to the EC2 metadata service. An ALARM_RULE_MANAGE
+ * holder could save http://169.254.169.254/… with PUT/GET and any headers, and the
+ * test-fire returned 1,000 characters of the answer: an IMDSv2 token, then the
+ * instance role's credentials. Refused at save (literal AND resolved name) and at
+ * send (for a row stored before the fix, or a name that rebinds).
+ */
+describe('alarm webhook targets — outbound guard (SSRF)', () => {
+  beforeAll(() => allowLoopbackForTests(false));
+  afterAll(() => allowLoopbackForTests(true));
+
+  it('refuses to save the metadata service as a target', async () => {
+    const res = await newTarget({
+      url: 'http://169.254.169.254/latest/api/token', method: 'PUT',
+      headers: { 'X-aws-ec2-metadata-token-ttl-seconds': '21600' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().field).toBe('url');
+  });
+
+  it('refuses to save a NAME that resolves to loopback', async () => {
+    const port = new URL(hooterUrl).port;
+    const res = await newTarget({ url: `http://localhost:${port}/alarm` });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().field).toBe('url');
+  });
+
+  it('refuses to move an existing target onto the metadata service', async () => {
+    allowLoopbackForTests(true);
+    const id = (await newTarget()).json().id;
+    allowLoopbackForTests(false);
+    const res = await app.inject({
+      method: 'PUT', url: `/api/alarm-webhooks/${id}`, headers: headers(),
+      payload: { url: 'http://169.254.169.254/latest/meta-data/iam/security-credentials/' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().field).toBe('url');
+  });
+
+  it('a target stored before the fix is refused at SEND, and returns nothing', async () => {
+    // Written straight to the table: the row an upgraded install may already hold.
+    const row = await prisma.alarmWebhookTarget.create({
+      data: {
+        name: `legacy-imds-${Date.now()}`, url: 'http://169.254.169.254/latest/api/token', method: 'PUT',
+        headers: {}, contentType: 'application/json', bodyTemplate: '{"event":"${event}"}',
+        timeoutMs: 2000, cooldownSeconds: 0, scopeLocationIds: [], scopeInstrumentIds: [],
+      },
+    });
+    targets.push(row.id);
+    const res = await app.inject({ method: 'POST', url: `/api/alarm-webhooks/${row.id}/test`, headers: headers() });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(false);
+    expect(res.json().httpStatus).toBeNull();
+    expect(res.json().responseSnippet).toBeNull();
+    expect(res.json().error).toMatch(/Refused/);
   });
 });

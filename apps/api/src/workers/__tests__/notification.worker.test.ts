@@ -26,6 +26,17 @@ describe('notificationTask', () => {
     expect(dispatch.mock.calls[0][0]).toMatchObject({ eventType: 'ALARM_RAISED' });
   });
 
+  // Audit 2026-10-12 #9: the job id is the dedup key, so a retried job does not
+  // re-send to recipients an earlier attempt already reached.
+  it('passes the graphile job id as the dispatch dedup key', async () => {
+    const job = alarmNotificationJob('raised', {
+      alarmId: 'a1', instrumentId: 'i1', instrumentCode: 'C', metric: 'TEMPERATURE',
+      ruleName: 'r', condition: 'c', triggeredValue: 1, raisedAt: new Date(),
+    });
+    await notificationTask(job, { ...helpers(), job: { id: '42' } } as never, {} as never);
+    expect(dispatch.mock.calls[0][0]).toMatchObject({ dedupKey: 'job:42' });
+  });
+
   it('DRAINS a legacy payload instead of failing it', async () => {
     // Rows from before the 2026-05-17 rule-chain/alarm removal may still be queued.
     // Throwing would retry three times and then park them forever.
