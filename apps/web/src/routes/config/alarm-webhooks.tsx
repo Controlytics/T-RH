@@ -11,6 +11,7 @@ import { apiClient } from '@/lib/api-client';
 import { useCan } from '@/hooks/use-can';
 import { useRowKeys } from '@/hooks/use-row-keys';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { Button } from '@/components/ui/button';
 import { ReauthDialog } from '@/components/reauth-dialog';
@@ -222,63 +223,52 @@ export function AlarmWebhooksConfigPage() {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<Record<string, StampedTestResult>>({});
 
-  // Every write needs re-authentication, so each one parks its intent here and runs
-  // only once the password is accepted.
-  const [pending, setPending] = useState<((p: string) => Promise<void>) | null>(null);
+  // Every write runs through the SHARED re-auth hook as MANAGE_ALARM_WEBHOOK
+  // (audit 2026-10-12, finding 6). This page drew its own password box before
+  // every write until then; the server verifies a password only when that
+  // action's re-auth is configured for the caller's role, so with it off any
+  // text typed into the box was "accepted" — a prompt that signed nothing. The
+  // hook asks exactly when the server's policy does, and a write it does not
+  // ask for goes out with no password.
+  const reauth = useReauth();
   // Named per action: an e-signature that says "Save alarm webhook" while the operator
   // is test-firing a hooter misdescribes what is being signed for.
   const [pendingLabel, setPendingLabel] = useState('Save alarm webhook');
-  const [password, setPassword] = useState('');
-  const [reauthError, setReauthError] = useState('');
-  const [verifying, setVerifying] = useState(false);
 
   const targets = data?.data ?? [];
   const canManage = can('alarm_webhooks.manage');
   const detail = targets.find((t) => t.id === detailId) ?? null;
 
-  const runWithPassword = (label: string, fn: (p: string) => Promise<void>) => {
-    setPassword('');
-    setReauthError('');
+  const signed = (label: string, fn: (p?: string) => Promise<void>) => {
     setPendingLabel(label);
-    setPending(() => fn);
-  };
-
-  const confirmReauth = async () => {
-    if (!pending) return;
-    setVerifying(true);
-    setReauthError('');
-    try {
-      await pending(password);
-    } catch (e) {
-      // Stays open with the message: the password is still on screen to correct.
-      setReauthError(e instanceof Error ? e.message : 'Could not complete that change.');
-      return;
-    } finally {
-      setVerifying(false);
-    }
-    // Refetch only AFTER closing — a failed refresh inside the try would write an
-    // error onto a dialog that is already gone, so the write would look like it failed.
-    setPending(null);
-    await mutate();
+    void reauth.execute('MANAGE_ALARM_WEBHOOK', fn, {
+      onSuccess: () => { void mutate(); },
+      onError: (e) => toast.error('Could not complete that change', (e as { message?: string })?.message ?? 'The change was not saved.'),
+    });
   };
 
   const submit = (draft: Draft) => {
     setDialogOpen(false);
-    runWithPassword(draft.id ? 'Update alarm webhook' : 'Create alarm webhook', async (p) => {
+    signed(draft.id ? 'Update alarm webhook' : 'Create alarm webhook', async (p) => {
       const body = bodyOf(draft);
       if (draft.id) {
-        await apiClient.putWithReauth(`/api/alarm-webhooks/${draft.id}`, body, p);
+        const url = `/api/alarm-webhooks/${draft.id}`;
+        if (p) await apiClient.putWithReauth(url, body, p);
+        else await apiClient.put(url, body);
         toast.success('Target updated', `"${body.name}" saved.`);
       } else {
-        await apiClient.postWithReauth('/api/alarm-webhooks', body, p);
+        if (p) await apiClient.postWithReauth('/api/alarm-webhooks', body, p);
+        else await apiClient.post('/api/alarm-webhooks', body);
         toast.success('Target created', `"${body.name}" saved.`);
       }
     });
   };
 
   const toggleActive = (t: WebhookTarget) => {
-    runWithPassword(t.isActive ? 'Deactivate alarm webhook' : 'Activate alarm webhook', async (p) => {
-      await apiClient.putWithReauth(`/api/alarm-webhooks/${t.id}`, { isActive: !t.isActive }, p);
+    signed(t.isActive ? 'Deactivate alarm webhook' : 'Activate alarm webhook', async (p) => {
+      const url = `/api/alarm-webhooks/${t.id}`;
+      if (p) await apiClient.putWithReauth(url, { isActive: !t.isActive }, p);
+      else await apiClient.put(url, { isActive: !t.isActive });
       toast.success(t.isActive ? 'Target deactivated' : 'Target activated', `"${t.name}".`);
     });
   };
@@ -288,9 +278,11 @@ export function AlarmWebhooksConfigPage() {
     // `reason` is already an argument, so nothing is lost by unmounting the form.
     setConfirmDelete(null);
     setDeleteError('');
-    runWithPassword('Delete alarm webhook', async (p) => {
+    signed('Delete alarm webhook', async (p) => {
       try {
-        await apiClient.deleteWithReauth(`/api/alarm-webhooks/${t.id}`, p, { reason });
+        const url = `/api/alarm-webhooks/${t.id}`;
+        if (p) await apiClient.deleteWithReauth(url, p, { reason });
+        else await apiClient.delete(url, { reason });
       } catch (e) {
         // A 409 is not a failed signature — the target is simply undeletable because
         // its deliveries are regulated records. Report it where the operator is looking
@@ -298,7 +290,6 @@ export function AlarmWebhooksConfigPage() {
         // `code` — apiClient lifts the server's `error` field onto an Error as `.code`.
         const err = e as { code?: string; message?: string };
         if (err?.code === 'TARGET_HAS_DELIVERIES') {
-          setPending(null);
           toast.error('Cannot delete', `${err.message ?? ''} Deactivate it instead.`.trim());
           return;
         }
@@ -309,10 +300,13 @@ export function AlarmWebhooksConfigPage() {
   };
 
   const sendTest = (t: WebhookTarget) => {
-    runWithPassword('Test-fire alarm webhook', async (p) => {
+    signed('Test-fire alarm webhook', async (p) => {
       // `ok: false` arrives as a 200. Throwing on it would render a dead hooter as a
       // re-authentication failure, so the result is stored and shown on the page.
-      const res = await apiClient.postWithReauth<TestResult>(`/api/alarm-webhooks/${t.id}/test`, {}, p);
+      const url = `/api/alarm-webhooks/${t.id}/test`;
+      const res = p
+        ? await apiClient.postWithReauth<TestResult>(url, {}, p)
+        : await apiClient.post<TestResult>(url, {});
       setTestResult((prev) => ({ ...prev, [t.id]: { ...res, stamp: Date.now() } }));
       if (res.ok) toast.success('Test delivered', `HTTP ${res.httpStatus ?? '—'}`);
       else toast.error('Test failed', res.error ?? `HTTP ${res.httpStatus ?? '—'}`);
@@ -483,13 +477,13 @@ export function AlarmWebhooksConfigPage() {
       )}
 
       <ReauthDialog
-        open={pending !== null}
-        password={password}
-        error={reauthError}
-        isVerifying={verifying}
-        onPasswordChange={setPassword}
-        onConfirm={confirmReauth}
-        onCancel={() => setPending(null)}
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
         actionLabel={pendingLabel}
       />
     </div>
