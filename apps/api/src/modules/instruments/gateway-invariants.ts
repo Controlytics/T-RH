@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
+import { withVisibility, type ScopeWhere } from './visibility.js';
 
 /**
  * The gateway invariants (spec D2/D3/D6) live here rather than in `routes.ts`
@@ -37,6 +38,13 @@ export class GatewayInvariantViolation extends Error {
 export async function gatewayInvariantError(
   next: { isGateway?: boolean; gatewayId?: string | null },
   current: { id: string; isGateway: boolean; gatewayId: string | null } | null,
+  /**
+   * The CALLER's instrument visibility (audit 2026-10-12). The gateway a link
+   * names is looked up inside it, so an out-of-scope gateway is answered
+   * exactly like a missing one — never linked to, never named — and only the
+   * children the caller can see are listed by code. `undefined` = unrestricted.
+   */
+  visibility?: ScopeWhere,
 ): Promise<{ status: number; body: { error: string; message: string } } | null> {
   const isGateway = next.isGateway ?? current?.isGateway ?? false;
   const gatewayId = next.gatewayId === undefined ? (current?.gatewayId ?? null) : next.gatewayId;
@@ -67,8 +75,9 @@ export async function gatewayInvariantError(
     return { status: 400, body: { error: 'SELF_GATEWAY', message: 'An instrument cannot be its own gateway.' } };
   }
   if (gatewayId) {
-    const parent = await prisma.instrument.findUnique({
-      where: { id: gatewayId }, select: { id: true, code: true, isGateway: true },
+    const parent = await prisma.instrument.findFirst({
+      where: withVisibility({ id: gatewayId }, visibility) as Prisma.InstrumentWhereInput,
+      select: { id: true, code: true, isGateway: true },
     });
     if (!parent) return { status: 400, body: { error: 'NOT_FOUND', message: 'The selected gateway does not exist.' } };
     if (!parent.isGateway) {
@@ -78,18 +87,31 @@ export async function gatewayInvariantError(
   // Spec D6 — refusing beats silently unlinking, which would stop those
   // sensors reporting with nothing in the UI to say why.
   if (current?.isGateway && next.isGateway === false) {
-    const kids = await prisma.instrument.findMany({ where: { gatewayId: current.id }, select: { code: true } });
+    const kids = await prisma.instrument.findMany({ where: { gatewayId: current.id }, select: { id: true } });
     if (kids.length > 0) {
-      return {
-        status: 409,
-        body: {
-          error: 'GATEWAY_HAS_CHILDREN',
-          message: `Unlink these instruments before disabling gateway mode: ${kids.map((k) => k.code).join(', ')}.`,
-        },
-      };
+      const visible = await prisma.instrument.findMany({
+        where: withVisibility({ gatewayId: current.id }, visibility) as Prisma.InstrumentWhereInput,
+        select: { code: true }, orderBy: { code: 'asc' },
+      });
+      return { status: 409, body: { error: 'GATEWAY_HAS_CHILDREN', message: childrenMessage(visible.map((k) => k.code), kids.length) } };
     }
   }
   return null;
+}
+
+/**
+ * The GATEWAY_HAS_CHILDREN sentence, naming only the children the caller can
+ * see (audit 2026-10-12). The others are COUNTED, not named: the refusal is
+ * real either way, and a message listing nothing would leave the caller no
+ * reason for it.
+ */
+function childrenMessage(visibleCodes: string[], total: number): string {
+  const hidden = total - visibleCodes.length;
+  const named = visibleCodes.join(', ');
+  const others = hidden > 0
+    ? `${named ? ' and ' : ''}${hidden} instrument${hidden === 1 ? '' : 's'} outside your instrument scope`
+    : '';
+  return `Unlink these instruments before disabling gateway mode: ${named}${others}.`;
 }
 
 type LockedRow = { id: string; code: string; is_gateway: boolean };
@@ -196,14 +218,22 @@ export async function lockInstrumentRows(
  */
 export async function lockedGatewayRecheck(
   tx: Prisma.TransactionClient,
-  opts: { linkTo?: string | null; disablingGatewayId?: string | null; selfId?: string | null },
+  opts: {
+    linkTo?: string | null; disablingGatewayId?: string | null; selfId?: string | null;
+    /** The caller's visibility — see `gatewayInvariantError`. */
+    visibility?: ScopeWhere;
+  },
 ): Promise<void> {
   // Parent (`linkTo`) BEFORE self — see lockInstrumentRows. `disablingGatewayId`
   // IS self on the PUT path, so the dedupe collapses the pair.
   const locked = await lockInstrumentRows(tx, [opts.linkTo, opts.disablingGatewayId, opts.selfId]);
 
   if (opts.linkTo) {
-    const parent = locked.get(opts.linkTo);
+    // Out of the caller's scope reads as MISSING here too, under the lock.
+    const inScope = !opts.visibility || (await tx.instrument.count({
+      where: withVisibility({ id: opts.linkTo }, opts.visibility) as Prisma.InstrumentWhereInput,
+    })) > 0;
+    const parent = inScope ? locked.get(opts.linkTo) : undefined;
     if (!parent) {
       throw new GatewayInvariantViolation(400, { error: 'NOT_FOUND', message: 'The selected gateway does not exist.' });
     }
@@ -220,9 +250,15 @@ export async function lockedGatewayRecheck(
       SELECT code FROM instruments WHERE gateway_id = ${opts.disablingGatewayId} ORDER BY code
     `;
     if (kids.length > 0) {
+      const visible = opts.visibility
+        ? (await tx.instrument.findMany({
+          where: withVisibility({ gatewayId: opts.disablingGatewayId }, opts.visibility) as Prisma.InstrumentWhereInput,
+          select: { code: true }, orderBy: { code: 'asc' },
+        })).map((k) => k.code)
+        : kids.map((k) => k.code);
       throw new GatewayInvariantViolation(409, {
         error: 'GATEWAY_HAS_CHILDREN',
-        message: `Unlink these instruments before disabling gateway mode: ${kids.map((k) => k.code).join(', ')}.`,
+        message: childrenMessage(visible, kids.length),
       });
     }
   }

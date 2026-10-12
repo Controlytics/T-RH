@@ -14,7 +14,7 @@ import {
 } from '@digilog/shared';
 import { prisma } from '../../lib/prisma.js';
 import { resolvePageSize } from '../../lib/page-size.js';
-import { resolveVisibility, withVisibility } from './visibility.js';
+import { resolveVisibility, withVisibility, type ScopeWhere } from './visibility.js';
 import { resolveLocationIds, type FlNode } from '../functional-locations/tree.js';
 import { getTelemetryAggregate } from './telemetry-aggregate.js';
 import { HISTORY_WINDOWS, type HistoryWindow } from '../floorplans/room-history.js';
@@ -348,12 +348,14 @@ async function announceRoster(gatewayId: string | null | undefined): Promise<voi
 async function createWithCredential(
   draft: Record<string, unknown>,
   ctx: ReturnType<typeof buildContext>,
+  /** The caller's instrument visibility: the gateway a new instrument links to must be in it. */
+  visibility?: ScopeWhere,
 ): Promise<{ id: string; code: string; name: string; token: string }> {
   const token = generateToken();
   return prisma.$transaction(async (tx) => {
     // FIRST statement of the transaction, before the write and before any
     // auditLog takes the audit advisory lock — see gateway-invariants.ts.
-    await lockedGatewayRecheck(tx, { linkTo: (draft.gatewayId as string | null | undefined) ?? null });
+    await lockedGatewayRecheck(tx, { linkTo: (draft.gatewayId as string | null | undefined) ?? null, visibility });
 
     const instrument = await tx.instrument.create({
       data: { ...draft, createdBy: ctx.userId } as unknown as Prisma.InstrumentCreateInput,
@@ -1511,7 +1513,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
 
-    const invalid = await gatewayInvariantError(parsed.data, null);
+    // The gateway a new instrument links to must be in the caller's scope
+    // (audit 2026-10-12) — out of scope reads exactly like missing.
+    const { where: visibility } = await resolveVisibility(buildContext(req));
+    const invalid = await gatewayInvariantError(parsed.data, null, visibility);
     if (invalid) return reply.code(invalid.status).send(invalid.body);
 
     if (await profileMissing(parsed.data.profileId)) {
@@ -1519,7 +1524,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     }
 
     try {
-      const { id, token } = await createWithCredential(parsed.data as Record<string, unknown>, buildContext(req));
+      const { id, token } = await createWithCredential(parsed.data as Record<string, unknown>, buildContext(req), visibility);
       // An instrument born linked must be writable by its gateway at once, not
       // after the child-map TTL.
       if (parsed.data.gatewayId) invalidateChildMapCache(parsed.data.gatewayId);
@@ -1695,7 +1700,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       return reply.code(400).send(PROFILE_NOT_FOUND);
     }
 
-    const invalid = await gatewayInvariantError(parsed.data, existing);
+    // The gateway target and the children a demotion lists are both read
+    // inside the caller's scope (audit 2026-10-12).
+    const { where: visibility } = await resolveVisibility(buildContext(req));
+    const invalid = await gatewayInvariantError(parsed.data, existing, visibility);
     if (invalid) return reply.code(invalid.status).send(invalid.body);
 
     const ctx = buildContext(req);
@@ -1716,6 +1724,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         linkTo: parsed.data.gatewayId ?? null,
         disablingGatewayId: parsed.data.isGateway === false ? id : null,
         selfId: id,
+        visibility,
       });
 
       // Re-read under those locks. This — not `existing` — decides what counts
