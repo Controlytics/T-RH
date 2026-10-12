@@ -251,6 +251,29 @@ const SUMMARY_SELECT = {
 } satisfies Prisma.ReportReviewSelect;
 
 export type ReviewSummary = Prisma.ReportReviewGetPayload<{ select: typeof SUMMARY_SELECT }>;
+
+/**
+ * A list row as the Reports page receives it (audit 2026-10-12 #9): the
+ * SERVER's answer to "may this caller decide it?" — status, the APPROVE
+ * permission, separation of duties, approver AND instrument scope, the same
+ * `mayDecide` / `isSelfDecision` the decision route applies — and the approver
+ * users by NAME, so the page needs neither to re-derive the rule nor to read
+ * `/api/users` (USER_READ) on a REPORT_REVIEW_READ page. Parallel to
+ * `approverUserIds`; an id whose user no longer exists is given as the id.
+ */
+export type ReviewListRow = ReviewSummary & { canDecide: boolean; approverUserNames: string[] };
+
+async function decorateRows(ctx: Actor, rows: ReviewSummary[], visible: VisibleInstruments): Promise<ReviewListRow[]> {
+  const canApprove = await roleHasPermission(ctx.userRole, 'REPORT_REVIEW_APPROVE');
+  const ids = [...new Set(rows.flatMap((r) => r.approverUserIds))];
+  const users = ids.length === 0 ? [] : await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, username: true } });
+  const nameOf = new Map(users.map((u) => [u.id, u.username]));
+  return rows.map((r) => ({
+    ...r,
+    canDecide: r.status === 'PENDING' && canApprove && !isSelfDecision(ctx, r) && mayDecide(ctx, r, visible),
+    approverUserNames: r.approverUserIds.map((id) => nameOf.get(id) ?? id),
+  }));
+}
 export type ReviewFull = ReviewSummary & { dataSnapshot: Prisma.JsonValue };
 
 /** The sentence an audit row signs, kept inside `signature_meaning`'s 255. */
@@ -495,7 +518,7 @@ export const reportReviewService = {
     return row;
   },
 
-  async list(ctx: RequestContext, list: ReviewList, page: number, pageSize: number): Promise<{ data: ReviewSummary[]; total: number }> {
+  async list(ctx: RequestContext, list: ReviewList, page: number, pageSize: number): Promise<{ data: ReviewListRow[]; total: number }> {
     const superAdmin = ctx.userRole === 'SUPER_ADMIN';
     const visible = await visibleInstrumentsFor(ctx);
     // queue    — PENDING, I am an approver, in my scope, not my own (SUPER_ADMIN: every PENDING one)
@@ -520,7 +543,7 @@ export const reportReviewService = {
       prisma.reportReview.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize, select: SUMMARY_SELECT }),
       prisma.reportReview.count({ where }),
     ]);
-    return { data, total };
+    return { data: await decorateRows(ctx, data, visible), total };
   },
 
   /** The full row with its snapshot — or `null` when it does not exist OR the

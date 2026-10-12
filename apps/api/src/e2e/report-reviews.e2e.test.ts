@@ -395,6 +395,24 @@ describe('who sees what', () => {
     expect(await listIds('mine', tok.APPR)).not.toContain(created[0]);
   });
 
+  // Audit 2026-10-12 #9: the page used to re-derive "may I decide this?" in
+  // the browser (approver role / user id, not self) and omitted the instrument
+  // scope and the APPROVE permission. The SERVER now answers per row, and the
+  // approver users arrive as names, so the page needs no /api/users (USER_READ).
+  it('every row carries the server\'s own canDecide, and the approver users by name', async () => {
+    const rowFor = async (list: string, t: string) =>
+      ((await get(`/api/report-reviews?list=${list}&pageSize=200`, t)).json().data as any[]).find((r) => r.id === created[0]);
+    expect((await rowFor('queue', tok.APPR)).canDecide).toBe(true);
+    expect((await rowFor('queue', tok.NAMED)).canDecide).toBe(true);
+    expect((await rowFor('queue', tokAdmin)).canDecide).toBe(true);
+    // The requester and a role-mate (no APPROVE permission) see it, never decide it.
+    expect((await rowFor('mine', tok.REQ)).canDecide).toBe(false);
+    expect((await rowFor('mine', tok.MATE)).canDecide).toBe(false);
+    const r = await rowFor('mine', tok.REQ);
+    expect(r.approverUserNames).toEqual([U.NAMED]);
+    expect(r.approverUserIds).toEqual([ids.NAMED]);
+  });
+
   it('GET /:id: the snapshot to every party in scope; 404 to the out-of-scope and the strangers', async () => {
     for (const k of ['REQ', 'MATE', 'APPR', 'NAMED'] as const) {
       const res = await get(`/api/report-reviews/${created[0]}`, tok[k]);

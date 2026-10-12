@@ -54,6 +54,12 @@ export interface ReviewSummary {
   decidedAt: string | null;
   decisionRemarks: string | null;
   createdAt: string;
+  /** LIST rows only (audit 2026-10-12 #9): the SERVER's answer to "may I decide
+   *  this?" for the caller — status, the approve permission, separation of
+   *  duties, approver and instrument scope. Never re-derived in the browser. */
+  canDecide?: boolean;
+  /** LIST rows only: `approverUserIds` as usernames, in the same order. */
+  approverUserNames?: string[];
 }
 
 export interface ReviewFull extends ReviewSummary { dataSnapshot: unknown }
@@ -109,12 +115,14 @@ export async function decideReview(id: string, decision: 'approve' | 'reject', r
  * caller) prints as the id rather than vanishing.
  */
 export function approversText(
-  r: Pick<ReviewSummary, 'approverRoles' | 'approverUserIds'>,
-  users: { id: string; username: string }[] = [],
+  r: Pick<ReviewSummary, 'approverRoles' | 'approverUserIds' | 'approverUserNames'>,
 ): string {
+  // The server names the users (audit 2026-10-12 #9); an id stands in only for
+  // a row that arrived without the names.
+  const names = r.approverUserNames ?? r.approverUserIds ?? [];
   const parts = [
     ...(r.approverRoles ?? []).map((role) => `any ${role}`),
-    ...(r.approverUserIds ?? []).map((id) => users.find((u) => u.id === id)?.username ?? id),
+    ...names,
   ];
   return parts.length ? parts.join(', ') : '-';
 }

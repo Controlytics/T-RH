@@ -1,14 +1,11 @@
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useState } from 'react';
 import useSWR from 'swr';
-import { ALL_RECORDS_PARAM } from '@digilog/shared';
 import { PageHero } from '@/components/ui/page-hero';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 import { Tabs } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Pagination } from '@/components/ui/pagination';
 import { StatusBadge, type StatusTone } from '@/components/ui/status-badge';
-import { useAuth } from '@/hooks/use-auth';
-import { useCan } from '@/hooks/use-can';
 import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { usePaginationDefaults } from '@/hooks/use-pagination-config';
@@ -54,8 +51,6 @@ const STATUS_WORD: Record<ReviewSummary['status'], string> = { PENDING: 'Pending
 
 
 export function ReportsPage() {
-  const { user } = useAuth();
-  const can = useCan();
   const { toast } = useToast();
   const { formatDateTime } = useDatetimeFormat();
   const { defaultLimit } = usePaginationDefaults();
@@ -85,26 +80,17 @@ export function ReportsPage() {
 
   const qs = new URLSearchParams({ list, page: String(page), pageSize: String(pageSize) });
   const { data, error, isLoading, mutate } = useSWR<{ data: ReviewSummary[]; total: number }>(`/api/report-reviews?${qs}`);
-  // Usernames for the Send-to column: a request names its approver users by id.
-  const { data: usersData } = useSWR<any>(`/api/users?${ALL_RECORDS_PARAM}`);
-  const users = useMemo(() => {
-    const raw = Array.isArray(usersData) ? usersData : (usersData?.data ?? usersData?.users ?? []);
-    return (raw as { id: string; username: string }[]).filter((u) => u.username);
-  }, [usersData]);
 
   const rows = data?.data ?? [];
   const total = data?.total ?? 0;
 
-  // Presentation only: whether to SHOW Approve/Reject. The server decides
-  // (approver + instrument scope + separation of duties); a row out of my
-  // scope is not in my lists at all.
-  const isApprover = (r: ReviewSummary) =>
-    !!user && (user.role === 'SUPER_ADMIN' || (r.approverRoles ?? []).includes(user.role) || (r.approverUserIds ?? []).includes(user.id));
-  // Mirrors the server's isSelfDecision: the requester never decides their own
-  // request, SUPER_ADMIN excepted (operator, 2026-09-08). Presentation only —
-  // the 403 in report-reviews/service.ts is the control.
-  const isSelfDecision = (r: ReviewSummary) => user?.role !== 'SUPER_ADMIN' && r.requestedBy === user?.id;
-  const mayDecide = (r: ReviewSummary) => r.status === 'PENDING' && can('reports.approve') && isApprover(r) && !isSelfDecision(r);
+  // Whether to SHOW Approve/Reject is the SERVER's per-row answer (audit
+  // 2026-10-12 #9): status, the approve permission, separation of duties
+  // (SUPER_ADMIN may decide their own, operator 2026-09-08), approver AND
+  // instrument scope — `canDecide` on each list row. This page used to
+  // re-derive it and omitted the scope. The decision route's 403 / 404 is
+  // still the control.
+  const mayDecide = (r: ReviewSummary) => r.canDecide === true;
 
   const switchList = (next: ReviewList) => { setList(next); setPage(1); };
 
@@ -190,7 +176,7 @@ export function ReportsPage() {
                       <span className="block">{r.requestedByName}</span>
                       <span className="block text-xs text-slate-500">{formatDateTime(r.requestedAt)}</span>
                     </TableCell>
-                    <TableCell className="align-top">{approversText(r, users)}</TableCell>
+                    <TableCell className="align-top">{approversText(r)}</TableCell>
                     <TableCell className="align-top"><StatusBadge tone={STATUS_TONE[r.status]} label={STATUS_WORD[r.status]} /></TableCell>
                     <TableCell className="align-top">
                       {r.decidedByName ? (

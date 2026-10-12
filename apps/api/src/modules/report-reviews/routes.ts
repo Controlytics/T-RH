@@ -47,6 +47,16 @@ const summaryProps = {
 } as const;
 
 const summarySchema = { type: 'object', properties: summaryProps } as const;
+// The list rows carry the SERVER's decision and the approver names (audit
+// 2026-10-12 #9) — declared, or Fastify strips them and the page sees neither.
+const listRowSchema = {
+  type: 'object',
+  properties: {
+    ...summaryProps,
+    canDecide: { type: 'boolean' },
+    approverUserNames: { type: 'array', items: { type: 'string' } },
+  },
+} as const;
 const fullSchema = { type: 'object', properties: { ...summaryProps, dataSnapshot: { type: 'object', additionalProperties: true } } } as const;
 
 /** `remarks` must state a reason: the schema's minLength alone accepts spaces. */
@@ -126,7 +136,7 @@ export default async function reportReviewRoutes(app: FastifyInstance) {
         },
       },
       response: {
-        200: { type: 'object', properties: { data: { type: 'array', items: summarySchema }, total: { type: 'integer' } } },
+        200: { type: 'object', properties: { data: { type: 'array', items: listRowSchema }, total: { type: 'integer' } } },
         ...errorResponses,
       },
     },
