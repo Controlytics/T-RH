@@ -52,8 +52,7 @@ export function AuditTrailPage() {
   // (the Details column + detail dialog) is NOT gated on these — the route already
   // requires AUDIT_READ, and gating reads on destroy rights locked inspectors out.
   const canRedact = can('audit.redact');
-  const canHardDelete = can('audit.delete');
-  const canDestroy = canRedact || canHardDelete;
+  const holdsHardDelete = can('audit.delete');
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(defaultLimit);
 
@@ -102,6 +101,19 @@ export function AuditTrailPage() {
   if (toIso) params.set('endDate', toIso);
 
   const { data, isLoading, mutate } = useSWR(`/api/audit?${params}`);
+  // Hard delete needs the permission AND the installation's switch
+  // (Configuration → Audit Hard Delete, default OFF). Whether the switch is on
+  // is the SERVER's answer on this same response (2026-10-12) — with it off the
+  // routes answer 403, so the controls are not offered at all.
+  const canHardDelete = holdsHardDelete && data?.hardDeleteEnabled === true;
+  const canDestroy = canRedact || canHardDelete;
+  // The record of a deletion or a redaction can be neither deleted nor
+  // redacted — `protectedRecord` is the server's per-row answer. Such rows are
+  // never selectable, so a bulk action cannot be refused for naming one.
+  const selectableIds = useMemo(
+    () => ((data?.data ?? []) as any[]).filter((r) => !r.protectedRecord).map((r) => r.id as string),
+    [data],
+  );
 
   // Clear selection whenever the rendered rows change. sortBy/sortOrder/perPage
   // are deps too: they are all in the query above, so each one swaps the rows on
@@ -136,7 +148,7 @@ export function AuditTrailPage() {
 
   const toggleSelectAll = () => {
     if (!data?.data) return;
-    const allIds = data.data.map((r: any) => r.id as string);
+    const allIds = selectableIds;
     const allSelected = allIds.every((id: string) => selectedIds.has(id));
     if (allSelected) {
       setSelectedIds(new Set());
@@ -145,7 +157,7 @@ export function AuditTrailPage() {
     }
   };
 
-  const isAllSelected = data?.data?.length > 0 && data.data.every((r: any) => selectedIds.has(r.id));
+  const isAllSelected = selectableIds.length > 0 && selectableIds.every((id) => selectedIds.has(id));
   // Counted from the resolved targets, not the raw Set — see selectedRecords above.
   const selectedCount = selectedRecords.length;
   const isSomeSelected = selectedCount > 0;

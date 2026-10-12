@@ -103,7 +103,24 @@ export interface ConfigManifestEntry {
   requiresReauth: boolean;
   hasCustomPage: boolean;
   customPagePath: string | null;
+  /** The re-auth action the dynamic PUT enforces for this module, or null when
+   *  it enforces none — `effectiveReauthAction`, the ONE derivation, so the
+   *  config page asks for the password up front for the action the server
+   *  will check, and never rebuilds the name itself (2026-10-12). */
+  reauthAction: string | null;
   settings: SettingDefinition[];
+}
+
+/**
+ * The re-auth action `PUT /api/config/dynamic/<key>` enforces: the def's own
+ * `reauthAction`, else — for a def that only sets `requiresReauth` —
+ * `UPDATE_<MODULE_KEY>`; null when neither is set. Used by the route AND sent
+ * to the browser in the manifest, so the two cannot disagree.
+ */
+export function effectiveReauthAction(def: Pick<ModuleConfigDefinition, 'moduleKey' | 'requiresReauth' | 'reauthAction'>): string | null {
+  if (def.reauthAction) return def.reauthAction;
+  if (def.requiresReauth) return `UPDATE_${def.moduleKey.toUpperCase().replace(/-/g, '_')}`;
+  return null;
 }
 
 // ─── Config Registry Singleton ───────────────────────────
@@ -149,6 +166,7 @@ class ConfigRegistry {
         requiresReauth: def.requiresReauth,
         hasCustomPage: def.hasCustomPage ?? false,
         customPagePath: def.customPagePath ?? null,
+        reauthAction: effectiveReauthAction(def),
         settings: def.settings,
       }));
   }

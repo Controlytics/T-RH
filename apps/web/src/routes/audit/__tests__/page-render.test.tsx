@@ -15,14 +15,18 @@ const AUDIT = {
     reason: null, signatureMeaning: null, chainPosition: 1, redactedAt: null,
   }],
   total: 5764, page: 1, totalPages: 231,
+  hardDeleteEnabled: false,
 };
+// The same page with the installation's hard-delete switch ON (2026-10-12).
+const AUDIT_HARD_DELETE_ON = { ...AUDIT, hardDeleteEnabled: true };
+let auditResponse: typeof AUDIT = AUDIT;
 const RESPONSES: Record<string, unknown> = {
   '/api/config/audit-templates/current': {},
   '/api/roles/active': [],
 };
 vi.mock('swr', () => ({
   default: (key: string | null) => {
-    if (typeof key === 'string' && key.startsWith('/api/audit?')) return { data: AUDIT, isLoading: false, mutate };
+    if (typeof key === 'string' && key.startsWith('/api/audit?')) return { data: auditResponse, isLoading: false, mutate };
     if (typeof key === 'string' && key in RESPONSES) return { data: RESPONSES[key], mutate };
     return { data: undefined, isLoading: false, mutate };
   },
@@ -84,5 +88,31 @@ describe('AuditTrailPage — a bordered grid, 15px, bold (2026-09-25)', () => {
     const by = screen.getByText('u-1');
     expect(by.className).toMatch(/(^|\s)font-bold(\s|$)/);
     expect(by.className).toMatch(/text-\[0\.9375rem\]/);
+  });
+});
+
+/**
+ * 2026-10-12: permanent deletion is a Configuration switch, default OFF, and
+ * the page offers its controls only when the SERVER says it is on (the
+ * `hardDeleteEnabled` flag on GET /api/audit). Here the viewer holds every
+ * permission, so the switch is the only thing that can hide them.
+ */
+describe('AuditTrailPage — hard-delete controls follow the server\'s switch', () => {
+  it('offers no "Delete permanently" while the switch is off', () => {
+    auditResponse = AUDIT;
+    render(<MemoryRouter><AuditTrailPage /></MemoryRouter>);
+    expect(screen.queryByTitle(/delete permanently/i)).toBeNull();
+    // Redact (chain-preserving) is still offered.
+    expect(screen.getByTitle(/redact record/i)).toBeInTheDocument();
+  });
+
+  it('offers it once the server says the switch is on', () => {
+    auditResponse = AUDIT_HARD_DELETE_ON;
+    try {
+      render(<MemoryRouter><AuditTrailPage /></MemoryRouter>);
+      expect(screen.getByTitle(/delete permanently/i)).toBeInTheDocument();
+    } finally {
+      auditResponse = AUDIT;
+    }
   });
 });

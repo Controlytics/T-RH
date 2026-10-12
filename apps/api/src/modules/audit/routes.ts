@@ -19,6 +19,8 @@ import {
 
 const PROTECTED_RECORD_MESSAGE =
   'This record documents a deletion or a redaction of the audit trail and can never be deleted.';
+const PROTECTED_REDACT_MESSAGE =
+  'This record documents a deletion or a redaction of the audit trail and can never be redacted.';
 
 /**
  * Path-param guard for audit record ids.
@@ -89,6 +91,9 @@ export default async function auditRoutes(app: FastifyInstance) {
                   redactedBy: { type: 'string', nullable: true, description: 'User id of the redactor' },
                   redactedByName: { type: 'string', nullable: true, description: 'Resolved username of the redactor (read-time enrichment; falls back to the raw id)' },
                   redactionReason: { type: 'string', nullable: true, description: 'Operator-supplied reason for the redaction' },
+                  // The SERVER's answer (2026-10-12): this row records a deletion
+                  // or a redaction and can be neither deleted nor redacted.
+                  protectedRecord: { type: 'boolean', description: 'True for the record of a deletion or a redaction — never deletable or redactable' },
                 },
               },
             },
@@ -96,6 +101,10 @@ export default async function auditRoutes(app: FastifyInstance) {
             page: { type: 'integer' },
             limit: { type: 'integer' },
             totalPages: { type: 'integer' },
+            // Whether DELETE /:id and POST /bulk-delete are switched on
+            // (Configuration → Audit Hard Delete), so the page shows its
+            // hard-delete controls only when they can work (2026-10-12).
+            hardDeleteEnabled: { type: 'boolean', description: 'Whether permanent deletion of audit records is switched on' },
           },
         },
         ...errorResponses,
@@ -235,6 +244,7 @@ export default async function auditRoutes(app: FastifyInstance) {
         // null-normalizes internally; beforeValue + the rest pass through raw
         // via `...record` (needed for the expanded checksum).
         integrityValid: verifyAuditChecksum({ ...record, afterValue: record.afterValue }),
+        protectedRecord: PROTECTED_AUDIT_ACTIONS.includes(record.action),
       };
     });
 
@@ -244,6 +254,7 @@ export default async function auditRoutes(app: FastifyInstance) {
       page: query.page,
       limit: effectiveLimit,
       totalPages: Math.ceil(total / effectiveLimit),
+      hardDeleteEnabled: await isHardDeleteEnabled(),
     };
   });
 
@@ -471,6 +482,12 @@ export default async function auditRoutes(app: FastifyInstance) {
 
     const record = await prisma.auditTrail.findUnique({ where: { id } });
     if (!record) return reply.code(404).send({ error: 'Audit record not found' });
+    // The record of a deletion or a redaction is not redactable either
+    // (2026-10-12): its before_value IS the evidence — what was deleted, or
+    // what was redacted, which verify-chain compares every redacted row with.
+    if (PROTECTED_AUDIT_ACTIONS.includes(record.action)) {
+      return reply.code(409).send({ error: 'PROTECTED_AUDIT_RECORD', message: PROTECTED_REDACT_MESSAGE });
+    }
 
     const now = new Date();
     await prisma.$transaction(async (tx) => {
@@ -494,6 +511,7 @@ export default async function auditRoutes(app: FastifyInstance) {
             redacted_by = ${req.user.username},
             redaction_reason = ${reason}
         WHERE id = ${id}::uuid AND redacted_at IS NULL
+          AND action <> ALL(${[...PROTECTED_AUDIT_ACTIONS]}::text[])
       `;
       if (claimed === 0) {
         throw new AppError(409, 'ALREADY_REDACTED', 'Record was already redacted');
@@ -558,6 +576,14 @@ export default async function auditRoutes(app: FastifyInstance) {
       if (unredacted.length === 0) {
         throw new AppError(409, 'ALREADY_REDACTED_OR_MISSING', 'No matching un-redacted records');
       }
+      // Refuse the WHOLE request when it names the record of a deletion or a
+      // redaction (2026-10-12) — skipping it silently would report a
+      // redaction the operator did not get.
+      const protectedIds = unredacted.filter((r) => PROTECTED_AUDIT_ACTIONS.includes(r.action)).map((r) => r.id);
+      if (protectedIds.length > 0) {
+        throw new AppError(409, 'PROTECTED_AUDIT_RECORD',
+          `${protectedIds.length} of the selected records document a deletion or a redaction of the audit trail and can never be redacted: ${protectedIds.join(', ')}. Nothing was redacted.`);
+      }
       const matchedIds = unredacted.map((r) => r.id);
       const updated = await tx.$executeRaw`
         UPDATE audit_trail
@@ -567,6 +593,7 @@ export default async function auditRoutes(app: FastifyInstance) {
             redacted_by = ${req.user.username},
             redaction_reason = ${reason}
         WHERE id = ANY(${matchedIds}::uuid[]) AND redacted_at IS NULL
+          AND action <> ALL(${[...PROTECTED_AUDIT_ACTIONS]}::text[])
       `;
       if (updated !== unredacted.length) {
         // Cannot happen under the lock above; refused rather than recorded

@@ -141,6 +141,9 @@ export function AuditTable({
                 {data?.data?.map((record: any) => {
                   const status = getAuditStatus(record.action);
                   const redacted = isRedacted(record);
+                  // The server's per-row answer (2026-10-12): the record of a
+                  // deletion or a redaction is neither deletable nor redactable.
+                  const isProtected = record.protectedRecord === true;
                   return (
                   <TableRow key={record.id} className={`hover:bg-slate-50/50 transition-colors ${canDestroy && selectedIds.has(record.id) ? 'bg-red-50/40' : ''}`}>
                     {canDestroy && (
@@ -149,6 +152,9 @@ export function AuditTable({
                           type="checkbox"
                           checked={selectedIds.has(record.id)}
                           onChange={() => toggleSelect(record.id)}
+                          disabled={isProtected}
+                          aria-label={isProtected ? 'This record cannot be deleted or redacted' : 'Select record'}
+                          title={isProtected ? 'This record documents a deletion or a redaction and cannot be deleted or redacted' : undefined}
                           className="ctl-check"
                         />
                       </TableCell>
@@ -279,7 +285,7 @@ export function AuditTable({
                             is gone, and a second click cost a prompt + a reauth
                             round-trip only to 409 ALREADY_REDACTED. Hard-delete
                             stays available — a redacted row can still be removed. */}
-                        {canRedact && !redacted && (
+                        {canRedact && !redacted && !isProtected && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -293,7 +299,7 @@ export function AuditTable({
                             </svg>
                           </Button>
                         )}
-                        {canHardDelete && onHardDeleteRecord && (
+                        {canHardDelete && onHardDeleteRecord && !isProtected && (
                           <Button
                             variant="ghost"
                             size="sm"

@@ -16,7 +16,7 @@ vi.setConfig({ testTimeout: 20_000 });
 const MY_ACTIONS = { actions: ['UPDATE_PROFILE', 'UPDATE_SESSION_CONFIG', 'CREATE_ROLE', 'EXPORT_BACKUP', 'UPDATE_PASSWORD_POLICY'] };
 const MANIFEST = [{
   moduleKey: 'session', moduleName: 'Session', description: '', icon: '', category: 'Security',
-  requiresReauth: true, hasCustomPage: false,
+  requiresReauth: true, hasCustomPage: false, reauthAction: 'UPDATE_SESSION_CONFIG',
   settings: [{ key: 'idleMinutes', type: 'number', label: 'Idle minutes', default: 15 }],
 }];
 const SAVED = { idleMinutes: 15 };

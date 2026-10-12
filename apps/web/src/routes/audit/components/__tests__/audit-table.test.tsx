@@ -202,3 +202,46 @@ describe('AuditTable — redacted rows announce themselves', () => {
     expect(screen.getByTitle('Redact record (mask contents, keep hash chain)')).toBeInTheDocument();
   });
 });
+
+/**
+ * 2026-10-12: the record of a deletion or a redaction can be neither deleted
+ * nor redacted. The server says which rows those are (`protectedRecord`); the
+ * table offers no destructive control on them and does not let them be selected.
+ */
+describe('AuditTable — the server-protected rows offer no destructive control', () => {
+  it('no Redact, no Delete permanently, and a disabled checkbox on a protectedRecord row', () => {
+    render(
+      <AuditTable
+        {...baseProps}
+        data={{ data: [{ ...record, action: 'AUDIT_RECORD_DELETED', protectedRecord: true }] }}
+        canDestroy
+        canRedact
+        canHardDelete
+        onHardDeleteRecord={() => {}}
+        onViewRecord={() => {}}
+        onDeleteRecord={() => {}}
+      />,
+    );
+    expect(screen.queryByTitle(/redact record/i)).toBeNull();
+    expect(screen.queryByTitle(/delete permanently/i)).toBeNull();
+    const boxes = screen.getAllByRole('checkbox');
+    expect(boxes[boxes.length - 1]).toBeDisabled();
+  });
+
+  it('an ordinary row still offers both', () => {
+    render(
+      <AuditTable
+        {...baseProps}
+        data={{ data: [{ ...record, protectedRecord: false }] }}
+        canDestroy
+        canRedact
+        canHardDelete
+        onHardDeleteRecord={() => {}}
+        onViewRecord={() => {}}
+        onDeleteRecord={() => {}}
+      />,
+    );
+    expect(screen.getByTitle(/redact record/i)).toBeInTheDocument();
+    expect(screen.getByTitle(/delete permanently/i)).toBeInTheDocument();
+  });
+});

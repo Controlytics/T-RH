@@ -135,11 +135,9 @@ forge the IP recorded in the audit trail and used for rate limiting.
 | `DATABASE_URL` | | |
 | `DATABASE_URL_QUEUE` | | |
 | `JWT_SECRET` | | ≥32 chars |
-| `AUDIT_HARD_DELETE_ENABLED` | `false` | both installers write it (audit DATA-8) |
 | `ALLOWED_ORIGINS` | | mandatory in production |
 | `AUDIT_CHAIN_KEY` | | enables keyed (V3) audit checksums |
 | `AUDIT_CHAIN_KEYED_FROM` | | the out-of-band anchor — **back it up separately from the database** |
-| `AUDIT_HARD_DELETE_ENABLED` | | absent = enabled. See §9 |
 | `INSTRUMENT_TOKEN_KEY` | | absent = device tokens cannot be revealed |
 | `INITIAL_ADMIN_PASSWORD` | | seeding throws without it |
 | `UPLOAD_DIR` | | must match the photo writer's root or served images 404 |
@@ -173,7 +171,7 @@ Backed up? Where? ______________________
 
 | Decision | Setting | Approved by | Date |
 |---|---|---|---|
-| Audit hard-delete permitted? (`AUDIT_HARD_DELETE_ENABLED`) | | | |
+| Audit hard-delete permitted? (Configuration → Audit Hard Delete toggle; OFF by default — not an env var since 2026-10-12) | | | |
 | `AUDIT_DELETE` permission granted to any role? | | | |
 | Keyed audit chain enabled? (`AUDIT_CHAIN_KEY`) | | | |
 | Uploads served unauthenticated (photos/branding/floorplans)? | default: yes | | |

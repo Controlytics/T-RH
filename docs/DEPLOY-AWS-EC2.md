@@ -255,7 +255,7 @@ WEB_DIST_DIR=C:\Program Files\DigiLog\web
 UPLOAD_DIR=C:\ProgramData\DigiLog\uploads
 JWT_SECRET=<GENERATED>
 # VERIFICATION_TOKEN_SECRET — no longer read (removed 2026-10-05, audit SEC-5)
-AUDIT_HARD_DELETE_ENABLED=false
+# Audit hard delete: NOT an env var since 2026-10-12 — Configuration -> Audit Hard Delete (default OFF)
 JWT_EXPIRES_IN=1h
 ALLOWED_ORIGINS=https://<PRIVATE_IP_OR_INTERNAL_NAME>
 AUDIT_CHAIN_KEY=<GENERATED>

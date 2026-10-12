@@ -41,6 +41,9 @@ interface ManifestEntry {
   category: string;
   requiresReauth: boolean;
   hasCustomPage: boolean;
+  /** The re-auth action the server's PUT enforces for this module, or null —
+   *  the server's own derivation (`effectiveReauthAction`), never rebuilt here. */
+  reauthAction?: string | null;
   settings: SettingDef[];
 }
 
@@ -234,21 +237,13 @@ export function DynamicConfigPage() {
     setSuccess('');
 
     try {
-      // 2026-05-26 audit fix (PA-CLEANUP-2): pre-fix this constructed
-      // `UPDATE_${KEY}` from the URL path. For `session` that produced
-      // `UPDATE_SESSION` — which is NOT declared in shared types.
-      // The declared key is `UPDATE_SESSION_CONFIG`. Maintain a small
-      // override map for the keys that don't follow the suffix-strip
-      // convention; the BE hardcoded fallback in config/routes.ts:99
-      // already enforces reauth, so the failure mode pre-fix was that
-      // operators got a retroactive 401 instead of a clean dialog.
-      const reauthActionByModuleKey: Record<string, string> = {
-        session: 'UPDATE_SESSION_CONFIG',
-        datetime: 'UPDATE_DATETIME_CONFIG',
-      };
-      const action =
-        reauthActionByModuleKey[moduleKey!] ??
-        `UPDATE_${moduleKey!.toUpperCase().replace(/-/g, '_')}`;
+      // The action is the SERVER's (manifest `reauthAction`, 2026-10-12): the
+      // page used to build `UPDATE_<KEY>` itself, with an override map for the
+      // keys that did not follow that rule, so a def whose action is shared
+      // (e.g. UPDATE_CONFIG_PAGE) was only prompted for after a 401. A module
+      // whose PUT enforces no action still goes through the hook under a name
+      // no policy lists, so a 401 from a stale manifest still opens the dialog.
+      const action = moduleDef.reauthAction ?? `NO_REAUTH_${moduleKey}`;
       await reauth.execute(action, async (password?) => {
         const body = { ...values };
         if (password) (body as any)._currentPassword = password;
