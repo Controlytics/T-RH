@@ -173,6 +173,11 @@ const planProps = {
   imageHeight: { type: 'integer' },
   isActive: { type: 'boolean' },
   sortOrder: { type: 'integer' },
+  // The plan's VERSION for an optimistic write (audit 2026-10-12 finding 4):
+  // the Layout Designer sends back the value it loaded as `expectedUpdatedAt`
+  // and a plan changed since is refused 409 STALE. Declared, or Fastify strips
+  // it and the client can never send it back.
+  updatedAt: { type: 'string', format: 'date-time' },
   // Everything on the plan that is not a room. NULL on a generated plan, and
   // the dashboard draws no legend when it is absent. Declared here because
   // Fastify strips undeclared response properties — the same omission has cost
@@ -351,6 +356,19 @@ export default async function floorplanRoutes(app: FastifyInstance) {
     const before = await prisma.floorplan.findUnique({ where: { id } });
     if (!before) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Floorplan not found.' });
 
+    // `expectedUpdatedAt` — the version the caller loaded (read before the zod
+    // parse, which strips keys it does not name). Optional: the draw scripts
+    // and any caller that sends none are not checked. Given, it must be a
+    // readable instant — an unreadable one is refused, never ignored.
+    const rawExpected = ((req.body ?? {}) as Record<string, unknown>).expectedUpdatedAt;
+    let expected: Date | null = null;
+    if (rawExpected !== undefined && rawExpected !== null) {
+      expected = typeof rawExpected === 'string' ? new Date(rawExpected) : new Date(NaN);
+      if (Number.isNaN(expected.getTime())) {
+        return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'expectedUpdatedAt must be the plan\'s updatedAt as it was loaded.' });
+      }
+    }
+
     const parsed = floorplanUpdateSchema.safeParse(
       sanitizeStrings((req.body ?? {}) as Record<string, unknown>, IDENTITY_FIELDS),
     );
@@ -359,21 +377,35 @@ export default async function floorplanRoutes(app: FastifyInstance) {
     }
 
     try {
-      const after = await prisma.floorplan.update({
-        where: { id },
-        data: { ...parsed.data, annotations: parsed.data.annotations as Prisma.InputJsonValue | undefined, updatedBy: ctx.userId },
+      // The version check and the write are ONE statement (`updateMany` on
+      // id AND updatedAt), so two editors that loaded the same version cannot
+      // both pass a read-then-write check. `annotations` is replaced WHOLE,
+      // which is why a lost update here silently erased the other editor's
+      // layer (audit 2026-10-12 finding 4). Change and audit in one transaction.
+      const after = await prisma.$transaction(async (tx) => {
+        const data = { ...parsed.data, annotations: parsed.data.annotations as Prisma.InputJsonValue | undefined, updatedBy: ctx.userId };
+        const { count } = await tx.floorplan.updateMany({ where: { id, ...(expected ? { updatedAt: expected } : {}) }, data });
+        if (count === 0) return null;
+        const row = await tx.floorplan.findUniqueOrThrow({ where: { id } });
+        await auditLog({
+          userId: ctx.userId, userRole: ctx.userRole,
+          action: 'FLOORPLAN_UPDATED',
+          targetType: 'floorplan', targetId: id,
+          // The 2D layer as a SUMMARY (style, counts, floor, north — 2026-10-05):
+          // the arrays are hundreds of coordinates nobody can diff on a §11 row.
+          beforeValue: { name: before.name, isActive: before.isActive, sortOrder: before.sortOrder, annotations: annotationsSummary(before.annotations) },
+          afterValue: { name: row.name, isActive: row.isActive, sortOrder: row.sortOrder, annotations: annotationsSummary(row.annotations) },
+          signatureMeaning: `Floorplan "${row.name}" updated`,
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, tx);
+        return row;
       });
-      await auditLog({
-        userId: ctx.userId, userRole: ctx.userRole,
-        action: 'FLOORPLAN_UPDATED',
-        targetType: 'floorplan', targetId: id,
-        // The 2D layer as a SUMMARY (style, counts, floor, north — 2026-10-05):
-        // the arrays are hundreds of coordinates nobody can diff on a §11 row.
-        beforeValue: { name: before.name, isActive: before.isActive, sortOrder: before.sortOrder, annotations: annotationsSummary(before.annotations) },
-        afterValue: { name: after.name, isActive: after.isActive, sortOrder: after.sortOrder, annotations: annotationsSummary(after.annotations) },
-        signatureMeaning: `Floorplan "${after.name}" updated`,
-        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
-      });
+      if (!after) {
+        return reply.code(409).send({
+          error: 'STALE',
+          message: 'This plan was changed by someone else since you opened it. Reload it and make your change again.',
+        });
+      }
       return after;
     } catch (err) {
       if ((err as { code?: string }).code === 'P2002') {

@@ -89,7 +89,39 @@ describe('deletes record every link they take with them (finding 6)', () => {
   });
 });
 
-const L6 = [{ x: 0.1, y: 0.1 }, { x: 0.5, y: 0.1 }, { x: 0.5, y: 0.3 }, { x: 0.3, y: 0.3 }, { x: 0.3, y: 0.5 }, { x: 0.1, y: 0.5 }];
+describe('plan PUT refuses a stale write (finding 4)', () => {
+  const ann = (text: string) => ({ style: 'architectural', labels: [{ x: 0.5, y: 0.5, text }] });
+  it('exposes updatedAt, accepts the version it was loaded at, and 409s the older one without writing', async () => {
+    const p = await blankPlan(`Stale ${s}`);
+    const list = await app.inject({ method: 'GET', url: '/api/floorplans', headers: auth });
+    const loaded = (list.json().data as { id: string; updatedAt?: string }[]).find((x) => x.id === p.id)!.updatedAt;
+    expect(typeof loaded).toBe('string');
+
+    const first = await app.inject({ method: 'PUT', url: `/api/floorplans/${p.id}`, headers: auth, payload: { annotations: ann('FIRST'), expectedUpdatedAt: loaded } });
+    expect(first.statusCode, first.body).toBe(200);
+    expect(first.json().updatedAt).not.toBe(loaded);
+
+    // A second editor that loaded the SAME version saves after the first.
+    const second = await app.inject({ method: 'PUT', url: `/api/floorplans/${p.id}`, headers: auth, payload: { annotations: ann('SECOND'), expectedUpdatedAt: loaded } });
+    expect(second.statusCode).toBe(409);
+    expect(second.json().error).toBe('STALE');
+    const stored = await prisma.floorplan.findUniqueOrThrow({ where: { id: p.id } });
+    expect((stored.annotations as { labels: { text: string }[] }).labels[0].text).toBe('FIRST');
+    expect(await prisma.auditTrail.count({ where: { action: 'FLOORPLAN_UPDATED', targetId: p.id } })).toBe(1);
+
+    // A caller that sends no version (the draw scripts, older clients) is not checked.
+    const blind = await app.inject({ method: 'PUT', url: `/api/floorplans/${p.id}`, headers: auth, payload: { annotations: ann('THIRD') } });
+    expect(blind.statusCode).toBe(200);
+  });
+
+  it('refuses an unreadable expectedUpdatedAt rather than ignoring it', async () => {
+    const p = await blankPlan(`StaleBad ${s}`);
+    const res = await app.inject({ method: 'PUT', url: `/api/floorplans/${p.id}`, headers: auth, payload: { sortOrder: 1, expectedUpdatedAt: 'yesterday' } });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
+const L6 =[{ x: 0.1, y: 0.1 }, { x: 0.5, y: 0.1 }, { x: 0.5, y: 0.3 }, { x: 0.3, y: 0.3 }, { x: 0.3, y: 0.5 }, { x: 0.1, y: 0.5 }];
 
 describe('room PUT without points validates doors against the stored polygon (finding 8)', () => {
   it('accepts a door on edge 5 of a six-edge room when the outline is not resent', async () => {
