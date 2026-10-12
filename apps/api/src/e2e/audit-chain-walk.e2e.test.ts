@@ -21,7 +21,10 @@ import { verifyBackupAuditChain } from '../modules/backup/backup.repository.js';
 const TAG = `walk${Date.now()}`;
 
 async function maxPosition(): Promise<number> {
-  const [r] = await prisma.$queryRaw<Array<{ p: bigint | null }>>`SELECT max(chain_position) AS p FROM audit_trail`;
+  // The counter, not just MAX: after a deleted tail row the counter sits above
+  // MAX, and the next position written is counter + 1.
+  const [r] = await prisma.$queryRaw<Array<{ p: bigint | null }>>`
+    SELECT GREATEST((SELECT max(chain_position) FROM audit_trail), (SELECT last_position FROM audit_chain_counter WHERE id = 1)) AS p`;
   return r?.p == null ? 0 : Number(r.p);
 }
 async function writeRow(action: string, targetId = TAG): Promise<{ id: string; position: number }> {
