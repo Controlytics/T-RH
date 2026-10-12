@@ -35,8 +35,15 @@ describe('zonedInputToIso', () => {
   it('takes the offset in force on THAT date, either side of a DST change', () => {
     expect(zonedInputToIso('2026-01-15T12:00', 'America/New_York')).toBe('2026-01-15T17:00:00.000Z');
     expect(zonedInputToIso('2026-07-15T12:00', 'America/New_York')).toBe('2026-07-15T16:00:00.000Z');
-    // The morning of the spring-forward day, after the jump.
+    // Midday on the spring-forward day: already EDT.
     expect(zonedInputToIso('2026-03-08T12:00', 'America/New_York')).toBe('2026-03-08T16:00:00.000Z');
+  });
+
+  it('corrects the first guess when the jump falls between it and the answer', () => {
+    // 03:30 on the spring-forward day is EDT (-4). The first guess uses the
+    // offset at 03:30 UTC (still EST, -5) and lands an hour late; the second
+    // pass is what puts it right.
+    expect(zonedInputToIso('2026-03-08T03:30', 'America/New_York')).toBe('2026-03-08T07:30:00.000Z');
   });
 
   it('round-trips with isoToZonedInput', () => {

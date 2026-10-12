@@ -25,6 +25,7 @@ const ATTR = {
 };
 const PANELS_DATA = { roles: [{ role: 'OPERATOR', panels: null }], users: [] };
 const ROLE_CONFIG = { sidebarItems: ['dashboard'] };
+const USERS = { data: [{ id: 'u-9', username: 'bob', fullName: 'Bob Builder', role: 'ADMIN' }] };
 const REAUTH_CONFIG = { DELETE_USER: ['ADMIN'] };
 const USER_ID = {
   format: 'LETTERS_NUMBERS', length: 6, prefix: '', prefixSeparator: '-', letterCase: 'UPPERCASE',
@@ -37,6 +38,8 @@ vi.mock('swr', () => ({
     if (key === '/api/config/roles/ADMIN') return { data: ROLE_CONFIG, mutate, isLoading: false, isValidating: false };
     if (key === '/api/config/action-reauth') return { data: REAUTH_CONFIG, mutate, isLoading: false };
     if (key === '/api/config/user-id') return { data: USER_ID, mutate };
+    if (key === '/api/users') return { data: USERS, mutate, isLoading: false };
+    if (key === '/api/config/users/u-9') return { data: ROLE_CONFIG, mutate, isLoading: false, isValidating: false };
     return { data: undefined, mutate };
   },
   useSWRConfig: () => ({ mutate }),
@@ -83,6 +86,22 @@ describe('Roles & Access tabs — saves are re-authenticated', () => {
       '/api/config/roles/ADMIN', expect.objectContaining({ sidebarItems: expect.any(Array) }), 'pw',
     ));
     expect(executed).toEqual(['UPDATE_ROLE_CONFIG']);
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('Sidebar tab (user) save and reset sign as UPDATE_USER_CONFIG', async () => {
+    const { SidebarTab } = await import('../sidebar-tab');
+    const ref = createRef<{ save: () => Promise<void> }>();
+    render(<SidebarTab ref={ref} activeRoles={[{ name: 'ADMIN', displayName: 'Admin' } as never]} onStateChange={() => {}} />);
+    fireEvent.click(screen.getByText('Configure by User'));
+    fireEvent.click(screen.getByText('Bob Builder'));
+    await act(async () => { await ref.current!.save(); });
+    await waitFor(() => expect(putWithReauth).toHaveBeenCalledWith(
+      '/api/config/users/u-9', expect.objectContaining({ sidebarItems: expect.any(Array) }), 'pw',
+    ));
+    fireEvent.click(screen.getByRole('button', { name: /reset to role default/i }));
+    await waitFor(() => expect(putWithReauth).toHaveBeenCalledWith('/api/config/users/u-9', { sidebarItems: [] }, 'pw'));
+    expect(executed).toEqual(['UPDATE_USER_CONFIG', 'UPDATE_USER_CONFIG']);
     expect(put).not.toHaveBeenCalled();
   });
 
