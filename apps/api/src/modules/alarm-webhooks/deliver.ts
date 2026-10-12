@@ -11,19 +11,20 @@
  * log recording the exact URL, body and response.
  */
 
-import vm from 'node:vm';
 import { guardedRequest } from '../../lib/outbound-guard.js';
+import { testRegexWithBudget, REGEX_BUDGET_MS } from '../../lib/regex-budget.js';
 
 /** VARCHAR(1000) on alarm_webhook_deliveries.response_snippet. */
 const SNIPPET_MAX = 1000;
 
 /**
- * How long one success-regex test may run. The pattern is operator-typed, and a
- * nested quantifier (`(a+)+$`) against a body it does not match backtracks
- * exponentially — V8's regexp engine is interruptible, so a `vm` time budget
- * turns a stalled worker slot into a FAILED row the operator can read.
+ * How long one success-regex test may run — the shared budget in
+ * lib/regex-budget.ts, which the SMS gateway check uses too. The pattern is
+ * operator-typed, and a nested quantifier (`(a+)+$`) against a body it does not
+ * match backtracks exponentially; the budget turns a stalled worker slot into a
+ * FAILED row the operator can read.
  */
-export const REGEX_BUDGET_MS = 100;
+export { REGEX_BUDGET_MS };
 
 export interface WebhookRequest {
   url: string;
@@ -58,18 +59,10 @@ export interface AttemptResult {
 export function decideSuccess(status: number, body: string, successRegex: string | null): boolean {
   if (status < 200 || status >= 300) return false;
   if (!successRegex) return true;
-  try {
-    return vm.runInNewContext(
-      'new RegExp(pattern).test(text)',
-      { pattern: successRegex, text: body.slice(0, SNIPPET_MAX) },
-      { timeout: REGEX_BUDGET_MS },
-    ) === true;
-  } catch {
-    // An unparseable regex — or one that ran out its budget — must fail closed
-    // rather than throw inside the worker. The operator sees a FAILED row with
-    // the response snippet and can fix the pattern.
-    return false;
-  }
+  // An unparseable regex — or one that ran out its budget — must fail closed
+  // rather than throw inside the worker. The operator sees a FAILED row with
+  // the response snippet and can fix the pattern.
+  return testRegexWithBudget(successRegex, body, SNIPPET_MAX) === true;
 }
 
 /**
