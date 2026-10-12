@@ -129,30 +129,41 @@ export const authService = {
       }
     }
 
-    // Check account status (SUPER_ADMIN auto-unlocks)
+    // Account state is DECIDED here but only TOLD to a caller who has proved
+    // the password (application review 2026-10-12, finding 11 / SEC-8). It
+    // used to be thrown here, before any credential check, so anyone could ask
+    // "is this account locked / disabled / expired?" — and so "does it exist?"
+    // — with no password at all. A wrong password now gets the one generic 401
+    // whatever the state; `stateRefusal` is thrown only after the password
+    // verified. The automatic recoveries below (SUPER_ADMIN auto-unlock, an
+    // expired temporary lockout, a temp-password EXPIRED account) change
+    // nothing a caller can observe and stay where they were.
+    let stateRefusal: AppError | null = null;
     if (user.status === 'LOCKED') {
-      if (user.role === 'SUPER_ADMIN') {
-        // Auto-unlock SUPER_ADMIN accounts
+      if (user.role === 'SUPER_ADMIN' || (user.lockoutUntil && user.lockoutUntil < new Date())) {
+        // Auto-unlock SUPER_ADMIN accounts, and a temporary lockout that has run out.
         await authRepository.updateUser(user.id, { status: 'ENABLED', failedLoginAttempts: 0, lockoutUntil: null, lockedAt: null });
-      } else if (user.lockoutUntil && user.lockoutUntil < new Date()) {
-        await authRepository.updateUser(user.id, { status: 'ENABLED', failedLoginAttempts: 0, lockoutUntil: null, lockedAt: null });
+        // Keep the in-memory row in step: with the stale counter, the next wrong
+        // guess re-locked the account at once (count + 1 >= max).
+        user.status = 'ENABLED';
+        user.failedLoginAttempts = 0;
       } else {
-        throw new AppError(403, "ACCOUNT_LOCKED", "Account locked due to multiple failed login attempts. Contact administrator.");
+        stateRefusal = new AppError(403, "ACCOUNT_LOCKED", "Account locked due to multiple failed login attempts. Contact administrator.");
       }
     }
 
-    if (user.status === 'DISABLED') {
-      throw new AppError(403, 'ACCOUNT_DISABLED', 'Your account has been disabled. Contact administrator.');
+    if (!stateRefusal && user.status === 'DISABLED') {
+      stateRefusal = new AppError(403, 'ACCOUNT_DISABLED', 'Your account has been disabled. Contact administrator.');
     }
 
-    if (user.status === 'EXPIRED') {
+    if (!stateRefusal && user.status === 'EXPIRED') {
       if (user.role === 'SUPER_ADMIN') {
         // Auto-recover SUPER_ADMIN from EXPIRED status
         await authRepository.updateUser(user.id, { status: 'ENABLED', forcePasswordChange: false });
       } else if (user.isTemporaryPassword && user.forcePasswordChange) {
         await authRepository.updateUser(user.id, { status: 'ENABLED' });
       } else {
-        throw new AppError(403, "PASSWORD_EXPIRED", "Your password has expired. Contact an administrator to reset your password.");
+        stateRefusal = new AppError(403, "PASSWORD_EXPIRED", "Your password has expired. Contact an administrator to reset your password.");
       }
     }
 
@@ -171,26 +182,31 @@ export const authService = {
           const ldapResult = await ldapService.authenticateUser(username, password);
           if (ldapResult) {
             skipPasswordCheck = true;
-            // Sync attributes from LDAP
-            await ldapService.syncUserAttributes(user.id, ldapResult, ldapConfig);
+            // A refused account (locked / disabled / expired) is told so below
+            // and gets NOTHING from this bind: no attribute or role sync, no
+            // flag healing — those are for a login that is going to happen.
+            if (!stateRefusal) {
+              // Sync attributes from LDAP
+              await ldapService.syncUserAttributes(user.id, ldapResult, ldapConfig);
 
-            // Heal a stranded forcePasswordChange flag.
-            //
-            // The pre-2026-08-08 expiry bug set this on every directory user
-            // ~90 days after provisioning. The flag is a dead end for them: the
-            // only screen it permits is change-password, which now refuses
-            // directory accounts. `plugins/auth.ts` ignores the flag for these
-            // users, but the LOGIN RESPONSE still carries it and the web client
-            // redirects to /change-password on sight — so ignoring it server-side
-            // is not enough; the row has to be corrected. A successful directory
-            // bind is proof the credential is fine, which is exactly when it is
-            // safe to clear.
-            if (user.forcePasswordChange || user.isTemporaryPassword) {
-              await authRepository.updateUser(user.id, {
-                forcePasswordChange: false, isTemporaryPassword: false,
-              });
-              user.forcePasswordChange = false;
-              user.isTemporaryPassword = false;
+              // Heal a stranded forcePasswordChange flag.
+              //
+              // The pre-2026-08-08 expiry bug set this on every directory user
+              // ~90 days after provisioning. The flag is a dead end for them: the
+              // only screen it permits is change-password, which now refuses
+              // directory accounts. `plugins/auth.ts` ignores the flag for these
+              // users, but the LOGIN RESPONSE still carries it and the web client
+              // redirects to /change-password on sight — so ignoring it server-side
+              // is not enough; the row has to be corrected. A successful directory
+              // bind is proof the credential is fine, which is exactly when it is
+              // safe to clear.
+              if (user.forcePasswordChange || user.isTemporaryPassword) {
+                await authRepository.updateUser(user.id, {
+                  forcePasswordChange: false, isTemporaryPassword: false,
+                });
+                user.forcePasswordChange = false;
+                user.isTemporaryPassword = false;
+              }
             }
           } else {
             // Audit API-1: unified error — do not distinguish LDAP vs local credential failure.
@@ -237,6 +253,20 @@ export const authService = {
     }
 
     const valid = skipPasswordCheck || await verifyPassword(password, user.passwordHash);
+    if (!valid && stateRefusal) {
+      // Wrong password on an account already LOCKED / DISABLED / EXPIRED: the
+      // generic answer (finding 11), recorded, and the counter NOT moved — on a
+      // locked account every guess would otherwise re-emit ACCOUNT_LOCKED with
+      // its notifications and push the lockout out; on a disabled or expired
+      // one the counter would flip its status to LOCKED.
+      await auditLog({
+        userId: user.username, userRole: user.role, action: 'LOGIN_FAILED',
+        targetType: 'user', targetId: user.id,
+        afterValue: { username: user.username, fullName: user.fullName, accountStatus: user.status },
+        ipAddress: ip, userAgent,
+      });
+      throw new AppError(401, 'INVALID_CREDENTIALS', 'Username or password is incorrect.');
+    }
     if (!valid) {
       // SUPER_ADMIN accounts are exempt from lockout — they can always retry
       if (user.role === 'SUPER_ADMIN') {
@@ -255,7 +285,12 @@ export const authService = {
       // when the threshold trips.
       const { locked } = await applyFailedPasswordAttempt(user, ip, userAgent);
       if (locked) {
-        throw new AppError(403, 'ACCOUNT_LOCKED', 'Account locked due to multiple failed login attempts. Contact administrator.');
+        // The guess that TRIPS the lockout is answered like any wrong password
+        // (finding 11): a distinct answer on that attempt told the caller the
+        // account exists and where the threshold is. The lock itself, its
+        // ACCOUNT_LOCKED audit row and notifications are unchanged; the user
+        // learns of it on their next attempt with the right password.
+        throw new AppError(401, 'INVALID_CREDENTIALS', 'Username or password is incorrect.');
       }
 
       await auditLog({
@@ -269,6 +304,9 @@ export const authService = {
       // (audit log above already records the attempt count server-side for admin review)
       throw new AppError(401, 'INVALID_CREDENTIALS', 'Username or password is incorrect.');
     }
+
+    // The password is proven: NOW the account's state may be told.
+    if (stateRefusal) throw stateRefusal;
 
     // Check password expiry (derived from passwordChangedAt + live policy,
     // floored at policy save time). SUPER_ADMIN is exempt — same posture as

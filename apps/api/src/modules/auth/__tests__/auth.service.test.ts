@@ -109,19 +109,42 @@ describe('authService', () => {
         .rejects.toThrow('Username or password is incorrect.');
     });
 
-    it('throws ACCOUNT_DISABLED for disabled user', async () => {
+    // Application review 2026-10-12, finding 11: the account's state is told
+    // ONLY to a caller who proved the password; a wrong one gets the generic
+    // answer whatever the state.
+    it('throws ACCOUNT_DISABLED for a disabled user with the RIGHT password', async () => {
       mockRepo.findUserByUsername.mockResolvedValue(makeUser({ status: 'DISABLED' }));
+      mockVerifyPassword.mockResolvedValue(true);
 
       await expect(authService.login('admin', 'pass', '127.0.0.1', undefined))
         .rejects.toThrow('disabled');
     });
 
-    it('throws ACCOUNT_LOCKED for locked user without expired lockout', async () => {
+    it('a disabled user with a WRONG password gets the generic answer', async () => {
+      mockRepo.findUserByUsername.mockResolvedValue(makeUser({ status: 'DISABLED' }));
+      mockVerifyPassword.mockResolvedValue(false);
+
+      await expect(authService.login('admin', 'pass', '127.0.0.1', undefined))
+        .rejects.toThrow('Username or password is incorrect.');
+    });
+
+    it('throws ACCOUNT_LOCKED for a locked user (lockout not expired) with the RIGHT password', async () => {
       const future = new Date(Date.now() + 60000);
       mockRepo.findUserByUsername.mockResolvedValue(makeUser({ status: 'LOCKED', lockoutUntil: future }));
+      mockVerifyPassword.mockResolvedValue(true);
 
       await expect(authService.login('admin', 'pass', '127.0.0.1', undefined))
         .rejects.toThrow('locked');
+    });
+
+    it('a locked user with a WRONG password gets the generic answer and the counter is untouched', async () => {
+      const future = new Date(Date.now() + 60000);
+      mockRepo.findUserByUsername.mockResolvedValue(makeUser({ status: 'LOCKED', lockoutUntil: future }));
+      mockVerifyPassword.mockResolvedValue(false);
+
+      await expect(authService.login('admin', 'pass', '127.0.0.1', undefined))
+        .rejects.toThrow('Username or password is incorrect.');
+      expect(mockRepo.updateUser).not.toHaveBeenCalled();
     });
 
     it('unlocks user when lockout has expired', async () => {
@@ -160,8 +183,10 @@ describe('authService', () => {
       mockRepo.getLoginSecurityConfig.mockResolvedValue({ maxFailedAttempts: 5, lockoutType: 'TEMPORARY', lockoutDurationMinutes: 30 });
       mockRepo.updateUser.mockResolvedValue(user);
 
+      // The tripping guess is answered like any wrong password (review
+      // 2026-10-12, finding 11) — the lock itself is still applied.
       await expect(authService.login('admin', 'wrong', '127.0.0.1', undefined))
-        .rejects.toThrow('locked');
+        .rejects.toThrow('Username or password is incorrect.');
 
       expect(mockRepo.updateUser).toHaveBeenCalledWith(user.id, expect.objectContaining({ status: 'LOCKED' }));
     });
