@@ -54,6 +54,9 @@ async function reading(key: string, value: unknown) {
        value = EXCLUDED.value, value_type = EXCLUDED.value_type, ts = EXCLUDED.ts`,
     instrumentId, key, JSON.stringify(value), valueType,
   );
+  // Ingest stamps `last_seen_at` with every reading; the limit pass judges only a
+  // reporting instrument since audit 2026-10-12 #8, so the fixture must too.
+  await prisma.instrument.update({ where: { id: instrumentId }, data: { lastSeenAt: new Date() } });
 }
 
 const openRange = () => prisma.alarm.findMany({

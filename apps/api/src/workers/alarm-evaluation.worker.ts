@@ -244,6 +244,18 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
       // carrying no flags behaves exactly as it did before these existed.
       const boundEnabled = enabledBoundsFor(limitCfg.enableKeys, attributes);
 
+      // Audit 2026-10-12 #8: judge only a CURRENT reading. The overview keeps the
+      // last value of a slot however old it is, so without this a decommissioned
+      // instrument's three-day-old reading raised — or cleared — an alarm the
+      // moment someone edited its limit. `row.reporting` is the ONE definition of
+      // "this instrument is talking" (the inactivity pass and the dashboard use
+      // it). The gates mirror `decideRs485`: RAISING needs the instrument in
+      // service AND reporting; CLEARING needs a current reading but not `isActive`,
+      // so retiring an instrument cannot strand an alarm that is already open; a
+      // non-current reading HOLDS an open alarm, because silence is not recovery.
+      const current = row.reporting;
+      const mayRaise = current && row.isActive;
+
       for (const check of checkLimits(limits, reading)) {
         const key = openKey(row.instrumentId, check.metric, check.limitKind);
         const existingId = openMap.get(key);
@@ -268,7 +280,10 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
         if (!boundEnabled[bound]) {
           if (!existingId) continue;
           const raw = check.metric === 'TEMPERATURE' ? reading.temperature : reading.humidity;
-          const closed = await claimClear(existingId, { state: 'CLEARED', clearedAt: now, clearedValue: finiteOrNull(raw) });
+          // This close is driven by CONFIG, not by the reading, so it is not gated on
+          // `current` — but a stale reading must not be written as the value the
+          // alarm closed on (audit 2026-10-12 #8). NULL says "no current reading".
+          const closed = await claimClear(existingId, { state: 'CLEARED', clearedAt: now, clearedValue: current ? finiteOrNull(raw) : null });
             // Acknowledgement untouched, as on every other clear path: an
             // excursion that ended without a signature is still owed an answer.
           // Another pass cleared it first (see claimClear): nothing to announce.
@@ -297,7 +312,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
           continue;
         }
 
-        if (check.breaching && !existingId) {
+        if (check.breaching && !existingId && mayRaise) {
           const data: Prisma.AlarmUncheckedCreateInput = {
               source: 'INSTRUMENT_LIMIT',
               limitKind: check.limitKind,
@@ -392,6 +407,8 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
             raisedAt: created.raisedAt,
           });
         } else if (!check.breaching && existingId) {
+          // A reading that is not current is not evidence of recovery (#8).
+          if (!current) continue;
           const raw = check.metric === 'TEMPERATURE' ? reading.temperature : reading.humidity;
           // `finiteOrNull` is the SAME function checkPair() uses on the raise path —
           // see its doc comment in limit-decide.ts for why the two guards must never
