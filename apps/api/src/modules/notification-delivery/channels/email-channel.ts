@@ -4,7 +4,7 @@
  * Similar to ThingsBoard mail server configuration.
  */
 
-import nodemailer from "nodemailer";
+import nodemailer, { type Mail } from "nodemailer";
 import dns from "dns";
 import type { EmailConfig, NotificationPayload, DeliveryResult, NotificationChannel as IChannel } from '../types.js';
 import { getEmailConfig } from '../config-loader.js';
@@ -13,7 +13,7 @@ import { getEmailConfig } from '../config-loader.js';
 // and torn down on every OAuth refresh.
 import { prisma } from '../../../lib/prisma.js';
 
-let transporter: nodemailer.Transporter | null = null;
+let transporter: Mail | null = null;
 let currentConfigHash = "";
 
 // Force IPv4 DNS resolution to avoid EC2 IPv6 ENETUNREACH
@@ -174,7 +174,7 @@ async function fetchOAuth2Token(config: EmailConfig): Promise<string> {
   }
 }
 
-async function getTransporter(config: EmailConfig): Promise<nodemailer.Transporter> {
+async function getTransporter(config: EmailConfig): Promise<Mail> {
   const hash = configHash(config);
   if (transporter && currentConfigHash === hash && config.authType !== 'oauth2') {
     return transporter;

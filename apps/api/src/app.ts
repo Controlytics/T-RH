@@ -68,6 +68,7 @@ import { startRtcTicker } from './modules/instruments/listeners/rtc-sync.js';
 /** The RTC 10-minute tick (2026-09-05) — alive only while the bridge is. */
 let rtcTicker: { stop(): void } | null = null;
 import { logger, attachLogger } from './lib/logger.js';
+import { parseTrustProxy } from './lib/trust-proxy.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -93,12 +94,9 @@ const httpsOptions = process.env.API_HTTPS === 'true'
 // Result: audit-trail IP + rate-limit keys both spoofable.
 //
 // Only trust the X-Forwarded-* family when explicitly behind a known
-// reverse proxy (set TRUST_PROXY=1 or TRUST_PROXY=<hop-count> in env).
-// Default false → req.ip uses the raw socket address, attacker can't lie.
-const trustProxyEnv = process.env.TRUST_PROXY;
-const trustProxy = trustProxyEnv
-  ? (Number.isFinite(Number(trustProxyEnv)) ? Number(trustProxyEnv) : trustProxyEnv === 'true')
-  : false;
+// reverse proxy — see lib/trust-proxy.ts for the accepted values (a bare
+// hop count is refused at startup since the fastify 5.12 upgrade).
+const trustProxy = parseTrustProxy(process.env.TRUST_PROXY);
 
 const app = Fastify({
   logger: {
