@@ -244,6 +244,8 @@ export function AlarmWebhooksConfigPage() {
     void reauth.execute('MANAGE_ALARM_WEBHOOK', fn, {
       onSuccess: () => { void mutate(); },
       onError: (e) => toast.error('Could not complete that change', (e as { message?: string })?.message ?? 'The change was not saved.'),
+      // A cancel is not an error: nothing was sent and nothing is busy.
+      onCancel: () => {},
     });
   };
 
