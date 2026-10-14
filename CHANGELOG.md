@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] - Re-auth on General & Password Settings never accepted the password (2026-10-14)
+
+Operator: "in general and password settings configuration reauthentication
+reverifiction was not working". Cause: `ae146d1` (2026-10-05, audit SEC-1) made
+`enforceReauth` strip `_currentPassword` from the body BEFORE its "not
+configured for this role" return. Routes that run that optional check and then
+the always-on `enforceReauthAlways` therefore handed the second check a body
+with no password, and it answered `401 REAUTH_REQUIRED` to every retry — the
+dialog said "Password is required" whatever was typed. Affected: the
+password-policy, login-security, session and datetime PUTs (General & Password,
+Date/Time pages), the instrument-profile PUT that removes carried keys, and
+bulk upload with attributes. Not caught because `e2e/config.test.ts` sent the
+password in the `x-reauth-password` header too, which is never stripped; the
+browser sends the body field only.
+
+Fix (`apps/api/src/lib/reauth-check.ts`): both helpers read the password
+through one `takeReauthPassword(req)`, which still strips the body at once
+(nothing underscore-prefixed can be stored) but keeps the body password in a
+per-request `WeakMap`, so a second check on the same request can verify it. No
+migration, no count moved. Tests: `lib/__tests__/reauth-strip.test.ts` (chained
+checks, body only) and `e2e/config.test.ts` ("accepts the password in the BODY
+alone") — both failed on the old code (the e2e with 401), pass now; the 32
+other test files that send a re-auth password pass, run one at a time.
+
 ## [Unreleased] - Application review 2026-10-12: every finding fixed (2026-10-12)
 
 Operator: "review the entire application and find the bugs" then "fix all of

@@ -654,6 +654,27 @@ describe('Config endpoints', () => {
       }, ADMIN_PASSWORD);
     });
 
+    // 2026-10-14: the browser sends the password in the BODY only, never the
+    // x-reauth-password header the test above also sets — and with the
+    // optional re-auth off for the role, the body password was stripped by
+    // the first check before the always-on one could read it (401 for ever).
+    it('accepts the password in the BODY alone, as the browser sends it', async () => {
+      const getRes = await authGet(app, '/api/config/password-policy', adminToken);
+      const original = JSON.parse(getRes.body);
+      const putRes = await authPut(app, '/api/config/password-policy', adminToken, {
+        ...original,
+        minLength: 11,
+        _currentPassword: ADMIN_PASSWORD,
+      });
+      expect(putRes.statusCode).toBe(200);
+      expect(JSON.parse(putRes.body).data.minLength).toBe(11);
+      expect(JSON.parse(putRes.body).data._currentPassword).toBeUndefined();
+      await authPut(app, '/api/config/password-policy', adminToken, {
+        ...original,
+        _currentPassword: ADMIN_PASSWORD,
+      }, ADMIN_PASSWORD);
+    });
+
     it('rejects update without _currentPassword when reauth is required', async () => {
       const getRes = await authGet(app, '/api/config/password-policy', adminToken);
       const original = JSON.parse(getRes.body);

@@ -161,6 +161,29 @@ export function stripPrivateFields<T extends Record<string, unknown> | undefined
   return body;
 }
 
+/**
+ * The re-auth password a request carried, kept OUT of the body (2026-10-14).
+ * `stripPrivateFields` deletes `_currentPassword` the moment it is read, so a
+ * route that runs `enforceReauth` and THEN `enforceReauthAlways` (the generic
+ * config PUT, the profile PUT, bulk upload) handed the second check a body with
+ * no password: when the first did not need one it returned without verifying,
+ * and the second answered REAUTH_REQUIRED to every retry — the browser sends
+ * the password in the body only. A WeakMap rather than a property on `req`, so
+ * nothing that serialises or logs the request can pick the password up, and it
+ * goes when the request does.
+ */
+const requestPasswords = new WeakMap<FastifyRequest, string>();
+
+/** Reads the request's re-auth password (body, else one an earlier check on
+ *  this request already took, else the header) and strips the body. */
+function takeReauthPassword(req: FastifyRequest): string | undefined {
+  const body = req.body as Record<string, unknown> | undefined;
+  const fromBody = typeof body?._currentPassword === 'string' ? body._currentPassword : undefined;
+  stripPrivateFields(body);
+  if (fromBody) requestPasswords.set(req, fromBody);
+  return fromBody ?? requestPasswords.get(req) ?? (req.headers['x-reauth-password'] as string | undefined);
+}
+
 export async function enforceReauth(
   action: string | string[],
   req: FastifyRequest,
@@ -170,10 +193,7 @@ export async function enforceReauth(
   const actions = Array.isArray(action) ? action : [action];
   // The password is read and the body stripped FIRST, before the "not needed"
   // return — see stripPrivateFields. Nothing below may read it from the body.
-  const body = req.body as Record<string, unknown> | undefined;
-  const password = (body?._currentPassword as string)
-    ?? (req.headers['x-reauth-password'] as string);
-  stripPrivateFields(body);
+  const password = takeReauthPassword(req);
   const needed = (await Promise.all(actions.map(a => isReauthRequired(a, role)))).some(Boolean);
   if (!needed) return { ok: true };
   const primaryAction = actions[0];
@@ -212,9 +232,7 @@ export async function enforceReauthAlways(
   req: FastifyRequest,
   reply: FastifyReply,
 ): Promise<{ ok: boolean }> {
-  const body = req.body as Record<string, unknown> | undefined;
-  const password = (body?._currentPassword as string) ?? (req.headers['x-reauth-password'] as string);
-  stripPrivateFields(body);
+  const password = takeReauthPassword(req);
   if (!password) {
     reply.code(401).send({ error: 'REAUTH_REQUIRED', message: 'This action requires password re-authentication.', action });
     return { ok: false };
