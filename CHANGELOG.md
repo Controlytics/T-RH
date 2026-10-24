@@ -1,5 +1,45 @@
 # Changelog
 
+## [Unreleased] - Attribute Edit Access: per role AND per user (2026-10-24)
+
+Operator: "add one new configuration, in that configuration in settings who can
+edit which attributes that should configurable role wise or user wise".
+Decisions (asked): the rule applies EVERYWHERE an attribute is edited; the Roles
+& Access → Attribute Access tab MOVES into the new configuration; a user rule and
+the role rule COMBINE. Spec `docs/superpowers/specs/2026-10-24-attribute-edit-access-design.md`,
+plan `docs/superpowers/plans/2026-10-24-attribute-edit-access.md`.
+
+- `effectiveAttributeAccess(role, user)` (`@digilog/shared`): no user rule = the
+  role's; role not configured = ALL_EDIT (the user's re-auth still applies);
+  ALL_EDIT either side wins; ALL_VIEW only if both; else SELECTED = the union of
+  keys, case-folded; `requireReauth` = either. A user rule only ADDS editing,
+  and still needs Edit Instruments on the role.
+- `user_configs.attribute_access` JSONB, nullable — migration
+  `20261024120000_user_attribute_access` (hand-authored, guard OK), applied to
+  `compliance_core_db` and `compliance_core_db_test`; AWS on the next deploy.
+- `loadAttributeAccess(role, userId)` — `userId` required — feeds the four gates
+  (attribute writes, `/attribute-access/me`, bulk upload, profile key removal).
+  Refusal wording: "You may view …" (no longer only the role's rule).
+- `GET /api/roles/attribute-access/users`, `PUT /api/roles/attribute-access/user/:userId`
+  (ROLE_MANAGE, UPDATE_ROLE_CONFIG re-auth, `assertCanConfigureUser`, reason,
+  CONFIG_CHANGED `user_config` audit in one transaction). **The role save now
+  requires a reason too.**
+- Configuration → **Attribute Edit Access** (`/config/attribute-access`,
+  SUPER_ADMIN card): Roles tab (the moved editor, with a reason field) and Users
+  tab (a user picker, the role's rule, the server-computed combined rule, a
+  warning when the role lacks Edit Instruments). The Roles & Access tab is gone.
+- Counts: config pages 22 → 23, `<Route>`s 53 → 54; models / enums /
+  permissions / reauth actions unchanged.
+
+Tests: shared `attribute-access.test.ts` (+7, the combination table), new
+`e2e/user-attribute-access.e2e.test.ts` (4: union, `/me` = the gate, role not
+configured, Edit Instruments still required), `role-attribute-access.e2e.test.ts`
+(+5: reason, list, audit, clear, 404), `role-guards.e2e.test.ts` (+1 refusal,
++1 positive control), web `attribute-access-page.test.tsx` (3), and the two
+older attribute-tab tests now type a reason. Mutation-checked: the re-auth OR,
+the user-layer read, the `effective` declaration, both reason checks, the
+privilege guard and the warning each fail their test.
+
 ## [Unreleased] - Report requests that reach nobody now say so (2026-10-24)
 
 Operator: "when im giving request approval request is not coming why" — "in aws

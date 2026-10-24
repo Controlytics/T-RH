@@ -253,7 +253,7 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   2026-08-31: `sensor-range-alarms.def.ts`, the fifth alarm source; 26 → 27 on
   2026-08-31: `rs485-alarms.def.ts`, the fourth alarm source; 25 → 26 the same day:
   `inactivity-alarms.def.ts`),
-  **22** pages under `apps/web/src/routes/config/` (23 → 22 on 2026-10-05: `alarm-rule-dialog.tsx` DELETED — dead since the 2026-08-31 alarm-rules removal and never a page, but `ls *.tsx` counted it; audit WEB-8; 22 → 23 on 2026-10-01: `report-settings.tsx`, Report Approvers + Report Downloads on one page; 23 → 22 on 2026-09-22: `floorplans.tsx`
+  **23** pages under `apps/web/src/routes/config/` (22 → 23 on 2026-10-24: `attribute-access.tsx`, Configuration → Attribute Edit Access; 23 → 22 on 2026-10-05: `alarm-rule-dialog.tsx` DELETED — dead since the 2026-08-31 alarm-rules removal and never a page, but `ls *.tsx` counted it; audit WEB-8; 22 → 23 on 2026-10-01: `report-settings.tsx`, Report Approvers + Report Downloads on one page; 23 → 22 on 2026-09-22: `floorplans.tsx`
   DELETED, replaced by the `layout-designer/` FOLDER at the same route — `ls *.tsx`
   counts files, so the count moved while the `<Route` count did not; an `attribute-labels.tsx` existed
   for a few hours on 2026-09-16 and was folded into `instrument-attributes.tsx` at
@@ -266,7 +266,7 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   `alarm-webhooks.tsx`. **The def count did NOT move** — alarm webhooks are a
   real CRUD module with their own tables, not a `system_config` row, so there
   is no `*.def.ts` for them.
-- **Frontend:** **53** `<Route`s in `main.tsx` (52 → 53, 2026-10-01: `/config/report-settings`; 53 → 52, 2026-09-19: `/home`, the
+- **Frontend:** **54** `<Route`s in `main.tsx` (53 → 54, 2026-10-24: `/config/attribute-access`; 52 → 53, 2026-10-01: `/config/report-settings`; 53 → 52, 2026-09-19: `/home`, the
   Module Guide, removed with the `home` sidebar item; a `/config/attribute-labels` route existed for a few hours on 2026-09-16 and was removed the same day — unchanged; 52 → 53, 2026-09-08: `/settings`; 51 → 52, 2026-09-07: `/reports`; 50 → 51 the same day: `/data-report`) (51 → 50, 2026-08-31: `/config/alarm-rules` removed with the rule feature) (50 → 51, 2026-08-29: `/config/export-options`, a page that had a config def and a dashboard card but no route, so it was unreachable. Earlier 49 → 50, 2026-08-27:
   `/config/alarm-webhooks`).
 - **Queue backend:** graphile-worker (Postgres-backed), **7** tasks (6 → 7 on 2026-10-12: `notification_retry`, the durable email/SMS retry, event-driven, no crontab line).
