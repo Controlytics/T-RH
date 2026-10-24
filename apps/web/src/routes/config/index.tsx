@@ -194,6 +194,18 @@ const superAdminCards = [
     ),
   },
   {
+    // 2026-10-24: moved here from Roles & Access → Attribute Access, plus a
+    // per-USER rule combined with the role's.
+    title: 'Attribute Edit Access',
+    description: 'Which roles and users may change which instrument attributes',
+    href: '/config/attribute-access',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+      </svg>
+    ),
+  },
+  {
     // The Layout Designer (2026-09-22) replaced the Floorplans editor at the
     // same path. It had no card before: the page was reached only from the
     // dashboard's own links. Drawn rooms, corridors, doors and links, from a

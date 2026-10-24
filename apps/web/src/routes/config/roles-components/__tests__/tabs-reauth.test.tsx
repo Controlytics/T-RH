@@ -109,9 +109,11 @@ describe('Roles & Access tabs — saves are re-authenticated', () => {
     const { AttributeAccessTab } = await import('../attribute-access-tab');
     render(<AttributeAccessTab />);
     fireEvent.click(screen.getAllByRole('radio')[1]);
+    // A reason is required since 2026-10-24 — the server refuses a save without one.
+    fireEvent.change(screen.getByLabelText('Reason for change'), { target: { value: 'operators edit limits' } });
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
     await waitFor(() => expect(putWithReauth).toHaveBeenCalledWith(
-      '/api/roles/attribute-access/OPERATOR', expect.any(Object), 'pw',
+      '/api/roles/attribute-access/OPERATOR', expect.objectContaining({ reason: 'operators edit limits' }), 'pw',
     ));
     expect(executed).toEqual(['UPDATE_ROLE_CONFIG']);
   });

@@ -41,6 +41,8 @@ describe('AttributeAccessTab — display names', () => {
     labels.current = { Enable_Temp_NMT: 'High temperature alarm enabled' };
     render(<AttributeAccessTab />);
     fireEvent.click(screen.getByLabelText(/High temperature alarm enabled/));
+    // A reason is required since 2026-10-24.
+    fireEvent.change(screen.getByLabelText('Reason for change'), { target: { value: 'limits editable by operators' } });
     fireEvent.click(screen.getByRole('button', { name: /save/i }));
     await waitFor(() => expect(put).toHaveBeenCalledWith(
       '/api/roles/attribute-access/OPERATOR',

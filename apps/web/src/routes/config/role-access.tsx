@@ -20,12 +20,12 @@ import type { SidebarTabHandle } from './roles-components/sidebar-tab';
 import { ReauthTab } from './roles-components/reauth-tab';
 import { InstrumentScopeTab } from './roles-components/instrument-scope-tab';
 import { PanelAccessTab } from './roles-components/panel-access-tab';
-import { AttributeAccessTab } from './roles-components/attribute-access-tab';
 import type { ReauthTabHandle } from './roles-components/reauth-tab';
 import { PageHero } from '@/components/ui/page-hero';
 import { Tabs, TabPanel } from '@/components/ui/tabs';
 
-type TabId = 'roles' | 'permissions' | 'sidebar' | 'reauth' | 'instrument-scope' | 'attribute-access' | 'panels';
+// 'attribute-access' moved to Configuration → Attribute Edit Access (2026-10-24).
+type TabId = 'roles' | 'permissions' | 'sidebar' | 'reauth' | 'instrument-scope' | 'panels';
 
 export function RoleAccessPage() {
   const { user } = useAuth();
@@ -146,7 +146,6 @@ export function RoleAccessPage() {
     { id: 'reauth', label: 'Re-auth', icon: 'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z' },
     { id: 'instrument-scope', label: 'Instrument Scope', icon: 'M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7' },
     { id: 'panels', label: 'Panels', icon: 'M4 5a1 1 0 011-1h14a1 1 0 011 1v4H4V5zm0 6h6v8H5a1 1 0 01-1-1v-7zm8 0h8v7a1 1 0 01-1 1h-7v-8z' },
-    { id: 'attribute-access', label: 'Attribute Access', icon: 'M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z' },
   ];
 
   // ── Header save button helpers ──
@@ -296,10 +295,6 @@ export function RoleAccessPage() {
             visibility change. */}
         {activeTab === 'instrument-scope' && <InstrumentScopeTab />}
         {activeTab === 'panels' && <PanelAccessTab />}
-        {/* Saves per row through its own endpoint, for the reason written in the
-            tab: a rule that names attribute KEYS must not ride in a bulk save where
-            an accidental clear looks like a deliberate one. */}
-        {activeTab === 'attribute-access' && <AttributeAccessTab />}
       </TabPanel>
 
       {/* Reauth Dialog */}

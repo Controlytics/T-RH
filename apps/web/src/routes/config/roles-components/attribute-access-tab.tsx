@@ -28,8 +28,9 @@ interface RoleAccess {
  *   ALL_VIEW       — read-only, including no Add
  *   SELECTED       — the ticked keys, everything else read-only
  *
- * Saved one role at a time and audited per save, like Instrument Scope beside
- * it — deliberately NOT part of the Permissions tab's bulk save. This rule names
+ * Saved one role at a time and audited per save, with the admin's REASON
+ * (required since 2026-10-24, as every access-control change is) — deliberately
+ * NOT part of any bulk save. This rule names
  * attribute KEYS, and in a wholesale save an accidental clear would be
  * indistinguishable from a deliberate one.
  *
@@ -47,6 +48,8 @@ export function AttributeAccessTab() {
   const [saving, setSaving] = useState<string | null>(null);
   /** Un-saved edits, keyed by role. Absent = showing what is stored. */
   const [draft, setDraft] = useState<Record<string, Partial<RoleAccess>>>({});
+  /** The reason typed for each role's pending change (required by the server). */
+  const [reasons, setReasons] = useState<Record<string, string>>({});
 
   const roles = data?.roles ?? [];
   const availableKeys = data?.availableKeys ?? [];
@@ -62,6 +65,11 @@ export function AttributeAccessTab() {
   // the three outcomes; `execute` returns while the dialog is still open.
   const save = (r: RoleAccess) => {
     const next = current(r);
+    const why = (reasons[r.role] ?? '').trim();
+    if (!why) {
+      toast.error('Reason required', "State why this role's attribute access is changing — it is recorded in the audit trail.");
+      return;
+    }
     const url = `/api/roles/attribute-access/${encodeURIComponent(r.role)}`;
     const body = {
       mode: next.mode,
@@ -69,6 +77,7 @@ export function AttributeAccessTab() {
       // does not silently reappear with the keys it had a month ago.
       keys: next.mode === 'SELECTED' ? next.keys : [],
       requireReauth: next.requireReauth,
+      reason: why,
     };
     setSaving(r.role);
     void reauth.execute('UPDATE_ROLE_CONFIG', async (password?: string) => {
@@ -77,6 +86,7 @@ export function AttributeAccessTab() {
     }, {
       onSuccess: async () => {
         setDraft((d) => { const { [r.role]: _drop, ...rest } = d; return rest; });
+        setReasons((x) => { const { [r.role]: _gone, ...rest } = x; return rest; });
         setSaving(null);
         await mutate();
         toast.success('Attribute access saved', `"${r.role}" updated.`);
@@ -194,6 +204,18 @@ export function AttributeAccessTab() {
               className="ctl-check" />
               Ask for the operator&apos;s password on every attribute change
             </label>
+
+            {dirty(r) && (
+              <div className="mt-3">
+                <label htmlFor={`attr-reason-${r.role}`} className="mb-1 block text-xs font-medium text-slate-600">Reason for change</label>
+                <input
+                  id={`attr-reason-${r.role}`} className="ctl w-full" maxLength={500}
+                  value={reasons[r.role] ?? ''}
+                  onChange={(e) => setReasons((x) => ({ ...x, [r.role]: e.target.value }))}
+                  placeholder="Why is this changing? Recorded in the audit trail."
+                />
+              </div>
+            )}
           </div>
         );
       })}
@@ -214,7 +236,7 @@ export function AttributeAccessTab() {
   );
 }
 
-const MODE_LABEL: Record<AttributeAccessMode, string> = {
+export const MODE_LABEL: Record<AttributeAccessMode, string> = {
   ALL_EDIT: 'All editable',
   ALL_VIEW: 'All view-only',
   SELECTED: 'Selected editable, rest view-only',
