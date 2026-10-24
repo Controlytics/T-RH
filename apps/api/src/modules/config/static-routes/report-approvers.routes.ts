@@ -1,6 +1,13 @@
 import { type FastifyInstance } from 'fastify';
-import { activeApprovers } from '../../report-reviews/service.js';
+import { PERMISSION_TREE } from '@digilog/shared';
+import { activeApprovers, approvalPermissionsMissing } from '../../report-reviews/service.js';
 import { prisma } from '../../../lib/prisma.js';
+
+/** The Permissions-tab toggle that grants a permission — what an admin ticks. */
+function toggleLabel(permission: string): string {
+  return PERMISSION_TREE.flatMap((g) => g.nodes)
+    .find((n) => n.configurable === true && (n.gate as readonly string[]).includes(permission))?.label ?? permission;
+}
 
 /**
  * The approvers — read by every operator who can request a report, so the
@@ -60,5 +67,48 @@ export async function reportApproversRoutes(app: FastifyInstance) {
       orderBy: { username: 'asc' },
     });
     return users.map((u) => ({ value: u.id, label: `${u.username}${u.fullName ? ` — ${u.fullName}` : ''} (${u.role})` }));
+  });
+
+  /**
+   * Can each role, and each candidate user (by their role), actually DECIDE a
+   * report request? (2026-10-24, operator: "when im giving request approval
+   * request is not coming why".) On AWS the only approver role, QA, held View
+   * Reports but not Approve / Reject Reports: every request from an ordinary
+   * user was refused, a super admin's reached nobody, and this page — the one
+   * place approvers are chosen — said nothing. The answer is the SAME check a
+   * request applies (`approvalPermissionsMissing`, shared with
+   * `eligibleApprovers`), given as the Permissions-tab toggles to tick; empty =
+   * can approve. Instrument scope is per request, so it is not judged here.
+   */
+  app.get('/report-approvers/readiness', {
+    preHandler: [app.requirePermission('CONFIG_READ')],
+    schema: {
+      tags: ['Config'],
+      summary: 'Which approver roles and users lack the permissions to approve a report',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            // `additionalProperties` declared, or Fastify serialises the maps to {}.
+            roles: { type: 'object', additionalProperties: { type: 'array', items: { type: 'string' } } },
+            users: { type: 'object', additionalProperties: { type: 'array', items: { type: 'string' } } },
+          },
+          required: ['roles', 'users'],
+        },
+      },
+    },
+  }, async () => {
+    const [roles, users] = await Promise.all([
+      prisma.role.findMany({ where: { name: { not: 'SUPER_ADMIN' } }, select: { name: true } }),
+      prisma.user.findMany({ where: { status: 'ENABLED', role: { not: 'SUPER_ADMIN' } }, select: { id: true, role: true } }),
+    ]);
+    const missingByRole = new Map<string, string[]>();
+    for (const role of new Set([...roles.map((r) => r.name), ...users.map((u) => u.role)])) {
+      missingByRole.set(role, (await approvalPermissionsMissing(role)).map(toggleLabel));
+    }
+    return {
+      roles: Object.fromEntries(roles.map((r) => [r.name, missingByRole.get(r.name) ?? []])),
+      users: Object.fromEntries(users.map((u) => [u.id, missingByRole.get(u.role) ?? []])),
+    };
   });
 }

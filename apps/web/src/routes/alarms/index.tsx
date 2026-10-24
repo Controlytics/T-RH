@@ -266,7 +266,8 @@ export default function AlarmsPage() {
         instrumentIds: [...new Set(all.map((a) => a.instrumentId))],
       });
       setDownloadOpen(false);
-      toast.success(...deliveryToast(outcome));
+      const notice = deliveryToast(outcome);
+      toast[notice.tone](notice.title, notice.message);
     }
   };
 

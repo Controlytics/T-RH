@@ -405,7 +405,8 @@ export function AuditTrailPage() {
           // The Audit Trail is about no instrument — it is not scope-restricted.
           instrumentIds: [],
         });
-        toast.success(...deliveryToast(outcome));
+        const notice = deliveryToast(outcome);
+        toast[notice.tone](notice.title, notice.message);
       } else {
         await reauth.executeWithResult('DOWNLOAD_REPORT', async (password) => {
           const records = await fetchForExport();

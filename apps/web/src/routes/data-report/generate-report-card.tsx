@@ -130,7 +130,8 @@ export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
           instrumentIds: targets.map((t) => t.id),
         });
         setPendingDownload(false);
-        toast.success(...deliveryToast(outcome));
+        const notice = deliveryToast(outcome);
+        toast[notice.tone](notice.title, notice.message);
       }
     } catch (e: any) {
       // Any error rethrows so the dialog surfaces it and stays open.

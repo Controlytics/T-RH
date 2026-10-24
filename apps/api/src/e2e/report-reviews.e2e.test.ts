@@ -280,6 +280,45 @@ describe('a request nobody could approve is REFUSED (2026-10-01)', () => {
     const rows = await prisma.reportReview.count({ where: { requestedBy: { in: [ids.REQ!, ids.NAMED!] }, id: { notIn: created } } });
     expect(rows).toBe(0);
   });
+
+  // 2026-10-24 (operator: "when im giving request approval request is not
+  // coming why"): a SUPER_ADMIN's request is accepted even when nobody else can
+  // decide it — they may approve their own — and the browser told them "the
+  // approvers have been notified". The 201 now says how many were.
+  it('a super admin\'s request nobody else can decide is accepted, with eligibleApproverCount 0', async () => {
+    await setApprovers([], [ids.MATE!]);
+    try {
+      const res = await submit(tokAdmin, {}, 'Admin@123');
+      expect(res.statusCode, res.body).toBe(201);
+      created.push(res.json().id);
+      expect(res.json().eligibleApproverCount).toBe(0);
+    } finally { await setApprovers([ROLE_APPR], [ids.NAMED!]); }
+  });
+
+  it('…and a request someone can decide carries how many were notified', async () => {
+    const res = await submit(tok.REQ);
+    expect(res.statusCode, res.body).toBe(201);
+    created.push(res.json().id);
+    expect(res.json().eligibleApproverCount).toBeGreaterThan(0);
+  });
+});
+
+describe('report-approvers/readiness — Report Settings says which approvers cannot approve (2026-10-24)', () => {
+  it('names the Permissions-tab toggles a role, and a user by their role, lacks — empty when it can approve', async () => {
+    const res = await get('/api/config/report-approvers/readiness', tokAdmin);
+    expect(res.statusCode, res.body).toBe(200);
+    const { roles, users } = res.json();
+    // ROLE_REQ holds View Reports only — the AWS approver role's state.
+    expect(roles[ROLE_REQ]).toEqual(['Approve / Reject Reports']);
+    expect(roles[ROLE_APPR]).toEqual([]);
+    expect(users[ids.MATE!]).toEqual(['Approve / Reject Reports']);
+    expect(users[ids.NAMED!]).toEqual([]);
+    expect(roles).not.toHaveProperty('SUPER_ADMIN');
+  });
+
+  it('is configuration: a role without CONFIG_READ is refused', async () => {
+    expect((await get('/api/config/report-approvers/readiness', tok.REQ)).statusCode).toBe(403);
+  });
 });
 
 describe('code-review fixes (2026-10-01)', () => {

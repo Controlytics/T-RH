@@ -91,7 +91,12 @@ export default async function reportReviewRoutes(app: FastifyInstance) {
           instrumentIds: { type: 'array', items: { type: 'string' }, maxItems: 1000 },
         },
       },
-      response: { 201: summarySchema, ...errorResponses },
+      response: {
+        // `eligibleApproverCount` — the users notified, who can decide it — is
+        // declared, or Fastify strips it silently (2026-10-24).
+        201: { type: 'object', properties: { ...summaryProps, eligibleApproverCount: { type: 'integer' } } },
+        ...errorResponses,
+      },
     },
   }, async (req, reply) => {
     const raw = req.body as Record<string, unknown>;

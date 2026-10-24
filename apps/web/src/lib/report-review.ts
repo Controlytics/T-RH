@@ -83,7 +83,7 @@ export async function submitReportForReview(input: {
   instrumentIds: string[];
   remarks: string;
   password?: string;
-}): Promise<ReviewSummary> {
+}): Promise<ReviewSummary & { eligibleApproverCount?: number }> {
   const body = {
     reportKind: input.reportKind,
     reportType: input.reportType,
@@ -94,9 +94,11 @@ export async function submitReportForReview(input: {
     instrumentIds: input.instrumentIds,
     remarks: input.remarks,
   };
+  // `eligibleApproverCount`: the users notified, who can decide it (2026-10-24).
+  type Created = ReviewSummary & { eligibleApproverCount?: number };
   return input.password
-    ? apiClient.postWithReauth<ReviewSummary>('/api/report-reviews', body, input.password)
-    : apiClient.post<ReviewSummary>('/api/report-reviews', body);
+    ? apiClient.postWithReauth<Created>('/api/report-reviews', body, input.password)
+    : apiClient.post<Created>('/api/report-reviews', body);
 }
 
 // Module-private (audit 2026-10-03, WEB-9): `downloadApproved` below is its only

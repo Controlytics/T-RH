@@ -1,5 +1,36 @@
 # Changelog
 
+## [Unreleased] - Report requests that reach nobody now say so (2026-10-24)
+
+Operator: "when im giving request approval request is not coming why" — "in aws
+application also". Read-only checks of RDS found the cause: the approvers are
+role QA and user 333333 (QA), and NO role holds Approve / Reject Reports
+(REPORT_REVIEW_APPROVE) — every role got View Reports from a Sidebar-tab save,
+and the old Permissions tab showed Approve ON for them (the false-ON bug fixed
+earlier today). So an ordinary user's request was refused 400
+NO_ELIGIBLE_APPROVER, and a super admin's was accepted, notified nobody, and
+toasted "The approvers have been notified". Locally the same shape: ADMIN is the
+approver role, holds neither Reports permission, and is scoped to Module-E.
+
+The DATA fix is the operator's (Roles & Access → Permissions → QA → Approve /
+Reject Reports, after the deploy). The code now makes the state visible:
+- `GET /api/config/report-approvers/readiness` (CONFIG_READ): per role and per
+  candidate user, the Permissions-tab toggles it lacks to decide a request.
+  `approvalPermissionsMissing` (report-reviews `service.ts`) is the ONE check —
+  `eligibleApprovers` now uses it too.
+- Configuration → Report Settings names, under each ticked role / user that
+  cannot approve, the toggle it needs, and says when NONE of the ticked
+  approvers can (no request would reach anyone).
+- `POST /api/report-reviews` returns `eligibleApproverCount` (declared in the
+  201 schema). `deliverReport` turns 0 into `REQUESTED_NO_APPROVER` and
+  `deliveryToast` (now `{tone, title, message}`, four callers) shows an amber
+  "Sent, but nobody else can approve it" instead of a false success.
+
+Tests: `report-reviews.e2e.test.ts` (+4: count 0 / >0, readiness answer, 403),
+web `report-settings.test.tsx` (+3), new `lib/__tests__/report-delivery.test.ts`
+(3). Mutation-checked: dropping the 201 declaration, the APPROVE check, the
+role warning, the banner and the zero outcome each fail their test.
+
 ## [Unreleased] - Every permission toggle does what it says (2026-10-24, continued)
 
 Operator: "update all the permissions properly, i think some are not updated in

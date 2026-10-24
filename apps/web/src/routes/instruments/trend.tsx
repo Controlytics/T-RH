@@ -11,7 +11,7 @@ import { apiClient } from '@/lib/api-client';
 import { useSensorWords, useAlarmTypeNames } from '@/hooks/use-failure-text';
 import { ExportMenu } from '@/components/ExportMenu';
 import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
-import { deliverReport, deliveryToast } from '@/lib/report-delivery';
+import { deliverReport, deliveryToast, type DeliveryOutcome } from '@/lib/report-delivery';
 import type { ReportKind } from '@digilog/shared';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -581,7 +581,7 @@ export function InstrumentTrend() {
     // whose audit write never landed. (A try/catch that only rethrew stood here
     // until 2026-10-05 — eslint no-useless-catch.)
     {
-      let outcome: 'DOWNLOADED' | 'REQUESTED';
+      let outcome: DeliveryOutcome;
       {
       const instrument = instrumentInfo();
 
@@ -726,7 +726,8 @@ export function InstrumentTrend() {
         }
       }
       setPendingReport(null);
-      toast.success(...deliveryToast(outcome));
+      const notice = deliveryToast(outcome);
+      toast[notice.tone](notice.title, notice.message);
     }
   };
 

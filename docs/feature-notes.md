@@ -339,6 +339,7 @@ GET    /api/config/report-approvers/current     — the administered approvers, 
                                                     — the ACTIVE approvers, users as a COUNT (2026-10-01); both
                                                     empty = no report can be requested
 GET    /api/config/report-approvers/candidates  — (2026-10-01) options for the Approver users setting, CONFIG_READ
+GET    /api/config/report-approvers/readiness   — (2026-10-24) the toggles each role / user lacks to APPROVE, CONFIG_READ
 GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND {mode, remarksRequired,
                                                     passwordRequired}, every authenticated user; read it with
                                                     coerceReportDownloadsResponse, NOT the stored-row reader

@@ -297,6 +297,22 @@ function titleLabel(title: string): string {
 }
 
 /**
+ * What a role lacks to DECIDE a report request: REPORT_REVIEW_READ (the queue,
+ * the detail and the decision routes are all behind it, and APPROVE does not
+ * imply it) and REPORT_REVIEW_APPROVE. Empty = it can. The ONE definition —
+ * `eligibleApprovers` uses it, and Configuration → Report Settings shows it per
+ * role (`/api/config/report-approvers/readiness`, 2026-10-24: on AWS the only
+ * approver role, QA, held READ alone, every request was refused, and nothing
+ * on the settings page said why).
+ */
+export async function approvalPermissionsMissing(role: string): Promise<string[]> {
+  const missing: string[] = [];
+  if (!(await roleHasPermission(role, 'REPORT_REVIEW_READ'))) missing.push('REPORT_REVIEW_READ');
+  if (!(await roleHasPermission(role, 'REPORT_REVIEW_APPROVE'))) missing.push('REPORT_REVIEW_APPROVE');
+  return missing;
+}
+
+/**
  * The users who could actually DECIDE a request (2026-10-01): enabled, not the
  * requester, holding an approver role or named outright, whose role holds
  * `REPORT_REVIEW_APPROVE` (the route gate on approve/reject — read through the
@@ -334,7 +350,7 @@ export async function eligibleApprovers(
   // all behind REPORT_REVIEW_READ, and APPROVE does not imply it.
   const roleOk = new Map<string, boolean>();
   for (const role of new Set(users.map((u) => u.role))) {
-    roleOk.set(role, (await roleHasPermission(role, 'REPORT_REVIEW_APPROVE')) && (await roleHasPermission(role, 'REPORT_REVIEW_READ')));
+    roleOk.set(role, (await approvalPermissionsMissing(role)).length === 0);
   }
   const candidates = users.filter((u) => roleOk.get(u.role) === true);
   if (candidates.length === 0) return [];
@@ -446,7 +462,7 @@ export function assertRequestable(kind: ReportKind, policy: ReportKindPolicy, re
 }
 
 export const reportReviewService = {
-  async submit(ctx: RequestContext, input: SubmitInput): Promise<ReviewSummary> {
+  async submit(ctx: RequestContext, input: SubmitInput): Promise<ReviewSummary & { eligibleApproverCount: number }> {
     assertRequestable(input.reportKind, input.policy, input.remarks);
 
     // The approvers are ADMINISTERED (Configuration → Report Approvers) and
@@ -530,7 +546,11 @@ export const reportReviewService = {
     });
     await notifyApprovers(row, approvers, 'REPORT_REVIEW_REQUESTED', 'Report awaiting your approval',
       `"${row.title}" was sent for approval by ${ctx.userId}.`, ctx.userId);
-    return row;
+    // Who was told (2026-10-24). Zero only for a SUPER_ADMIN's request — any
+    // other requester is refused above — and the browser then says that nobody
+    // but a super admin can decide it, instead of "the approvers have been
+    // notified".
+    return { ...row, eligibleApproverCount: approvers.length };
   },
 
   async list(ctx: RequestContext, list: ReviewList, page: number, pageSize: number): Promise<{ data: ReviewListRow[]; total: number }> {

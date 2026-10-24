@@ -15,6 +15,11 @@ const DOWNLOADS_ROW = { trendChartMode: 'DIRECT', dataReportRemarks: false };
 const ROLES = [{ name: 'SUPERVISOR', displayName: 'Supervisor' }, { name: 'OPERATOR', displayName: 'Operator' }, { name: 'SUPER_ADMIN', displayName: 'Super Admin' }];
 const CANDIDATES = [{ value: 'u1', label: 'sup1 (SUPERVISOR)' }, { value: 'u2', label: 'qa1 (QA)' }];
 let approversRow: unknown = APPROVERS_ROW;
+// The server's readiness answer (2026-10-24): the toggles each role / user lacks to approve.
+const READY = { roles: { SUPERVISOR: [], OPERATOR: [] }, users: { u1: [], u2: [] } };
+const NOT_READY = { roles: { SUPERVISOR: ['Approve / Reject Reports'], OPERATOR: [] }, users: { u1: ['Approve / Reject Reports'], u2: [] } };
+const ONLY_USER_READY = { roles: { SUPERVISOR: ['Approve / Reject Reports'], OPERATOR: [] }, users: { u1: [], u2: [] } };
+let readiness: unknown = READY;
 // The server's manifest names the action both rows' PUT enforces (2026-10-12).
 const MANIFEST = [
   { moduleKey: 'report-approvers', reauthAction: 'UPDATE_CONFIG_PAGE' },
@@ -32,6 +37,7 @@ vi.mock('swr', () => ({
           : key === '/api/config/report-approvers/candidates' ? CANDIDATES
             : key === '/api/config/registry/manifest' ? MANIFEST
               : key === '/api/config/action-reauth/my-actions' ? myActions
+                : key === '/api/config/report-approvers/readiness' ? readiness
                 : undefined;
     return { data, mutate: vi.fn(async () => undefined) };
   },
@@ -44,7 +50,7 @@ const { ReportSettingsConfigPage } = await import('../report-settings');
 const mount = () => render(<MemoryRouter><ReportSettingsConfigPage /></MemoryRouter>);
 const rowOf = (kind: string) => document.querySelector(`[data-report-kind="${kind}"]`) as HTMLElement;
 
-beforeEach(() => { put.mockClear(); approversRow = APPROVERS_ROW; myActions = NO_ACTIONS; });
+beforeEach(() => { put.mockClear(); approversRow = APPROVERS_ROW; myActions = NO_ACTIONS; readiness = READY; });
 
 describe('Report Settings', () => {
   it('shows the approvers and ALL EIGHT report types on one page, never offering SUPER_ADMIN as a role', () => {
@@ -131,5 +137,33 @@ describe('Report Settings — re-authentication', () => {
     expect(put).not.toHaveBeenCalled();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+  });
+});
+
+// 2026-10-24 (operator: "when im giving request approval request is not coming
+// why"): on AWS the only approver role held View Reports but not Approve /
+// Reject Reports, so no request reached anyone — and this page said nothing.
+describe('Report Settings says which ticked approvers cannot approve', () => {
+  it('a ticked role and a ticked user that cannot approve are named, with the toggle to tick, and the page says nobody can', () => {
+    readiness = NOT_READY;
+    mount();
+    expect(screen.getByTestId('role-cannot-approve-SUPERVISOR')).toHaveTextContent('needs Approve / Reject Reports');
+    expect(screen.getByTestId('user-cannot-approve-u1')).toHaveTextContent('needs Approve / Reject Reports');
+    expect(screen.getByTestId('no-approver-can-approve')).toBeInTheDocument();
+  });
+
+  it('one approver who can approve is enough: no "nobody" banner, the one who cannot is still named', () => {
+    readiness = ONLY_USER_READY;
+    mount();
+    expect(screen.queryByTestId('no-approver-can-approve')).toBeNull();
+    expect(screen.getByTestId('role-cannot-approve-SUPERVISOR')).toBeInTheDocument();
+    expect(screen.queryByTestId('user-cannot-approve-u1')).toBeNull();
+  });
+
+  it('approvers who can approve carry no warning, and an unticked role is not judged', () => {
+    mount();
+    expect(screen.queryByTestId('no-approver-can-approve')).toBeNull();
+    expect(screen.queryByTestId('role-cannot-approve-SUPERVISOR')).toBeNull();
+    expect(screen.queryByTestId('role-cannot-approve-OPERATOR')).toBeNull();
   });
 });

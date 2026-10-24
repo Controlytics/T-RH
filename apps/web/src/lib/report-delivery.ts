@@ -27,7 +27,7 @@ export async function deliverReport(input: {
   requestMeta: RequestMeta;
   /** The instruments the report is about — empty only for the Audit Trail. */
   instrumentIds: string[];
-}): Promise<'DOWNLOADED' | 'REQUESTED'> {
+}): Promise<DeliveryOutcome> {
   const { req, requestMeta } = input;
   if (req.mode === 'DIRECT') {
     await logReportExport({
@@ -45,7 +45,7 @@ export async function deliverReport(input: {
     input.report.save(`${fileSlug(input.title)}.pdf`);
     return 'DOWNLOADED';
   }
-  await submitReportForReview({
+  const created = await submitReportForReview({
     reportKind: input.kind,
     snapshot: input.report.getSnapshot(),
     reportType: input.reportType,
@@ -56,12 +56,21 @@ export async function deliverReport(input: {
     remarks: req.remarks,
     password: req.password,
   });
-  return 'REQUESTED';
+  // Nobody was notified: only a SUPER_ADMIN's request can get here with no
+  // approver able to decide it (anyone else is refused by the server), and
+  // "the approvers have been notified" would be false (2026-10-24).
+  return created.eligibleApproverCount === 0 ? 'REQUESTED_NO_APPROVER' : 'REQUESTED';
 }
 
-/** The toast after a delivery — one wording for every page. */
-export function deliveryToast(outcome: 'DOWNLOADED' | 'REQUESTED'): [string, string] {
-  return outcome === 'DOWNLOADED'
-    ? ['Report downloaded', 'The download is recorded in the audit trail.']
-    : ['Sent for approval', 'The approvers have been notified — see Reports.'];
+export type DeliveryOutcome = 'DOWNLOADED' | 'REQUESTED' | 'REQUESTED_NO_APPROVER';
+
+/** The toast after a delivery — one wording, and one tone, for every page. */
+export function deliveryToast(outcome: DeliveryOutcome): { tone: 'success' | 'warning'; title: string; message: string } {
+  if (outcome === 'DOWNLOADED') return { tone: 'success', title: 'Report downloaded', message: 'The download is recorded in the audit trail.' };
+  if (outcome === 'REQUESTED') return { tone: 'success', title: 'Sent for approval', message: 'The approvers have been notified — see Reports.' };
+  return {
+    tone: 'warning',
+    title: 'Sent, but nobody else can approve it',
+    message: 'No configured approver can approve this report, so nobody was notified — only a super admin can decide it in Reports. Check Configuration → Report Settings.',
+  };
 }

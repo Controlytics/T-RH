@@ -44,6 +44,8 @@ import { ReauthDialog } from '@/components/reauth-dialog';
 interface Role { name: string; displayName?: string }
 interface ManifestEntry { moduleKey: string; reauthAction?: string | null }
 interface Option { value: string; label: string }
+/** Per role and per user id: the Permissions-tab toggles it lacks to approve; empty = it can. */
+interface Readiness { roles: Record<string, string[]>; users: Record<string, string[]> }
 
 const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
 
@@ -55,6 +57,9 @@ export function ReportSettingsConfigPage() {
   const { data: downloadsRow, mutate: mutateDownloads } = useSWR<unknown>('/api/config/dynamic/report-downloads');
   const { data: rolesData } = useSWR<Role[]>('/api/roles/active');
   const { data: candidates } = useSWR<Option[]>('/api/config/report-approvers/candidates');
+  // The SERVER's answer to "can this approver actually approve?" (2026-10-24):
+  // the toggles each role / user lacks, by the same check a request applies.
+  const { data: readiness } = useSWR<Readiness>('/api/config/report-approvers/readiness');
 
   const storedApprovers = useMemo(() => (approversRow === undefined ? undefined : coerceReportApprovers(approversRow)), [approversRow]);
   const storedPolicy = useMemo(() => (downloadsRow === undefined ? undefined : coerceReportDownloads(downloadsRow)), [downloadsRow]);
@@ -72,6 +77,15 @@ export function ReportSettingsConfigPage() {
   const approversDirty = !!storedApprovers && (!sameSet(roles, storedApprovers.approverRoles) || !sameSet(userIds, storedApprovers.approverUserIds));
   const downloadsDirty = !!storedPolicy && !!policy && JSON.stringify(policy) !== JSON.stringify(storedPolicy);
   const loading = !storedApprovers || !policy;
+  const lacking = (missing: string[] | undefined) => (missing && missing.length > 0 ? missing : null);
+  const roleLacks = (name: string) => lacking(readiness?.roles[name]);
+  const userLacks = (id: string) => lacking(readiness?.users[id]);
+  // Ticked, yet not one of them can decide a request: every request from an
+  // ordinary user is refused, and a super admin's reaches nobody.
+  // A ticked user the server does not list (disabled, deleted) cannot approve either.
+  const nobodyCanApprove = !!readiness && roles.length + userIds.length > 0
+    && roles.every((r) => roleLacks(r) || !(r in readiness.roles))
+    && userIds.every((u) => userLacks(u) || !(u in readiness.users));
 
   const toggleIn = (list: string[], set: (v: string[]) => void, value: string) =>
     set(list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);
@@ -141,12 +155,25 @@ export function ReportSettingsConfigPage() {
                 {REPORT_APPROVERS_NONE_MESSAGE}
               </p>
             )}
+            {nobodyCanApprove && (
+              <p role="status" data-testid="no-approver-can-approve" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                None of these approvers can approve a report, so no request will reach anyone. Give their role the
+                permissions named below in Roles &amp; Access → Permissions.
+              </p>
+            )}
             <div className="grid gap-4 md:grid-cols-2">
               <fieldset className="rounded-[var(--radius-control)] border border-slate-300 p-3">
                 <legend className="px-1 text-sm font-semibold text-slate-700">Approver roles</legend>
                 <div className="max-h-56 space-y-2.5 overflow-y-auto">
                   {roleOptions.map((r) => (
-                    <Checkbox key={r.name} label={r.displayName || r.name} checked={roles.includes(r.name)} onChange={() => toggleIn(roles, setRoles, r.name)} />
+                    <div key={r.name}>
+                      <Checkbox label={r.displayName || r.name} checked={roles.includes(r.name)} onChange={() => toggleIn(roles, setRoles, r.name)} />
+                      {roles.includes(r.name) && roleLacks(r.name) && (
+                        <p data-testid={`role-cannot-approve-${r.name}`} className="ml-7 text-xs text-amber-700">
+                          Cannot approve: needs {roleLacks(r.name)!.join(' and ')}.
+                        </p>
+                      )}
+                    </div>
                   ))}
                 </div>
               </fieldset>
@@ -154,7 +181,14 @@ export function ReportSettingsConfigPage() {
                 <legend className="px-1 text-sm font-semibold text-slate-700">Approver users</legend>
                 <div className="max-h-56 space-y-2.5 overflow-y-auto">
                   {(candidates ?? []).map((u) => (
-                    <Checkbox key={u.value} label={u.label} checked={userIds.includes(u.value)} onChange={() => toggleIn(userIds, setUserIds, u.value)} />
+                    <div key={u.value}>
+                      <Checkbox label={u.label} checked={userIds.includes(u.value)} onChange={() => toggleIn(userIds, setUserIds, u.value)} />
+                      {userIds.includes(u.value) && userLacks(u.value) && (
+                        <p data-testid={`user-cannot-approve-${u.value}`} className="ml-7 text-xs text-amber-700">
+                          Cannot approve: their role needs {userLacks(u.value)!.join(' and ')}.
+                        </p>
+                      )}
+                    </div>
                   ))}
                   {/* A saved user who is no longer a candidate (disabled, deleted) still shows, so it can be unticked. */}
                   {userIds.filter((id) => !(candidates ?? []).some((u) => u.value === id)).map((id) => (
