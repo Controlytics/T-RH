@@ -1625,7 +1625,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const writesAttributes = rows.some((r) => Object.values(r.attributes ?? {}).some((v) => v.trim() !== ''));
     if (writesAttributes) {
       const role = req.user?.role;
-      const access = await loadAttributeAccess(role);
+      const access = await loadAttributeAccess(role, req.user?.sub);
       const refusal = refuseAttributeWrite({
         access,
         hasUpdatePermission: role === 'SUPER_ADMIN' || (!!role && await roleHasPermission(role, 'INSTRUMENT_UPDATE')),
@@ -2471,7 +2471,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         return true;
       }
     }
-    const access = await loadAttributeAccess(req.user?.role);
+    const access = await loadAttributeAccess(req.user?.role, req.user?.sub);
     const refusal = refuseAttributeWrite({
       access,
       // `requirePermission('INSTRUMENT_UPDATE')` already ran as a preHandler, so
@@ -2768,7 +2768,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       },
     },
   }, async (req) => {
-    const access = await loadAttributeAccess(req.user?.role);
+    const access = await loadAttributeAccess(req.user?.role, req.user?.sub);
     // Only the RULE is returned, not pre-computed verdicts. The panel rebuilds
     // the access object and calls the same shared functions the gate calls, so
     // there is one implementation of "may I" rather than a server opinion and a

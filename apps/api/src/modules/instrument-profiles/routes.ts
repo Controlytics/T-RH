@@ -468,7 +468,7 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
         // must not remove it from all 101 via the profile — and the caller's
         // instrument scope: a key carried by an instrument the caller cannot
         // see is refused outright rather than half-removed.
-        const access = await loadAttributeAccess(ctx.userRole);
+        const access = await loadAttributeAccess(ctx.userRole, ctx.userSub);
         for (const a of affected) {
           const refusal = refuseAttributeWrite({ access, hasUpdatePermission: true, key: a.key, isNewKey: false, remark: reason as string | undefined });
           if (refusal) return reply.code(refusal.status).send(refusal.body);

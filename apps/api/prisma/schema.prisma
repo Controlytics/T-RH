@@ -365,6 +365,10 @@ model UserConfig {
   /// hash-chained §11 trail filling with "moved a card 40px left" is one in which
   /// real records get harder to find.
   dashboardLayout Json? @map("dashboard_layout") @db.JsonB
+  /// Instrument attribute access for THIS user, COMBINED with their role's
+  /// (role_configs.attribute_access): the user may change a key if either rule
+  /// allows it (2026-10-24). NULL = no user rule. Same shape as the role column.
+  attributeAccess Json? @map("attribute_access") @db.JsonB
   updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz
   updatedBy    String?  @map("updated_by") @db.VarChar(50)
 

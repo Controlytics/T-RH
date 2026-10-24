@@ -16,24 +16,34 @@ import {
   canAddAttribute,
   attributeWriteNeedsReauth,
   validateAttributeRemark,
+  effectiveAttributeAccess,
   type AttributeAccess,
 } from '@digilog/shared';
 
 /**
- * This role's rule, or null for "not configured".
+ * The rule for THIS request: the role's, combined with the user's own
+ * (2026-10-24, `effectiveAttributeAccess` — the user may change a key if either
+ * rule allows it). `userId` is REQUIRED: a caller passing only the role would
+ * enforce a different rule from the one `/attribute-access/me` shows.
  *
  * Read per request rather than cached: the config is edited rarely and read on
  * attribute writes only, and a stale cache here would silently keep enforcing a
  * rule an admin has just removed — the kind of bug that is diagnosed as "the
  * permission system is broken".
  */
-export async function loadAttributeAccess(role: string | null | undefined): Promise<AttributeAccess | null> {
+export async function loadAttributeAccess(
+  role: string | null | undefined,
+  userId: string | null | undefined,
+): Promise<AttributeAccess | null> {
   if (!role) return null;
-  const row = await prisma.roleConfig.findUnique({
-    where: { role },
-    select: { attributeAccess: true },
-  });
-  return parseAttributeAccess(row?.attributeAccess ?? null);
+  const [roleRow, userRow] = await Promise.all([
+    prisma.roleConfig.findUnique({ where: { role }, select: { attributeAccess: true } }),
+    userId ? prisma.userConfig.findUnique({ where: { userId }, select: { attributeAccess: true } }) : Promise.resolve(null),
+  ]);
+  return effectiveAttributeAccess(
+    parseAttributeAccess(roleRow?.attributeAccess ?? null),
+    parseAttributeAccess(userRow?.attributeAccess ?? null),
+  );
 }
 
 export interface AttributeWriteRefusal {
@@ -71,8 +81,8 @@ export function refuseAttributeWrite(input: {
       body: {
         error: 'ATTRIBUTE_NOT_EDITABLE',
         message: isNewKey
-          ? 'Your role may view instrument attributes but not add them.'
-          : `Your role may view "${key}" but not change it.`,
+          ? 'You may view instrument attributes but not add them.'
+          : `You may view "${key}" but not change it.`,
       },
     };
   }
