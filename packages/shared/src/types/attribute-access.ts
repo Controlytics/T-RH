@@ -116,6 +116,47 @@ export function attributeWriteNeedsReauth(access: AttributeAccess | null): boole
 }
 
 /**
+ * The rule that applies to ONE USER: their role's rule COMBINED with their own
+ * (2026-10-24, operator decision "combine"). The user may change a key if
+ * EITHER rule allows it, so a user rule only ever ADDS editing — to restrict
+ * one person below their role, they need a different role.
+ *
+ *   no user rule            → the role rule, exactly as before user rules existed
+ *   role not configured     → ALL_EDIT (that role edits everything already);
+ *                             the user's re-auth switch still applies
+ *   ALL_EDIT on either side → ALL_EDIT
+ *   ALL_VIEW and ALL_VIEW   → ALL_VIEW
+ *   otherwise               → SELECTED, the union of both key lists
+ *
+ * `requireReauth` is either side's: combining never drops a safety prompt.
+ * Edit Instruments is still required — `canEditAttributeKey` takes it apart
+ * from this rule and refuses without it, whatever is combined here.
+ */
+export function effectiveAttributeAccess(
+  role: AttributeAccess | null,
+  user: AttributeAccess | null,
+): AttributeAccess | null {
+  if (!user) return role;
+  const requireReauth = (role?.requireReauth ?? false) || user.requireReauth;
+  if (!role || role.mode === 'ALL_EDIT' || user.mode === 'ALL_EDIT') {
+    return { mode: 'ALL_EDIT', keys: [], requireReauth };
+  }
+  if (role.mode === 'ALL_VIEW' && user.mode === 'ALL_VIEW') {
+    return { mode: 'ALL_VIEW', keys: [], requireReauth };
+  }
+  const keys: string[] = [];
+  const seen = new Set<string>();
+  for (const k of [...(role.mode === 'SELECTED' ? role.keys : []), ...(user.mode === 'SELECTED' ? user.keys : [])]) {
+    const key = k.trim();
+    const fold = key.toLowerCase();
+    if (!key || seen.has(fold)) continue;
+    seen.add(fold);
+    keys.push(key);
+  }
+  return { mode: 'SELECTED', keys, requireReauth };
+}
+
+/**
  * Why this remark is not acceptable, or null.
  *
  * One implementation so the dialog cannot promise something the endpoint refuses.

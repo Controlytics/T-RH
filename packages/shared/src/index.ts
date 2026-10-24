@@ -185,6 +185,7 @@ export {
   canAddAttribute,
   attributeWriteNeedsReauth,
   validateAttributeRemark,
+  effectiveAttributeAccess,
 } from './types/attribute-access.js';
 export type { AttributeAccess, AttributeAccessMode } from './types/attribute-access.js';
 
