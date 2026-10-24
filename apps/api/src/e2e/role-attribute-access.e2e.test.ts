@@ -28,8 +28,9 @@ afterEach(async () => {
 afterAll(async () => { await app.close(); });
 
 const get = () => app.inject({ method: 'GET', url: '/api/roles/attribute-access', headers: auth });
-const put = (body: unknown, role = ROLE) =>
-  app.inject({ method: 'PUT', url: `/api/roles/attribute-access/${role}`, headers: auth, payload: body });
+// A reason is required since 2026-10-24 — every case sends one unless it tests its absence.
+const put = (body: Record<string, unknown>, role = ROLE) =>
+  app.inject({ method: 'PUT', url: `/api/roles/attribute-access/${role}`, headers: auth, payload: { reason: 'e2e attribute access', ...body } });
 
 const roleRow = async (role = ROLE) =>
   ((await get()).json().roles as { role: string; mode: string | null; keys: string[]; requireReauth: boolean }[])
@@ -107,5 +108,59 @@ describe('PUT /api/roles/attribute-access/:name', () => {
     expect(rows[0]?.signatureMeaning).toContain('view-only');
     // VARCHAR(255) and auditLog does not truncate.
     expect((rows[0]?.signatureMeaning ?? '').length).toBeLessThanOrEqual(255);
+  });
+});
+
+describe('a reason is required to change attribute access (2026-10-24)', () => {
+  it('role save without a reason is 400 REASON_REQUIRED and writes nothing', async () => {
+    const res = await app.inject({ method: 'PUT', url: `/api/roles/attribute-access/${ROLE}`, headers: auth, payload: { mode: 'ALL_VIEW' } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('REASON_REQUIRED');
+    expect(await roleRow()).toMatchObject({ mode: null });
+  });
+});
+
+describe('per-USER attribute access (2026-10-24)', () => {
+  const putUser = (userId: string, body: Record<string, unknown>) =>
+    app.inject({ method: 'PUT', url: `/api/roles/attribute-access/user/${userId}`, headers: auth, payload: body });
+  const operatorId = async () => (await prisma.user.findUniqueOrThrow({ where: { username: 'RB0001' }, select: { id: true } })).id;
+  afterEach(async () => {
+    await prisma.userConfig.updateMany({ where: { userId: await operatorId() }, data: { attributeAccess: Prisma.DbNull } });
+  });
+
+  it('lists every enabled user with their own rule, the combined result and whether their role can edit instruments', async () => {
+    await put({ mode: 'SELECTED', keys: ['Room'] });
+    const id = await operatorId();
+    const saved = await putUser(id, { mode: 'SELECTED', keys: ['Area'], reason: 'e2e' });
+    expect(saved.statusCode, saved.body).toBe(200);
+    const list = await app.inject({ method: 'GET', url: '/api/roles/attribute-access/users', headers: auth });
+    expect(list.statusCode, list.body).toBe(200);
+    const row = list.json().users.find((u: { userId: string }) => u.userId === id);
+    expect(row).toMatchObject({ role: ROLE, mode: 'SELECTED', keys: ['Area'], effective: { mode: 'SELECTED', keys: ['Room', 'Area'] } });
+    expect(typeof row.roleHasUpdate).toBe('boolean');
+  });
+
+  it('needs a reason, and writes a CONFIG_CHANGED row with it', async () => {
+    const id = await operatorId();
+    expect((await putUser(id, { mode: 'ALL_EDIT' })).statusCode).toBe(400);
+    const reason = `e2e user rule ${Date.now()}`;
+    expect((await putUser(id, { mode: 'ALL_EDIT', reason })).statusCode).toBe(200);
+    const row = await prisma.auditTrail.findFirst({ where: { action: 'CONFIG_CHANGED', targetType: 'user_config', targetId: id }, orderBy: { timestamp: 'desc' } });
+    expect(row?.reason).toBe(reason);
+    expect(row?.afterValue).toMatchObject({ attributeAccess: { mode: 'ALL_EDIT' } });
+  });
+
+  it('a null mode clears the user rule to SQL NULL', async () => {
+    const id = await operatorId();
+    await putUser(id, { mode: 'ALL_VIEW', reason: 'e2e' });
+    expect((await putUser(id, { mode: null, reason: 'e2e clear' })).statusCode).toBe(200);
+    const cfg = await prisma.userConfig.findUnique({ where: { userId: id }, select: { attributeAccess: true } });
+    expect(cfg?.attributeAccess).toBeNull();
+  });
+
+  it('an unknown user is 404 and nothing is written', async () => {
+    const ghost = '00000000-0000-4000-8000-000000000000';
+    expect((await putUser(ghost, { mode: 'ALL_EDIT', reason: 'e2e' })).statusCode).toBe(404);
+    expect(await prisma.userConfig.count({ where: { userId: ghost } })).toBe(0);
   });
 });

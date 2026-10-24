@@ -166,6 +166,17 @@ describe('finding 6 — scope and attribute-access writes respect the caller\'s 
     expect(await prisma.userConfig.count({ where: { userId: peerUser.id } })).toBe(0);
   });
 
+  // The per-USER attribute rule (2026-10-24) answers to the same rule as the
+  // per-user scope override: not yourself, not a user whose role is above you.
+  it('per-user attribute access: own user and a user above are refused, nothing written', async () => {
+    const own = await app.inject({ method: 'PUT', url: `/api/roles/attribute-access/user/${mgrUser.id}`, headers: mgr, payload: { mode: 'ALL_EDIT', reason: 'mine' } });
+    const up = await app.inject({ method: 'PUT', url: `/api/roles/attribute-access/user/${peerUser.id}`, headers: mgr, payload: { mode: 'ALL_EDIT', reason: 'x' } });
+    expect(own.statusCode, own.body).toBe(403);
+    expect(up.statusCode, up.body).toBe(403);
+    const rows = await prisma.userConfig.findMany({ where: { userId: { in: [mgrUser.id, peerUser.id] } }, select: { attributeAccess: true } });
+    expect(rows.every((r) => r.attributeAccess === null)).toBe(true);
+  });
+
   it('attribute access: own role and a higher role are refused', async () => {
     const own = await app.inject({ method: 'PUT', url: `/api/roles/attribute-access/${MGR}`, headers: mgr, payload: { mode: 'ALL_EDIT' } });
     const up = await app.inject({ method: 'PUT', url: `/api/roles/attribute-access/${PEER}`, headers: mgr, payload: { mode: 'ALL_EDIT' } });
@@ -178,10 +189,13 @@ describe('finding 6 — scope and attribute-access writes respect the caller\'s 
   it('a role and a user BELOW the caller can still be configured (positive control)', async () => {
     const r = await app.inject({ method: 'PUT', url: `/api/roles/instrument-scope/role/${LOW}`, headers: mgr, payload: { scope: { locationIds: [], instrumentIds: [] }, reason: 'e2e' } });
     const u = await app.inject({ method: 'PUT', url: `/api/roles/instrument-scope/user/${lowUser.id}`, headers: mgr, payload: { scope: { locationIds: [], instrumentIds: [] }, reason: 'e2e' } });
-    const a = await app.inject({ method: 'PUT', url: `/api/roles/attribute-access/${LOW}`, headers: mgr, payload: { mode: 'ALL_VIEW' } });
+    // A reason is required on attribute-access saves since 2026-10-24.
+    const a = await app.inject({ method: 'PUT', url: `/api/roles/attribute-access/${LOW}`, headers: mgr, payload: { mode: 'ALL_VIEW', reason: 'e2e' } });
+    const ua = await app.inject({ method: 'PUT', url: `/api/roles/attribute-access/user/${lowUser.id}`, headers: mgr, payload: { mode: 'ALL_VIEW', reason: 'e2e' } });
     expect(r.statusCode, r.body).toBe(200);
     expect(u.statusCode, u.body).toBe(200);
     expect(a.statusCode, a.body).toBe(200);
+    expect(ua.statusCode, ua.body).toBe(200);
   });
 });
 

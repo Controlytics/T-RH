@@ -11,17 +11,30 @@ import type { RequestContext } from '../../types/context.js';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
+import { roleHasPermission } from '../../plugins/rbac.js';
 import { normalizeScope, resolveVisibility, type InstrumentScope, type ScopeNode, type ScopeSelection } from '../instruments/visibility.js';
 import { normalizeLayout } from '@digilog/shared';
 import { buildCoveringIndex, type FlNode } from '../functional-locations/tree.js';
 import {
   ATTRIBUTE_ACCESS_MODES,
+  effectiveAttributeAccess,
+  type AttributeAccess,
   PANELS,
   PANEL_KEYS,
   normalizePanels,
   parseAttributeAccess,
   parseInstrumentAttributeKeys,
 } from '@digilog/shared';
+
+/** Bounded wording for an attribute rule (`signature_meaning` is VARCHAR(255)). */
+function describeAttributeAccess(next: AttributeAccess | null): string {
+  return (next === null
+    ? 'not configured (inherits Edit Instruments)'
+    : next.mode === 'SELECTED'
+      ? `${next.keys.length} attribute(s) editable`
+      : next.mode === 'ALL_EDIT' ? 'all attributes editable' : 'all attributes view-only')
+    + (next?.requireReauth ? ', password required' : '');
+}
 
 /**
  * Best-effort caller role for the PUBLIC /active endpoint (auth hook skips it,
@@ -798,6 +811,9 @@ export default async function roleRoutes(app: FastifyInstance) {
           mode: { type: 'string', nullable: true, enum: [...ATTRIBUTE_ACCESS_MODES, null] as never },
           keys: { type: 'array', items: { type: 'string' } },
           requireReauth: { type: 'boolean' },
+          // Required (2026-10-24): an access-control change states its reason,
+          // as every other one has since DATA-11.
+          reason: { type: 'string', maxLength: 500 },
         },
       },
     },
@@ -805,9 +821,10 @@ export default async function roleRoutes(app: FastifyInstance) {
     const { ok } = await enforceReauth('UPDATE_ROLE_CONFIG', req, reply);
     if (!ok) return;
     const { name } = req.params as { name: string };
-    const body = req.body as { mode?: string | null; keys?: string[]; requireReauth?: boolean };
+    const body = req.body as { mode?: string | null; keys?: string[]; requireReauth?: boolean; reason?: string };
     const ctx = buildContext(req);
     if (!(await assertCanConfigureRole(ctx, name))) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Role not found.' });
+    const why = requireReason(body.reason, "Changing a role's attribute access");
 
     // Built through the SAME parser the enforcement reads with, so a value this
     // endpoint accepts cannot be one the gate then treats as unconfigured.
@@ -849,24 +866,155 @@ export default async function roleRoutes(app: FastifyInstance) {
 
     // Bounded: `signature_meaning` is VARCHAR(255) and auditLog does not
     // truncate, so a role name plus a key count must not be able to overflow it.
-    const describe = next === null
-      ? 'not configured (inherits Edit Instruments)'
-      : next.mode === 'SELECTED'
-        ? `${next.keys.length} attribute(s) editable`
-        : next.mode === 'ALL_EDIT' ? 'all attributes editable' : 'all attributes view-only';
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole,
       action: 'CONFIG_CHANGED',
       targetType: 'role_config', targetId: name,
       beforeValue: { attributeAccess: before?.attributeAccess ?? null },
       afterValue: { attributeAccess: next },
-      signatureMeaning:
-        `Role "${name.slice(0, 60)}" attribute access set to ${describe}` +
-        (next?.requireReauth ? ', password required' : ''),
+      reason: why,
+      signatureMeaning: `Role "${name.slice(0, 60)}" attribute access set to ${describeAttributeAccess(next)}`,
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     }, tx);
     });
     return { role: name, mode: next?.mode ?? null, keys: next?.keys ?? [], requireReauth: next?.requireReauth ?? false };
+  });
+
+  // GET /attribute-access/users — every enabled user's OWN rule, and the rule
+  // that actually applies to them (2026-10-24, Configuration → Attribute Edit
+  // Access). `effective` is computed HERE, with the same function the gate
+  // uses, so the screen shows the server's answer rather than re-deriving it.
+  app.get('/attribute-access/users', {
+    preHandler: [app.requirePermission('ROLE_MANAGE')],
+    schema: {
+      tags: ['Roles'],
+      summary: "Every user's own instrument attribute access, and the combined rule that applies",
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            users: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  userId: { type: 'string' },
+                  username: { type: 'string' },
+                  fullName: { type: 'string', nullable: true },
+                  role: { type: 'string' },
+                  /** The user's OWN rule; null = none (their role's applies). */
+                  mode: { type: 'string', nullable: true },
+                  keys: { type: 'array', items: { type: 'string' } },
+                  requireReauth: { type: 'boolean' },
+                  // Declared with its inner keys, or Fastify strips them.
+                  effective: {
+                    type: 'object',
+                    properties: {
+                      mode: { type: 'string', nullable: true },
+                      keys: { type: 'array', items: { type: 'string' } },
+                      requireReauth: { type: 'boolean' },
+                    },
+                  },
+                  /** A user rule cannot take effect without Edit Instruments. */
+                  roleHasUpdate: { type: 'boolean' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async () => {
+    const [users, roleCfgs, userCfgs] = await Promise.all([
+      prisma.user.findMany({
+        where: { status: 'ENABLED' },
+        select: { id: true, username: true, fullName: true, role: true },
+        orderBy: { username: 'asc' },
+      }),
+      prisma.roleConfig.findMany({ select: { role: true, attributeAccess: true } }),
+      prisma.userConfig.findMany({ select: { userId: true, attributeAccess: true } }),
+    ]);
+    const roleRule = new Map(roleCfgs.map((c) => [c.role, parseAttributeAccess(c.attributeAccess)]));
+    const userRule = new Map(userCfgs.map((c) => [c.userId, parseAttributeAccess(c.attributeAccess)]));
+    const hasUpdate = new Map<string, boolean>();
+    for (const role of new Set(users.map((u) => u.role))) hasUpdate.set(role, await roleHasPermission(role, 'INSTRUMENT_UPDATE'));
+    return {
+      users: users.map((u) => {
+        const own = userRule.get(u.id) ?? null;
+        const eff = effectiveAttributeAccess(roleRule.get(u.role) ?? null, own);
+        return {
+          userId: u.id, username: u.username, fullName: u.fullName, role: u.role,
+          mode: own?.mode ?? null, keys: own?.keys ?? [], requireReauth: own?.requireReauth ?? false,
+          effective: { mode: eff?.mode ?? null, keys: eff?.keys ?? [], requireReauth: eff?.requireReauth ?? false },
+          roleHasUpdate: hasUpdate.get(u.role) ?? false,
+        };
+      }),
+    };
+  });
+
+  // PUT /attribute-access/user/:userId — one user's OWN rule (2026-10-24),
+  // combined with their role's by the gate. Same protections as the role save:
+  // ROLE_MANAGE, UPDATE_ROLE_CONFIG re-auth, the caller-privilege rule
+  // (`assertCanConfigureUser`, 404 for an unknown user), a reason, and the
+  // write + its audit row in one transaction.
+  app.put('/attribute-access/user/:userId', {
+    preHandler: [app.requirePermission('ROLE_MANAGE')],
+    schema: {
+      tags: ['Roles'],
+      summary: "Set a user's own instrument attribute access (combined with their role's)",
+      params: { type: 'object', properties: { userId: { type: 'string', format: 'uuid' } } },
+      body: {
+        type: 'object',
+        properties: {
+          mode: { type: 'string', nullable: true, enum: [...ATTRIBUTE_ACCESS_MODES, null] as never },
+          keys: { type: 'array', items: { type: 'string' } },
+          requireReauth: { type: 'boolean' },
+          reason: { type: 'string', maxLength: 500 },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_ROLE_CONFIG', req, reply);
+    if (!ok) return;
+    const { userId } = req.params as { userId: string };
+    const body = req.body as { mode?: string | null; keys?: string[]; requireReauth?: boolean; reason?: string };
+    const ctx = buildContext(req);
+    const user = await assertCanConfigureUser(ctx, userId);
+    if (!user) return reply.code(404).send({ error: 'NOT_FOUND', message: 'User not found.' });
+    const why = requireReason(body.reason, "Changing a user's attribute access");
+
+    // The SAME parser the enforcement reads with, as for the role.
+    const next = body.mode === null || body.mode === undefined
+      ? null
+      : parseAttributeAccess({
+          mode: body.mode,
+          keys: body.mode === 'SELECTED' ? (body.keys ?? []) : [],
+          requireReauth: body.requireReauth === true,
+        });
+    if (body.mode && !next) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: `mode must be one of: ${ATTRIBUTE_ACCESS_MODES.join(', ')}` });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const before = await tx.userConfig.findUnique({ where: { userId }, select: { attributeAccess: true } });
+      await tx.userConfig.upsert({
+        where: { userId },
+        // DbNull = a real SQL NULL ("no user rule"), never the JSON value null.
+        create: { userId, attributeAccess: (next as Prisma.InputJsonObject | null) ?? Prisma.DbNull, updatedBy: ctx.userId },
+        update: { attributeAccess: (next as Prisma.InputJsonObject | null) ?? Prisma.DbNull, updatedBy: ctx.userId },
+      });
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole,
+        action: 'CONFIG_CHANGED',
+        targetType: 'user_config', targetId: userId,
+        beforeValue: { attributeAccess: before?.attributeAccess ?? null },
+        afterValue: { attributeAccess: next },
+        reason: why,
+        signatureMeaning: `User "${user.username.slice(0, 60)}" attribute access set to ${describeAttributeAccess(next)}`,
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
+    });
+    return { userId, mode: next?.mode ?? null, keys: next?.keys ?? [], requireReauth: next?.requireReauth ?? false };
   });
 
   app.put('/instrument-scope/user/:userId', {
