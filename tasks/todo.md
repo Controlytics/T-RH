@@ -15,7 +15,9 @@ Backup toggles alone open Backup; no bulk grant; ONE commit at the end.
 - [x] Strip unused permissions from roles (script, dry run, audited; BACKUP_MANAGE → BACKUP_EXPORT); default roles updated
 - [x] Tests (property tests in effective terms, e2e, web) + mutation checks; no-op-save probe on real roles
 - [x] Docs (CHANGELOG, feature note, counts), memory, ONE commit (not pushed)
-- [ ] AWS: after the next deploy run `scripts/strip-unused-permissions.ts` (dry run, then `--apply`) BEFORE anyone saves role permissions
+- [x] AWS deployed `5e49636` (2026-10-24; migrations applied, health 200). Strip DRY RUN reviewed on AWS (ADMIN only).
+- [ ] AWS: `scripts/strip-unused-permissions.ts --apply` — operator to run (refused from here) BEFORE anyone saves role permissions
+- [ ] AWS: then Roles & Access → Permissions → QA → tick "Approve / Reject Reports" (no role on AWS can approve a report today)
 
 ## 2026-10-01 — Report download modes, configured approvers, scoped requests
 
