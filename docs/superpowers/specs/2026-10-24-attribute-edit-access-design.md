@@ -68,7 +68,7 @@ effectiveAttributeAccess(role: AttributeAccess | null, user: AttributeAccess | n
 - New page `apps/web/src/routes/config/attribute-access.tsx`, route `/config/attribute-access` (`RequireRole roles={['SUPER_ADMIN']}`), card in **Super Admin Settings** on the Configuration index.
 - Two tabs:
   - **Roles** — today's editor (moved from `attribute-access-tab.tsx`), plus the reason input.
-  - **Users** — a searchable user picker; for the chosen user: their own rule (Not set / All editable / View only / Selected keys + re-auth), their ROLE's rule shown read-only, the EFFECTIVE result (from the server), and an amber line when `roleHasUpdate` is false ("their role lacks Edit Instruments — this rule cannot take effect").
+  - **Users** — a searchable user picker (EVERY user, with status when not enabled); for the chosen user: their own rule (Not set / All editable / Selected keys + re-auth — **no View only**, see the amendment below), their ROLE's rule shown read-only, the EFFECTIVE result (from the server), and an amber line when `roleHasUpdate` is false ("their role lacks Edit Instruments — this rule cannot take effect").
 - Every save through `useReauth` with the reason; revalidate after.
 - Roles & Access loses the **Attribute Access** tab (the `TabId` and the render line).
 
@@ -90,6 +90,14 @@ effectiveAttributeAccess(role: AttributeAccess | null, user: AttributeAccess | n
 - CHANGELOG; `docs/feature-notes.md` (the Instrument ATTRIBUTE ACCESS note — user layer, combine rule, new location); `docs/recreation/06-api/endpoints.md` (two routes).
 - Counts: config pages 22 → 23, `<Route`s 53 → 54, migrations +1; models / enums / permissions / reauth actions unchanged. Stale-stat sweep over the active doc set.
 - AWS: the migration applies with the next deploy; no data step.
+
+## Amendment after the whole-branch review (2026-10-24)
+
+- **No View only for a USER.** Under "combine" a user ALL_VIEW rule can never restrict anything, yet its audit row read as a restriction. The user editor does not offer it and `PUT …/user/:userId` refuses it (400 VALIDATION_ERROR, naming the way: give the user a View only role).
+- **Re-auth only where a rule grants editing.** Both PUTs store `requireReauth` false on ALL_VIEW, and `effectiveAttributeAccess` counts a side's flag only if that side is not ALL_VIEW — a forgotten flag on a view-only role cannot become a live prompt. "What applies" prints "password required".
+- **Every user is listed, with status** — a rule stored for a user later locked or disabled stays visible and revocable (it applies again when the account returns). The PUT accepts any existing user; 404 only for an unknown id. (Review Focus #4's "disabled → 404" is superseded.)
+- **A user's rule survives a role change** — the Users tab says so beside every user rule; nothing clears it automatically.
+- The page stays SUPER_ADMIN-only while the API keeps `ROLE_MANAGE` (as approved): ADMIN, which could use the old Roles & Access tab, no longer has the screen.
 
 ## Out of scope
 

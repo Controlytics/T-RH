@@ -163,4 +163,38 @@ describe('per-USER attribute access (2026-10-24)', () => {
     expect((await putUser(ghost, { mode: 'ALL_EDIT', reason: 'e2e' })).statusCode).toBe(404);
     expect(await prisma.userConfig.count({ where: { userId: ghost } })).toBe(0);
   });
+
+  // Review fixes (2026-10-24).
+  it('lists a NON-enabled user too, with their status, so a stored rule never vanishes from the page', async () => {
+    const id = await operatorId();
+    await putUser(id, { mode: 'ALL_EDIT', reason: 'e2e' });
+    await prisma.user.update({ where: { id }, data: { status: 'DISABLED' } });
+    try {
+      const row = (await app.inject({ method: 'GET', url: '/api/roles/attribute-access/users', headers: auth })).json().users
+        .find((u: { userId: string }) => u.userId === id);
+      expect(row).toMatchObject({ status: 'DISABLED', mode: 'ALL_EDIT' });
+    } finally {
+      await prisma.user.update({ where: { id }, data: { status: 'ENABLED' } });
+    }
+  });
+
+  it('refuses a user ALL_VIEW rule — under "combine" it could restrict nothing', async () => {
+    const res = await putUser(await operatorId(), { mode: 'ALL_VIEW', reason: 'e2e' });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('VALIDATION_ERROR');
+  });
+
+  it('a user rule keeps its re-auth switch only where it grants editing', async () => {
+    const id = await operatorId();
+    await putUser(id, { mode: 'SELECTED', keys: ['Room'], requireReauth: true, reason: 'e2e' });
+    const cfg = await prisma.userConfig.findUnique({ where: { userId: id }, select: { attributeAccess: true } });
+    expect(cfg?.attributeAccess).toMatchObject({ requireReauth: true });
+  });
+});
+
+describe('a VIEW-ONLY role never stores a re-auth switch (review fix, 2026-10-24)', () => {
+  it('role ALL_VIEW with requireReauth true is stored with requireReauth false', async () => {
+    expect((await put({ mode: 'ALL_VIEW', requireReauth: true })).statusCode).toBe(200);
+    expect(await roleRow()).toMatchObject({ mode: 'ALL_VIEW', requireReauth: false });
+  });
 });

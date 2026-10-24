@@ -159,4 +159,11 @@ describe('effectiveAttributeAccess — a user rule COMBINED with the role rule (
     expect(canEditAttributeKey(eff, 'Room', false)).toBe(false);
     expect(canEditAttributeKey(eff, 'Room', true)).toBe(true);
   });
+
+  // Review fix (2026-10-24): a re-auth flag stored on an ALL_VIEW rule was
+  // inert before user rules existed; combining must not bring it to life.
+  it('a re-auth flag on a VIEW-ONLY rule is never carried into the combined rule', () => {
+    expect(effectiveAttributeAccess(rule('ALL_VIEW', [], true), rule('SELECTED', ['b']))?.requireReauth).toBe(false);
+    expect(effectiveAttributeAccess(rule('SELECTED', ['a']), rule('ALL_VIEW', [], true))?.requireReauth).toBe(false);
+  });
 });

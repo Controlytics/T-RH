@@ -12,8 +12,10 @@ import { MemoryRouter } from 'react-router-dom';
  */
 const ROLES = { roles: [{ role: 'QA', mode: 'ALL_VIEW', keys: [], requireReauth: false, canUpdateInstruments: false }], availableKeys: ['Room', 'Area'] };
 const USERS = { users: [
-  { userId: 'u1', username: '333333', fullName: 'Q A', role: 'QA', mode: null, keys: [], requireReauth: false,
+  { userId: 'u1', username: '333333', fullName: 'Q A', role: 'QA', status: 'ENABLED', mode: null, keys: [], requireReauth: false,
     effective: { mode: 'ALL_VIEW', keys: [], requireReauth: false }, roleHasUpdate: false },
+  { userId: 'u2', username: '444444', fullName: 'Lead', role: 'QA', status: 'LOCKED', mode: 'SELECTED', keys: ['Room'], requireReauth: true,
+    effective: { mode: 'SELECTED', keys: ['Room'], requireReauth: true }, roleHasUpdate: true },
 ] };
 vi.mock('swr', () => ({
   default: (key: string) => ({
@@ -41,10 +43,10 @@ vi.mock('@/hooks/use-attribute-labels', () => ({ useAttributeLabels: () => ({ la
 
 const { AttributeAccessConfigPage } = await import('../attribute-access');
 const mount = () => render(<MemoryRouter><AttributeAccessConfigPage /></MemoryRouter>);
-const openUser = async () => {
+const openUser = async (who = /333333/) => {
   fireEvent.click(screen.getByRole('tab', { name: 'Users' }));
   fireEvent.click(screen.getByRole('button', { name: /select a user/i }));
-  fireEvent.click(await screen.findByText(/333333/));
+  fireEvent.click(await screen.findByText(who));
 };
 
 beforeEach(() => { put.mockClear(); toastError.mockClear(); executed.length = 0; });
@@ -76,5 +78,29 @@ describe('Configuration → Attribute Edit Access', () => {
     await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
     expect(put).toHaveBeenCalledWith('/api/roles/attribute-access/user/u1', { mode: 'ALL_EDIT', keys: [], requireReauth: false, reason: 'QA lead edits limits' });
     expect(executed).toEqual(['UPDATE_ROLE_CONFIG']);
+  });
+
+  // Review fixes (2026-10-24).
+  it('offers no "All view-only" for a user — under "combine" it would restrict nothing', async () => {
+    mount();
+    await openUser();
+    expect(screen.queryByLabelText('All view-only')).toBeNull();
+    expect(screen.getByLabelText('All editable')).toBeInTheDocument();
+  });
+
+  it('a locked user is listed with their status; what applies says when a password is required; the role-change warning shows', async () => {
+    mount();
+    fireEvent.click(screen.getByRole('tab', { name: 'Users' }));
+    fireEvent.click(screen.getByRole('button', { name: /select a user/i }));
+    expect(await screen.findByText(/444444.*LOCKED/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText(/444444.*LOCKED/));
+    expect(screen.getByTestId('user-effective-rule')).toHaveTextContent('password required');
+    expect(screen.getByTestId('user-rule-survives-role')).toBeInTheDocument();
+  });
+
+  it('no role-change warning for a user with no rule of their own', async () => {
+    mount();
+    await openUser();
+    expect(screen.queryByTestId('user-rule-survives-role')).toBeNull();
   });
 });

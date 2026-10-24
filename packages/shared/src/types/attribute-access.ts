@@ -128,7 +128,10 @@ export function attributeWriteNeedsReauth(access: AttributeAccess | null): boole
  *   ALL_VIEW and ALL_VIEW   → ALL_VIEW
  *   otherwise               → SELECTED, the union of both key lists
  *
- * `requireReauth` is either side's: combining never drops a safety prompt.
+ * `requireReauth` is either side's: combining never drops a safety prompt —
+ * but only from a side that GRANTS editing. A flag stored on an ALL_VIEW rule
+ * guarded nothing before user rules existed; carrying it into a combined rule
+ * would raise a password prompt nobody can see the source of (review fix).
  * Edit Instruments is still required — `canEditAttributeKey` takes it apart
  * from this rule and refuses without it, whatever is combined here.
  */
@@ -137,7 +140,8 @@ export function effectiveAttributeAccess(
   user: AttributeAccess | null,
 ): AttributeAccess | null {
   if (!user) return role;
-  const requireReauth = (role?.requireReauth ?? false) || user.requireReauth;
+  const asks = (r: AttributeAccess | null) => !!r && r.mode !== 'ALL_VIEW' && r.requireReauth;
+  const requireReauth = asks(role) || asks(user);
   if (!role || role.mode === 'ALL_EDIT' || user.mode === 'ALL_EDIT') {
     return { mode: 'ALL_EDIT', keys: [], requireReauth };
   }

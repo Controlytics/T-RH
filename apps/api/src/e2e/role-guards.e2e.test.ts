@@ -191,7 +191,7 @@ describe('finding 6 — scope and attribute-access writes respect the caller\'s 
     const u = await app.inject({ method: 'PUT', url: `/api/roles/instrument-scope/user/${lowUser.id}`, headers: mgr, payload: { scope: { locationIds: [], instrumentIds: [] }, reason: 'e2e' } });
     // A reason is required on attribute-access saves since 2026-10-24.
     const a = await app.inject({ method: 'PUT', url: `/api/roles/attribute-access/${LOW}`, headers: mgr, payload: { mode: 'ALL_VIEW', reason: 'e2e' } });
-    const ua = await app.inject({ method: 'PUT', url: `/api/roles/attribute-access/user/${lowUser.id}`, headers: mgr, payload: { mode: 'ALL_VIEW', reason: 'e2e' } });
+    const ua = await app.inject({ method: 'PUT', url: `/api/roles/attribute-access/user/${lowUser.id}`, headers: mgr, payload: { mode: 'SELECTED', keys: ['Room'], reason: 'e2e' } });
     expect(r.statusCode, r.body).toBe(200);
     expect(u.statusCode, u.body).toBe(200);
     expect(a.statusCode, a.body).toBe(200);

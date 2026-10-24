@@ -149,7 +149,9 @@ export function AttributeAccessTab() {
                     type="radio"
                     name={`mode-${r.role}`}
                     checked={now.mode === m}
-                    onChange={() => edit(r.role, { mode: m })}
+                    // View only guards nothing, so it carries no password switch —
+                    // never send a flag the disabled checkbox hides (review fix).
+                    onChange={() => edit(r.role, m === 'ALL_VIEW' ? { mode: m, requireReauth: false } : { mode: m })}
                   className="ctl-radio" />
                   {m === null ? 'Not configured' : MODE_LABEL[m]}
                 </label>

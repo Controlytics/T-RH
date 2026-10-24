@@ -838,7 +838,10 @@ export default async function roleRoutes(app: FastifyInstance) {
           // Enforced HERE and not only in the tab: a client-side tidy-up is not a
           // rule, it is a habit the next caller does not have.
           keys: body.mode === 'SELECTED' ? (body.keys ?? []) : [],
-          requireReauth: body.requireReauth === true,
+          // Dropped on ALL_VIEW for the same reason as the keys (review fix,
+          // 2026-10-24): it guards nothing there, and a user rule combined with
+          // this role would otherwise bring a forgotten flag to life.
+          requireReauth: body.mode !== 'ALL_VIEW' && body.requireReauth === true,
         });
     if (body.mode && !next) {
       return reply.code(400).send({
@@ -902,6 +905,7 @@ export default async function roleRoutes(app: FastifyInstance) {
                   username: { type: 'string' },
                   fullName: { type: 'string', nullable: true },
                   role: { type: 'string' },
+                  status: { type: 'string' },
                   /** The user's OWN rule; null = none (their role's applies). */
                   mode: { type: 'string', nullable: true },
                   keys: { type: 'array', items: { type: 'string' } },
@@ -926,9 +930,11 @@ export default async function roleRoutes(app: FastifyInstance) {
     },
   }, async () => {
     const [users, roleCfgs, userCfgs] = await Promise.all([
+      // EVERY user, not only enabled ones (review fix): a rule stored for a user
+      // who is later locked or disabled must stay visible and revocable — it
+      // applies again the moment the account comes back.
       prisma.user.findMany({
-        where: { status: 'ENABLED' },
-        select: { id: true, username: true, fullName: true, role: true },
+        select: { id: true, username: true, fullName: true, role: true, status: true },
         orderBy: { username: 'asc' },
       }),
       prisma.roleConfig.findMany({ select: { role: true, attributeAccess: true } }),
@@ -943,7 +949,7 @@ export default async function roleRoutes(app: FastifyInstance) {
         const own = userRule.get(u.id) ?? null;
         const eff = effectiveAttributeAccess(roleRule.get(u.role) ?? null, own);
         return {
-          userId: u.id, username: u.username, fullName: u.fullName, role: u.role,
+          userId: u.id, username: u.username, fullName: u.fullName, role: u.role, status: u.status,
           mode: own?.mode ?? null, keys: own?.keys ?? [], requireReauth: own?.requireReauth ?? false,
           effective: { mode: eff?.mode ?? null, keys: eff?.keys ?? [], requireReauth: eff?.requireReauth ?? false },
           roleHasUpdate: hasUpdate.get(u.role) ?? false,
@@ -982,6 +988,15 @@ export default async function roleRoutes(app: FastifyInstance) {
     const user = await assertCanConfigureUser(ctx, userId);
     if (!user) return reply.code(404).send({ error: 'NOT_FOUND', message: 'User not found.' });
     const why = requireReason(body.reason, "Changing a user's attribute access");
+    // A user rule COMBINES with the role's and can only ADD editing, so View
+    // only would restrict nothing — while the audit row would read as a
+    // restriction (review fix, 2026-10-24). Refused, naming the way to do it.
+    if (body.mode === 'ALL_VIEW') {
+      return reply.code(400).send({
+        error: 'VALIDATION_ERROR',
+        message: "A user's own rule can only add editing, so View only would change nothing. To stop a user editing, give them a role whose rule is View only.",
+      });
+    }
 
     // The SAME parser the enforcement reads with, as for the role.
     const next = body.mode === null || body.mode === undefined

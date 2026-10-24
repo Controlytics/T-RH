@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import useSWR from 'swr';
-import { ATTRIBUTE_ACCESS_MODES, type AttributeAccessMode } from '@digilog/shared';
+import { type AttributeAccessMode } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
@@ -16,6 +16,8 @@ interface UserRow extends Rule {
   username: string;
   fullName: string | null;
   role: string;
+  /** ENABLED / LOCKED / DISABLED … — every user is listed, so a rule never hides. */
+  status: string;
   /** The rule that applies — computed by the SERVER, never re-derived here. */
   effective: Rule;
   /** Without Edit Instruments the user can change no attribute, whatever is set. */
@@ -23,9 +25,12 @@ interface UserRow extends Rule {
 }
 interface RoleRow extends Rule { role: string }
 
-const describeRule = (r: Rule) => (r.mode === null
-  ? 'Not configured (Edit Instruments decides)'
-  : r.mode === 'SELECTED' ? `${MODE_LABEL.SELECTED}: ${r.keys.join(', ') || 'none'}` : MODE_LABEL[r.mode]);
+/**
+ * A user's own rule can only ADD editing (it is combined with the role's), so
+ * View only is not offered — it would restrict nothing while reading as a
+ * restriction; the server refuses it too (review fix, 2026-10-24).
+ */
+const USER_MODES: (AttributeAccessMode | null)[] = [null, 'ALL_EDIT', 'SELECTED'];
 
 /**
  * One USER's own attribute rule (2026-10-24, operator: "configurable role
@@ -56,9 +61,20 @@ export function UserAttributeAccess() {
   const availableKeys = rolesData?.availableKeys ?? [];
   const now: Rule | null = user ? (draft ?? { mode: user.mode, keys: user.keys, requireReauth: user.requireReauth }) : null;
   const options = useMemo(
-    () => users.map((u) => ({ value: u.userId, label: `${u.username}${u.fullName ? ` — ${u.fullName}` : ''} (${u.role})` })),
+    () => users.map((u) => ({
+      value: u.userId,
+      label: `${u.username}${u.fullName ? ` — ${u.fullName}` : ''} (${u.role}${u.status !== 'ENABLED' ? `, ${u.status}` : ''})`,
+    })),
     [users],
   );
+
+  // Display names only on screen (operator); the stored KEY rides in nothing here.
+  const describeRule = (r: Rule) => (r.mode === null
+    ? 'Not configured (Edit Instruments decides)'
+    : r.mode === 'SELECTED'
+      ? `${MODE_LABEL.SELECTED}: ${r.keys.map(labelFor).join(', ') || 'none'}`
+      : MODE_LABEL[r.mode])
+    + (r.mode !== null && r.mode !== 'ALL_VIEW' && r.requireReauth ? ' — password required' : '');
 
   const pick = (id: string) => { setUserId(id); setDraft(null); setReason(''); };
   const edit = (patch: Partial<Rule>) => { if (now) setDraft({ ...now, ...patch }); };
@@ -121,6 +137,13 @@ export function UserAttributeAccess() {
               <dd data-testid="user-effective-rule" className="font-semibold text-slate-800">{describeRule(user.effective)}</dd>
             </div>
           </dl>
+          {user.mode !== null && (
+            // Review fix: moving someone to a stricter role does not remove
+            // their own rule, which goes on combining with the new role.
+            <p data-testid="user-rule-survives-role" className="text-xs text-slate-600">
+              This rule stays if their role changes — review it whenever you change their role.
+            </p>
+          )}
           {!user.roleHasUpdate && (
             <p data-testid="user-rule-no-update" className="text-xs text-amber-700">
               Their role has no Edit Instruments permission, so this user can change no attribute whatever is set here.
@@ -128,9 +151,13 @@ export function UserAttributeAccess() {
           )}
 
           <div className="flex flex-wrap gap-4">
-            {([null, ...ATTRIBUTE_ACCESS_MODES] as (AttributeAccessMode | null)[]).map((m) => (
+            {USER_MODES.map((m) => (
               <label key={String(m)} className="flex items-center gap-2 text-sm text-slate-700">
-                <input type="radio" name="user-attr-mode" className="ctl-radio" checked={now.mode === m} onChange={() => edit({ mode: m })} />
+                <input
+                  type="radio" name="user-attr-mode" className="ctl-radio" checked={now.mode === m}
+                  // No rule = nothing to ask a password for; never send a hidden flag.
+                  onChange={() => edit(m === null ? { mode: m, requireReauth: false } : { mode: m })}
+                />
                 {m === null ? 'No rule of their own' : MODE_LABEL[m]}
               </label>
             ))}
@@ -155,7 +182,7 @@ export function UserAttributeAccess() {
             <input
               type="checkbox" className="ctl-check"
               checked={now.requireReauth}
-              disabled={now.mode === null || now.mode === 'ALL_VIEW'}
+              disabled={now.mode === null}
               onChange={(e) => edit({ requireReauth: e.target.checked })}
             />
             Ask for this user&apos;s password on every attribute change

@@ -31,6 +31,15 @@ plan `docs/superpowers/plans/2026-10-24-attribute-edit-access.md`.
 - Counts: config pages 22 → 23, `<Route>`s 53 → 54; models / enums /
   permissions / reauth actions unchanged.
 
+**After the whole-branch review (same day):** a USER rule cannot be View only
+(under combine it restricts nothing, yet its audit row read as a restriction —
+refused 400, not offered); `requireReauth` is stored and counted only on a rule
+that grants editing (a forgotten flag on a View only role cannot come alive);
+the Users tab lists every user with status (a rule on a locked account stays
+visible) and says that a user's rule survives a role change; "What applies"
+prints "password required" and display names. Page stays SUPER_ADMIN-only —
+ADMIN, which had the old Roles & Access tab, no longer has the screen.
+
 Tests: shared `attribute-access.test.ts` (+7, the combination table), new
 `e2e/user-attribute-access.e2e.test.ts` (4: union, `/me` = the gate, role not
 configured, Edit Instruments still required), `role-attribute-access.e2e.test.ts`

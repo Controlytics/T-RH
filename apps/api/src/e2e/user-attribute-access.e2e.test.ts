@@ -133,4 +133,27 @@ describe('a user rule is COMBINED with the role rule', () => {
       invalidateRolePermsCache(ROLE);
     }
   });
+
+  // Review fixes (2026-10-24): the screen's half of "needs Edit Instruments",
+  // and a user's re-auth switch honoured where the role has no rule.
+  it('the users list says roleHasUpdate=false for a user whose role lacks Edit Instruments', async () => {
+    const admin = { authorization: `Bearer ${await loginAs(app)}` };
+    await prisma.role.update({ where: { name: ROLE }, data: { permissions: ['INSTRUMENT_READ'] } });
+    invalidateRolePermsCache(ROLE);
+    try {
+      const rows = (await app.inject({ method: 'GET', url: '/api/roles/attribute-access/users', headers: admin })).json().users;
+      expect(rows.find((u: { userId: string }) => u.userId === ids.A)).toMatchObject({ roleHasUpdate: false });
+    } finally {
+      await prisma.role.update({ where: { name: ROLE }, data: { permissions: ['INSTRUMENT_READ', 'INSTRUMENT_UPDATE'] } });
+      invalidateRolePermsCache(ROLE);
+    }
+    const rows = (await app.inject({ method: 'GET', url: '/api/roles/attribute-access/users', headers: admin })).json().users;
+    expect(rows.find((u: { userId: string }) => u.userId === ids.A)).toMatchObject({ roleHasUpdate: true });
+  });
+
+  it("role not configured + a user rule asking for a password: /me says a password is required", async () => {
+    await setRoleRule(null);
+    await setUserRule(ids.B, { mode: 'SELECTED', keys: [], requireReauth: true });
+    expect(await me('B')).toMatchObject({ mode: 'ALL_EDIT', requireReauth: true });
+  });
 });
