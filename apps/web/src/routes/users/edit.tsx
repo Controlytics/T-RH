@@ -1,3 +1,4 @@
+import { hasEffectivePermission } from '@digilog/shared';
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
@@ -45,8 +46,8 @@ export function EditUserPage() {
   // hitting the 403. Now each action is gated to match the BE.
   const perms: string[] = (currentUser?.permissions as string[] | undefined) ?? [];
   const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
-  const canEdit = isSuperAdmin || perms.includes('USER_UPDATE');
-  const canResetPassword = isSuperAdmin || perms.includes('USER_RESET_PASSWORD');
+  const canEdit = isSuperAdmin || hasEffectivePermission(perms, 'USER_UPDATE');
+  const canResetPassword = isSuperAdmin || hasEffectivePermission(perms, 'USER_RESET_PASSWORD');
   const [error, setError] = useState('');
   const [tempPasswordDialog, setTempPasswordDialog] = useState(false);
   const [generatedPassword, setGeneratedPassword] = useState('');

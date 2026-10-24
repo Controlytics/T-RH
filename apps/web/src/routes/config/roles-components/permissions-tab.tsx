@@ -44,7 +44,7 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
     const reauth = useReauth();
 
     // Load role config — contract: SWR /api/config/roles/${role} → data.permissions
-    const { data: roleConfig, isLoading: permLoading } = useSWR(
+    const { data: roleConfig, isLoading: permLoading, mutate: reloadRoleConfig } = useSWR(
       `/api/config/roles/${permSelectedRole}`,
       { onSuccess: (data) => { setPermissions(data.permissions || {}); setPermDirty(false); } }
     );
@@ -70,14 +70,17 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
         else await apiClient.put(`/api/config/roles/${permSelectedRole}`, body);
         done = true;
       }, {
-        onSuccess: () => { setPermDirty(false); setReason(''); setPermSaving(false); },
+        // Re-read the SERVER's toggles: they are derived from what the role now
+        // holds, so a toggle sharing a grant set (Settings Edit and Edit
+        // Instruments are both INSTRUMENT_UPDATE) shows its real state.
+        onSuccess: () => { setPermDirty(false); setReason(''); setPermSaving(false); void reloadRoleConfig(); },
         onError: (error: unknown) => {
           toast.error('Save Failed', (error as { message?: string })?.message || 'Failed to save permissions');
           setPermSaving(false);
         },
         onCancel: () => setPermSaving(false),
       });
-    }, [permSelectedRole, permissions, reason, reauth, toast]);
+    }, [permSelectedRole, permissions, reason, reauth, toast, reloadRoleConfig]);
 
     useEffect(() => {
       onStateChange({ dirty: permDirty, saving: permSaving });

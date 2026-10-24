@@ -24,6 +24,7 @@
  */
 
 import type { Permission } from './permissions.js';
+import { hasEffectivePermission } from './permissions.js';
 import type { ReauthAction } from './reauth-actions.js';
 import type { FeaturePrivilege } from './feature-privileges.js';
 import type { SidebarSection } from './sidebar-privilege-map.js';
@@ -102,15 +103,19 @@ export const PERMISSION_TREE: SidebarGroup[] = [
       { id: 'dashboard.view', label: 'View Dashboards', sidebarId: 'dashboard', page: 'Dashboard', action: 'View',
         icon: 'layout', category: 'Dashboards', permissions: ['DASHBOARD_VIEW'], enforce: 'b',
         gate: ['DASHBOARD_VIEW'], configurable: true },
+      // NOT on the Permissions tab since 2026-10-24: they gate only the parked
+      // `/api/dashboards` module, which no screen calls, so a toggle here did
+      // nothing a role could see. Their permissions were stripped from every
+      // role (`scripts/strip-unused-permissions.ts`).
       { id: 'dashboard.create', label: 'Create Dashboards', sidebarId: 'dashboard', page: 'Dashboard', action: 'Create',
         icon: 'plus', category: 'Dashboards', permissions: ['DASHBOARD_CREATE', 'DASHBOARD_VIEW'], enforce: 'b',
-        gate: ['DASHBOARD_CREATE'], configurable: true },
+        gate: ['DASHBOARD_CREATE'] },
       { id: 'dashboard.manage', label: 'Manage Dashboards', sidebarId: 'dashboard', page: 'Dashboard', action: 'Manage',
         icon: 'settings', category: 'Dashboards', permissions: ['DASHBOARD_MANAGE', 'DASHBOARD_VIEW'], enforce: 'c',
-        gate: ['DASHBOARD_MANAGE'], configurable: true },
+        gate: ['DASHBOARD_MANAGE'] },
       { id: 'dashboard.assign', label: 'Assign Dashboards', sidebarId: 'dashboard', page: 'Dashboard', action: 'Assign',
         icon: 'link', category: 'Dashboards', permissions: ['DASHBOARD_ASSIGN', 'DASHBOARD_VIEW'], enforce: 'b',
-        gate: ['DASHBOARD_ASSIGN'], configurable: true },
+        gate: ['DASHBOARD_ASSIGN'] },
     ],
   },
 
@@ -128,10 +133,12 @@ export const PERMISSION_TREE: SidebarGroup[] = [
       { id: 'users.edit', label: 'Edit Users', sidebarId: 'users', page: 'Users', action: 'Edit',
         icon: 'user-edit', category: 'User Management', permissions: ['USER_UPDATE', 'USER_READ'], enforce: 'a',
         gate: ['USER_UPDATE'], configurable: true },
+      // SUPER_ADMIN only (route `requireSuperAdmin`, M3 2026-06-30), so NOT on the
+      // Permissions tab since 2026-10-24 — the toggle could never take effect.
       { id: 'users.delete', label: 'Delete Users', sidebarId: 'users', page: 'Users', action: 'Delete',
         icon: 'user-minus', category: 'User Management', permissions: ['USER_DELETE', 'USER_READ'],
         reauthAction: 'DELETE_USER', enforce: 'b',
-        gate: [], configurable: true },
+        gate: [] },
       { id: 'users.enable_disable', label: 'Enable/Disable Accounts', sidebarId: 'users', page: 'Users', action: 'Enable/Disable',
         icon: 'toggle', category: 'User Management', permissions: ['USER_ENABLE_DISABLE', 'USER_READ'], enforce: 'a',
         gate: ['USER_ENABLE_DISABLE'], configurable: true },
@@ -167,7 +174,9 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   // ---- Configuration ----
   {
     sidebarId: 'configuration', label: 'Configuration', icon: '⚙️', description: 'System settings',
-    visibilityPrivilegeIds: ['config.view', 'config.edit'],
+    // The Backup toggles open Configuration → Backup on their own (2026-10-24,
+    // operator), so they show the menu too — without granting CONFIG_READ.
+    visibilityPrivilegeIds: ['config.view', 'config.edit', 'backup.export', 'backup.restore'],
     nodes: [
       { id: 'config.view', label: 'View Configuration', sidebarId: 'configuration', page: 'Configuration', action: 'View',
         icon: 'settings', category: 'System', permissions: ['CONFIG_READ'], enforce: 'a',
@@ -175,9 +184,11 @@ export const PERMISSION_TREE: SidebarGroup[] = [
       { id: 'config.edit', label: 'Edit Configuration', sidebarId: 'configuration', page: 'Configuration', action: 'Edit',
         icon: 'settings-edit', category: 'System', permissions: ['CONFIG_UPDATE', 'CONFIG_READ'], enforce: 'a',
         gate: ['CONFIG_UPDATE'], configurable: true },
+      // Its screen is a tab of Display Settings, which is SUPER_ADMIN only, so NOT
+      // on the Permissions tab since 2026-10-24 — the toggle could never take effect.
       { id: 'config.field_ids', label: 'Update Field Labels', sidebarId: 'configuration', page: 'Configuration', action: 'Edit Field Labels',
         icon: 'tag', category: 'System', permissions: ['FIELD_ID_UPDATE', 'CONFIG_READ'], enforce: 'a',
-        gate: ['FIELD_ID_UPDATE'], configurable: true },
+        gate: ['FIELD_ID_UPDATE'] },
       { id: 'roles.manage', label: 'Manage Roles', sidebarId: 'configuration', page: 'Roles & Access', action: 'Manage',
         icon: 'shield', category: 'System', permissions: ['ROLE_MANAGE'], enforce: 'a',
         gate: ['ROLE_MANAGE'], configurable: true },
@@ -214,16 +225,9 @@ export const PERMISSION_TREE: SidebarGroup[] = [
       { id: 'roles.configure_reauth', label: 'Configure Role Re-auth', sidebarId: 'configuration', page: 'Roles & Access', action: 'Configure Re-auth',
         icon: 'lock', category: 'System', permissions: ['CONFIG_UPDATE'], enforce: 'b',
         gate: ['ROLE_MANAGE'] },
-      // Alarm Rules is a Configuration PAGE, so its nodes belong to this group rather
-      // than to the Alarms sidebar group - otherwise granting rule management would
-      // light up the Alarms sidebar item, which is a different capability. Managing a
-      // rule implies reading rules: a page you may write but not read is unusable.
-      { id: 'alarm_rules.view', label: 'View Alarm Rules', sidebarId: 'configuration', page: 'Alarm Rules', action: 'View',
-        icon: 'bell', category: 'Alarms', permissions: ['ALARM_RULE_READ'], enforce: 'a',
-        gate: ['ALARM_RULE_READ'], configurable: true },
-      { id: 'alarm_rules.manage', label: 'Create / Edit / Delete Alarm Rules', sidebarId: 'configuration', page: 'Alarm Rules', action: 'Manage',
-        icon: 'settings-edit', category: 'Alarms', permissions: ['ALARM_RULE_MANAGE', 'ALARM_RULE_READ'], enforce: 'a',
-        gate: ['ALARM_RULE_MANAGE'], reauthAction: 'MANAGE_ALARM_RULE', configurable: true },
+      // The Alarm Rules nodes were REMOVED 2026-10-24: the feature went 2026-08-31
+      // and the two toggles granted exactly what the Alarm Webhooks pair below
+      // grants, so the tab offered one capability under two names.
       // Alarm Webhooks is a Configuration PAGE, like Alarm Rules — its nodes belong to
       // this group so granting them does not light up the Alarms sidebar item, which is
       // a different capability. No new PERMISSION: a role that can decide when an alarm
@@ -468,15 +472,15 @@ export const PERMISSION_TREE: SidebarGroup[] = [
  * Used by deriveFeaturePrivileges() to produce order-stable output.
  */
 const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
-  'users.create', 'users.view', 'users.edit', 'users.delete', 'users.enable_disable', 'users.unlock', 'users.reset_password',
-  'config.view', 'config.edit', 'config.field_ids', 'roles.manage', 'notifications.view', 'notifications.delete', 'audit.view', 'audit.export', 'audit.delete',
-  'dashboard.view', 'dashboard.create', 'dashboard.manage', 'dashboard.assign',
+  'users.create', 'users.view', 'users.edit', 'users.enable_disable', 'users.unlock', 'users.reset_password',
+  'config.view', 'config.edit', 'roles.manage', 'notifications.view', 'notifications.delete', 'audit.view', 'audit.export', 'audit.delete',
+  'dashboard.view',
   'admin_requests.approve', 'admin_requests.reject',
   'debug.view', 'debug.manage',
   'backup.export', 'backup.restore',
   'instruments.view', 'instruments.create', 'instruments.edit', 'instruments.delete',
   'functional_locations.view', 'functional_locations.create', 'functional_locations.edit', 'functional_locations.delete',
-  'alarm_rules.view', 'alarm_rules.manage', 'alarm_webhooks.view', 'alarm_webhooks.manage', 'alarms.view', 'alarms.acknowledge',
+  'alarm_webhooks.view', 'alarm_webhooks.manage', 'alarms.view', 'alarms.acknowledge',
   'data_report.view',
   'reports.view', 'reports.approve',
   'settings.view', 'settings.edit',
@@ -517,6 +521,60 @@ export function deriveFeatureToPermissionMap(
     if (node) out[node.id] = [...node.permissions];
   }
   return out;
+}
+
+/**
+ * The INVERSE of `deriveFeatureToPermissionMap`: which Permissions-tab toggles
+ * a role's stored permission array actually satisfies. The tab shows this, so a
+ * toggle reads ON only when the role can really do that thing.
+ *
+ * ON iff the role holds the node's GATE — the same rule `useCan()` applies to
+ * the button and the rule `requirePermission` applies at the route. A node with
+ * no gate (SA-only, e.g. `users.delete`) is ON iff the role holds every one of
+ * its OWN permissions — those that are not another node's gate (USER_DELETE,
+ * not its USER_READ dependency). Requiring the dependency too would read a
+ * role holding USER_DELETE alone as OFF, and its next save would revoke it.
+ *
+ * NEVER "any of the node's `permissions`" — that set includes the READ
+ * dependency, so a role holding only INSTRUMENT_READ read as holding Create,
+ * Edit and Delete Instruments, and only AUDIT_READ as holding Delete Audit
+ * Record. Until 2026-10-24 the tab showed exactly that, and the tab SENDS ITS
+ * WHOLE MAP on save: the first save of any change granted every falsely-ON
+ * node for real. The property pinned in `permission-tree.test.ts`: saving the
+ * displayed toggles adds only the dependency of a capability the role already
+ * holds, and never drops a permission the role holds.
+ */
+export function privilegeTogglesFromPermissions(
+  held: readonly string[],
+  tree: SidebarGroup[] = PERMISSION_TREE,
+): Record<string, boolean> {
+  // `hasEffectivePermission` — the server's own rule (X_MANAGE covers
+  // X_CREATE / _UPDATE / _DELETE / _VIEW / _READ / _EXPORT; X_READ covers
+  // X_VIEW), so the tab says what the API will actually allow.
+  const has = (p: string) => hasEffectivePermission(held, p);
+  const allNodes = tree.flatMap(g => g.nodes);
+  const out: Record<string, boolean> = {};
+  for (const id of CONFIGURABLE_PRIVILEGE_ORDER) {
+    const node = allNodes.find(n => n.id === id && n.configurable === true);
+    if (!node) continue;
+    const primary = primaryPermissionsOf(node, allNodes);
+    out[node.id] = node.gate.length > 0
+      ? primary.some(has)
+      : primary.length > 0 && primary.every(has);
+  }
+  return out;
+}
+
+/**
+ * What a node is ABOUT, as opposed to what it drags in: its gate, or for a
+ * gateless node the permissions it grants that are no other node's gate.
+ * Exported for the property test of `privilegeTogglesFromPermissions`.
+ */
+export function primaryPermissionsOf(node: PermissionNode, allNodes: PermissionNode[] = PERMISSION_TREE.flatMap(g => g.nodes)): string[] {
+  if (node.gate.length > 0) return [...node.gate];
+  const otherGates = new Set<string>(allNodes.filter(n => n.id !== node.id).flatMap(n => n.gate));
+  const own = node.permissions.filter(p => !otherGates.has(p));
+  return own.length > 0 ? own : [...node.permissions];
 }
 
 /**

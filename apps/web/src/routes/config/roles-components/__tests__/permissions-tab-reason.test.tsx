@@ -49,7 +49,7 @@ type Handle = { save: () => Promise<void> };
 
 const ROLES = [{ name: 'OPERATOR', displayName: 'Operator', hierarchyLevel: 50, isActive: true, isSystem: false, permissions: [], description: '' }];
 
-beforeEach(() => { notified.clear(); put.mockClear(); putWithReauth.mockClear(); toastError.mockClear(); executed.length = 0; withPassword.current = false; });
+beforeEach(() => { notified.clear(); put.mockClear(); putWithReauth.mockClear(); toastError.mockClear(); mutate.mockClear(); executed.length = 0; withPassword.current = false; });
 
 const renderTab = () => {
   const ref = createRef<Handle>();
@@ -93,5 +93,18 @@ describe('PermissionsTab — the reason and the re-auth', () => {
     expect(body.reason).toBe('granting the dashboard');
     expect(pw).toBe('pw');
     expect(put).not.toHaveBeenCalled();
+  });
+
+  // 2026-10-24: the server derives the toggles from what the role HOLDS, so
+  // after a save the tab re-reads them rather than keeping its own guess
+  // (Settings Edit and Edit Instruments share one grant, for example).
+  it('re-reads the role\'s toggles from the server after a save, and not before', async () => {
+    const ref = renderTab();
+    fireEvent.click(screen.getAllByRole('button', { name: /enable all/i })[0]);
+    expect(mutate).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('Reason for change'), { target: { value: 'granting the dashboard' } });
+    await ref.current!.save();
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+    expect(put).toHaveBeenCalledTimes(1);
   });
 });

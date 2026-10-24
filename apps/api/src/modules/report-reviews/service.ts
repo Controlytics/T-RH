@@ -107,6 +107,21 @@ export function inScope(row: Pick<ReviewParties, 'instrumentIds' | 'reportType'>
 /** The one report type that is about no instrument. */
 export const UNSCOPED_REPORT_TYPE = 'Audit Trail';
 
+/**
+ * The Audit Trail is the one report whose EXPORT is a permission of its own
+ * (AUDIT_EXPORT, "Export Audit Trail"), separate from reading it. Every path
+ * that produces its file checks it — the Excel and Direct-PDF record
+ * (`/api/audit/report-export-log`) and the PDF request — BEFORE any password
+ * is asked (2026-10-24: until then the toggle only hid the button, and a role
+ * that could read the trail could export it by calling the API). Every other
+ * report's data is gated by the routes that serve it.
+ */
+export async function assertMayExportReport(role: string | undefined, reportType: string): Promise<void> {
+  if (reportType !== UNSCOPED_REPORT_TYPE) return;
+  if (role && await roleHasPermission(role, 'AUDIT_EXPORT')) return;
+  throw new AppError(403, 'FORBIDDEN', 'Exporting the Audit Trail needs the Export Audit Trail permission.');
+}
+
 /** Is the caller one of the frozen approvers — by holding a role, or named? */
 export function isApprover(ctx: Actor, row: Pick<ReviewParties, 'approverRoles' | 'approverUserIds'>): boolean {
   if (ctx.userRole === 'SUPER_ADMIN') return true;

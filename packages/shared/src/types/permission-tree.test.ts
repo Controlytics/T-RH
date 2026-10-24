@@ -4,11 +4,13 @@ import {
   deriveFeaturePrivileges,
   deriveFeatureToPermissionMap,
   deriveSidebarPrivilegeMap,
+  primaryPermissionsOf,
+  privilegeTogglesFromPermissions,
   resolveNodePermissions,
   resolveNodeGate,
   resolveNodeGateRoles,
 } from './permission-tree.js';
-import { PERMISSIONS } from './permissions.js';
+import { PERMISSIONS, hasEffectivePermission } from './permissions.js';
 import { REAUTH_ACTIONS } from './reauth-actions.js';
 import {
   FEATURE_PRIVILEGES_SNAPSHOT,
@@ -252,5 +254,105 @@ describe('reports group (2026-09-07)', () => {
   it('registers the two decision re-auth actions under Reports and the four audit actions with templates', () => {
     expect(REAUTH_ACTIONS.APPROVE_REPORT.category).toBe('Reports');
     expect(REAUTH_ACTIONS.REJECT_REPORT.category).toBe('Reports');
+  });
+});
+
+// 2026-10-24 (operator: "when permissions are allowed some are not coming to
+// user roles, like instruments creation or functional locations creation").
+// The Permissions tab showed a toggle ON when the role held ANY permission of
+// its grant set — which includes the READ dependency — so a role holding only
+// INSTRUMENT_READ read as holding Create / Edit / Delete Instruments. The tab
+// sends its whole map on save, so those false ONs also became real grants.
+describe('privilegeTogglesFromPermissions — what the Permissions tab shows', () => {
+  const map = deriveFeatureToPermissionMap();
+  const expand = (toggles: Record<string, boolean>) =>
+    new Set(Object.entries(toggles).filter(([, on]) => on).flatMap(([id]) => map[id] ?? []));
+  const allGates = new Set<string>(PERMISSION_TREE.flatMap(g => g.nodes).flatMap(n => n.gate));
+
+  it('a READ dependency alone does not switch on Create / Edit / Delete', () => {
+    const t = privilegeTogglesFromPermissions(['INSTRUMENT_READ', 'AUDIT_READ']);
+    expect(t['instruments.view']).toBe(true);
+    expect(t['instruments.create']).toBe(false);
+    expect(t['instruments.edit']).toBe(false);
+    expect(t['instruments.delete']).toBe(false);
+    expect(t['settings.edit']).toBe(false);
+    expect(t['audit.view']).toBe(true);
+    expect(t['audit.delete']).toBe(false);
+  });
+
+  it('a held gate switches its toggle on — Create Instruments, Create Functional Locations', () => {
+    const t = privilegeTogglesFromPermissions(['INSTRUMENT_CREATE', 'INSTRUMENT_READ', 'FUNCTIONAL_LOCATION_CREATE', 'FUNCTIONAL_LOCATION_READ']);
+    expect(t['instruments.create']).toBe(true);
+    expect(t['functional_locations.create']).toBe(true);
+    expect(t['functional_locations.view']).toBe(true);
+    expect(t['functional_locations.edit']).toBe(false);
+  });
+
+  it('has exactly one entry per configurable toggle, in the forward map\'s order', () => {
+    expect(Object.keys(privilegeTogglesFromPermissions([]))).toEqual(Object.keys(map));
+    expect(Object.values(privilegeTogglesFromPermissions([])).every(v => v === false)).toBe(true);
+  });
+
+  it('round trip: a node\'s own grant set shows that node ON', () => {
+    for (const [id, perms] of Object.entries(map)) {
+      if (perms.length === 0) continue;
+      expect(privilegeTogglesFromPermissions(perms)[id], id).toBe(true);
+    }
+  });
+
+  // What a Permissions save WRITES (`planRolePermissions`): every permission
+  // no toggle maps survives as it is; every mapped one is rebuilt from the
+  // toggles. Both properties are judged by CAPABILITY — the server's own
+  // `hasEffectivePermission` — because X_MANAGE covers X_DELETE: writing
+  // NOTIFICATION_DELETE beside a held NOTIFICATION_MANAGE grants nothing new.
+  const configurable = PERMISSION_TREE.flatMap(g => g.nodes).filter(n => n.configurable === true);
+  const mapped = new Set(Object.values(map).flat());
+  const ALL = Object.values(PERMISSIONS) as string[];
+  const capabilities = (perms: readonly string[]) => new Set(ALL.filter(p => hasEffectivePermission(perms, p)));
+  const saved = (held: string[]) => [...held.filter(p => !mapped.has(p)), ...expand(privilegeTogglesFromPermissions(held))];
+  const samples: string[][] = [
+    ...ALL.map(p => [p]),
+    ...Object.values(map),
+    ['INSTRUMENT_READ'],
+    ['AUDIT_READ', 'DASHBOARD_VIEW', 'NOTIFICATION_VIEW', 'INSTRUMENT_READ'],
+    // The local install's roles as found on 2026-10-24 (ADMIN, then SUPERVISOR).
+    ['USER_CREATE', 'USER_READ', 'USER_UPDATE', 'USER_ENABLE_DISABLE', 'USER_UNLOCK', 'USER_RESET_PASSWORD',
+      'ADMIN_REQUEST_APPROVE', 'ADMIN_REQUEST_REJECT', 'CONFIG_READ', 'CONFIG_UPDATE', 'FIELD_ID_UPDATE',
+      'ROLE_MANAGE', 'AUDIT_READ', 'AUDIT_EXPORT', 'DASHBOARD_CREATE', 'DASHBOARD_MANAGE', 'DASHBOARD_VIEW',
+      'DASHBOARD_ASSIGN', 'NOTIFICATION_VIEW', 'NOTIFICATION_CREATE', 'NOTIFICATION_UPDATE', 'NOTIFICATION_MANAGE',
+      'BACKUP_MANAGE', 'BACKUP_RESTORE', 'READ_DEBUG_TRACE', 'MANAGE_DEBUG_TRACE', 'INSTRUMENT_READ'],
+    ['AUDIT_READ', 'AUDIT_EXPORT', 'DASHBOARD_VIEW', 'NOTIFICATION_VIEW', 'INSTRUMENT_READ'],
+  ];
+
+  // The safety property. Saving what the tab shows may add ONLY the read
+  // dependency of something the role can already do (USER_CREATE alone shows
+  // Create Users ON, and a save adds its USER_READ — the tree's own rule that a
+  // page you may write but not read is unusable). Nothing else: no capability
+  // the role did not have.
+  it('saving the displayed toggles gains no capability but the dependency of one already held', () => {
+    for (const held of samples) {
+      const toggles = privilegeTogglesFromPermissions(held);
+      const before = capabilities(held);
+      const gained = [...capabilities(saved(held))].filter(p => !before.has(p));
+      const unexplained = gained.filter(p => !configurable.some(n =>
+        toggles[n.id] && (n.permissions as readonly string[]).includes(p) && !primaryPermissionsOf(n).includes(p)));
+      expect(unexplained, `held ${held.join(',')}`).toEqual([]);
+    }
+    // And the regression itself, by name: a read-only role gains no gate.
+    const fromRead = expand(privilegeTogglesFromPermissions(['INSTRUMENT_READ', 'AUDIT_READ']));
+    expect([...fromRead].filter(p => allGates.has(p) && !['INSTRUMENT_READ', 'AUDIT_READ'].includes(p))).toEqual([]);
+  });
+
+  // The other direction. A save rebuilds the mapped permissions FROM the
+  // toggles, so a capability no ON toggle covers would be REVOKED by a save
+  // that changed nothing about it.
+  it('saving the displayed toggles never takes away a capability the role has', () => {
+    for (const held of samples) {
+      const after = capabilities(saved(held));
+      const lost = [...capabilities(held)].filter(p => !after.has(p));
+      expect(lost, `held ${held.join(',')}`).toEqual([]);
+    }
+    // A permission no toggle offers (Delete Users is SUPER_ADMIN only) is kept.
+    expect(saved(['USER_DELETE', 'USER_READ'])).toContain('USER_DELETE');
   });
 });

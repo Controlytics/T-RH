@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { hasEffectivePermission } from '@digilog/shared';
 import { Button } from '@/components/ui/button';
 import { FormSection } from '@/components/ui/form-section';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -89,12 +90,13 @@ export function BackupRestorePage() {
   const { user } = useAuth();
   const perms: string[] = (user?.permissions as string[] | undefined) ?? [];
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const canExport = isSuperAdmin || perms.includes('BACKUP_MANAGE') || perms.includes('BACKUP_EXPORT');
+  // The server's rule: BACKUP_EXPORT, or a legacy BACKUP_MANAGE that covers it.
+  const canExport = isSuperAdmin || hasEffectivePermission(perms, 'BACKUP_EXPORT');
   // BACKUP_RESTORE is intentionally NOT covered by BACKUP_MANAGE suffix
   // expansion (see comment in shared types). Restore requires the
   // explicit perm — destructive enough that a SUPER_ADMIN bypass is
   // the only override.
-  const canRestore = isSuperAdmin || perms.includes('BACKUP_RESTORE');
+  const canRestore = isSuperAdmin || hasEffectivePermission(perms, 'BACKUP_RESTORE');
   const reauth = useReauth();
   const { formatDateTime } = useDatetimeFormat();
   const [selectedFormat, setSelectedFormat] = useState<BackupFormat>('json');
@@ -279,7 +281,7 @@ export function BackupRestorePage() {
             <Button
               onClick={handleExport}
               disabled={exporting || !canExport}
-              title={!canExport ? 'BACKUP_MANAGE permission required' : undefined}
+              title={!canExport ? 'Requires the Export / Download Backups permission' : undefined}
               className="gap-2 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 shadow-[var(--elev-2)] disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -292,7 +294,7 @@ export function BackupRestorePage() {
             </p>
             {!canExport && (
               <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                You do not have permission to download backups. Required: BACKUP_MANAGE.
+                You do not have permission to download backups. Required: Export / Download Backups.
               </p>
             )}
           </div>

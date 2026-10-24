@@ -1,3 +1,4 @@
+import { hasEffectivePermission } from '@digilog/shared';
 import { useAuth } from '@/hooks/use-auth';
 
 interface RequireRoleProps {
@@ -37,7 +38,8 @@ export function RequireRole({ roles, permissions, children }: RequireRoleProps) 
 
   // Check permission-based access
   if (permissions && user.permissions) {
-    const hasPermission = permissions.some(p => user.permissions!.includes(p));
+    // The server's rule (2026-10-24): a page opens exactly when its API would answer.
+    const hasPermission = permissions.some(p => hasEffectivePermission(user.permissions!, p));
     if (hasPermission) {
       return <>{children}</>;
     }

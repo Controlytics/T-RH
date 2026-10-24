@@ -42,7 +42,10 @@ vi.mock('../../../lib/reauth-check.js', () => ({
   invalidateReauthCache: mockInvalidateReauthCache,
   isReauthRequired: mockIsReauthRequired,
 }));
-vi.mock('@digilog/shared', () => ({
+vi.mock('@digilog/shared', async (importOriginal) => ({
+  // The REAL reverse map over the REAL tree: getRoleConfig's answer is what
+  // the Permissions tab shows, so a stand-in here would test nothing.
+  privilegeTogglesFromPermissions: (await importOriginal<typeof import('@digilog/shared')>()).privilegeTogglesFromPermissions,
   getDefaultTemplates: mockGetDefaultTemplates,
   // role.service.ts (imported for assertRoleWithinCallerPrivilege since the
   // 2026-10-03 API-1 fix) builds its permission catalogue from this at import
@@ -129,24 +132,41 @@ describe('configService', () => {
     });
   });
 
+  // 2026-10-24: the toggles are what the role HOLDS, by the node's gate —
+  // never "any of its grant set" (which includes the READ dependency), and
+  // never the stored map, which other writers leave stale.
   describe('getRoleConfig', () => {
-    it('returns config from DB', async () => {
+    it('returns the stored sidebar and home widgets', async () => {
       mockConfigRepo.findRoleConfig.mockResolvedValue({
-        role: 'ADMIN', sidebarItems: ['users'], homeWidgets: [], permissions: { 'user-management': true },
+        role: 'ADMIN', sidebarItems: ['users'], homeWidgets: ['w'], permissions: {},
       });
+      mockPrisma.role.findUnique.mockResolvedValue({ permissions: [] });
 
       const result = await configService.getRoleConfig('ADMIN');
-      expect(result.role).toBe('ADMIN');
+      expect(result).toMatchObject({ role: 'ADMIN', sidebarItems: ['users'], homeWidgets: ['w'] });
     });
 
-    it('reverse-maps permissions when no feature perms exist', async () => {
-      mockConfigRepo.findRoleConfig.mockResolvedValue({
-        role: 'ADMIN', sidebarItems: [], homeWidgets: [], permissions: {},
-      });
-      mockPrisma.role.findUnique.mockResolvedValue({ permissions: ['USER_CREATE', 'USER_READ'] });
+    it('a role holding only INSTRUMENT_READ shows View ON and Create / Edit / Delete OFF', async () => {
+      mockConfigRepo.findRoleConfig.mockResolvedValue(null);
+      mockPrisma.role.findUnique.mockResolvedValue({ permissions: ['INSTRUMENT_READ', 'AUDIT_READ'] });
 
-      const result = await configService.getRoleConfig('ADMIN');
-      expect(result.permissions['user-management']).toBe(true);
+      const { permissions } = await configService.getRoleConfig('OPERATOR');
+      expect(permissions['instruments.view']).toBe(true);
+      expect(permissions['instruments.create']).toBe(false);
+      expect(permissions['instruments.delete']).toBe(false);
+      expect(permissions['audit.delete']).toBe(false);
+    });
+
+    it('ignores a stored toggle the role does not hold — and shows one it does', async () => {
+      mockConfigRepo.findRoleConfig.mockResolvedValue({
+        role: 'OPERATOR', sidebarItems: [], homeWidgets: [],
+        permissions: { 'instruments.create': true, 'functional_locations.create': false },
+      });
+      mockPrisma.role.findUnique.mockResolvedValue({ permissions: ['FUNCTIONAL_LOCATION_CREATE', 'FUNCTIONAL_LOCATION_READ'] });
+
+      const { permissions } = await configService.getRoleConfig('OPERATOR');
+      expect(permissions['instruments.create']).toBe(false);
+      expect(permissions['functional_locations.create']).toBe(true);
     });
   });
 

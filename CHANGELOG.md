@@ -1,5 +1,106 @@
 # Changelog
 
+## [Unreleased] - Every permission toggle does what it says (2026-10-24, continued)
+
+Operator: "update all the permissions properly, i think some are not updated in
+the permissions". An audit of every check — the API routes, `useCan` buttons,
+page guards, the sidebar and the Permissions tab — found four kinds of fault.
+Decisions asked and taken: dead toggles removed AND their permissions stripped
+from roles; the Backup toggles alone open Backup; no bulk grant.
+
+- **One resolver.** The server reads X_MANAGE as covering X_CREATE / _UPDATE /
+  _DELETE / _VIEW / _READ / _EXPORT (`hasEffectivePermission`); `useCan`, the
+  sidebar, `RequireRole`, eleven inline checks and the tab's reverse map
+  compared literally, so ADMIN (holding NOTIFICATION_MANAGE) could delete a
+  notification through the API and was never shown the button. All of them now
+  call `hasEffectivePermission` from `@digilog/shared`.
+- **Export Audit Trail was enforced only by the button.** `assertMayExportReport`
+  (report-reviews `service.ts`) now refuses the Audit Trail without AUDIT_EXPORT
+  on `POST /api/audit/report-export-log` (Excel and Direct PDF) and on the PDF
+  request `POST /api/report-reviews`, before any password is asked. The route
+  comment that said this was "already enforced" elsewhere was false.
+- **Seven toggles that could never take effect left the tab** (45 → 38 feature
+  privileges, 57 → 55 tree nodes): Alarm Rules View / Manage (feature removed
+  2026-08-31; same grants as Alarm Webhooks — nodes DELETED); Dashboards Create
+  / Manage / Assign (gate only the parked `/api/dashboards`, no screen), Delete
+  Users (SUPER_ADMIN-only route), Update Field Labels (SUPER_ADMIN-only screen)
+  — nodes kept, not configurable, so their button checks still resolve.
+  `apps/api/scripts/strip-unused-permissions.ts` (dry run default, `--apply`,
+  one ROLE_UPDATED row per role, all in one transaction) removes those
+  permissions and the four no toggle ever offered (NOTIFICATION_CREATE /
+  _UPDATE / _MANAGE, BACKUP_MANAGE) from every role, keeping what a screen
+  offered as the permission the tab shows: BACKUP_MANAGE → BACKUP_EXPORT,
+  DASHBOARD_MANAGE → DASHBOARD_VIEW, NOTIFICATION_MANAGE → NOTIFICATION_VIEW —
+  NOT NOTIFICATION_DELETE (SUPER_ADMIN-only for ADMIN since M4/M5). Applied
+  locally 2026-10-24: ADMIN only (8 removed, BACKUP_EXPORT added); audit chain
+  unchanged (the 10 July anomalies, nothing new). `prisma/default-roles.ts`
+  ADMIN matches. **AWS: run the script (dry run first) after the deploy.**
+- **The Backup toggles open Backup on their own.** They needed CONFIG_READ (the
+  page guard) and a Configuration Access entry (the card). Now `/config` and
+  `/config/backup` accept BACKUP_EXPORT / BACKUP_RESTORE, the Configuration
+  sidebar item shows for them, the index shows the Backup card by toggle and
+  skips the access-matrix fetch without CONFIG_READ (that 403 read as "could not
+  load"). Other Configuration cards stay under Configuration Access. The Backup
+  page's "Required: BACKUP_MANAGE" now names the toggle.
+
+Unchanged on purpose: View Instruments / View Data Report / View Settings are
+one permission (INSTRUMENT_READ), Edit Instruments / Settings Edit another
+(INSTRUMENT_UPDATE) — they move together; the Sidebar tab hides menus per role.
+After all of it an unchanged save of every real local role is a no-op.
+
+Tests: shared `permission-tree.test.ts` (both properties restated by CAPABILITY —
+a save gains nothing but a held capability's dependency and loses nothing) and
+`legacy-maps-derived.test.ts` / the frozen snapshot (38); `roles/__tests__/
+unused-permissions.test.ts` (4, incl. "after the strip every capability is shown
+ON by some toggle"); `e2e/role-permission-toggles.e2e.test.ts` (+3: Excel and
+PDF request 403 without AUDIT_EXPORT, allowed with it, other reports untouched);
+`report-reviews.e2e.test.ts` (the Audit Trail case now proves 403 first, then
+its 400); web `use-can.test.ts` (+1), new `config/__tests__/index-backup-card.test.tsx`
+(3). Mutation-checked: each export guard, the literal resolver, the Backup card
+rule and the access-matrix skip each fail their test.
+
+## [Unreleased] - Roles & Access → Permissions showed toggles ON that the role did not hold (2026-10-24)
+
+Operator: "when permissions are allowed some are not coming to user roles,
+like instruments creation or functional locations creation". Cause:
+`configService.getRoleConfig` read the tab's toggles from `role_configs`, and
+for a role never saved there (every role on this install) it reverse-mapped
+`roles.permissions` with "ANY permission of the node's grant set". The grant
+set carries the READ dependency, so a role holding only `INSTRUMENT_READ`
+showed Create / Edit / Delete Instruments and Settings Edit ON, and one holding
+`AUDIT_READ` showed Delete Audit Record ON — none of them held. The tab looked
+granted; the user had no Add button and the route answered 403. Worse, the tab
+sends its WHOLE map on save, so the first save of any change on a role granted
+every false ON for real (verified locally: no role here was ever saved, so
+none was over-granted). AWS runs the same code — a read-only check of its
+`roles.permissions` is owed before anyone saves a role there.
+
+Fix: `privilegeTogglesFromPermissions(held)` in `@digilog/shared`
+(`permission-tree.ts`), the inverse of `deriveFeatureToPermissionMap`: a toggle
+is ON iff the role holds the node's GATE (the rule `useCan()` and
+`requirePermission` apply); a gateless node (`users.delete`) iff the role holds
+its OWN permissions — not its USER_READ dependency, or a role holding
+USER_DELETE alone would read OFF and its next save would revoke it. An
+unchanged save of every real local role is a no-op (checked through
+`planRolePermissions`, read-only). `getRoleConfig` and `listRoleConfigs` ALWAYS derive the toggles from
+`roles.permissions` now — the stored map is only what the last Permissions save
+sent, and the Sidebar-tab auto-grant, `PUT /api/roles/:name` and the seed move
+`roles.permissions` without it. The Permissions tab re-reads the server's
+toggles after a save, so two toggles sharing one grant (Settings Edit and Edit
+Instruments are both `INSTRUMENT_UPDATE`; the three View pages are all
+`INSTRUMENT_READ`) show what the role really holds. No migration, no count
+moved.
+
+Tests: `packages/shared` `permission-tree.test.ts` (6, incl. the two
+properties: saving the displayed toggles adds only the dependency of what the
+role already holds, and never drops a mapped permission it holds), `config.service.test.ts` (3 rewritten), new
+`e2e/role-permission-toggles.e2e.test.ts` (5 — the tab, the save, `/api/auth/me`,
+and a real Block and instrument created by the role's user), and
+`permissions-tab-reason.test.tsx` (+1). Mutation-checked: the old ANY rule fails
+3 shared and all 5 e2e (the e2e then shows the save over-granting
+`INSTRUMENT_CREATE`); "every permission" for a gateless node fails the
+no-revoke property; dropping the re-read fails the web case.
+
 ## [Unreleased] - Re-auth on General & Password Settings never accepted the password (2026-10-14)
 
 Operator: "in general and password settings configuration reauthentication

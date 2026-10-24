@@ -1,3 +1,4 @@
+import { hasEffectivePermission } from '@digilog/shared';
 import { allNavItems } from '@/components/layout/sidebar';
 import { isSidebarItemVisible } from '@/components/layout/sidebar-visibility';
 
@@ -18,7 +19,7 @@ import { isSidebarItemVisible } from '@/components/layout/sidebar-visibility';
 export const DASHBOARD_VIEW_PERMISSION = 'DASHBOARD_VIEW';
 
 export function landingRoute(perms: readonly string[], role: string | null | undefined): string {
-  if (role === 'SUPER_ADMIN' || perms.includes(DASHBOARD_VIEW_PERMISSION)) return '/';
+  if (role === 'SUPER_ADMIN' || hasEffectivePermission(perms, DASHBOARD_VIEW_PERMISSION)) return '/';
   const first = allNavItems.find((item) => item.href !== '/' && isSidebarItemVisible(item.id, [...perms]));
   return first?.href ?? '/profile';
 }

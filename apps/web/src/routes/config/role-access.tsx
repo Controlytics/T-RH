@@ -1,3 +1,4 @@
+import { hasEffectivePermission } from '@digilog/shared';
 import { useState, useRef, useMemo, useCallback } from 'react';
 
 import useSWR, { useSWRConfig } from 'swr';
@@ -47,7 +48,7 @@ export function RoleAccessPage() {
   const { data: activeRoles } = useSWR<RoleData[]>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
   const mutateRoles = useCallback(() => mutate((key: unknown) => typeof key === 'string' && key.startsWith('/api/roles')), [mutate]);
 
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN' || (user?.permissions?.includes('ROLE_MANAGE') ?? false);
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN' || (hasEffectivePermission(user?.permissions ?? [], 'ROLE_MANAGE'));
 
   const selectableRoles = useMemo(() => {
     if (!activeRoles) return [];

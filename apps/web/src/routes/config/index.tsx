@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
+import { hasEffectivePermission } from '@digilog/shared';
 import { useAuth } from '@/hooks/use-auth';
 import { PageHero } from '@/components/ui/page-hero';
 import { SuperAdminApiAccessCard } from '@/components/super-admin-api-access';
@@ -447,16 +448,23 @@ export function ConfigIndexPage() {
     customPagePath: string | null; settings: any[];
   }>>('/api/config/registry/manifest', { revalidateOnMount: true, dedupingInterval: 5000 });
 
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const perms: string[] = user?.permissions ?? [];
+  // A role holding only a Backup toggle reaches this page too (2026-10-24,
+  // operator: the Backup toggles alone open Backup). It holds no CONFIG_READ,
+  // so it must not ask for the access matrix — that 403 would read as
+  // "could not load" — and it sees the Backup card alone.
+  const canReadConfig = isSuperAdmin || hasEffectivePermission(perms, 'CONFIG_READ');
+  const holdsBackup = hasEffectivePermission(perms, 'BACKUP_EXPORT') || hasEffectivePermission(perms, 'BACKUP_RESTORE');
+
   // Configuration access matrix — { [moduleKey]: [roleNames] }
   // If a module has an entry, only listed roles (plus SUPER_ADMIN) see it.
   // If a module is NOT in the matrix, it remains visible to all (backwards compat).
   const { data: accessMatrix, error: accessMatrixError } = useSWR<Record<string, string[]>>(
-    '/api/config/access-matrix',
+    canReadConfig ? '/api/config/access-matrix' : null,
     { revalidateOnMount: true, dedupingInterval: 5000 },
   );
   const loadError = manifestError ?? accessMatrixError;
-
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
 
   // DEFAULT-DENY (Phase 2, gap S1): unconfigured modules are hidden from non-superadmins.
   // Was fail-OPEN — see can-access-module.ts. Card visibility only; endpoints gate server-side.
@@ -485,7 +493,9 @@ export function ConfigIndexPage() {
     .filter(m => !hardcodedModuleKeys.has(m.moduleKey))
     .filter(m => canAccessModule(m.moduleKey));
 
-  const visibleConfigCards = configCards.filter(c => canAccessModule(cardModuleKey(c.href)));
+  // Backup also by its own toggles — Configuration Access chooses the OTHER cards.
+  const visibleConfigCards = configCards.filter(c =>
+    canAccessModule(cardModuleKey(c.href)) || (c.href === '/config/backup' && holdsBackup));
 
   // Super Admin Settings cards: SUPER_ADMIN only.
   //

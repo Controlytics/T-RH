@@ -6,7 +6,7 @@ import { auditQuerySchema } from '@digilog/shared';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { verifyAuditChain } from '../../lib/audit-verify.js';
 import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
-import { policyForKind } from '../report-reviews/service.js';
+import { assertMayExportReport, policyForKind } from '../report-reviews/service.js';
 import { resolvePageSize } from '../../lib/page-size.js';
 import { parseDateRange } from '../../lib/query-dates.js';
 import { AppError } from '../../lib/errors.js';
@@ -347,10 +347,12 @@ export default async function auditRoutes(app: FastifyInstance) {
   // this BEFORE saving the file and blocks the download if it fails (fail-closed),
   // so a successful download is always logged.
   //
-  // Auth-only (no specific permission): any authenticated user may record their
-  // own report generation — the per-report export permission is already enforced
-  // by that report's own view/export gate + data endpoints. The write only
-  // attributes a REPORT_GENERATED row to the caller.
+  // Auth-only at the route: any authenticated user may record their own report
+  // generation — each report's data is gated by the endpoints that serve it.
+  // The Audit Trail is the exception, with an EXPORT permission of its own,
+  // checked in the handler (`assertMayExportReport`, 2026-10-24 — this comment
+  // claimed it was enforced elsewhere; it was enforced nowhere but the button).
+  // The write only attributes a REPORT_GENERATED row to the caller.
   app.post('/report-export-log', {
     schema: {
       tags: ['Audit'],
@@ -379,6 +381,10 @@ export default async function auditRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const { reportType, reportKind, format, recordCount, period, search, startDate, endDate, remarks } =
       req.body as { reportType: string; reportKind?: string; format: string; recordCount: number; period?: string; search?: string; startDate?: string; endDate?: string; remarks?: string };
+
+    // The Audit Trail (Excel or PDF) needs Export Audit Trail — checked first,
+    // so nobody is asked to sign an export they may not make (2026-10-24).
+    await assertMayExportReport(req.user.role, reportType);
 
     // A PDF follows its report type's configuration (Configuration → Report
     // Settings, 2026-10-01): refused when the type is reviewed, and the password

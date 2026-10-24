@@ -41,12 +41,6 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
     "icon": "user-edit"
   },
   {
-    "id": "users.delete",
-    "label": "Delete Users",
-    "category": "User Management",
-    "icon": "user-minus"
-  },
-  {
     "id": "users.enable_disable",
     "label": "Enable/Disable Accounts",
     "category": "User Management",
@@ -75,12 +69,6 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
     "label": "Edit Configuration",
     "category": "System",
     "icon": "settings-edit"
-  },
-  {
-    "id": "config.field_ids",
-    "label": "Update Field Labels",
-    "category": "System",
-    "icon": "tag"
   },
   {
     "id": "roles.manage",
@@ -123,24 +111,6 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
     "label": "View Dashboards",
     "category": "Dashboards",
     "icon": "layout"
-  },
-  {
-    "id": "dashboard.create",
-    "label": "Create Dashboards",
-    "category": "Dashboards",
-    "icon": "plus"
-  },
-  {
-    "id": "dashboard.manage",
-    "label": "Manage Dashboards",
-    "category": "Dashboards",
-    "icon": "settings"
-  },
-  {
-    "id": "dashboard.assign",
-    "label": "Assign Dashboards",
-    "category": "Dashboards",
-    "icon": "link"
   },
   {
     "id": "admin_requests.approve",
@@ -227,18 +197,6 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
     "icon": "trash"
   },
   {
-    "id": "alarm_rules.view",
-    "label": "View Alarm Rules",
-    "category": "Alarms",
-    "icon": "bell"
-  },
-  {
-    "id": "alarm_rules.manage",
-    "label": "Create / Edit / Delete Alarm Rules",
-    "category": "Alarms",
-    "icon": "settings-edit"
-  },
-  {
     "id": "alarm_webhooks.view",
     "label": "View Alarm Webhooks",
     "category": "Alarms",
@@ -306,10 +264,6 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
     "USER_UPDATE",
     "USER_READ"
   ],
-  "users.delete": [
-    "USER_DELETE",
-    "USER_READ"
-  ],
   "users.enable_disable": [
     "USER_ENABLE_DISABLE",
     "USER_READ"
@@ -327,10 +281,6 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   ],
   "config.edit": [
     "CONFIG_UPDATE",
-    "CONFIG_READ"
-  ],
-  "config.field_ids": [
-    "FIELD_ID_UPDATE",
     "CONFIG_READ"
   ],
   "roles.manage": [
@@ -354,18 +304,6 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
     "AUDIT_READ"
   ],
   "dashboard.view": [
-    "DASHBOARD_VIEW"
-  ],
-  "dashboard.create": [
-    "DASHBOARD_CREATE",
-    "DASHBOARD_VIEW"
-  ],
-  "dashboard.manage": [
-    "DASHBOARD_MANAGE",
-    "DASHBOARD_VIEW"
-  ],
-  "dashboard.assign": [
-    "DASHBOARD_ASSIGN",
     "DASHBOARD_VIEW"
   ],
   "admin_requests.approve": [
@@ -415,13 +353,6 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   "functional_locations.delete": [
     "FUNCTIONAL_LOCATION_DELETE",
     "FUNCTIONAL_LOCATION_READ"
-  ],
-  "alarm_rules.view": [
-    "ALARM_RULE_READ"
-  ],
-  "alarm_rules.manage": [
-    "ALARM_RULE_MANAGE",
-    "ALARM_RULE_READ"
   ],
   "alarm_webhooks.view": [
     "ALARM_RULE_READ"
@@ -496,7 +427,9 @@ export const SIDEBAR_PRIVILEGE_MAP_SNAPSHOT: SidebarSectionSnapshot[] = [
     "description": "System settings",
     "privilegeIds": [
       "config.view",
-      "config.edit"
+      "config.edit",
+      "backup.export",
+      "backup.restore"
     ]
   },
   {

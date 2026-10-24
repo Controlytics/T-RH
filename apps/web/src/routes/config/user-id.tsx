@@ -1,3 +1,4 @@
+import { hasEffectivePermission } from '@digilog/shared';
 import { useState, useEffect } from 'react';
 import useSWR from 'swr';
 import { Button } from '@/components/ui/button';
@@ -49,7 +50,7 @@ const CASE_OPTIONS = [
 export function UserIdConfigPage() {
   const { user } = useAuth();
   const reauth = useReauth();
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN' || (user?.permissions?.includes('CONFIG_UPDATE') ?? false);
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN' || hasEffectivePermission(user?.permissions ?? [], 'CONFIG_UPDATE');
 
   const { data: config, mutate } = useSWR<UserIdConfig>('/api/config/user-id');
   const { data: nextIdData } = useSWR<{ autoGenerate: boolean; nextId: string | null }>(

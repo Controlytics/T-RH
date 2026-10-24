@@ -204,7 +204,18 @@ describe('POST /api/report-reviews', () => {
     expect(direct.json().error).toBe('REPORT_IS_DIRECT');
     expect((await submit(tok.REQ, { reportKind: undefined })).statusCode).toBe(400);
     expect((await submit(tok.REQ, { reportKind: 'Instrument Time Series' })).statusCode).toBe(400);
-    expect((await submit(tok.REQ, { reportKind: 'audit-trail', reportType: 'Audit Trail', instrumentIds: [instA] })).statusCode).toBe(400);
+    // The Audit Trail needs Export Audit Trail (2026-10-24) — refused 403 BEFORE
+    // its own rules; with the permission, naming instruments is still the 400.
+    const auditTrail = { reportKind: 'audit-trail', reportType: 'Audit Trail', instrumentIds: [instA] };
+    expect((await submit(tok.REQ, auditTrail)).statusCode).toBe(403);
+    await prisma.role.update({ where: { name: ROLE_REQ }, data: { permissions: ['REPORT_REVIEW_READ', 'INSTRUMENT_READ', 'AUDIT_EXPORT'] } });
+    invalidateRolePermsCache(ROLE_REQ);
+    try {
+      expect((await submit(tok.REQ, auditTrail)).statusCode).toBe(400);
+    } finally {
+      await prisma.role.update({ where: { name: ROLE_REQ }, data: { permissions: ['REPORT_REVIEW_READ', 'INSTRUMENT_READ'] } });
+      invalidateRolePermsCache(ROLE_REQ);
+    }
     // A kind is bound to its report type: a reviewed one cannot be relabelled.
     const mismatch = await submit(tok.REQ, { reportKind: 'alarms' });
     expect(mismatch.statusCode).toBe(400);

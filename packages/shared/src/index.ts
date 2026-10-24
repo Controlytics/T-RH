@@ -43,6 +43,7 @@ export {
   deriveFeaturePrivileges,
   deriveFeatureToPermissionMap,
   deriveSidebarPrivilegeMap,
+  privilegeTogglesFromPermissions,
   resolveNodePermissions,
   resolveNodeGate,
   resolveNodeGateRoles,

@@ -121,7 +121,8 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/users/:id" element={<RequireRole permissions={[PERMISSIONS.USER_READ]}><EditUserPage /></RequireRole>} />
 
             {/* Configuration — permission-based */}
-            <Route path="/config" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><ConfigIndexPage /></RequireRole>} />
+            {/* The Backup toggles alone open Configuration → Backup (2026-10-24). */}
+            <Route path="/config" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ, PERMISSIONS.BACKUP_EXPORT, PERMISSIONS.BACKUP_RESTORE]}><ConfigIndexPage /></RequireRole>} />
             <Route path="/config/password-policy" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><PasswordPolicyPage /></RequireRole>} />
             {/* SUPER_ADMIN, matching the def's requiredRole — the key list drives
                 what every operator is asked for at registration. */}
@@ -139,7 +140,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/export-options" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><ExportOptionsPage /></Suspense></RequireRole>} />
             <Route path="/config/ldap" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><LdapConfigPage /></Suspense></RequireRole>} />
             <Route path="/config/datetime" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><DatetimeConfigPage /></RequireRole>} />
-            <Route path="/config/backup" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><BackupRestorePage /></RequireRole>} />
+            <Route path="/config/backup" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ, PERMISSIONS.BACKUP_EXPORT, PERMISSIONS.BACKUP_RESTORE]}><BackupRestorePage /></RequireRole>} />
 
             {/* Super Admin Settings — SUPER_ADMIN role only */}
             <Route path="/config/appearance" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><AppearanceConfigPage /></Suspense></RequireRole>} />

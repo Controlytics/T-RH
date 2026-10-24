@@ -14,7 +14,7 @@ import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { resolvePageSize } from '../../lib/page-size.js';
-import { reportReviewService, policyForKind, assertRequestable, type ReviewList } from './service.js';
+import { reportReviewService, policyForKind, assertRequestable, assertMayExportReport, type ReviewList } from './service.js';
 
 const summaryProps = {
   id: { type: 'string' },
@@ -99,6 +99,8 @@ export default async function reportReviewRoutes(app: FastifyInstance) {
     // the configuration refuses. Password = Yes asks EVERY role (2026-10-01);
     // the request is then the signature event the download used to be.
     const { kind, policy } = await policyForKind(raw.reportKind, raw.reportType);
+    // The Audit Trail needs Export Audit Trail (2026-10-24) — before the password.
+    await assertMayExportReport(req.user.role, String(raw.reportType));
     // Remarks are a free-text reason and exempt from HTML stripping, like every
     // other reason here ("value < 20 per SOP" must survive). The snapshot and
     // the meta are data, not text fields, and are not sanitised either.

@@ -1,5 +1,22 @@
 # tasks/todo.md
 
+## 2026-10-24 — Every permission toggle does what it says (button = page = sidebar = route = tab)
+
+Operator: "when permissions are allowed some are not coming to user roles" →
+false-ON fix; then "update all the permissions properly". Decisions (asked):
+dead toggles removed AND their unused permissions stripped from roles (audited);
+Backup toggles alone open Backup; no bulk grant; ONE commit at the end.
+
+- [x] Permissions tab shows what the role holds (gate rule; `privilegeTogglesFromPermissions`)
+- [x] One resolver: `hasEffectivePermission` in useCan / sidebar / RequireRole / inline checks / the tab
+- [x] Tree: remove Alarm Rules nodes; Dashboards create/manage/assign, Delete Users, Field IDs not configurable; snapshot + count
+- [x] Server enforces Export Audit Trail (Excel log + PDF request/direct)
+- [x] Backup toggles alone open Configuration → Backup (guards, sidebar, card, no access-matrix fetch without CONFIG_READ); page text
+- [x] Strip unused permissions from roles (script, dry run, audited; BACKUP_MANAGE → BACKUP_EXPORT); default roles updated
+- [x] Tests (property tests in effective terms, e2e, web) + mutation checks; no-op-save probe on real roles
+- [x] Docs (CHANGELOG, feature note, counts), memory, ONE commit (not pushed)
+- [ ] AWS: after the next deploy run `scripts/strip-unused-permissions.ts` (dry run, then `--apply`) BEFORE anyone saves role permissions
+
 ## 2026-10-01 — Report download modes, configured approvers, scoped requests
 
 Operator (several messages): remove Send-to from the request dialog; approvers

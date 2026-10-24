@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { datetimeConfigSchema, type DatetimeConfig } from '@digilog/shared';
+import { hasEffectivePermission, datetimeConfigSchema, type DatetimeConfig } from '@digilog/shared';
 import useSWR, { mutate } from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
@@ -18,7 +18,7 @@ export function DatetimeConfigPage() {
   const { user } = useAuth();
   const perms = (user?.permissions as string[] | undefined) ?? [];
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const canWrite = isSuperAdmin || perms.includes('CONFIG_UPDATE');
+  const canWrite = isSuperAdmin || hasEffectivePermission(perms, 'CONFIG_UPDATE');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const { data } = useSWR('/api/config/datetime', { revalidateOnMount: true, dedupingInterval: 0 });

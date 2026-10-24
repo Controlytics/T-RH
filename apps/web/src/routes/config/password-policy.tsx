@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { passwordPolicySchema, type PasswordPolicyConfig } from '@digilog/shared';
+import { hasEffectivePermission, passwordPolicySchema, type PasswordPolicyConfig } from '@digilog/shared';
 import useSWR, { mutate } from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
@@ -23,7 +23,7 @@ export function PasswordPolicyPage() {
   const { user } = useAuth();
   const perms = (user?.permissions as string[] | undefined) ?? [];
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const canWrite = isSuperAdmin || perms.includes('CONFIG_UPDATE');
+  const canWrite = isSuperAdmin || hasEffectivePermission(perms, 'CONFIG_UPDATE');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const reauth = useReauth();

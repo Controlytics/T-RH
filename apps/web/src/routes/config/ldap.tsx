@@ -5,7 +5,7 @@ import { apiClient } from '../../lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { useRowKeys } from '@/hooks/use-row-keys';
-import { ldapConfigFormSchema, formFieldErrors, type FormFieldErrors } from '@digilog/shared';
+import { hasEffectivePermission, ldapConfigFormSchema, formFieldErrors, type FormFieldErrors } from '@digilog/shared';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
 import { PageHero } from '@/components/ui/page-hero';
@@ -71,7 +71,7 @@ export default function LdapConfigPage() {
   const { user } = useAuth();
   const perms = (user?.permissions as string[] | undefined) ?? [];
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const canWrite = isSuperAdmin || perms.includes('CONFIG_UPDATE');
+  const canWrite = isSuperAdmin || hasEffectivePermission(perms, 'CONFIG_UPDATE');
   const { data: savedConfig, mutate } = useSWR<LdapConfig>('/api/ldap/config');
   const { data: rolesData } = useSWR<Array<{ name: string; displayName: string }>>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
   const reauth = useReauth();

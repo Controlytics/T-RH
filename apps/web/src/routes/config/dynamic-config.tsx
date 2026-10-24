@@ -1,3 +1,4 @@
+import { hasEffectivePermission } from '@digilog/shared';
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import useSWR from 'swr';
@@ -77,7 +78,7 @@ export function DynamicConfigPage() {
   const { user } = useAuth();
   const perms = (user?.permissions as string[] | undefined) ?? [];
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const canWrite = isSuperAdmin || perms.includes('CONFIG_UPDATE');
+  const canWrite = isSuperAdmin || hasEffectivePermission(perms, 'CONFIG_UPDATE');
   const reauth = useReauth();
 
   const { data: manifest } = useSWR<ManifestEntry[]>(

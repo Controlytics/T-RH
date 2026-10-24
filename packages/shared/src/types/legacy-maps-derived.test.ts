@@ -40,7 +40,7 @@ describe('Phase 5E: derived maps === original snapshots', () => {
     }
   });
 
-  it('configurable node count is exactly 40', () => {
+  it('configurable node count is exactly 38', () => {
     // Post domain-strip: the 8 core sidebar groups (dashboard, users,
     // admin-requests, configuration, notifications, audit, system-health,
     // debug-traces) contribute 26 configurable nodes. The old version-history
@@ -61,16 +61,21 @@ describe('Phase 5E: derived maps === original snapshots', () => {
     // configurable nodes (view / approve) → 43.
     // 2026-09-08 added the 14th group, settings (every instrument's details and
     // attributes in one table), with 2 configurable nodes (view / edit) → 45.
+    // 2026-10-24 took 7 toggles OFF the Permissions tab because none could take
+    // effect: the 2 Alarm Rules nodes (feature removed; same grants as Alarm
+    // Webhooks) were deleted; Dashboards create / manage / assign (parked
+    // module, no screen), Delete Users (SUPER_ADMIN-only route) and Field IDs
+    // (a SUPER_ADMIN-only screen) stay as nodes, not configurable → 38.
     const count = PERMISSION_TREE.flatMap(g => g.nodes).filter(n => n.configurable === true).length;
-    expect(count).toBe(45);
+    expect(count).toBe(38);
   });
 
-  it('FEATURE_PRIVILEGES has exactly 45 entries', () => {
-    expect(FEATURE_PRIVILEGES).toHaveLength(45);
+  it('FEATURE_PRIVILEGES has exactly 38 entries', () => {
+    expect(FEATURE_PRIVILEGES).toHaveLength(38);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP has exactly 45 keys', () => {
-    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(45);
+  it('FEATURE_TO_PERMISSION_MAP has exactly 38 keys', () => {
+    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(38);
   });
 
   it('SIDEBAR_PRIVILEGE_MAP has exactly 14 sections', () => {

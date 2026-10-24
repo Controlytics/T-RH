@@ -4,7 +4,7 @@ import { auditLog } from '../../lib/audit.js';
 import { NotFoundError, ValidationError } from '../../lib/errors.js';
 import { configRepository } from './config.repository.js';
 import { getActionReauthConfig, invalidateReauthCache, isReauthRequired } from '../../lib/reauth-check.js';
-import { getDefaultTemplates, FEATURE_TO_PERMISSION_MAP, FEATURE_PRIVILEGES, SIDEBAR_PRIVILEGE_MAP } from '@digilog/shared';
+import { getDefaultTemplates, FEATURE_TO_PERMISSION_MAP, SIDEBAR_PRIVILEGE_MAP, privilegeTogglesFromPermissions } from '@digilog/shared';
 import { validateUserId } from '../../lib/user-id-validator.js';
 import { prisma } from '../../lib/prisma.js';
 import { invalidateRolePermsCache } from '../../plugins/rbac.js';
@@ -22,21 +22,6 @@ export function redactConfigSecrets(value: any, secretKeys: Set<string>): any {
   return out;
 }
 
-/**
- * Reverse-map a role's permission constants to feature privilege booleans.
- * Used to populate the Role Privileges page when role_configs has no data.
- */
-function reverseMapPermissions(rolePermissions: string[]): Record<string, boolean> {
-  const featurePerms: Record<string, boolean> = {};
-  for (const feature of FEATURE_PRIVILEGES) {
-    const requiredPerms = FEATURE_TO_PERMISSION_MAP[feature.id];
-    if (requiredPerms) {
-      // Feature is enabled if ANY of its mapped permissions exist in the role
-      featurePerms[feature.id] = requiredPerms.some(p => rolePermissions.includes(p));
-    }
-  }
-  return featurePerms;
-}
 
 /**
  * The PRIMARY (first-listed) permission(s) for a sidebar item — the minimal
@@ -134,30 +119,36 @@ export const configService = {
 
   // Role Configuration
   async listRoleConfigs() {
-    return configRepository.findAllRoleConfigs();
+    // Same rule as `getRoleConfig`: the toggles come from what each role holds.
+    const [configs, roles] = await Promise.all([
+      configRepository.findAllRoleConfigs(),
+      prisma.role.findMany({ select: { name: true, permissions: true } }),
+    ]);
+    const held = new Map(roles.map((r) => [r.name, (r.permissions as string[]) ?? []]));
+    return configs.map((c) => ({ ...c, permissions: privilegeTogglesFromPermissions(held.get(c.role) ?? []) }));
   },
 
+  /**
+   * The Permissions tab's toggles are ALWAYS read from what the role HOLDS
+   * (`roles.permissions`, the array `requirePermission` and `/api/auth/me`
+   * read), never from the toggle map stored on `role_configs` (2026-10-24,
+   * operator: "when permissions are allowed some are not coming to user
+   * roles"). The stored map is only what the last Permissions save sent: the
+   * Sidebar tab's auto-grant, `PUT /api/roles/:name` and the seed all move
+   * `roles.permissions` without touching it, so it can show a toggle ON that
+   * the role does not hold. See `privilegeTogglesFromPermissions` for the rule.
+   */
   async getRoleConfig(role: string) {
-    const config = await configRepository.findRoleConfig(role);
-    const permissions = (config?.permissions as Record<string, boolean>) ?? {};
-
-    // If role_configs has no feature privileges, reverse-map from roles.permissions
-    const hasFeaturePerms = Object.keys(permissions).length > 0;
-    if (!hasFeaturePerms) {
-      const roleRecord = await prisma.role.findUnique({ where: { name: role }, select: { permissions: true } });
-      const rolePerms = (roleRecord?.permissions as string[]) ?? [];
-      if (rolePerms.length > 0) {
-        const mapped = reverseMapPermissions(rolePerms);
-        return {
-          role,
-          sidebarItems: (config?.sidebarItems as string[]) ?? [],
-          homeWidgets: (config?.homeWidgets as string[]) ?? [],
-          permissions: mapped,
-        };
-      }
-    }
-
-    return config ?? { role, sidebarItems: [], homeWidgets: [], permissions: {} };
+    const [config, roleRecord] = await Promise.all([
+      configRepository.findRoleConfig(role),
+      prisma.role.findUnique({ where: { name: role }, select: { permissions: true } }),
+    ]);
+    return {
+      role,
+      sidebarItems: (config?.sidebarItems as string[]) ?? [],
+      homeWidgets: (config?.homeWidgets as string[]) ?? [],
+      permissions: privilegeTogglesFromPermissions((roleRecord?.permissions as string[]) ?? []),
+    };
   },
 
   /**

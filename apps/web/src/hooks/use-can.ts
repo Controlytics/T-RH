@@ -18,7 +18,7 @@
  */
 
 import { useCallback } from 'react';
-import { resolveNodeGate, resolveNodeGateRoles } from '@digilog/shared';
+import { hasEffectivePermission, resolveNodeGate, resolveNodeGateRoles } from '@digilog/shared';
 import { useAuth } from './use-auth';
 
 export function useCan(): (nodeId: string) => boolean {
@@ -40,8 +40,10 @@ export function useCan(): (nodeId: string) => boolean {
       // 3. Empty gate → SA-only or unknown node → deny.
       if (gate.length === 0) return false;
 
-      // 4. OR over gate vs user permissions.
-      return gate.some((p) => perms.includes(p));
+      // 4. OR over gate vs user permissions — by the SERVER's rule
+      //    (`hasEffectivePermission`: X_MANAGE covers X_DELETE etc.), so a
+      //    button shows exactly when the route would allow the click.
+      return gate.some((p) => hasEffectivePermission(perms, p));
     },
     [role, perms],
   );

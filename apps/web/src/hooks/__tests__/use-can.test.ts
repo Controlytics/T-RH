@@ -148,4 +148,16 @@ describe('useCan()', () => {
     expect(result.current('users.view')).toBe(false);
     expect(result.current('users.delete')).toBe(false);
   });
+
+  // 2026-10-24: a button shows exactly when the route would allow the click —
+  // the SERVER's rule (`hasEffectivePermission`), where X_MANAGE covers
+  // X_DELETE. Until then a role holding NOTIFICATION_MANAGE could delete a
+  // notification through the API and was never shown the button.
+  it("applies the server's rule: X_MANAGE covers X_DELETE, but not RESTORE", () => {
+    setupUser('OPERATOR', ['NOTIFICATION_MANAGE', 'BACKUP_MANAGE']);
+    const { result } = renderHook(() => useCan());
+    expect(result.current('notifications.delete')).toBe(true);
+    expect(result.current('backup.export')).toBe(true);
+    expect(result.current('backup.restore')).toBe(false);
+  });
 });

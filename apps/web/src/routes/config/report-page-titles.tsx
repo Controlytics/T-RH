@@ -1,3 +1,4 @@
+import { hasEffectivePermission } from '@digilog/shared';
 import { useEffect, useState } from 'react';
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
@@ -20,7 +21,7 @@ export function ReportPageTitlesPage() {
   const { user } = useAuth();
   const { branding } = useBranding();
   const perms = (user?.permissions as string[] | undefined) ?? [];
-  const canWrite = user?.role === 'SUPER_ADMIN' || perms.includes('CONFIG_UPDATE');
+  const canWrite = user?.role === 'SUPER_ADMIN' || hasEffectivePermission(perms, 'CONFIG_UPDATE');
 
   const { data, mutate } = useSWR<Draft>('/api/config/report-page-titles', { revalidateOnMount: true });
   const [draft, setDraft] = useState<Draft>({});

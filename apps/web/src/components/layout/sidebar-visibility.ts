@@ -1,4 +1,4 @@
-import { PERMISSION_TREE, resolveNodePermissions } from '@digilog/shared';
+import { PERMISSION_TREE, hasEffectivePermission, resolveNodePermissions } from '@digilog/shared';
 
 /**
  * Whether a sidebar item is visible to a user holding `userPerms`, resolved from the
@@ -23,6 +23,7 @@ export function isSidebarItemVisible(itemId: string, userPerms: string[]): boole
   if (!group || group.visibilityPrivilegeIds.length === 0) return true;
   return group.visibilityPrivilegeIds.some(privId => {
     const required = resolveNodePermissions(privId);
-    return required.length > 0 && required.some(p => userPerms.includes(p));
+    // The server's rule, as useCan and RequireRole apply it (2026-10-24).
+    return required.length > 0 && required.some(p => hasEffectivePermission(userPerms, p));
   });
 }
