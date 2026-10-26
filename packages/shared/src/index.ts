@@ -125,8 +125,14 @@ export {
 
 export {
   MKT_ATTRIBUTE_KEY, MKT_DELTA_H_OVER_R_K, KELVIN_OFFSET,
-  isMktEnabled, mktFromExpMean, mktCelsius,
+  isMktEnabled, isMktOn, mktFromExpMean, mktCelsius,
 } from './types/mkt.js';
+export {
+  MEASUREMENT_CODES_PHASE1, MEASUREMENT_CODE_RE, RESERVED_MEASUREMENT_CODE,
+  profileMeasurementSchema, profileMeasurementsSchema, DEFAULT_PROFILE_MEASUREMENTS,
+  coerceProfileMeasurements, slotConfigFromMeasurements, measurementsEquivalent,
+} from './types/profile-measurements.js';
+export type { MeasurementType, ProfileMeasurement, InstrumentSlotConfig } from './types/profile-measurements.js';
 export type { LimitBound } from './types/alarm-limits.js';
 
 export {

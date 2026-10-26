@@ -42,6 +42,33 @@ export function isMktEnabled(attributes: { key: string; value: string }[]): bool
   return ['1', 'true', 'yes', 'on', 'y', 't', 'enabled'].includes(s);
 }
 
+/**
+ * Is MKT on for this instrument, given its PROFILE's MKT setting
+ * (2026-10-26, operator: "in instrument profiles … MKT attributes … enabled or
+ * disabled should come")? The profile switch is an AND gate in front of the
+ * instrument attribute:
+ * - profile off → never;
+ * - profile on, no attribute named → always;
+ * - profile on, attributes named → the first one the instrument carries decides
+ *   by `isMktEnabled`'s values; none carried → OFF (today's default, kept).
+ *
+ * `attributeKeys` are compared case-folded.
+ */
+export function isMktOn(
+  setting: { enabled: boolean; attributeKeys: string[] },
+  attributes: { key: string; value: string }[],
+): boolean {
+  if (!setting.enabled) return false;
+  if (setting.attributeKeys.length === 0) return true;
+  for (const want of setting.attributeKeys) {
+    const k = want.trim().toLowerCase();
+    const hit = attributes.find((a) => a.key.trim().toLowerCase() === k);
+    if (!hit) continue;
+    return ['1', 'true', 'yes', 'on', 'y', 't', 'enabled'].includes(String(hit.value).trim().toLowerCase());
+  }
+  return false;
+}
+
 /** exp(-(ΔH/R) / T) for one reading in °C, or null below absolute zero. */
 function thermalTerm(celsius: number): number | null {
   const kelvin = celsius + KELVIN_OFFSET;

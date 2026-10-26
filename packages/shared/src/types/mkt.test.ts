@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  isMktEnabled, mktCelsius, mktFromExpMean, MKT_DELTA_H_OVER_R_K, KELVIN_OFFSET,
+  isMktEnabled, isMktOn, mktCelsius, mktFromExpMean, MKT_DELTA_H_OVER_R_K, KELVIN_OFFSET,
 } from './mkt.js';
 
 describe('mktCelsius — ICH Q1A(R2) / USP <1150>', () => {
@@ -51,5 +51,21 @@ describe('isMktEnabled — OFF unless the attribute says on', () => {
     expect(isMktEnabled([{ key: 'isMktCalculationEnabled', value: '' }])).toBe(false);
     expect(isMktEnabled([{ key: 'Enable_Temp_NMT', value: '1' }])).toBe(false);
     expect(isMktEnabled([])).toBe(false);
+  });
+});
+
+describe('isMktOn — the profile switch in front of the instrument attribute', () => {
+  const attr = (value: string) => [{ key: 'IsMktCalculationEnabled', value }];
+  it('profile off: never, whatever the instrument says', () => {
+    expect(isMktOn({ enabled: false, attributeKeys: ['isMktCalculationEnabled'] }, attr('1'))).toBe(false);
+  });
+  it('profile on with no attribute named: always', () => {
+    expect(isMktOn({ enabled: true, attributeKeys: [] }, [])).toBe(true);
+  });
+  it('profile on with an attribute named: the instrument decides, absent = off', () => {
+    const s = { enabled: true, attributeKeys: ['isMktCalculationEnabled'] };
+    expect(isMktOn(s, attr('1'))).toBe(true);
+    expect(isMktOn(s, attr('0'))).toBe(false);
+    expect(isMktOn(s, [])).toBe(false);
   });
 });
