@@ -613,9 +613,12 @@ model NotificationRuleRecipient {
 
 // ─── Instruments (Data Injection P1) ───────────────────────────────────────
 
-/// A named container for instruments.
+/// A named container for instruments — and, since 2026-10-26, a DEVICE TYPE.
 ///
-/// A profile carries ONE inherited setting: `attributeKeys`, the list of
+/// A profile carries TWO inherited settings. `measurements` (below) says what
+/// its devices measure and which keys carry each measurement; see
+/// `docs/superpowers/specs/2026-10-26-profile-measurements-design.md`.
+/// `attributeKeys` is the list of
 /// attribute keys the New Instrument form asks for in this profile. Profiles
 /// inherit PROMPTS, never VALUES — nothing is ever back-filled onto an
 /// instrument that already exists, and moving an instrument between profiles
@@ -642,6 +645,13 @@ model InstrumentProfile {
   /// forgets to seed — the migration backfills every existing row and POST
   /// seeds every new one, so it should not occur.
   attributeKeys String? @map("attribute_keys")
+  /// What this profile's devices measure: one entry per measurement, in display
+  /// order — device keys, decimals, high (NMT) / low (NLT) limit and enable
+  /// keys with the profile's on/off switch, range, offset and MKT. Validated
+  /// by `profileMeasurementsSchema` in @digilog/shared; read ONLY through
+  /// `coerceProfileMeasurements`. Three states like `attributeKeys`: a list,
+  /// `[]` (measures nothing), NULL (never customised → the shipped defaults).
+  measurements Json?
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
   createdBy   String?  @map("created_by")
@@ -650,6 +660,23 @@ model InstrumentProfile {
   instruments Instrument[]
 
   @@map("instrument_profiles")
+}
+
+/// The measurement TYPES a profile can choose from (2026-10-26). One identity
+/// per measurement across profiles — the dashboard's column, the alarm filter.
+/// `code` is stored verbatim in `alarms.metric`, so it never changes; `unit` is
+/// fixed once a profile uses the type (stored readings carry no unit).
+model MeasurementType {
+  code      String   @id
+  name      String
+  unit      String
+  sortOrder Int      @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdBy String?  @map("created_by")
+  updatedBy String?  @map("updated_by")
+
+  @@map("measurement_types")
 }
 
 /// A logical grouping of instruments: a two-level BLOCK > AREA tree.
