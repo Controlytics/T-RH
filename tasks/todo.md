@@ -9,8 +9,8 @@ attributes … enabled or disabled should come". Design:
 `docs/superpowers/specs/2026-10-26-profile-measurements-design.md`. Three phases, each shippable.
 
 - [x] Inventory (alarm engine, API read side, web) + design doc
-- [ ] Builder check on the design; fold answers; plan
-- [ ] Phase 1 — per-profile keys for TEMPERATURE/HUMIDITY, NMT/NLT/MKT switches, SUPER_ADMIN gate, one resolver, config pages trimmed, refresh-403 + offset-keys fixes, profile editor section
+- [x] Builder check on the design; fold answers; plan (`docs/superpowers/plans/2026-10-26-profile-measurements-phase1.md`)
+- [x] Phase 1 — per-profile keys for TEMPERATURE/HUMIDITY, NMT/NLT/MKT switches, SUPER_ADMIN gate, one resolver, config pages trimmed, refresh-403 + offset-keys fixes, profile editor section (9 task commits + 1 bug-fix commit, local, NOT pushed)
 - [ ] Phase 2 — server for N measurements (registry CRUD, alarms.metric → text, worker, overview measurements[], aggregate/room-history/telemetry by code, MKT, report kind, type options)
 - [ ] Phase 3 — screens for N measurements (table, floor tiles, room detail, trend page, Data/Alarm reports, settings), legacy two-slot fields removed
 - [ ] Docs (CHANGELOG, feature note, counts), memory

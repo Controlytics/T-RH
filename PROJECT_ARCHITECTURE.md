@@ -51,7 +51,7 @@ that assumes any of those is describing upstream DigiLog, not this repository.
         │                           │      logger · errors             │
         │                           └───────────┬──────────────────────┘
         │                           ┌───────────▼──────────────────────┐
-        │                           │ Prisma 6 (37 models)             │
+        │                           │ Prisma 6 (38 models)             │
         │                           │  + raw SQL for both telemetry    │
         │                           │    tables and the backup engine  │
         │                           └───────────┬──────────────────────┘

@@ -48,7 +48,7 @@ vi.mock('@/hooks/use-reauth', () => ({
   }),
 }));
 
-const { ProfileMeasurementsEditor } = await import('../profile-measurements-editor');
+const { ProfileMeasurementsEditor } = await import('../profile-measurements/editor');
 
 const PROFILE = {
   id: 'p1', name: 'T&RH Sensors', attributeKeys: 't_hl\nt_ll',

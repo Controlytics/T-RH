@@ -11,7 +11,7 @@
 > and `user-groups` are LIVE** — this banner listed all four as removed until
 > 2026-08-27, which was wrong; verified against `ls apps/api/src/modules/`),
 > **53** frontend
-> routes (not 76), **37 models / 13 enums** (not 61/23), **45 permissions / 56 reauth
+> routes (not 76), **38 models / 13 enums** (not 61/23), **45 permissions / 56 reauth
 > actions** (not 102/92), **98 audit actions / 111 audit templates** (re-derived 2026-10-12), **14** sidebar items (15 → 14 on 2026-09-19, `home` removed),
 > **7** graphile-worker tasks. There is
 > no `orgId` review note needed either way (still true: single-tenant). See `CLAUDE.md` for

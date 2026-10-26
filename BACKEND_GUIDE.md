@@ -236,7 +236,7 @@ they covered the removed filter/checklist domain. Its "gap" note about
 "filter operations, RFID, offline replay, reports, block-change, PM My Tasks"
 having no e2e tests is moot — none of those features exist to test.)
 
-## Database Schema (37 models, 13 enums)
+## Database Schema (38 models, 13 enums)
 
 > `apps/api/prisma/schema.prisma` is authoritative (verified `grep -cE "^model "` / `"^enum "` 2026-10-05; 36 → 37 on 2026-09-22 with `FloorplanRoomLink`; earlier 34 → 36 on 2026-08-27, `AlarmWebhookTarget` + `AlarmWebhookDelivery`, with no new enum — their `method`/`event`/`status` are validated strings). The
 > previous "61 models, 23 enums" figure predates the Phase 0 filter-domain

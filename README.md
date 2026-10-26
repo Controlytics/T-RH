@@ -36,7 +36,7 @@ Counts came from: `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permiss
 `grep -cE "^\s+[A-Z_]+:" packages/shared/src/types/reauth-actions.ts`,
 `grep -cE "id: '" packages/shared/src/types/sidebar-items.ts`.
 
-The database has **37 models and 13 enums** (re-derived 2026-10-05; 36 → 37 on 2026-09-22 with `FloorplanRoomLink`)
+The database has **38 models and 13 enums** (re-derived 2026-10-26 — 37 → 38 with `MeasurementType`; 36 → 37 on 2026-09-22 with `FloorplanRoomLink`)
 (`grep -cE "^model " apps/api/prisma/schema.prisma`, and `grep -cE "^enum "` on
 the same file).
 

@@ -5,7 +5,7 @@ import {
   parseInstrumentAttributeKeys, coerceAttributeLabels, coerceSettingsHidden, isHiddenInSettings,
   ATTRIBUTE_LABEL_MAX, type AttributeLabels, type SettingsHidden, type ProfileMeasurement,
 } from '@digilog/shared';
-import { ProfileMeasurementsEditor } from './profile-measurements-editor';
+import { ProfileMeasurementsEditor } from './profile-measurements/editor';
 import { ATTRIBUTE_LABELS_URL } from '@/hooks/use-attribute-labels';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';

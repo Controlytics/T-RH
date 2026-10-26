@@ -22,7 +22,7 @@ live instrument monitoring with alarms.
 | Layer | Choice |
 |---|---|
 | Backend | Fastify 5, TypeScript (ESM), Node 24.x (root `package.json` `engines`) |
-| Database | PostgreSQL 18 via Prisma 6 — **37 models, 13 enums** (re-derived 2026-10-05) |
+| Database | PostgreSQL 18 via Prisma 6 — **38 models, 13 enums** (re-derived 2026-10-26) |
 | Frontend | React 19, Vite 6, React Router 7, SWR, Tailwind v4 |
 | Auth | JWT (`jose`, HS256, 1h default) + bcrypt; session table; single-tab enforcement |
 | Jobs | graphile-worker on Postgres — **7 tasks**. No Redis. |

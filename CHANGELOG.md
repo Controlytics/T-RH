@@ -1,5 +1,44 @@
 # Changelog
 
+## [Unreleased] - Each instrument profile carries its own key mappings, with NMT / NLT / MKT switches (2026-10-26, phase 1)
+
+Operator: "temperature and humidity keys assining or limits keys assigning
+configurations are there right those should be updated instrument profiles wise,
+each profile can receive different keys", then "pressue or other differnet
+sensors values", then "proceed and also in in instrument profiles NLT and MNT
+attributes and MKT attributes are should be enabled or disabled should come".
+Design `docs/superpowers/specs/2026-10-26-profile-measurements-design.md`
+(three phases; this is phase 1 — temperature and humidity).
+
+- **Every key mapping is the instrument PROFILE's.** Device keys, decimals
+  attribute + default, high / low limit attributes, NMT / NLT enable
+  attributes, range attributes, offset attribute and MKT — all on
+  `instrument_profiles.measurements`, one entry per measurement. They were four
+  global Configuration pages; those keep only their switches and wording
+  ("Telemetry Keys" is now **Dashboard Refresh**).
+- **Profile-level NMT, NLT and MKT on/off**, in front of each instrument's own
+  `Enable_*` / `isMktCalculationEnabled` attribute. Off at the profile = never
+  enforced / no MKT; an alarm open on a switched-off bound clears.
+- **Configuration → Instrument Attributes → Measurements**: one section per
+  measurement; Save shows how many open alarms the change would clear and asks
+  for a reason.
+- **Nothing changed for existing instruments**: the migration copied this
+  install's (and on deploy, AWS's) own current settings onto every profile;
+  every existing test kept its assertions with only its setup moved.
+- **Super admin only**, enforced by the server: changing measurements, and
+  moving an instrument into a profile that measures differently. A new profile
+  starts with temperature and humidity.
+- An alarm on a measurement a profile no longer has is cleared (it could never
+  clear otherwise), with the reason recorded on it.
+- **Fixed on the way:** every non-super-admin polled the dashboard on the
+  hardcoded 5 s / 10 s (the browser read a SUPER_ADMIN-only config — new
+  `GET /api/config/telemetry-slots/refresh`); the browser decided which keys
+  are sensor offsets itself (new `GET /api/instruments/offset-keys`); the
+  aggregate trend card drew a limit the instrument switches off; the profile
+  PUT response leaked offset keys to a non-super-admin.
+- Model count 37 → 38 (`MeasurementType`); migration
+  `20261026120000_profile_measurements`.
+
 ## [Unreleased] - Approve Reports and Reject Reports are two permissions (2026-10-26)
 
 Operator: "approve and reject reports both should be two different permissions".
