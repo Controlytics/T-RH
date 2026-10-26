@@ -321,3 +321,33 @@ describe('alarms — location filter', () => {
     expect(rows.map((a) => a.instrumentId)).toContain(elsewhereId);
   });
 });
+
+/**
+ * A bound switched OFF is not drawn here either (found 2026-10-26 while moving
+ * this card's keys onto the profile). The overview, the chart summary and the
+ * alarm evaluator all withhold a disabled bound; this card resolved limits with
+ * `limitsFor` alone and went on drawing a line no alarm could ever fire against.
+ * Its own Block, queried unrestricted, so no other case's fixtures interfere.
+ */
+describe('telemetry aggregate — a switched-off bound', () => {
+  let flId = '';
+  let instId = '';
+  afterAll(async () => {
+    if (instId) await app.inject({ method: 'DELETE', url: `/api/instruments/${instId}`, headers: auth });
+    if (flId) await prisma.functionalLocation.deleteMany({ where: { id: flId } });
+  });
+
+  it('withholds the bound the instrument disables, and keeps the other', async () => {
+    flId = (await prisma.functionalLocation.create({ data: { name: `agg-off-${s}`, type: 'BLOCK' } })).id;
+    instId = await createInstrument(`AGG-OFF-${s}`, flId);
+    await prisma.instrumentAttribute.createMany({
+      data: [
+        { instrumentId: instId, key: 'High Temperature Limit', value: '25' },
+        { instrumentId: instId, key: 'Low Temperature Limit', value: '15' },
+        { instrumentId: instId, key: 'Enable_Temp_NMT', value: '0' },
+      ],
+    });
+    const body = await aggregate(`?window=1h&functionalLocationId=${flId}`, auth);
+    expect(body.limits.temperature).toEqual({ min: 15, max: null });
+  });
+});

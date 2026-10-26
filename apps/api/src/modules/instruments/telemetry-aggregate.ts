@@ -20,7 +20,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { withVisibility, type ScopeWhere } from './visibility.js';
 import { NUMERIC_READING } from './telemetry.repository.js';
-import { limitsFor } from '../alarms/load-limits.js';
+import { limitsFor, enabledBoundsFor } from '../alarms/load-limits.js';
 import { slotConfigLookup } from './profile-measurements.js';
 import { WINDOW_SPEC, type HistoryWindow } from '../floorplans/room-history.js';
 import { resolveLocationIds, type FlNode } from '../functional-locations/tree.js';
@@ -180,7 +180,21 @@ export async function getTelemetryAggregate(opts: AggregateOptions): Promise<Agg
   if (mKeys.length === 0) return empty();
 
   const ids = instruments.map((i) => i.id);
-  const resolved = instruments.map((i) => limitsFor(slotOf(i.profileId).limitKeys, i.attributes).limits);
+  // A bound the instrument (or its profile) switches OFF is withheld, exactly as
+  // the overview, the chart summary and the alarm evaluator withhold it — this
+  // card drew it until 2026-10-26, a line no alarm on the system could fire
+  // against. `null` = not judged, never 0.
+  const resolved = instruments.map((i) => {
+    const slot = slotOf(i.profileId);
+    const { limits } = limitsFor(slot.limitKeys, i.attributes);
+    const on = enabledBoundsFor(slot, i.attributes);
+    return {
+      temperatureHigh: on.temperatureHigh ? limits.temperatureHigh : null,
+      temperatureLow: on.temperatureLow ? limits.temperatureLow : null,
+      humidityHigh: on.humidityHigh ? limits.humidityHigh : null,
+      humidityLow: on.humidityLow ? limits.humidityLow : null,
+    };
+  });
   const tempBounds = limitsAgree(resolved.map((l) => ({ min: l.temperatureLow, max: l.temperatureHigh })));
   const humidBounds = limitsAgree(resolved.map((l) => ({ min: l.humidityLow, max: l.humidityHigh })));
   const anyTemp = resolved.some((l) => l.temperatureLow !== null || l.temperatureHigh !== null);
