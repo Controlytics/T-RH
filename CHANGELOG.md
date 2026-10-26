@@ -1,5 +1,58 @@
 # Changelog
 
+## [Unreleased] - A limited user can no longer create an instrument they cannot see (2026-10-26)
+
+Operator: "in aws in instruments page its coming load error and instrument not
+found erors". Read-only evidence from the AWS journal and RDS: MAINTENANCE user
+101011 (user instrument scope = two functional locations) registered
+`CWH/RDU/001-01` and `CWH/RDU/201-00` with NO functional location. Both rows
+exist, but outside their creator's own scope, so every request straight after
+the create — the New Instrument form's attribute writes, the detail page, its
+telemetry, children and dead letters — answered 404 "Instrument not found."
+(SWR's retries made each a run of "Load Error" toasts.) Every attribute typed
+into the form was lost. Separately, every child detail page looked its gateway
+up by id; IOTGW01 sits in no location, so any scoped viewer got the same 404
+toast on every child it opened, plus "Gateway: No" and the wrong attribute
+topic in the connection card.
+
+- `createWithCredential` reads the new row back through the caller's
+  visibility fragment inside the transaction, before the credential and the
+  `INSTRUMENT_CREATED` row, and refuses with 400 `LOCATION_REQUIRED` (none
+  chosen) or `LOCATION_OUT_OF_SCOPE`. Its `visibility` parameter is now
+  REQUIRED — the bulk path had been calling it without one.
+- `functionalLocationId` (optional) on `POST /api/instruments` and on
+  `POST /api/instruments/bulk` (one for the whole upload); unknown id → 400
+  `LOCATION_NOT_FOUND`; bulk refuses up front so nothing is created. The chosen
+  location is on the `INSTRUMENT_CREATED` record.
+- `placeableLocationIds()` in `modules/instruments/visibility.ts` (pure, 4 unit
+  tests) — the scope's locations with Blocks expanded, the same expansion the
+  visibility filter uses; `resolveVisibility` returns it as `placeable`.
+  `GET /api/functional-locations` marks each node `placeable` and returns
+  `placementRequired`.
+- `GET /api/instruments/:id` returns `gatewayCode` and `gatewayVisible`; the
+  detail page dropped its by-id gateway fetch and links the gateway only when
+  the server says it can be opened.
+- New Instrument and Bulk Upload: a **Functional location** picker (Block →
+  Area) offering only what the server marks placeable, required when the
+  server says so. Bulk step 1 reads "Choose the profile and location".
+- No new route, permission, reauth action, audit action, config def or
+  migration. Tests: `e2e/instrument-create-scope.e2e.test.ts` (11; mutation-
+  checked: the in-transaction guard, the bulk pre-check, the four response
+  schema declarations), web `create.test.tsx` (+4), `bulk-create.test.tsx`
+  (+1), `detail-gateway.test.tsx` (3) — four web mutations caught.
+- **Rule, stated rather than asked:** a new instrument is never added to its
+  creator's scope automatically — that would silently rewrite an access-control
+  row, and for a role-inherited user would fork a personal scope off future
+  role edits. The creator places it in a location they already see.
+- **Known overlap:** a profile may still ask for free-text `Block` / `Area`
+  ATTRIBUTES on the same form, which write the superseded columns. The picker
+  is labelled "Functional location" to keep the two apart; the attributes were
+  left alone.
+- **AWS data owed by the operator:** `CWH/RDU/001-01` and `CWH/RDU/201-00`
+  have no attributes and no location. A super admin places each in one of
+  101011's Areas (Functional Locations) or deletes them so 101011 can register
+  them again.
+
 ## [Unreleased] - Attribute Edit Access: per role AND per user (2026-10-24)
 
 Operator: "add one new configuration, in that configuration in settings who can

@@ -323,6 +323,21 @@ response schemas — create and regenerate. Everything else returns
 `tokenPrefix` only, and Fastify's response serialisation is what enforces
 that, not handler discipline.
 
+**Placement on create (2026-10-26).** `POST /api/instruments` and
+`POST /api/instruments/bulk` take an optional `functionalLocationId` (bulk: a
+sibling of `csv`, one for the whole upload). A caller whose instrument view is
+LIMITED must place the instrument inside it: no location → 400
+`LOCATION_REQUIRED`, a location outside the view → 400 `LOCATION_OUT_OF_SCOPE`,
+an unknown id → 400 `LOCATION_NOT_FOUND`. Enforced inside the create
+transaction by reading the new row back through the caller's visibility
+fragment, before the credential and the `INSTRUMENT_CREATED` row; bulk also
+refuses once up front so nothing is created. `GET /api/functional-locations`
+marks each node `placeable` and returns `placementRequired` beside `data` —
+the pickers on New Instrument and Bulk Upload read those and nothing else.
+`GET /api/instruments/{id}` returns `gatewayCode` and `gatewayVisible`: a child
+names its gateway even when the caller cannot open it (the detail page no
+longer looks the gateway up by id).
+
 ### /ingest/v1 — 3 paths (device-facing; NOT behind the auth hook)
 
 | Method(s) | Path | Summary |

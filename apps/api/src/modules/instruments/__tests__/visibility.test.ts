@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { effectiveScope, expandScope, normalizeScope, scopeToWhere, type ScopeNode } from '../visibility.js';
+import { effectiveScope, expandScope, normalizeScope, placeableLocationIds, scopeToWhere, type ScopeNode } from '../visibility.js';
 
 const nodes: ScopeNode[] = [
   { id: 'cwh', name: 'CWH', type: 'BLOCK', parentId: null },
@@ -174,5 +174,26 @@ describe('scopeToWhere', () => {
     const w = scopeToWhere(sel(['cwh']), nodes)!;
     expect(w.OR[0].functionalLocationId.in).not.toContain(null);
     expect(Object.keys(w.OR[0])).toEqual(['functionalLocationId']);
+  });
+});
+
+describe('placeableLocationIds — where a new instrument stays visible to its creator', () => {
+  it('is unrestricted (null) for an unrestricted scope', () => {
+    expect(placeableLocationIds(null, nodes)).toBeNull();
+  });
+
+  it('expands a granted Block to its Areas, exactly as the visibility filter does', () => {
+    expect(placeableLocationIds(sel(['cwh']), nodes)).toEqual(new Set(['cwh', 'me', 'mf']));
+  });
+
+  it('grants an Area alone, not its Block', () => {
+    // An instrument placed directly in the Block would be outside a Module-E-only view.
+    expect(placeableLocationIds(sel(['me']), nodes)).toEqual(new Set(['me']));
+  });
+
+  it('places NOWHERE for an instrument-only scope or an empty one', () => {
+    // A brand-new instrument cannot already be in `instrumentIds`.
+    expect(placeableLocationIds(sel([], ['i1']), nodes)).toEqual(new Set());
+    expect(placeableLocationIds(NONE, nodes)).toEqual(new Set());
   });
 });

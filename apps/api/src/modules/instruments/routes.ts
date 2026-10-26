@@ -120,6 +120,22 @@ const instrumentProps = {
   lastSeenVia: { type: 'string', nullable: true },
 } as const;
 
+/**
+ * `GET /:id` only: the instrument's GATEWAY as the child's own fact (2026-10-26).
+ * The detail page used to look the gateway up by id, and a viewer whose scope
+ * holds the child but not the gateway (IOTGW01 sits in no location) got a 404
+ * toast on every child it opened — plus "Gateway: No" and the wrong attribute
+ * topic in the connection card. The child's row already names the gateway's
+ * id; its code is how the child's own downlink is addressed. Whether the
+ * caller may OPEN the gateway is the server's answer, never the browser's.
+ * DECLARED here or Fastify strips both.
+ */
+const instrumentDetailProps = {
+  ...instrumentProps,
+  gatewayCode: { type: 'string', nullable: true },
+  gatewayVisible: { type: 'boolean' },
+} as const;
+
 /** The narrow shape both gateway-link pickers render: no secrets, no telemetry. */
 /**
  * Flattens Prisma's nested `profile` onto `profileName`, which is what
@@ -295,6 +311,33 @@ const PROFILE_NOT_FOUND = {
   message: 'The selected profile no longer exists.',
 };
 
+/**
+ * Checked before the create, as the profile is: an unknown id would otherwise
+ * reach the foreign key and surface as a 500.
+ */
+async function locationMissing(functionalLocationId: string | null | undefined): Promise<boolean> {
+  if (!functionalLocationId) return false;
+  return !(await prisma.functionalLocation.findUnique({
+    where: { id: functionalLocationId }, select: { id: true },
+  }));
+}
+
+const LOCATION_NOT_FOUND = {
+  error: 'LOCATION_NOT_FOUND',
+  message: 'The selected functional location no longer exists.',
+};
+
+/**
+ * The refusal for an instrument its creator could not see (2026-10-26). Two
+ * wordings because the remedy differs: no location chosen, or one outside the
+ * caller's instrument view.
+ */
+function placementRefusal(functionalLocationId: unknown): { error: string; message: string } {
+  return functionalLocationId
+    ? { error: 'LOCATION_OUT_OF_SCOPE', message: 'That functional location is outside your instrument view. Choose one of your own locations.' }
+    : { error: 'LOCATION_REQUIRED', message: 'Choose a functional location. Your instrument view is limited to selected locations, and an instrument registered outside them would be hidden from you.' };
+}
+
 const SIGNATURE_CODE_MAX = 80;
 function codeLabel(code: string): string {
   return code.length <= SIGNATURE_CODE_MAX ? code : `${code.slice(0, SIGNATURE_CODE_MAX)}…`;
@@ -350,8 +393,13 @@ async function announceRoster(gatewayId: string | null | undefined): Promise<voi
 async function createWithCredential(
   draft: Record<string, unknown>,
   ctx: ReturnType<typeof buildContext>,
-  /** The caller's instrument visibility: the gateway a new instrument links to must be in it. */
-  visibility?: ScopeWhere,
+  /**
+   * The caller's instrument visibility (`undefined` = unrestricted). REQUIRED,
+   * not optional: the gateway a new instrument links to must be in it, and the
+   * new instrument itself must land in it. An optional parameter is how the
+   * bulk path once skipped both without anyone noticing.
+   */
+  visibility: ScopeWhere | undefined,
 ): Promise<{ id: string; code: string; name: string; token: string }> {
   const token = generateToken();
   return prisma.$transaction(async (tx) => {
@@ -362,6 +410,24 @@ async function createWithCredential(
     const instrument = await tx.instrument.create({
       data: { ...draft, createdBy: ctx.userId } as unknown as Prisma.InstrumentCreateInput,
     });
+    // The caller must be able to SEE what they just created (2026-10-26). Read
+    // back through the SAME fragment `GET /:id` applies, inside the transaction
+    // and BEFORE the credential and the audit row, so a refusal rolls the row
+    // back and never consumes an audit chain position. Without it a scoped
+    // user's new instrument was a 404 on every route from birth — attributes,
+    // detail page, telemetry — while it existed for everyone else (AWS: two
+    // such instruments, every attribute write lost).
+    if (visibility) {
+      const seen = await tx.instrument.findFirst({
+        where: withVisibility({ id: instrument.id }, visibility) as { id: string },
+        select: { id: true },
+      });
+      if (!seen) throw new HandledRouteError(400, placementRefusal(draft.functionalLocationId));
+    }
+    // Named beside the id on the record, as `gateway` is beside `gatewayId`.
+    const bornIn = instrument.functionalLocationId
+      ? await tx.functionalLocation.findUnique({ where: { id: instrument.functionalLocationId }, select: { name: true } })
+      : null;
     await tx.instrumentCredential.create({
       data: {
         instrumentId: instrument.id,
@@ -375,7 +441,14 @@ async function createWithCredential(
     });
     await auditLog({
       action: 'INSTRUMENT_CREATED', targetType: 'Instrument', targetId: instrument.id,
-      afterValue: { name: instrument.name, code: instrument.code },
+      // The location it was born in is part of what was registered — it decides
+      // who can see the instrument — so it is on the record when chosen.
+      afterValue: {
+        name: instrument.name, code: instrument.code,
+        ...(instrument.functionalLocationId
+          ? { functionalLocation: bornIn?.name ?? null, functionalLocationId: instrument.functionalLocationId }
+          : {}),
+      },
       signatureMeaning: `Instrument "${codeLabel(instrument.code)}" registered and access token issued`,
       userId: ctx.userId, userRole: ctx.userRole,
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
@@ -1018,7 +1091,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       summary: 'Get instrument by ID',
       description: 'Full instrument detail. The access token is never returned — only its prefix.',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
-      response: { 200: { type: 'object', properties: instrumentProps }, ...errorResponses },
+      response: { 200: { type: 'object', properties: instrumentDetailProps }, ...errorResponses },
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
@@ -1029,10 +1102,23 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const { where: visibility } = await resolveVisibility(buildContext(req));
     const row = await prisma.instrument.findFirst({
       where: withVisibility({ id }, visibility) as { id: string },
-      include: { credentials: activeCredential, ...withProfileName },
+      include: { credentials: activeCredential, ...withProfileName, gateway: { select: { code: true } } },
     });
     if (!row) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
-    return present(row as unknown as InstrumentRow);
+    const { gateway, ...rest } = row;
+    // Opened through the same fragment as this lookup, so the link is offered
+    // exactly when following it would not 404.
+    const gatewayVisible = row.gatewayId
+      ? Boolean(await prisma.instrument.findFirst({
+          where: withVisibility({ id: row.gatewayId }, visibility) as { id: string },
+          select: { id: true },
+        }))
+      : false;
+    return {
+      ...present(rest as unknown as InstrumentRow),
+      gatewayCode: gateway?.code ?? null,
+      gatewayVisible,
+    };
   });
 
   // GET /api/instruments/:id/telemetry — latest value per key + recent history.
@@ -1524,6 +1610,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     if (await profileMissing(parsed.data.profileId)) {
       return reply.code(400).send(PROFILE_NOT_FOUND);
     }
+    if (await locationMissing(parsed.data.functionalLocationId)) {
+      return reply.code(400).send(LOCATION_NOT_FOUND);
+    }
 
     try {
       const { id, token } = await createWithCredential(parsed.data as Record<string, unknown>, buildContext(req), visibility);
@@ -1539,6 +1628,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       return reply.code(201).send({ ...present(row as unknown as InstrumentRow), token });
     } catch (err) {
       if (err instanceof GatewayInvariantViolation) return reply.code(err.status).send(err.body);
+      if (err instanceof HandledRouteError) return reply.code(err.status).send(err.body);
       if (isDuplicateCode(err)) {
         return reply.code(409).send({ error: 'DUPLICATE_CODE', message: `An instrument with code "${parsed.data.code}" already exists.` });
       }
@@ -1557,7 +1647,13 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       // already have on disk stays exactly as it was.
       body: {
         type: 'object', required: ['csv', 'profileId'],
-        properties: { csv: { type: 'string' }, profileId: { type: 'string', format: 'uuid' } },
+        properties: {
+          csv: { type: 'string' },
+          profileId: { type: 'string', format: 'uuid' },
+          // The functional location EVERY row is born in, chosen once like the
+          // profile. Required when the caller's instrument view is limited.
+          functionalLocationId: { type: 'string', format: 'uuid', nullable: true },
+        },
       },
       response: {
         200: {
@@ -1601,6 +1697,18 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // rather than after some rows have already been created against it.
     if (await profileMissing(parsed.data.profileId)) {
       return reply.code(400).send(PROFILE_NOT_FOUND);
+    }
+    const locationId = parsed.data.functionalLocationId ?? null;
+    if (await locationMissing(locationId)) {
+      return reply.code(400).send(LOCATION_NOT_FOUND);
+    }
+    // Decided ONCE, before any row is created (2026-10-26): a refusal must
+    // register nothing, not reject every row one by one. `createWithCredential`
+    // re-checks each row inside its transaction and stays the authority; this
+    // reads the same resolution, so the two cannot disagree.
+    const { where: visibility, placeable } = await resolveVisibility(buildContext(req));
+    if (placeable && !(locationId && placeable.has(locationId))) {
+      return reply.code(400).send(placementRefusal(locationId));
     }
 
     // The file may carry the profile's ATTRIBUTES, headed by their administered
@@ -1661,10 +1769,12 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         const row = await createWithCredential(
           {
             ...sanitizeStrings(identity as unknown as Record<string, unknown>, IDENTITY_FIELDS),
-            // One profile for the whole upload — see the body schema.
+            // One profile, and one location, for the whole upload — see the body schema.
             profileId: parsed.data.profileId,
+            ...(locationId ? { functionalLocationId: locationId } : {}),
           },
           ctx,
+          visibility,
         );
         created.push(row);
         // AFTER the instrument's own transaction, as the single form does with

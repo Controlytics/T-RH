@@ -153,6 +153,23 @@ export function scopeToWhere(scope: InstrumentScope, nodes: ScopeNode[]): ScopeW
   };
 }
 
+/**
+ * The functional locations an instrument may be PLACED in by this caller so that
+ * the caller can still see it afterwards: `null` = anywhere (unrestricted),
+ * otherwise the scope's granted locations with Blocks expanded to their Areas —
+ * the SAME expansion `scopeToWhere`'s location branch reads, so "placeable" and
+ * "visible once placed" cannot disagree.
+ *
+ * An instrument-only scope places NOWHERE: a new instrument's id cannot already
+ * be in `instrumentIds`. Added 2026-10-26 after a MAINTENANCE user on AWS,
+ * scoped to two locations, registered two instruments with no location and
+ * lost sight of both the moment they were created.
+ */
+export function placeableLocationIds(scope: InstrumentScope, nodes: ScopeNode[]): Set<string> | null {
+  if (scope === null) return null;
+  return new Set(expandScope(scope.locationIds, nodes));
+}
+
 // ─── Request-time resolution ─────────────────────────────────────────────────
 
 /**
@@ -165,8 +182,8 @@ export function scopeToWhere(scope: InstrumentScope, nodes: ScopeNode[]): ScopeW
  */
 export async function resolveVisibility(
   ctx: { userId: string; userRole: string },
-): Promise<{ scope: InstrumentScope; where: ScopeWhere | undefined }> {
-  if (ctx.userRole === SUPER_ADMIN) return { scope: null, where: undefined };
+): Promise<{ scope: InstrumentScope; where: ScopeWhere | undefined; placeable: Set<string> | null }> {
+  if (ctx.userRole === SUPER_ADMIN) return { scope: null, where: undefined, placeable: null };
 
   // ctx.userId is the USERNAME (see lib/build-context.ts) while user_configs keys on
   // the user's uuid — resolve it rather than assuming they are the same thing.
@@ -186,7 +203,7 @@ export async function resolveVisibility(
     normalizeScope(roleCfg?.instrumentScope),
     normalizeScope(userCfg?.instrumentScope),
   );
-  if (scope === null) return { scope: null, where: undefined };
+  if (scope === null) return { scope: null, where: undefined, placeable: null };
 
   // Only the location half needs the tree; an instrument-only scope still pays for
   // this read. Left as-is rather than made conditional: the branch would be a second
@@ -195,7 +212,7 @@ export async function resolveVisibility(
     select: { id: true, name: true, type: true, parentId: true },
   });
   const nodes: ScopeNode[] = rows.map((r) => ({ ...r, type: r.type as FlType }));
-  return { scope, where: scopeToWhere(scope, nodes) };
+  return { scope, where: scopeToWhere(scope, nodes), placeable: placeableLocationIds(scope, nodes) };
 }
 
 /** Merge a visibility filter into an existing `where`, preserving both. */

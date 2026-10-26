@@ -125,3 +125,18 @@ Six fixers in worktrees (own test DB each: compliance_core_db_test_{auth,alarms,
 - [x] Lead: build-deb prisma generate, deploy rollback ordering, bat text, doc drift
 - [ ] Lead: deps (fastify, adm-zip, sanitize-html, nodemailer), full serial test run, CHANGELOG, counts
 - [ ] Deploy to AWS; hand operator the post-deploy writes
+
+## 2026-10-26 — AWS: "Load Error" / "Instrument not found" on Instruments (scoped creator)
+Cause (read-only RDS + journal): MAINTENANCE user 101011 (user scope = 2 locations) created
+CWH/RDU/001-01 and CWH/RDU/201-00 with no functional location -> outside their own scope ->
+attribute POSTs, GET /:id, telemetry, children all 404. Separately every child detail page
+looks up its gateway by id; IOTGW01 has no location -> 404 toast for every scoped viewer.
+- [x] API: createWithCredential refuses an instrument the caller could not see (in-tx, before credential/audit); visibility REQUIRED arg; bulk passes it
+- [x] API: create + bulk accept functionalLocationId (exists check; bulk pre-checks once)
+- [x] API: FL tree flags `placeable` per node + top-level `placementRequired` (server-decided)
+- [x] API: GET /:id returns gatewayCode + gatewayVisible (declared in the schema)
+- [x] Web: Functional location picker on New Instrument + Bulk Upload; detail drops the gateway fetch
+- [x] Tests: e2e (scoped create 400/201, bulk, tree flags, gateway code) mutation-checked; web create/bulk/detail
+- [x] Docs: CHANGELOG, feature-notes visibility note, endpoints.md
+- [ ] Push to trh, deploy over SSM, health 200
+- [ ] Hand operator: place or delete CWH/RDU/001-01 and CWH/RDU/201-00 (no attributes saved)

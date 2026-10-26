@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { PageHeader } from '@/components/ui/page-header';
 import { Dialog, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { LocationPicker, NO_PLACEMENT, placedLocationId, usePlacementTree, type Placement } from './location-picker';
 
 interface CreatedRow { id: string; code: string; name: string; token: string }
 /** `column` is the heading as the file spells it; absent for a whole-row fault. */
@@ -80,6 +81,14 @@ export function InstrumentBulkCreatePage() {
   );
   const { labelFor } = useAttributeLabels();
   const templateKeys = parseInstrumentAttributeKeys(profile?.attributeKeys);
+  // ONE functional location for the whole upload too (2026-10-26) — required
+  // when the server says the caller's instrument view is limited, or every
+  // instrument in the file would be created out of the uploader's own sight.
+  const placementTree = usePlacementTree();
+  const [placement, setPlacement] = useState<Placement>(NO_PLACEMENT);
+  const functionalLocationId = placedLocationId(placementTree.tree, placement);
+  const placementMissing = placementTree.required && !functionalLocationId;
+  const body = () => ({ csv, profileId, ...(functionalLocationId ? { functionalLocationId } : {}) });
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -101,8 +110,8 @@ export function InstrumentBulkCreatePage() {
     await reauth.execute('CREATE_INSTRUMENT', async (password?: string) => {
       if (res) return;
       res = password
-        ? await apiClient.postWithReauth<BulkResult>('/api/instruments/bulk', { csv, profileId }, password)
-        : await apiClient.post<BulkResult>('/api/instruments/bulk', { csv, profileId });
+        ? await apiClient.postWithReauth<BulkResult>('/api/instruments/bulk', body(), password)
+        : await apiClient.post<BulkResult>('/api/instruments/bulk', body());
     }, {
       onSuccess: () => {
         if (!res) return;
@@ -141,8 +150,8 @@ export function InstrumentBulkCreatePage() {
       />
 
       <Card>
-        <CardHeader><CardTitle>1. Choose the profile</CardTitle></CardHeader>
-        <CardContent>
+        <CardHeader><CardTitle>1. Choose the profile and location</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
           {presetProfileId ? (
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
               <span className="text-xs text-slate-500">Profile</span>
@@ -160,6 +169,12 @@ export function InstrumentBulkCreatePage() {
               </select>
             </label>
           )}
+          <LocationPicker
+            tree={placementTree.tree}
+            required={placementTree.required}
+            value={placement}
+            onChange={setPlacement}
+          />
         </CardContent>
       </Card>
 
@@ -199,7 +214,7 @@ export function InstrumentBulkCreatePage() {
               hover:file:brightness-110"
           />
           {fileName && <p className="text-xs text-slate-500">Selected: {fileName}</p>}
-          <Button onClick={upload} disabled={!csv.trim() || !profileId || uploading}>
+          <Button onClick={upload} disabled={!csv.trim() || !profileId || placementMissing || uploading}>
             {uploading ? 'Uploading…' : 'Create instruments'}
           </Button>
         </CardContent>

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 /**
@@ -24,6 +24,8 @@ const PROFILE_KEYS = { current: 'Block\nRoom\nCalibration Due' as string | null 
 const PROFILE_FETCH = { loading: false, error: false };
 /** Configuration → Attribute Display Names, as the narrow-slice route returns it. */
 const LABELS = { current: {} as Record<string, string> };
+/** `GET /api/functional-locations` — undefined = not loaded, as every older case runs. */
+const TREE = { current: undefined as unknown };
 
 /**
  * URL-PRECISE. The page reads the profile LIST (`/api/instrument-profiles`) and
@@ -36,6 +38,7 @@ vi.mock('swr', () => ({
   default: (key: string | null) => {
     if (key === '/api/instrument-profiles') return { data: PROFILES };
     if (key === '/api/config/attribute-labels/current') return { data: { labels: LABELS.current } };
+    if (key === '/api/functional-locations') return { data: TREE.current };
     if (typeof key === 'string' && key.startsWith('/api/instrument-profiles/')) {
       if (PROFILE_FETCH.loading) return { data: undefined, isLoading: true };
       if (PROFILE_FETCH.error) return { data: undefined, error: new Error('unreachable') };
@@ -104,6 +107,7 @@ beforeEach(() => {
   PROFILE_FETCH.loading = false;
   PROFILE_FETCH.error = false;
   LABELS.current = {};
+  TREE.current = undefined;
   post.mockReset().mockResolvedValue(created);
   postWithReauth.mockReset().mockResolvedValue(created);
   errorToast.mockReset();
@@ -403,5 +407,69 @@ describe('InstrumentCreatePage — the attribute writes are signed too', () => {
     // registration, and loses the only moment the token is shown.
     expect(await screen.findByText(/PROBE-A1/)).toBeInTheDocument();
     expect(errorToast).toHaveBeenCalledWith(expect.stringMatching(/created/i), expect.stringMatching(/Room/));
+  });
+});
+
+/**
+ * The functional location an instrument is born in (2026-10-26). On AWS a
+ * MAINTENANCE user scoped to two locations registered instruments with none and
+ * lost sight of them at once — every attribute typed here came back 404. The
+ * server now refuses that; the form offers only what the SERVER marks
+ * `placeable` and says what is missing before the round trip.
+ */
+describe('InstrumentCreatePage — the functional location it is born in', () => {
+  const scopedTree = {
+    placementRequired: true,
+    data: [
+      { id: 'b-own', name: 'CWH', placeable: false, children: [
+        { id: 'a-own', name: 'Module-E', placeable: true },
+        { id: 'a-not', name: 'Module-F', placeable: false },
+      ] },
+      { id: 'b-not', name: 'Block C', placeable: false, children: [] },
+    ],
+  };
+  const block = () => screen.getByRole('combobox', { name: 'Functional location block' });
+  const area = () => screen.getByRole('combobox', { name: 'Functional location area' });
+
+  it('refuses to submit without one when the server says placement is required', async () => {
+    TREE.current = scopedTree;
+    renderPage();
+    fillId('P-9');
+    submit();
+    expect(await screen.findByText('Choose a functional location.')).toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('does not count a Block it may not place in directly as a choice', async () => {
+    TREE.current = scopedTree;
+    renderPage();
+    fillId('P-9');
+    fireEvent.change(block(), { target: { value: 'b-own' } });
+    submit();
+    expect(await screen.findByText('Choose a functional location.')).toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('offers only what the server marks placeable, and sends the chosen Area', async () => {
+    TREE.current = scopedTree;
+    renderPage();
+    fillId('P-9');
+    expect(within(block()).queryByRole('option', { name: 'Block C' })).not.toBeInTheDocument();
+    fireEvent.change(block(), { target: { value: 'b-own' } });
+    expect(within(area()).queryByRole('option', { name: 'Module-F' })).not.toBeInTheDocument();
+    fireEvent.change(area(), { target: { value: 'a-own' } });
+    submit();
+    await waitFor(() => expect(post).toHaveBeenCalledWith(
+      '/api/instruments', expect.objectContaining({ functionalLocationId: 'a-own' }),
+    ));
+  });
+
+  it('needs none, and sends none, for an unrestricted caller', async () => {
+    TREE.current = { placementRequired: false, data: [{ id: 'b-1', name: 'CWH', placeable: true, children: [] }] };
+    renderPage();
+    fillId('P-9');
+    submit();
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/instruments', expect.anything()));
+    expect(post.mock.calls[0][1]).not.toHaveProperty('functionalLocationId');
   });
 });

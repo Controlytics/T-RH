@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TokenDialog } from './token-dialog';
+import { LocationPicker, NO_PLACEMENT, placedLocationId, usePlacementTree, type Placement } from './location-picker';
 import { PageHeader } from '@/components/ui/page-header';
 
 interface CreatedInstrument { id: string; code: string; token: string }
@@ -74,6 +75,9 @@ export function InstrumentCreatePage() {
   );
   /** Values for the configured keys, keyed by the key itself. */
   const [attrs, setAttrs] = useState<Record<string, string>>({});
+  /** The functional location it is born in — required when the server says so. */
+  const placementTree = usePlacementTree();
+  const [placement, setPlacement] = useState<Placement>(NO_PLACEMENT);
 
   // Profiles. Arriving from inside a profile (the normal route) pre-selects it
   // and shows it as a chip: the operator made that choice by opening the
@@ -125,7 +129,17 @@ export function InstrumentCreatePage() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const parsed = instrumentCreateFormSchema.safeParse({ code: form.code, profileId });
-    if (!parsed.success) { setFieldErrors(formFieldErrors(parsed.error)); return; }
+    const functionalLocationId = placedLocationId(placementTree.tree, placement);
+    // Named beside the picker rather than left to the server's 400: the server
+    // still refuses, this only says so before the round trip.
+    const placementMissing = placementTree.required && !functionalLocationId;
+    if (!parsed.success || placementMissing) {
+      setFieldErrors({
+        ...(parsed.success ? {} : formFieldErrors(parsed.error)),
+        ...(placementMissing ? { functionalLocationId: ['Choose a functional location.'] } : {}),
+      });
+      return;
+    }
     setFieldErrors({});
     setSaving(true);
     const code = parsed.data.code;
@@ -138,6 +152,7 @@ export function InstrumentCreatePage() {
     // as NESTED_GATEWAY — so the picker is hidden in gateway mode and the value
     // is not sent even if one was chosen before the checkbox was ticked.
     if (!isGateway && gatewayId) payload.gatewayId = gatewayId;
+    if (functionalLocationId) payload.functionalLocationId = functionalLocationId;
 
     // Block / Area / Location are configured keys like any other, but they
     // are real COLUMNS on the instrument — the Instruments list filters on
@@ -278,6 +293,14 @@ export function InstrumentCreatePage() {
               />
               <span className="font-medium">Is Gateway</span>
             </label>
+
+            <LocationPicker
+              tree={placementTree.tree}
+              required={placementTree.required}
+              value={placement}
+              onChange={setPlacement}
+              error={fieldErrors.functionalLocationId?.[0]}
+            />
 
             {/* Hidden in gateway mode: a gateway behind a gateway is rejected
                 server-side (NESTED_GATEWAY), so offering the control would be

@@ -40,6 +40,13 @@ interface Instrument {
   block: string | null; area: string | null; location: string | null;
   isGateway: boolean; gatewayId: string | null; lastSeenVia: string | null;
   profileId: string; profileName: string | null;
+  /**
+   * The gateway this instrument reports through, as the SERVER names it on this
+   * instrument's own record (2026-10-26). `gatewayVisible` says whether the
+   * viewer may open it — a viewer scoped to the child but not the gateway
+   * (IOTGW01 sits in no location) got a 404 toast from the old by-id lookup.
+   */
+  gatewayCode?: string | null; gatewayVisible?: boolean;
 }
 interface ChildInstrument { id: string; code: string; name: string; isActive: boolean }
 interface Reading {
@@ -104,12 +111,12 @@ export function InstrumentDetailPage() {
   const { data: children } = useSWR<{ data: ChildInstrument[] }>(
     id ? `/api/instruments/${id}/children` : null,
   );
-  // A child instrument shows which gateway (if any) also reports it. The
-  // instrument record only carries `gatewayId`, so the parent's code needs
-  // its own lookup.
-  const { data: gatewayInst } = useSWR<Instrument>(
-    id && inst?.gatewayId ? `/api/instruments/${inst.gatewayId}` : null,
-  );
+  // A child instrument shows which gateway (if any) also reports it — named on
+  // its OWN record. This was a second fetch of `/api/instruments/<gatewayId>`
+  // until 2026-10-26, which 404'd (a "Load Error" toast, "Gateway: No", and the
+  // wrong attribute topic) for every viewer whose scope held the child but not
+  // the gateway. Never look a related instrument up by id here again.
+  const gatewayCode = inst?.gatewayId ? inst.gatewayCode ?? null : null;
   // The fallback window for an instrument that declares no expected interval.
   const { data: activityConfig } = useSWR<{ activeWindowMinutes?: number }>('/api/config/instrument-activity/current');
   // Offered so an instrument can be MOVED between profiles from the one page
@@ -384,11 +391,16 @@ export function InstrumentDetailPage() {
             {inst.isGateway && (
               <span className="rounded-md border border-white/40 px-1.5 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide">Gateway</span>
             )}
-            {gatewayInst && (
-              <Link to={`/instruments/${gatewayInst.id}`} className="rounded-md border border-white/40 px-1.5 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide hover:bg-white/10">
-                Child of {gatewayInst.code}
+            {gatewayCode && (inst.gatewayVisible ? (
+              <Link to={`/instruments/${inst.gatewayId}`} className="rounded-md border border-white/40 px-1.5 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide hover:bg-white/10">
+                Child of {gatewayCode}
               </Link>
-            )}
+            ) : (
+              // Outside the viewer's scope: named, not linked — following it would 404.
+              <span className="rounded-md border border-white/40 px-1.5 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide">
+                Child of {gatewayCode}
+              </span>
+            ))}
             {inst.profileName && (
               <Link to={`/instruments/profiles/${inst.profileId}`} className="text-xs text-white/70 hover:text-white">in {inst.profileName}</Link>
             )}
@@ -453,7 +465,7 @@ export function InstrumentDetailPage() {
                 <dt className="text-slate-500">Profile</dt>
                 <dd>{inst.profileName || '—'}</dd>
                 <dt className="text-slate-500">Gateway</dt>
-                <dd>{inst.isGateway ? 'Yes — reports for its linked instruments' : gatewayInst ? `Child of ${gatewayInst.code}` : 'No'}</dd>
+                <dd>{inst.isGateway ? 'Yes — reports for its linked instruments' : gatewayCode ? `Child of ${gatewayCode}` : 'No'}</dd>
                 <dt className="text-slate-500">Created</dt>
                 <dd>{stamp(inst.createdAt)}{inst.createdBy ? ` by ${inst.createdBy}` : ''}</dd>
               </dl>
@@ -529,7 +541,7 @@ export function InstrumentDetailPage() {
             token={revealedToken ?? undefined}
             isGateway={inst.isGateway}
             childCodes={children?.data.map((c) => c.code)}
-            gatewayCode={gatewayInst?.code}
+            gatewayCode={gatewayCode ?? undefined}
           />
           {!revealedToken && (
             <p className="mt-3 text-xs text-slate-500">

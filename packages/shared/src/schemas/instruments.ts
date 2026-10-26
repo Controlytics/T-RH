@@ -95,6 +95,15 @@ export const createInstrumentSchema = z.object({
   // null is meaningful: it unlinks. `.nullish()` keeps "omitted" and
   // "explicitly cleared" distinguishable in the handler.
   gatewayId: z.string().uuid().nullish(),
+  /**
+   * The FUNCTIONAL LOCATION (Block or Area) the instrument is born in — the
+   * authoritative grouping, NOT the free-text `block` / `area` columns above.
+   * Optional for an unrestricted caller; a caller whose instrument view is
+   * limited MUST place it inside that view, or the server refuses (2026-10-26:
+   * an instrument created outside the creator's own scope was invisible to
+   * them from the moment it existed).
+   */
+  functionalLocationId: z.string().uuid().nullish(),
 });
 
 export const updateInstrumentSchema = z.object({
@@ -271,6 +280,9 @@ export const bulkCreateInstrumentsSchema = z.object({
   // column would break every template file operators already have on disk, and
   // a per-row profile is not a thing anyone asked for.
   profileId: z.string().uuid('A profile must be selected'),
+  // Also chosen ONCE for the whole upload, for the same reason: the functional
+  // location every row is born in (see `createInstrumentSchema`).
+  functionalLocationId: z.string().uuid().nullish(),
 });
 
 export type CreateInstrumentInput = z.infer<typeof createInstrumentSchema>;

@@ -13,6 +13,8 @@ import { MemoryRouter } from 'react-router-dom';
 const PROFILES = { data: [{ id: 'p-1', name: 'T&RH Sensors' }, { id: 'p-2', name: 'Empty' }] };
 const PROFILE_KEYS: Record<string, string> = { 'p-1': 'Building\nEnable_Temp_NMT\nRoom', 'p-2': '' };
 const LABELS = { current: {} as Record<string, string> };
+/** `GET /api/functional-locations` — undefined = not loaded, as every older case runs. */
+const TREE = { current: undefined as unknown };
 
 vi.mock('swr', () => ({
   default: (key: string | null) => {
@@ -22,6 +24,7 @@ vi.mock('swr', () => ({
       return { data: { id, attributeKeys: PROFILE_KEYS[id] ?? '' } };
     }
     if (key === '/api/config/attribute-labels/current') return { data: { labels: LABELS.current } };
+    if (key === '/api/functional-locations') return { data: TREE.current };
     return { data: undefined };
   },
 }));
@@ -54,6 +57,7 @@ const saved: { name: string; text: Promise<string> }[] = [];
 beforeEach(() => {
   saved.length = 0;
   LABELS.current = {};
+  TREE.current = undefined;
   post.mockReset();
   reauthActions.length = 0;
   vi.stubGlobal('URL', {
@@ -196,7 +200,8 @@ describe('InstrumentBulkCreatePage — the template', () => {
     const profile = screen.getByRole('combobox', { name: /profile/i });
     const download = screen.getByRole('button', { name: /download template/i });
     expect(profile.compareDocumentPosition(download) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByText('1. Choose the profile')).toBeInTheDocument();
+    // "and location" since 2026-10-26: the functional location is chosen in the same step.
+    expect(screen.getByText('1. Choose the profile and location')).toBeInTheDocument();
     expect(screen.getByText('2. Download the template')).toBeInTheDocument();
     expect(screen.getByText('3. Upload')).toBeInTheDocument();
   });
@@ -212,5 +217,33 @@ describe('InstrumentBulkCreatePage — the template', () => {
     downloadTemplate();
     await waitFor(() => expect(saved).toHaveLength(1));
     expect((await saved[0].text).split('\n')[0]).toBe('Instrument ID,Building,Enable_Temp_NMT,Cleanroom number');
+  });
+});
+
+/**
+ * One functional location for the whole upload (2026-10-26) — required when the
+ * server says the uploader's instrument view is limited, or every row would be
+ * created out of their own sight (the AWS defect, for a single form).
+ */
+describe('InstrumentBulkCreatePage — the functional location every row is born in', () => {
+  it('holds Create until a location is chosen, then sends it with the file', async () => {
+    TREE.current = { placementRequired: true, data: [{ id: 'b-1', name: 'CWH', placeable: true, children: [] }] };
+    post.mockResolvedValue({ created: [{ id: 'i-1', code: 'PA-1', name: 'PA-1', token: 'T' }], errors: [], warnings: [] });
+    renderPage();
+    choose('p-1');
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(['Instrument ID\nPA-1'], 'i.csv', { type: 'text/csv' })] } });
+    const block = screen.getByRole('combobox', { name: 'Functional location block' });
+    const button = screen.getByRole('button', { name: /create instruments/i });
+    fireEvent.change(block, { target: { value: 'b-1' } });
+    await waitFor(() => expect(button).toBeEnabled());
+    // The file is loaded now, so only the location can be what disables it.
+    fireEvent.change(block, { target: { value: '' } });
+    expect(button).toBeDisabled();
+    fireEvent.change(block, { target: { value: 'b-1' } });
+    fireEvent.click(button);
+    await waitFor(() => expect(post).toHaveBeenCalledWith(
+      '/api/instruments/bulk', { csv: 'Instrument ID\nPA-1', profileId: 'p-1', functionalLocationId: 'b-1' },
+    ));
   });
 });

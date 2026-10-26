@@ -41,10 +41,17 @@ const flProps = {
   activeCount: { type: 'integer' },
 } as const;
 
+/**
+ * May the CALLER register an instrument here and still see it (2026-10-26)?
+ * Decided server-side by `placeableLocationIds` — the New Instrument and Bulk
+ * Upload pickers offer exactly these and re-derive nothing. Tree route only.
+ */
+const flPlaceableProps = { ...flProps, placeable: { type: 'boolean' } } as const;
+
 /** Recursive shape is declared one level deep, which is all the depth cap allows. */
 const flTreeProps = {
-  ...flProps,
-  children: { type: 'array', items: { type: 'object', properties: flProps } },
+  ...flPlaceableProps,
+  children: { type: 'array', items: { type: 'object', properties: flPlaceableProps } },
 } as const;
 
 /**
@@ -159,26 +166,37 @@ export default async function functionalLocationRoutes(app: FastifyInstance) {
       response: {
         200: {
           type: 'object',
-          properties: { data: { type: 'array', items: { type: 'object', properties: flTreeProps } } },
+          properties: {
+            data: { type: 'array', items: { type: 'object', properties: flTreeProps } },
+            /** True when the caller's instrument view is limited: a new instrument must be placed. */
+            placementRequired: { type: 'boolean' },
+          },
         },
         ...errorResponses,
       },
     },
   }, async (req) => {
     const ctx = buildContext(req);
-    const { where: visibility } = await resolveVisibility(ctx);
+    const { where: visibility, placeable } = await resolveVisibility(ctx);
     const [nodes, counts] = await Promise.all([loadNodes(), loadOwnCounts(visibility)]);
-    const tree = buildTree(nodes, counts);
+    const canPlace = (id: string) => placeable === null || placeable.has(id);
+    const tree = buildTree(nodes, counts).map((b) => ({
+      ...b,
+      placeable: canPlace(b.id),
+      children: b.children.map((a) => ({ ...a, placeable: canPlace(a.id) })),
+    }));
+    const placementRequired = placeable !== null;
     // A caller here on INSTRUMENT_READ alone (Settings, Data Report, the trend
     // PDF) is not a location administrator: it is told only the locations that
     // hold an instrument it may see — directly, or in one of a Block's Areas —
     // plus that Area's Block, never the rest of the plant's structure
     // (follow-up to review finding 7). The counts are already scoped above.
-    if (await roleHasPermission(ctx.userRole, 'FUNCTIONAL_LOCATION_READ')) return { data: tree };
+    if (await roleHasPermission(ctx.userRole, 'FUNCTIONAL_LOCATION_READ')) return { data: tree, placementRequired };
     return {
       data: tree
         .filter((b) => b.totalCount > 0)
         .map((b) => ({ ...b, children: b.children.filter((a) => a.totalCount > 0) })),
+      placementRequired,
     };
   });
 
