@@ -1,5 +1,21 @@
 # tasks/todo.md
 
+## 2026-10-26 — Profile measurements (each profile defines what it measures and its keys)
+
+Operator: "temperature and humidity keys … limits keys … should be updated instrument
+profiles wise, each profile can receive different keys" → "pressue or other differnet
+sensors values" → "proceed and also in instrument profiles NLT and MNT attributes and MKT
+attributes … enabled or disabled should come". Design:
+`docs/superpowers/specs/2026-10-26-profile-measurements-design.md`. Three phases, each shippable.
+
+- [x] Inventory (alarm engine, API read side, web) + design doc
+- [ ] Builder check on the design; fold answers; plan
+- [ ] Phase 1 — per-profile keys for TEMPERATURE/HUMIDITY, NMT/NLT/MKT switches, SUPER_ADMIN gate, one resolver, config pages trimmed, refresh-403 + offset-keys fixes, profile editor section
+- [ ] Phase 2 — server for N measurements (registry CRUD, alarms.metric → text, worker, overview measurements[], aggregate/room-history/telemetry by code, MKT, report kind, type options)
+- [ ] Phase 3 — screens for N measurements (table, floor tiles, room detail, trend page, Data/Alarm reports, settings), legacy two-slot fields removed
+- [ ] Docs (CHANGELOG, feature note, counts), memory
+- [ ] AWS: push + deploy only when the operator asks
+
 ## 2026-10-24 — Every permission toggle does what it says (button = page = sidebar = route = tab)
 
 Operator: "when permissions are allowed some are not coming to user roles" →
