@@ -183,6 +183,15 @@ export interface InstrumentSlotConfig {
   decimals: {
     keys: Record<TelemetrySlot, string[]>;
     fallback: Record<TelemetrySlot, number>;
+    /**
+     * Attribute keys shown at this slot's precision — a limit or range bounds a
+     * reading, so "27 breached > 25.0" would read as a bug. DERIVED from the
+     * measurement's own limit and range keys (never guessed from the words in a
+     * key: operator-typed keys drift, and a word rule would claim any future key
+     * containing "temp"). Display only — it changes nothing stored or alarmed.
+     * Replaced the global `temperatureValuedKeys` / `humidityValuedKeys` lists
+     * (2026-10-26).
+     */
     valuedKeys: Record<TelemetrySlot, string[]>;
   };
   limitKeys: Record<LimitBound, string[]>;

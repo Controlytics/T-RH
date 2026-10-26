@@ -29,6 +29,7 @@ import { trendWidgetsRoutes } from './static-routes/trend-widgets.routes.js';
 import { reportApproversRoutes } from './static-routes/report-approvers.routes.js';
 import { reportDownloadsRoutes } from './static-routes/report-downloads.routes.js';
 import { attributeLabelsRoutes } from './static-routes/attribute-labels.routes.js';
+import { telemetryRefreshRoutes } from './static-routes/telemetry-refresh.routes.js';
 
 // Map config keys to reauth action names (consumed by the generic configEndpoint factory).
 const CONFIG_KEY_TO_ACTION: Record<string, string> = {
@@ -58,6 +59,7 @@ export default async function configRoutes(app: FastifyInstance) {
   await reportApproversRoutes(app);
   await reportDownloadsRoutes(app);
   await attributeLabelsRoutes(app);
+  await telemetryRefreshRoutes(app);
 
   // Generic CRUD factory for configs whose only work is get/update a typed blob.
   // Used for: password-policy, login-security, session, datetime, pagination.

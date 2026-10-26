@@ -74,7 +74,6 @@ export type { SensorOffsetConfig } from './types/sensor-offsets.js';
 
 export {
   TELEMETRY_DECIMALS_KEYS_DEFAULT,
-  TELEMETRY_VALUED_KEYS_DEFAULT,
   slotForAttributeKey,
   TELEMETRY_DECIMALS_FALLBACK,
   TELEMETRY_DECIMALS_MAX,

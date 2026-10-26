@@ -132,28 +132,28 @@ export interface TelemetrySettings {
 }
 
 /**
- * Read the telemetry-slots config.
+ * The refresh intervals, from `GET /api/config/telemetry-slots/refresh` — a
+ * route EVERY role can read (2026-10-26). This hook read the SUPER_ADMIN-only
+ * `/api/config/dynamic/telemetry-slots` until then, so every other role got a
+ * 403 and silently polled on the hardcoded 5 s / 10 s whatever was configured.
  *
- * VERIFIED path and shape: a config def with `hasCustomPage: false` is served by
- * `config/dynamic-routes.ts` at `/api/config/dynamic/<moduleKey>` and returns
- * the BARE value object. It is NOT at `/<key>/current` — that path exists only
- * for defs that hand-wrote a static route — and there is no `{value: …}`
- * wrapper to unpick.
+ * The decimals are the shipped fallback only — a site-wide setting no longer
+ * exists (each instrument's PROFILE says where its decimals come from, and
+ * every row the API returns carries its own resolved `decimals`). Used only
+ * where no row is in hand.
  */
 export function useTelemetrySettings(): TelemetrySettings {
-  const { data } = useSWR<Record<string, number | string>>('/api/config/dynamic/telemetry-slots', {
+  const { data } = useSWR<{ overviewRefreshSeconds?: number; chartRefreshSeconds?: number }>('/api/config/telemetry-slots/refresh', {
     revalidateOnFocus: false,
     dedupingInterval: 60000,
   });
-  const v = data ?? {};
-  const num = (key: string, fallback: number) =>
-    typeof v[key] === 'number' ? (v[key] as number) : fallback;
+  const num = (v: unknown, fallback: number) => (typeof v === 'number' ? v : fallback);
 
   return {
-    temperatureDecimals: clampDecimals(num('temperatureDecimals', TELEMETRY_DECIMALS_FALLBACK)),
-    humidityDecimals: clampDecimals(num('humidityDecimals', TELEMETRY_DECIMALS_FALLBACK)),
-    overviewRefreshMs: num('overviewRefreshSeconds', 5) * 1000,
-    chartRefreshMs: num('chartRefreshSeconds', 10) * 1000,
+    temperatureDecimals: clampDecimals(TELEMETRY_DECIMALS_FALLBACK),
+    humidityDecimals: clampDecimals(TELEMETRY_DECIMALS_FALLBACK),
+    overviewRefreshMs: num(data?.overviewRefreshSeconds, 5) * 1000,
+    chartRefreshMs: num(data?.chartRefreshSeconds, 10) * 1000,
   };
 }
 

@@ -31,38 +31,6 @@ export const TELEMETRY_DECIMALS_KEYS_DEFAULT: Record<TelemetrySlot, string> = {
 };
 
 /**
- * Which attribute keys hold a TEMPERATURE, and which hold a HUMIDITY.
- *
- * A limit or a range is a reading like any other and has to be shown at the same
- * precision as the value it bounds — "27 breached > 25.0" reads as a bug in the
- * comparison. But an attribute is a free-text key/value pair, so nothing about
- * `High Temperature Range = 50` says it is degrees rather than a count.
- *
- * An administered list rather than matching on the word "temp": these keys are
- * operator-typed and already inconsistent in this install (`High Temperature` and
- * `High Temperature Limit` both live), a word rule would wrongly claim any future
- * key that happens to contain those letters, and a wrong guess here is fixed by
- * editing config instead of shipping code. Defaults cover every limit and range
- * key currently in use.
- *
- * Display only. Nothing here changes what is stored or what an alarm fires on.
- */
-export const TELEMETRY_VALUED_KEYS_DEFAULT: Record<TelemetrySlot, string> = {
-  temperature: [
-    'High Temperature Limit', 'Low Temperature Limit',
-    'High Temperature', 'Low Temperature',
-    'High Temperature Range', 'Low Temperature Range',
-    'Temp High', 'Temp Low',
-  ].join('\n'),
-  humidity: [
-    'High Humidity Limit', 'Low Humidity Limit',
-    'High Humidity', 'Low Humidity',
-    'High Humidity Range', 'Low Humidity Range',
-    'RH High', 'RH Low',
-  ].join('\n'),
-};
-
-/**
  * Which slot an attribute key belongs to, or null for one that is not a reading.
  *
  * TEMPERATURE is tested first only to be deterministic; a key listed under both

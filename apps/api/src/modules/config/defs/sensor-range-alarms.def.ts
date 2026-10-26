@@ -1,5 +1,5 @@
 import type { ModuleConfigDefinition } from '../../../lib/config-registry.js';
-import { SENSOR_RANGE_KEYS_DEFAULT, SENSOR_RANGE_TEXT_DEFAULT, SENSOR_RANGE_TEXT_MAX } from '@digilog/shared';
+import { SENSOR_RANGE_TEXT_DEFAULT, SENSOR_RANGE_TEXT_MAX } from '@digilog/shared';
 
 /**
  * Sensor RANGE failures — a reading outside what the probe can physically
@@ -17,6 +17,10 @@ import { SENSOR_RANGE_KEYS_DEFAULT, SENSOR_RANGE_TEXT_DEFAULT, SENSOR_RANGE_TEXT
  * alarm source with its own switch, the same way
  * `inactivity-alarms` and `rs485-alarms` are, and burying its master switch
  * inside the limits page would make it very hard to find.
+ *
+ * WHICH attributes hold the four range bounds is each instrument PROFILE's
+ * since 2026-10-26 (Configuration → Instrument Attributes); this def keeps the
+ * switch and the word. The stored key lists are left in the row, unread.
  */
 export const sensorRangeAlarmsDef: ModuleConfigDefinition = {
   moduleKey: 'sensor-range-alarms',
@@ -48,42 +52,6 @@ export const sensorRangeAlarmsDef: ModuleConfigDefinition = {
       default: SENSOR_RANGE_TEXT_DEFAULT,
       maxLength: SENSOR_RANGE_TEXT_MAX,
       group: 'Sensor Range Alarms',
-    },
-    {
-      key: 'temperatureHighKeys',
-      type: 'textarea',
-      label: 'High temperature range — attribute keys',
-      description: 'One attribute key per line, most preferred first. The first key an instrument actually has wins. These are the keys your instruments already carry.',
-      default: SENSOR_RANGE_KEYS_DEFAULT.temperatureHigh,
-      maxLength: 500,
-      group: 'Range Attribute Keys',
-    },
-    {
-      key: 'temperatureLowKeys',
-      type: 'textarea',
-      label: 'Low temperature range — attribute keys',
-      description: 'One attribute key per line, most preferred first.',
-      default: SENSOR_RANGE_KEYS_DEFAULT.temperatureLow,
-      maxLength: 500,
-      group: 'Range Attribute Keys',
-    },
-    {
-      key: 'humidityHighKeys',
-      type: 'textarea',
-      label: 'High humidity range — attribute keys',
-      description: 'One attribute key per line, most preferred first.',
-      default: SENSOR_RANGE_KEYS_DEFAULT.humidityHigh,
-      maxLength: 500,
-      group: 'Range Attribute Keys',
-    },
-    {
-      key: 'humidityLowKeys',
-      type: 'textarea',
-      label: 'Low humidity range — attribute keys',
-      description: 'One attribute key per line, most preferred first.',
-      default: SENSOR_RANGE_KEYS_DEFAULT.humidityLow,
-      maxLength: 500,
-      group: 'Range Attribute Keys',
     },
   ],
 };

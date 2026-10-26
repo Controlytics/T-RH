@@ -220,8 +220,10 @@ const superAdminCards = [
     ),
   },
   {
-    title: 'Telemetry Keys',
-    description: 'Which telemetry keys the dashboard reads as temperature and humidity',
+    // 2026-10-26: the keys moved to each instrument profile (Instrument
+    // Attributes); this card is the refresh intervals only.
+    title: 'Dashboard Refresh',
+    description: 'How often the dashboard and charts refresh',
     href: '/config/dynamic/telemetry-slots',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -231,7 +233,7 @@ const superAdminCards = [
   },
   {
     title: 'Instrument Limit Alarms',
-    description: 'Which attributes hold the temperature and humidity limits, and each alarm status wording',
+    description: 'Switch limit alarms on or off, and word each alarm status',
     href: '/config/dynamic/alarm-limits',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -312,8 +314,8 @@ const superAdminCards = [
   },
   {
     // 2026-10-01: each instrument's Temp / Humid Off set corrects its readings
-    // as they arrive. The VALUES are attributes (super admin only); this card is
-    // the switch and which attribute keys hold them.
+    // as they arrive. The VALUES are attributes (super admin only); which keys
+    // hold them is each profile's (2026-10-26); this card is the switch.
     title: 'Sensor Offsets',
     description: 'Correct temperature and humidity readings, as they arrive, by an offset set on each instrument (+ adds, - subtracts)',
     href: '/config/dynamic/sensor-offsets',

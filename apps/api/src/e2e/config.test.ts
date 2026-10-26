@@ -107,6 +107,24 @@ describe('Config endpoints', () => {
   });
 
   // =============================================
+  // Dashboard refresh intervals — every role polls the dashboard, so every role
+  // must read them. Until 2026-10-26 the browser read the SUPER_ADMIN-only
+  // `/dynamic/telemetry-slots` and every other role silently got a 403 and the
+  // hardcoded 5 s / 10 s.
+  // =============================================
+  describe('GET /api/config/telemetry-slots/refresh', () => {
+    it('a non-SUPER_ADMIN user gets 200 with both intervals', async () => {
+      const operatorToken = await loginAs(app, 'RB0001', 'Test@1234');
+      const res = await authGet(app, '/api/config/telemetry-slots/refresh', operatorToken);
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(typeof body.overviewRefreshSeconds).toBe('number');
+      expect(typeof body.chartRefreshSeconds).toBe('number');
+      expect(body.overviewRefreshSeconds).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  // =============================================
   // Alarm-limits status texts — narrow all-authenticated-users read (Fix 1:
   // GET /api/config/dynamic/alarm-limits is SUPER_ADMIN-only, so a non-SA
   // operator must not 403 into the alarms page's status column).
