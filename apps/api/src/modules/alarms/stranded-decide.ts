@@ -44,3 +44,32 @@ export function strandedAlarmIds(
 export function slotOfMetric(metric: string): TelemetrySlot | null {
   return SLOT_OF_METRIC[metric] ?? null;
 }
+
+/**
+ * Which OPEN alarms a proposed measurement list would clear, grouped for the
+ * profile editor's warning (2026-10-26): an alarm on a measurement the list no
+ * longer has (any source), and a limit alarm on a bound the list switches OFF
+ * (NMT = HIGH, NLT = LOW). The evaluator does the clearing on its next pass;
+ * this only says beforehand how many a save will close, so the admin is not
+ * surprised by a bulk action on regulated records.
+ */
+export function alarmsClearedBy(
+  after: { code: string; high: { enabled: boolean }; low: { enabled: boolean } }[],
+  open: { metric: string; source: string; limitKind: string | null }[],
+): { metric: string; source: string; limitKind: string | null; count: number }[] {
+  const byCode = new Map(after.map((m) => [m.code, m]));
+  const groups = new Map<string, { metric: string; source: string; limitKind: string | null; count: number }>();
+  for (const a of open) {
+    if (!slotOfMetric(a.metric)) continue;
+    const m = byCode.get(a.metric);
+    const clears = !m
+      || (a.source === 'INSTRUMENT_LIMIT' && a.limitKind === 'HIGH' && !m.high.enabled)
+      || (a.source === 'INSTRUMENT_LIMIT' && a.limitKind === 'LOW' && !m.low.enabled);
+    if (!clears) continue;
+    const k = `${a.metric}|${a.source}|${a.limitKind ?? ''}`;
+    const g = groups.get(k);
+    if (g) g.count += 1;
+    else groups.set(k, { metric: a.metric, source: a.source, limitKind: a.limitKind, count: 1 });
+  }
+  return [...groups.values()];
+}

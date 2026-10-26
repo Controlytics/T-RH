@@ -5,7 +5,15 @@ import {
   updateInstrumentProfileSchema,
   parseInstrumentAttributeKeys,
   validateAttributeRemark,
+  coerceProfileMeasurements,
+  measurementsEquivalent,
+  profileMeasurementsSchema,
+  DEFAULT_PROFILE_MEASUREMENTS,
+  MEASUREMENT_CODES_PHASE1,
+  type ProfileMeasurement,
 } from '@digilog/shared';
+import { invalidateProfileMeasurementsCache, loadMeasurementTypes } from '../instruments/profile-measurements.js';
+import { alarmsClearedBy } from '../alarms/stranded-decide.js';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
@@ -63,12 +71,34 @@ import { announceChildAttributeChange } from '../instruments/child-attributes-bu
  * frozen-snapshot test plus three documented counts for no access-control gain.
  */
 
+/**
+ * One profile measurement on the wire — EVERY inner key declared: Fastify strips
+ * what a response schema does not name, and on a nested object it strips
+ * silently (the outer key survives, an inner one vanishes).
+ */
+const keyList = { type: 'array', items: { type: 'string' } };
+const boundProps = { type: 'object', properties: { enabled: { type: 'boolean' }, limitKeys: keyList, enableKeys: keyList } };
+const measurementItem = {
+  type: 'object',
+  properties: {
+    code: { type: 'string' },
+    deviceKeys: keyList,
+    decimals: { type: 'object', properties: { attributeKeys: keyList, fallback: { type: 'integer' } } },
+    high: boundProps,
+    low: boundProps,
+    range: { type: 'object', properties: { highKeys: keyList, lowKeys: keyList } },
+    offsetKeys: keyList,
+    mkt: { type: 'object', properties: { enabled: { type: 'boolean' }, attributeKeys: keyList } },
+  },
+};
+
 const profileProps = {
   id: { type: 'string' },
   name: { type: 'string' },
   description: { type: 'string', nullable: true },
   isActive: { type: 'boolean' },
   attributeKeys: { type: 'string', nullable: true },
+  measurements: { type: 'array', items: measurementItem },
   instrumentCount: { type: 'integer' },
   activeCount: { type: 'integer' },
   createdAt: { type: 'string', format: 'date-time' },
@@ -82,6 +112,7 @@ type ProfileRow = {
   description: string | null;
   isActive: boolean;
   attributeKeys: string | null;
+  measurements: unknown;
   createdAt: Date;
   updatedAt: Date;
   createdBy: string | null;
@@ -175,9 +206,48 @@ function present(row: ProfileRow) {
   const { instruments: _omit, ...rest } = row;
   return {
     ...rest,
+    // NULL ("never customised") and anything unreadable read as the defaults —
+    // the ONE reader, the same one every server consumer uses.
+    measurements: coerceProfileMeasurements(row.measurements),
     instrumentCount: instruments.length,
     activeCount: instruments.filter((i) => i.isActive).length,
   };
+}
+
+/**
+ * What THIS caller may see of a presented profile: a non-super-admin sees no
+ * sensor-offset key anywhere — not in the attribute keys and not in a
+ * measurement's `offsetKeys` (2026-10-01 rule; the PUT response leaked the
+ * attribute keys until 2026-10-26, which routes them all through here).
+ */
+async function forCaller(req: FastifyRequest): Promise<<P extends { attributeKeys: string | null; measurements: ProfileMeasurement[] }>(p: P) => P> {
+  if (req.user?.role === 'SUPER_ADMIN') return (p) => p;
+  const strip = await keysFor(req);
+  return (p) => ({
+    ...p,
+    attributeKeys: strip(p.attributeKeys),
+    measurements: p.measurements.map((m) => ({ ...m, offsetKeys: [] })),
+  });
+}
+
+const noOffsets = (ms: ProfileMeasurement[]) => ms.map((m) => ({ ...m, offsetKeys: [] }));
+
+/**
+ * The phase-1 rules a SUPER_ADMIN's measurement list must also pass, beyond
+ * the shared schema: only the two measurements the screens can show yet, and
+ * MKT only on a °C measurement (the formula is Kelvin from °C). Null = fine.
+ */
+async function measurementRefusal(ms: ProfileMeasurement[]): Promise<{ error: string; message: string } | null> {
+  const unsupported = ms.find((m) => !(MEASUREMENT_CODES_PHASE1 as readonly string[]).includes(m.code));
+  if (unsupported) {
+    return { error: 'MEASUREMENT_NOT_SUPPORTED', message: `${unsupported.code} cannot be added yet — this version shows temperature and humidity only.` };
+  }
+  const units = new Map((await loadMeasurementTypes()).map((t) => [t.code, t.unit]));
+  const mkt = ms.find((m) => m.mkt.enabled && units.get(m.code) !== '°C');
+  if (mkt) {
+    return { error: 'MKT_NOT_TEMPERATURE', message: `MKT is calculated from a temperature in °C; ${mkt.code} is measured in ${units.get(mkt.code) ?? 'another unit'}.` };
+  }
+  return null;
 }
 
 /**
@@ -231,9 +301,36 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
     // Every profile is still LISTED, including ones holding nothing the caller can
     // see. A profile is a device type, not an instrument: hiding the type would
     // make the New Instrument form's dropdown depend on who is looking.
-    const strip = await keysFor(req);
-    return { data: rows.map((r) => { const p = present(r as ProfileRow); return { ...p, attributeKeys: strip(p.attributeKeys) }; }), total: rows.length };
+    const show = await forCaller(req);
+    return { data: rows.map((r) => show(present(r as ProfileRow))), total: rows.length };
   });
+
+  // GET /api/instrument-profiles/measurement-types — the measurement TYPES a
+  // profile chooses from (2026-10-26): code, name, unit, order. Every reader —
+  // a measurement's name and unit are display facts, not configuration.
+  // Registered before '/:id' so the static path wins.
+  app.get('/measurement-types', {
+    preHandler: [app.requirePermission('INSTRUMENT_READ')],
+    schema: {
+      tags: ['Instrument Profiles'],
+      summary: 'The measurement types a profile can carry',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            data: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: { code: { type: 'string' }, name: { type: 'string' }, unit: { type: 'string' }, sortOrder: { type: 'integer' } },
+              },
+            },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async () => ({ data: await loadMeasurementTypes() }));
 
   // GET /api/instrument-profiles/:id
   app.get('/:id', {
@@ -251,8 +348,7 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
       where: { id }, include: withInstruments(visibility),
     });
     if (!row) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Profile not found.' });
-    const p = present(row as ProfileRow);
-    return { ...p, attributeKeys: (await keysFor(req))(p.attributeKeys) };
+    return (await forCaller(req))(present(row as ProfileRow));
   });
 
   // GET /api/instrument-profiles/:id/attribute-usage — which keys the
@@ -302,6 +398,7 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
           description: { type: 'string' },
           isActive: { type: 'boolean' },
           attributeKeys: { type: 'string' },
+          measurements: { type: 'array', items: { type: 'object' } },
         },
       },
       response: { 201: { type: 'object', properties: profileProps }, ...errorResponses },
@@ -338,6 +435,22 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
       attributeKeys = parseInstrumentAttributeKeys(attributeKeys).filter((k) => !isOffset(k)).join('\n');
     }
 
+    // What the profile measures (2026-10-26). A new profile starts with
+    // TEMPERATURE + HUMIDITY at the shipped defaults, written explicitly — a
+    // profile created by someone who may not edit measurements must never yield
+    // instruments that silently monitor nothing. Anything else is alarm
+    // behaviour, so a SUPER_ADMIN's act under the profile re-auth.
+    const measurements = parsed.data.measurements ?? structuredClone(DEFAULT_PROFILE_MEASUREMENTS);
+    if (!measurementsEquivalent(measurements, DEFAULT_PROFILE_MEASUREMENTS)) {
+      if (req.user?.role !== 'SUPER_ADMIN') {
+        return reply.code(403).send({ error: 'SUPER_ADMIN_ONLY', message: 'Only a super admin may set what a profile measures.' });
+      }
+      const { ok } = await enforceReauth('UPDATE_INSTRUMENT_PROFILE', req, reply);
+      if (!ok) return;
+      const refusal = await measurementRefusal(measurements);
+      if (refusal) return reply.code(400).send(refusal);
+    }
+
     try {
       // A profile that has just been created holds nothing, so there is no scope
       // question here — the empty argument keeps one shape for the helper.
@@ -345,7 +458,7 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
       // the commit, a failed audit write left a profile with no record.
       const row = await prisma.$transaction(async (tx) => {
         const created = await tx.instrumentProfile.create({
-          data: { ...parsed.data, attributeKeys, createdBy: ctx.userId },
+          data: { ...parsed.data, attributeKeys, measurements, createdBy: ctx.userId },
           include: withInstruments(),
         });
         await auditLog({
@@ -355,14 +468,16 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
           afterValue: {
             name: created.name, description: created.description, isActive: created.isActive,
             attributeKeys: parseInstrumentAttributeKeys(created.attributeKeys),
+            measurements,
           },
           signatureMeaning: `Instrument profile "${created.name}" created`,
           ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
         }, tx as unknown as Prisma.TransactionClient);
         return created;
       });
+      invalidateProfileMeasurementsCache();
 
-      return reply.code(201).send(present(row as ProfileRow));
+      return reply.code(201).send((await forCaller(req))(present(row as ProfileRow)));
     } catch (err) {
       // Caught rather than pre-checked: a SELECT-then-INSERT has a race that the
       // unique index closes anyway, so the index is the authority and this
@@ -391,7 +506,8 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
           description: { type: ['string', 'null'] },
           isActive: { type: 'boolean' },
           attributeKeys: { type: ['string', 'null'] },
-          reason: { type: 'string', description: 'Required when a removed key is carried by instruments: recorded on each INSTRUMENT_ATTRIBUTE_REMOVED row.' },
+          measurements: { type: 'array', items: { type: 'object' }, description: 'What the profile measures. A change is super-admin only and requires `reason`; an equivalent list is a no-op.' },
+          reason: { type: 'string', description: 'Required when a removed key is carried by instruments (recorded on each INSTRUMENT_ATTRIBUTE_REMOVED row), and when the measurements change.' },
         },
       },
       response: { 200: { type: 'object', properties: profileProps }, ...errorResponses },
@@ -434,6 +550,41 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
       const isOffset = await offsetKeyTest();
       const kept = parseInstrumentAttributeKeys(before.attributeKeys).filter((k) => isOffset(k));
       data.attributeKeys = [...parseInstrumentAttributeKeys(data.attributeKeys).filter((k) => !isOffset(k)), ...kept].join('\n');
+    }
+
+    // MEASUREMENTS (2026-10-26) — alarm behaviour, so SUPER_ADMIN-only, enforced
+    // HERE and not only on the page. A list EQUIVALENT to the stored one is a
+    // no-op for anyone: the profile page sends it back when it saves the
+    // attribute keys. A non-super-admin reads every `offsetKeys` empty, so their
+    // copy is compared with offsets blanked on both sides — and never written.
+    const storedMeasurements = coerceProfileMeasurements(before.measurements);
+    let measurementsChanged = false;
+    if (data.measurements) {
+      const isSuperAdmin = req.user?.role === 'SUPER_ADMIN';
+      const same = isSuperAdmin
+        ? measurementsEquivalent(data.measurements, storedMeasurements)
+        : measurementsEquivalent(noOffsets(data.measurements), noOffsets(storedMeasurements));
+      if (same) {
+        delete data.measurements;
+      } else {
+        if (!isSuperAdmin) {
+          return reply.code(403).send({ error: 'SUPER_ADMIN_ONLY', message: 'Only a super admin may change what a profile measures.' });
+        }
+        const refusal = await measurementRefusal(data.measurements);
+        if (refusal) return reply.code(400).send(refusal);
+        // A switched-off bound or a removed measurement CLEARS open alarms on
+        // every instrument of the profile (the evaluator's next pass) — a bulk
+        // act on regulated records, so it is signed with a reason, like the
+        // attribute cascade below.
+        const problem = validateAttributeRemark(reason);
+        if (problem) {
+          return reply.code(400).send({
+            error: 'REASON_REQUIRED',
+            message: `Changing what this profile measures changes how every instrument in it is monitored. ${problem}`,
+          });
+        }
+        measurementsChanged = true;
+      }
     }
     const ctx = buildContext(req);
 
@@ -491,7 +642,11 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
       const row = await prisma.$transaction(async (tx) => {
         const updated = await tx.instrumentProfile.update({
           where: { id },
-          data: { ...data, updatedBy: ctx.userId },
+          data: {
+            ...data,
+            ...(data.measurements ? { measurements: data.measurements as unknown as Prisma.InputJsonValue } : {}),
+            updatedBy: ctx.userId,
+          },
           include: withInstruments(visibility),
         });
         if (affected.length > 0) {
@@ -548,10 +703,12 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
           beforeValue: {
             name: before.name, description: before.description, isActive: before.isActive,
             attributeKeys: keysBefore,
+            measurements: storedMeasurements,
           },
           afterValue: {
             name: row.name, description: row.description, isActive: row.isActive,
             attributeKeys: keysAfter,
+            measurements: coerceProfileMeasurements(row.measurements),
           },
           // A rename is called out first: it changes what an inspector reads
           // against every instrument in the profile, so "updated" alone would
@@ -564,15 +721,19 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
           signatureMeaning: (() => {
             const base = before.name !== row.name
               ? `Instrument profile renamed "${before.name}" → "${row.name}"`
-              : keysChanged
-                ? `Instrument profile "${row.name}" attribute keys changed (${keysBefore.length} → ${keysAfter.length})`
-                : `Instrument profile "${row.name}" updated`;
+              : keysChanged && measurementsChanged
+                ? `Instrument profile "${row.name}" attribute keys and measurements changed`
+                : keysChanged
+                  ? `Instrument profile "${row.name}" attribute keys changed (${keysBefore.length} → ${keysAfter.length})`
+                  : measurementsChanged
+                    ? `Instrument profile "${row.name}" measurements changed`
+                    : `Instrument profile "${row.name}" updated`;
             const full = base + cascadeNote;
             if (full.length <= 250) return full;
             const short = base + `; removed ${affected.length} key(s) from ${new Set(deleted.map((d) => d.instrument.id)).size} instrument(s)`;
             return short.length <= 250 ? short : short.slice(0, 249) + '…';
           })(),
-          ...(deleted.length > 0 && reason ? { reason } : {}),
+          ...((deleted.length > 0 || measurementsChanged) && reason ? { reason } : {}),
           ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
         }, tx as unknown as Prisma.TransactionClient);
         return updated;
@@ -591,8 +752,11 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
           logger.info('[downlink:profile-cascade] devices told', { profileId: id, removals: deleted.length });
         })();
       }
+      // The resolver's 10 s cache must not outlive the save: the dashboard polls
+      // every few seconds and must read the new keys on its very next poll.
+      invalidateProfileMeasurementsCache();
 
-      return present(row as ProfileRow);
+      return (await forCaller(req))(present(row as ProfileRow));
     } catch (err) {
       if (err instanceof OutOfScope) {
         return reply.code(403).send({
@@ -608,6 +772,61 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
       }
       throw err;
     }
+  });
+
+  // POST /api/instrument-profiles/:id/measurement-impact — which OPEN alarms a
+  // proposed measurement list would clear (2026-10-26): the profile editor
+  // states it before the save, because switching a bound off or removing a
+  // measurement closes alarms on every instrument of the profile. Read-only, no
+  // audit; super admin only, like the change it previews. POST because the
+  // proposal is a body, not a query.
+  app.post('/:id/measurement-impact', {
+    preHandler: [app.requirePermission('INSTRUMENT_READ')],
+    schema: {
+      tags: ['Instrument Profiles'],
+      summary: 'Which open alarms a proposed measurement list would clear',
+      params: { type: 'object', properties: { id: { type: 'string' } } },
+      body: { type: 'object', required: ['measurements'], properties: { measurements: { type: 'array', items: { type: 'object' } } } },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            clears: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  metric: { type: 'string' }, source: { type: 'string' },
+                  limitKind: { type: 'string', nullable: true }, count: { type: 'integer' },
+                },
+              },
+            },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    if (req.user?.role !== 'SUPER_ADMIN') {
+      return reply.code(403).send({ error: 'SUPER_ADMIN_ONLY', message: 'Only a super admin may change what a profile measures.' });
+    }
+    const { id } = req.params as { id: string };
+    const parsed = profileMeasurementsSchema.safeParse((req.body as { measurements?: unknown })?.measurements);
+    if (!parsed.success) return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
+    const exists = await prisma.instrumentProfile.findUnique({ where: { id }, select: { id: true } });
+    if (!exists) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Profile not found.' });
+    // EVERY open alarm of the profile's instruments, scope ignored on purpose:
+    // the save would clear them all, seen or not, and the warning must not
+    // understate a bulk act.
+    const open = await prisma.alarm.findMany({
+      where: {
+        state: 'ACTIVE',
+        source: { in: ['INSTRUMENT_LIMIT', 'RS485_FAILURE', 'SENSOR_RANGE'] },
+        instrument: { profileId: id },
+      },
+      select: { metric: true, source: true, limitKind: true },
+    });
+    return { clears: alarmsClearedBy(parsed.data, open) };
   });
 
   // DELETE /api/instrument-profiles/:id
@@ -679,6 +898,8 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
       }
       throw err;
     }
+    // Its offset keys leave `allOffsetKeys()` now, not in 10 s.
+    invalidateProfileMeasurementsCache();
 
     return { success: true };
   });

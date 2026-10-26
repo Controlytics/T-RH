@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { profileMeasurementsSchema } from '../types/profile-measurements.js';
 
 /**
  * An instrument profile is a named container for instruments.
@@ -39,6 +40,10 @@ export const createInstrumentProfileSchema = z.object({
   // template", which only the route can do. A `.default('')` here would make
   // every new profile ask for nothing.
   attributeKeys: attributeKeysField.optional(),
+  // What the profile's devices measure (2026-10-26). Absent = the shipped
+  // temperature + humidity defaults, written by the route. Only a super admin
+  // may send anything else (the route enforces it).
+  measurements: profileMeasurementsSchema.optional(),
 });
 
 export const updateInstrumentProfileSchema = z.object({
@@ -59,6 +64,10 @@ export const updateInstrumentProfileSchema = z.object({
   // removing for instruments"). Required by the route in exactly that case;
   // `validateAttributeRemark` is the shared rule for what counts as one.
   reason: z.string().max(500).optional(),
+  // What the profile's devices measure (2026-10-26). A change is super-admin
+  // only and needs `reason`; a list EQUIVALENT to the stored one (a page
+  // saving other fields sends it back) changes nothing and needs neither.
+  measurements: profileMeasurementsSchema.optional(),
 });
 
 export type CreateInstrumentProfileInput = z.infer<typeof createInstrumentProfileSchema>;

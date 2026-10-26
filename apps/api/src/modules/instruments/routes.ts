@@ -29,12 +29,12 @@ import { parseInstrumentCsv, type InstrumentDraft, type AttributeColumn } from '
 import { buildTelemetryOverview, instrumentLimitsWithText, NO_LIMIT_TEXT, loadActiveWindowMinutes } from './telemetry-overview.js';
 import { enabledBoundsFor } from '../alarms/load-limits.js';
 import { decimalsFor, annotateAttribute } from './decimals.js';
-import { slotConfigForProfile, allOffsetKeys } from './profile-measurements.js';
+import { slotConfigForProfile, allOffsetKeys, measurementsForProfile } from './profile-measurements.js';
 import { loadAttributeAccess, refuseAttributeWrite, needsReauth } from './attribute-access.js';
 import {
   ATTRIBUTE_REMARK_MAX, lttb, isInstrumentReporting,
   parseInstrumentAttributeKeys, coerceAttributeLabels, ATTRIBUTE_LABELS_CONFIG_KEY,
-  isMktOn, mktFromExpMean,
+  isMktOn, mktFromExpMean, measurementsEquivalent,
 } from '@digilog/shared';
 import { invalidateIngestAuthCache } from './ingest-auth.js';
 import { kickMqttClient } from './broker-kick.js';
@@ -1880,6 +1880,24 @@ export default async function instrumentRoutes(app: FastifyInstance) {
 
     if (await profileMissing((parsed.data as { profileId?: string }).profileId)) {
       return reply.code(400).send(PROFILE_NOT_FOUND);
+    }
+
+    // MOVING an instrument to a profile that MEASURES DIFFERENTLY is a
+    // SUPER_ADMIN act (2026-10-26). What a profile measures — its keys, its NMT /
+    // NLT / MKT switches — decides what is monitored and alarmed; moving an
+    // instrument into a profile without a measurement, or with a bound switched
+    // off, would stop its alarms and clear the open ones without the reason and
+    // the impact warning a profile edit requires. A move between profiles that
+    // monitor identically stays open to Instrument Update, as before.
+    const nextProfileId = (parsed.data as { profileId?: string }).profileId;
+    if (nextProfileId && nextProfileId !== existing.profileId && req.user?.role !== 'SUPER_ADMIN') {
+      const [from, to] = await Promise.all([measurementsForProfile(existing.profileId), measurementsForProfile(nextProfileId)]);
+      if (!measurementsEquivalent(from, to)) {
+        return reply.code(403).send({
+          error: 'MEASUREMENTS_DIFFER',
+          message: 'That profile measures this instrument differently; only a super admin may move it there.',
+        });
+      }
     }
 
     // The gateway target and the children a demotion lists are both read
