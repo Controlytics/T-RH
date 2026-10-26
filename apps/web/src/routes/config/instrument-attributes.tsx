@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom';
 import useSWR, { mutate as mutateGlobal } from 'swr';
 import {
   parseInstrumentAttributeKeys, coerceAttributeLabels, coerceSettingsHidden, isHiddenInSettings,
-  ATTRIBUTE_LABEL_MAX, type AttributeLabels, type SettingsHidden,
+  ATTRIBUTE_LABEL_MAX, type AttributeLabels, type SettingsHidden, type ProfileMeasurement,
 } from '@digilog/shared';
+import { ProfileMeasurementsEditor } from './profile-measurements-editor';
 import { ATTRIBUTE_LABELS_URL } from '@/hooks/use-attribute-labels';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
@@ -68,7 +69,7 @@ import { RemarkDialog } from '@/routes/instruments/remark-dialog';
  * as the names — see `mergeSettingsHidden`.
  */
 interface Row { id: number; key: string; name: string; shown: boolean }
-interface Profile { id: string; name: string; instrumentCount: number; attributeKeys: string | null }
+interface Profile { id: string; name: string; instrumentCount: number; attributeKeys: string | null; measurements?: ProfileMeasurement[] }
 
 const fold = (k: string) => k.trim().toLowerCase();
 const nameOf = (labels: AttributeLabels, key: string): string => {
@@ -602,6 +603,25 @@ export function InstrumentAttributesConfigPage() {
           {saving ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}
         </Button>
       </div>
+
+      {/* What this profile MEASURES and which keys carry it (2026-10-26) — the
+          key mappings that were global Configuration pages until then, with the
+          profile's own NMT / NLT / MKT switches. Its own Save: a measurement
+          change re-monitors every instrument of the profile and is signed on
+          its own. */}
+      {selectedProfile && (
+        <section aria-labelledby="profile-measurements-heading" className="space-y-3 pt-2">
+          <div>
+            <h2 id="profile-measurements-heading" className="text-base font-semibold text-slate-800">
+              Measurements — {selectedProfile.name}
+            </h2>
+            <p className="text-xs text-slate-500">
+              Which device keys carry each reading, which attributes hold its limits, range, offset and decimals, and whether NMT, NLT and MKT apply to this profile.
+            </p>
+          </div>
+          <ProfileMeasurementsEditor profile={selectedProfile} onSaved={() => void mutateProfiles()} />
+        </section>
+      )}
 
       <ReauthDialog
         open={reauth.isOpen}
