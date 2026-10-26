@@ -14,20 +14,25 @@
  * device's original value is NOT shown anywhere.
  *
  * Offsets are instrument ATTRIBUTES, so setting one is the existing audited
- * attribute change with a remark. The attribute keys are an administered,
- * ordered alias list (Configuration → Sensor Offsets), like the alarm-limit
- * keys, because this install's keys are operator-typed.
+ * attribute change with a remark. WHICH attribute is a measurement's offset is
+ * the instrument PROFILE's since 2026-10-26 (`offsetKeys` on each profile
+ * measurement — @digilog/shared/profile-measurements); the config row
+ * (Configuration → Sensor Offsets) keeps only the master switch.
  *
  * **SUPER_ADMIN only.** Every other role neither sees the attributes (the
  * server strips them from every response) nor can write them. That is
- * `isOffsetAttributeKey` — the ONE test of "is this key an offset".
+ * `isOffsetAttributeKey` — the ONE test of "is this key an offset", over the
+ * key set the server resolves.
  */
-import { parseTelemetryAliases, type TelemetrySlot } from './telemetry-slots.js';
+import type { TelemetrySlot } from './telemetry-slots.js';
 import { coerceReading } from './rs485-alarms.js';
 
 export const SENSOR_OFFSETS_CONFIG_KEY = 'sensor-offsets';
 
-/** Newline-separated, most-preferred first — the same wire format as every key list. */
+/**
+ * Newline-separated, most-preferred first — the same wire format as every key
+ * list. The keys a NEVER-CUSTOMISED profile uses (`DEFAULT_PROFILE_MEASUREMENTS`).
+ */
 export const SENSOR_OFFSET_KEYS_DEFAULT: Record<TelemetrySlot, string> = {
   temperature: 'Temp Off set',
   humidity: 'Humid Off set',
@@ -37,29 +42,20 @@ export interface SensorOffsetConfig {
   /** Master switch. Absent = ON: an offset only does anything once a super
    *  admin has typed one onto an instrument. */
   enabled: boolean;
-  /** Lower-cased alias lists, most-preferred first. */
-  keys: Record<TelemetrySlot, string[]>;
 }
 
 export function coerceSensorOffsetConfig(value: unknown): SensorOffsetConfig {
   const o = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-  const list = (v: unknown, fallback: string) => {
-    const parsed = parseTelemetryAliases(typeof v === 'string' ? v : fallback);
-    return parsed.length ? parsed : parseTelemetryAliases(fallback);
-  };
-  return {
-    enabled: o.enabled !== false,
-    keys: {
-      temperature: list(o.temperatureKeys, SENSOR_OFFSET_KEYS_DEFAULT.temperature),
-      humidity: list(o.humidityKeys, SENSOR_OFFSET_KEYS_DEFAULT.humidity),
-    },
-  };
+  return { enabled: o.enabled !== false };
 }
 
-/** Is this attribute key an offset (either slot)? Case- and space-folded. */
-export function isOffsetAttributeKey(config: SensorOffsetConfig, key: string): boolean {
-  const k = key.trim().toLowerCase();
-  return config.keys.temperature.includes(k) || config.keys.humidity.includes(k);
+/**
+ * Is this attribute key an offset? Case- and space-folded, against a set of
+ * already-folded offset keys (the server's: one profile's, or every profile's
+ * where no instrument is in hand).
+ */
+export function isOffsetAttributeKey(offsetKeys: ReadonlySet<string>, key: string): boolean {
+  return offsetKeys.has(key.trim().toLowerCase());
 }
 
 /**
@@ -102,8 +98,8 @@ export function applyOffset(value: number, offset: number): number {
 
 /**
  * Correct one instrument's readings. A reading is corrected when its KEY is one
- * of that slot's telemetry aliases (Configuration → Telemetry Slots — the same
- * list that decides what the dashboard calls temperature) AND its value is a
+ * of that slot's device keys (the instrument PROFILE's — the same list that
+ * decides what the dashboard calls temperature) AND its value is a
  * reading (`coerceReading`, so `"23.5"` counts and `NA` does not — a sensor
  * failure word is left exactly as sent, or RS485 detection would never see it).
  * The corrected value is stored as a NUMBER; `rawValue` keeps what the device

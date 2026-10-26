@@ -29,7 +29,7 @@ import { parseInstrumentCsv, type InstrumentDraft, type AttributeColumn } from '
 import { buildTelemetryOverview, instrumentLimitsWithText, NO_LIMIT_TEXT, loadActiveWindowMinutes } from './telemetry-overview.js';
 import { enabledBoundsFor } from '../alarms/load-limits.js';
 import { decimalsFor, annotateAttribute } from './decimals.js';
-import { slotConfigForProfile } from './profile-measurements.js';
+import { slotConfigForProfile, allOffsetKeys } from './profile-measurements.js';
 import { loadAttributeAccess, refuseAttributeWrite, needsReauth } from './attribute-access.js';
 import {
   ATTRIBUTE_REMARK_MAX, lttb, isInstrumentReporting,
@@ -755,6 +755,27 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       }
     }
     return { total: rows.length, active, activeWindowMinutes };
+  });
+
+  // GET /api/instruments/offset-keys — which attribute keys are SENSOR OFFSETS
+  // (2026-10-26), so the attribute editor can offer the + / - input for them.
+  // The server's answer — every profile's offset keys, folded — not the browser
+  // re-reading a config row and deciding for itself (it did until this date).
+  // Offsets are SUPER_ADMIN-only, so any other caller is told none.
+  // Registered before '/:id' (see '/telemetry-overview' below).
+  app.get('/offset-keys', {
+    preHandler: [app.requirePermission('INSTRUMENT_READ')],
+    schema: {
+      tags: ['Instruments'],
+      summary: 'The attribute keys that are sensor offsets (super admin only; empty for anyone else)',
+      response: {
+        200: { type: 'object', properties: { keys: { type: 'array', items: { type: 'string' } } }, required: ['keys'] },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    if (req.user?.role !== 'SUPER_ADMIN') return { keys: [] };
+    return { keys: [...(await allOffsetKeys())].sort() };
   });
 
   // Registered BEFORE '/:id' so the static path wins the match, exactly as

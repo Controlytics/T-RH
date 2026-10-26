@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp, loginAs } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 import { fixtureProfileId } from '../test-support/fixture-profile.js';
+import { setFixtureMeasurements } from '../test-support/fixture-measurements.js';
 import { invalidateOffsetConfigCache } from '../modules/instruments/load-offsets.js';
 import { invalidateRolePermsCache } from '../plugins/rbac.js';
 import { ensurePartitions } from '../workers/telemetry-partition.worker.js';
@@ -20,7 +21,9 @@ const STAMP = String(Date.now()).slice(-6);
 const PASSWORD = 'SensorOffset@Test1';
 const ROLE = `SO_ENG_${STAMP}`;
 const USER = `soe${STAMP}`;
-const KEYS = ['sensor-offsets', 'telemetry-slots'];
+// The master switch is the one global row left; the device and offset keys are
+// each instrument PROFILE's since 2026-10-26 (pinned on the fixture profiles).
+const KEYS = ['sensor-offsets'];
 
 let app: FastifyInstance;
 let admin: Record<string, string>;
@@ -60,8 +63,14 @@ beforeAll(async () => {
     const row = await prisma.systemConfig.findUnique({ where: { configKey: k } });
     originals.set(k, row ? { configValue: row.configValue, configType: row.configType, requiresReauth: row.requiresReauth } : null);
   }
-  await setConfig('telemetry-slots', { temperatureKeys: 'temperature\nt', humidityKeys: 'humidity\nh' });
-  await setConfig('sensor-offsets', { enabled: true, temperatureKeys: 'Temp Off set', humidityKeys: 'Humid Off set' });
+  await setFixtureMeasurements(await fixtureProfileId('fixture:sensor-offsets'), (ms) => ms.map((m) => (
+    m.code === 'TEMPERATURE' ? { ...m, deviceKeys: ['temperature', 't'], offsetKeys: ['Temp Off set'] }
+      : m.code === 'HUMIDITY' ? { ...m, deviceKeys: ['humidity', 'h'], offsetKeys: ['Humid Off set'] } : m)));
+  // A SECOND device type whose temperature offset is a different attribute.
+  await setFixtureMeasurements(await fixtureProfileId('fixture:sensor-offsets-b'), (ms) => ms.map((m) => (
+    m.code === 'TEMPERATURE' ? { ...m, deviceKeys: ['temperature', 't'], offsetKeys: ['Cal T'] }
+      : m.code === 'HUMIDITY' ? { ...m, deviceKeys: ['humidity', 'h'], offsetKeys: ['Cal H'] } : m)));
+  await setConfig('sensor-offsets', { enabled: true });
 
   admin = { authorization: `Bearer ${await loginAs(app)}` };
   await prisma.role.create({ data: { name: ROLE, displayName: 'SO Engineer', hierarchyLevel: 2, permissions: ['INSTRUMENT_READ', 'INSTRUMENT_UPDATE', 'INSTRUMENT_CREATE'] } });
@@ -110,6 +119,28 @@ describe('the reading is corrected as it arrives', () => {
     await setAttr(i.id, admin, 'Temp Off set', '+2');
     await ingest(i.token, { t: 'NA' });
     expect(await history(i.id, 't')).toEqual([{ value: 'NA', raw_value: null }]);
+  });
+
+  it('a gateway\'s children on two PROFILES are each corrected by their own profile\'s offset key', async () => {
+    const gw = await mk({ name: 'OFS-GW2', code: `OFSGW2-${STAMP}`, isGateway: true });
+    const a = await mk({ name: 'A2', code: `OFSA2-${STAMP}`, gatewayId: gw.id });
+    const b = await mk({ name: 'B2', code: `OFSB2-${STAMP}`, gatewayId: gw.id, profileId: await fixtureProfileId('fixture:sensor-offsets-b') });
+    expect((await setAttr(a.id, admin, 'Temp Off set', '+2')).statusCode).toBe(201);
+    expect((await setAttr(b.id, admin, 'Cal T', '-1')).statusCode).toBe(201);
+    // B also carries A's key — which is NOT an offset in B's profile, so it is ignored.
+    expect((await setAttr(b.id, admin, 'Temp Off set', '+5')).statusCode).toBe(201);
+    await ingest(gw.token, { devices: { [a.code]: { t: 20 }, [b.code]: { t: 20 } } });
+    expect(await history(a.id, 't')).toEqual([{ value: 22, raw_value: 20 }]);
+    expect(await history(b.id, 't')).toEqual([{ value: 19, raw_value: 20 }]);
+  });
+
+  it('the server names the offset keys — every profile\'s — to a super admin only', async () => {
+    const asAdmin = await app.inject({ method: 'GET', url: '/api/instruments/offset-keys', headers: admin });
+    expect(asAdmin.statusCode).toBe(200);
+    expect(asAdmin.json().keys).toEqual(expect.arrayContaining(['temp off set', 'cal t']));
+    const asEng = await app.inject({ method: 'GET', url: '/api/instruments/offset-keys', headers: engineer });
+    expect(asEng.statusCode).toBe(200);
+    expect(asEng.json().keys).toEqual([]);
   });
 
   it('each gateway CHILD gets its own offset', async () => {

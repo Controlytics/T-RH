@@ -10,10 +10,11 @@ import { useState } from 'react';
  */
 const SA = { role: 'SUPER_ADMIN' };
 const OP = { role: 'OPERATOR' };
-const CONFIG = { enabled: true, temperatureKeys: 'Temp Off set', humidityKeys: 'Humid Off set' };
+// The SERVER names the offset keys (2026-10-26), folded — every profile's.
+const OFFSET_KEYS = { keys: ['humid off set', 'temp off set'] };
 let me: unknown = SA;
 vi.mock('swr', () => ({
-  default: (key: string | null) => ({ data: key === '/api/auth/me' ? me : key === '/api/config/dynamic/sensor-offsets' ? CONFIG : undefined }),
+  default: (key: string | null) => ({ data: key === '/api/auth/me' ? me : key === '/api/instruments/offset-keys' ? OFFSET_KEYS : undefined }),
 }));
 
 const { AttributeValueInput, splitOffset } = await import('../attribute-value-input');

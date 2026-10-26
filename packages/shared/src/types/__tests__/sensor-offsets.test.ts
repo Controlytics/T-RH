@@ -57,19 +57,22 @@ describe('applyOffset / offsetReadings', () => {
   });
 });
 
+// The offset KEYS are each instrument PROFILE's since 2026-10-26 (they were
+// this config row's until then); the row keeps only the master switch.
 describe('config', () => {
-  it('defaults to ON with the operator\'s names, folded', () => {
-    const c = coerceSensorOffsetConfig(undefined);
-    expect(c.enabled).toBe(true);
-    expect(c.keys).toEqual({ temperature: ['temp off set'], humidity: ['humid off set'] });
-    expect(isOffsetAttributeKey(c, ' Temp Off set ')).toBe(true);
-    expect(isOffsetAttributeKey(c, 'HUMID OFF SET')).toBe(true);
-    expect(isOffsetAttributeKey(c, 'temp_decimals')).toBe(false);
+  it('defaults to ON', () => {
+    expect(coerceSensorOffsetConfig(undefined).enabled).toBe(true);
   });
-  it('reads the switch and administered key lists, never empty', () => {
-    const c = coerceSensorOffsetConfig({ enabled: false, temperatureKeys: 'T_Offset\nTemp Off set', humidityKeys: '' });
-    expect(c.enabled).toBe(false);
-    expect(c.keys.temperature).toEqual(['t_offset', 'temp off set']);
-    expect(c.keys.humidity).toEqual(['humid off set']);
+  it('reads the switch, and nothing else', () => {
+    expect(coerceSensorOffsetConfig({ enabled: false, temperatureKeys: 'T_Offset' })).toEqual({ enabled: false });
+  });
+});
+
+describe('isOffsetAttributeKey', () => {
+  it('folds case and space against the given (folded) key set', () => {
+    const keys = new Set(['temp off set', 'humid off set']);
+    expect(isOffsetAttributeKey(keys, ' Temp Off set ')).toBe(true);
+    expect(isOffsetAttributeKey(keys, 'HUMID OFF SET')).toBe(true);
+    expect(isOffsetAttributeKey(keys, 'temp_decimals')).toBe(false);
   });
 });
