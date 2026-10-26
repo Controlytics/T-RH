@@ -12,6 +12,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '../../lib/prisma.js';
 import { evaluateAlarms } from '../alarm-evaluation.worker.js';
+import { fixtureProfileId } from '../../test-support/fixture-profile.js';
 
 const CODE = `LIMIT-HOLD-${Date.now()}`;
 let instrumentId = '';
@@ -34,8 +35,9 @@ async function openAlarm() {
 
 describe('instrument-limit clear path', () => {
   beforeAll(async () => {
-    const profile = await prisma.instrumentProfile.findFirst({ select: { id: true } })
-      ?? await prisma.instrumentProfile.create({ data: { name: `LimitHold-${Date.now()}` } });
+    // Its OWN profile: key mappings are per profile since 2026-10-26, so "the
+    // first profile in the database" may read temperature from any key at all.
+    const profile = { id: await fixtureProfileId('fixture:alarm-limit-hold') };
     const inst = await prisma.instrument.create({
       data: {
         code: CODE,

@@ -14,14 +14,16 @@
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import { prisma } from '../../lib/prisma.js';
 import { evaluateAlarms } from '../alarm-evaluation.worker.js';
+import { fixtureProfileId } from '../../test-support/fixture-profile.js';
 
 const STAMP = Date.now();
 const created: string[] = [];
 const THREE_DAYS_AGO = () => new Date(Date.now() - 3 * 24 * 3600_000);
 
 async function fixture(opts: { isActive: boolean; seenAt: Date; value: number; tag: string }) {
-  const profile = await prisma.instrumentProfile.findFirst({ select: { id: true } })
-    ?? await prisma.instrumentProfile.create({ data: { name: `LimitGate-${STAMP}` } });
+  // Its OWN profile: key mappings are per profile since 2026-10-26, so "the
+  // first profile in the database" may read temperature from any key at all.
+  const profile = { id: await fixtureProfileId('fixture:alarm-limit-gate') };
   const inst = await prisma.instrument.create({
     data: {
       code: `LIMIT-GATE-${opts.tag}-${STAMP}`,

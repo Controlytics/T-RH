@@ -21,6 +21,7 @@ import { loadRangeConfig, rangeFor } from '../modules/alarms/load-range.js';
 import { loadAlarmTypeNames } from '../modules/alarms/load-type-names.js';
 import { decideRange } from '../modules/alarms/range-decide.js';
 import { decideRs485 } from '../modules/alarms/rs485-decide.js';
+import { strandedAlarmIds, slotOfMetric } from '../modules/alarms/stranded-decide.js';
 import {
   ALARM_SEVERITY_FALLBACK,
   describeInactivity, type InactivitySnapshot,
@@ -164,7 +165,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
   const [limitCfg, inactivityCfg, rs485Cfg, rangeCfg] = await Promise.all([
     loadLimitConfig(), loadInactivityConfig(), loadRs485Config(), loadRangeConfig(),
   ]);
-  const [openLimitAlarms, openInactivity, openRs485, openRange] = await Promise.all([
+  const [openLimitAlarms, openInactivity, openRs485, openRange, openMeasured] = await Promise.all([
     limitCfg.enabled
       ? prisma.alarm.findMany({
           where: { source: 'INSTRUMENT_LIMIT', state: 'ACTIVE' },
@@ -191,6 +192,13 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
           select: { id: true, instrumentId: true, metric: true },
         })
       : Promise.resolve([]),
+    // Every open alarm ON A MEASUREMENT, whatever its source's switch says — a
+    // measurement the profile dropped strands its alarm even while that source
+    // is switched off (see the stranded pass below).
+    prisma.alarm.findMany({
+      where: { state: 'ACTIVE', source: { in: ['INSTRUMENT_LIMIT', 'RS485_FAILURE', 'SENSOR_RANGE'] } },
+      select: { id: true, instrumentId: true, metric: true, source: true, limitKind: true, ruleSnapshot: true },
+    }),
   ]);
 
   // Alarm RULES were removed 2026-08-31 — see `modules/alarms/routes.ts` for
@@ -204,6 +212,55 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
 
   let raised = 0;
   let cleared = 0;
+
+  // ─── Stranded pass (2026-10-26) ───────────────────────────────────────────
+  //
+  // An alarm open on a measurement the instrument's PROFILE no longer measures —
+  // the measurement was removed from the profile, or the instrument moved into
+  // a profile without it. Nothing below can ever judge it again (the reading is
+  // no longer resolved), so it is CLEARED here, like a bound switched off: the
+  // record is closed, not erased — `raisedAt` / `triggeredValue` and the
+  // acknowledgement are untouched, and the snapshot gains WHY.
+  // Rule: modules/alarms/stranded-decide.ts.
+  {
+    const rowById = new Map(overview.map((r) => [r.instrumentId, r]));
+    const measured = new Map(overview.map((r) => [r.instrumentId, r.measured]));
+    const byId = new Map(openMeasured.map((a) => [a.id, a]));
+    for (const id of strandedAlarmIds(openMeasured, measured)) {
+      const open = byId.get(id)!;
+      const row = rowById.get(open.instrumentId)!;
+      const slot = slotOfMetric(open.metric)!;
+      const snapshot = open.ruleSnapshot && typeof open.ruleSnapshot === 'object' && !Array.isArray(open.ruleSnapshot)
+        ? { ...(open.ruleSnapshot as Record<string, unknown>) }
+        : {};
+      snapshot.clearedReason = 'MEASUREMENT_REMOVED';
+      const closed = await claimClear(id, {
+        state: 'CLEARED',
+        clearedAt: now,
+        // Not a reading the alarm ended on — there is none to name.
+        clearedValue: null,
+        ruleSnapshot: snapshot as unknown as Prisma.InputJsonObject,
+      });
+      // Another pass cleared it first (see claimClear): nothing to announce.
+      if (!closed) continue;
+      cleared += 1;
+      const payload = {
+        alarmId: closed.id,
+        instrumentId: row.instrumentId,
+        instrumentCode: row.code,
+        instrumentName: row.name,
+        metric: closed.metric,
+        ruleName: typeName(open.source, open.metric, open.limitKind, `${open.metric} ${open.source}`),
+        condition: `${slot} is no longer measured by this instrument's profile`,
+        triggeredValue: closed.clearedValue,
+        decimals: snapshotDecimals(closed.ruleSnapshot) ?? row.decimals[slot],
+        raisedAt: closed.raisedAt,
+        clearedAt: closed.clearedAt,
+      };
+      await enqueueAlarmNotification('cleared', payload);
+      await enqueueAlarmWebhook('CLEARED', payload);
+    }
+  }
 
   // ─── Instrument-limit pass ────────────────────────────────────────────────
   //

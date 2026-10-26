@@ -47,13 +47,15 @@ vi.mock('../../modules/instruments/telemetry-overview.js', async (importOriginal
 });
 
 import { evaluateAlarms } from '../alarm-evaluation.worker.js';
+import { fixtureProfileId } from '../../test-support/fixture-profile.js';
 
 const CODE = `PASS-ORDER-${Date.now()}`;
 
 describe('alarm pass reads open alarms before the overview', () => {
   beforeAll(async () => {
-    const profile = await prisma.instrumentProfile.findFirst({ select: { id: true } })
-      ?? await prisma.instrumentProfile.create({ data: { name: `PassOrder-${Date.now()}` } });
+    // Its OWN profile: key mappings are per profile since 2026-10-26, so "the
+    // first profile in the database" may read temperature from any key at all.
+    const profile = { id: await fixtureProfileId('fixture:alarm-pass-ordering') };
     const inst = await prisma.instrument.create({
       data: {
         code: CODE,
