@@ -138,5 +138,5 @@ looks up its gateway by id; IOTGW01 has no location -> 404 toast for every scope
 - [x] Web: Functional location picker on New Instrument + Bulk Upload; detail drops the gateway fetch
 - [x] Tests: e2e (scoped create 400/201, bulk, tree flags, gateway code) mutation-checked; web create/bulk/detail
 - [x] Docs: CHANGELOG, feature-notes visibility note, endpoints.md
-- [ ] Push to trh, deploy over SSM, health 200
+- [x] Push to trh (`ac56a54`), deploy over SSM (`5e49636 -> ac56a54`, no migration, no npm ci), health 200; dist greps confirm the fix is live
 - [ ] Hand operator: place or delete CWH/RDU/001-01 and CWH/RDU/201-00 (no attributes saved)
