@@ -26,14 +26,15 @@ import { sanitizeStrings } from '../../lib/sanitize.js';
 import { generateToken, hashToken, tokenPrefix, tokenMatches } from './token.js';
 import { encryptToken, decryptToken, tokenKeyConfigured } from './token-crypto.js';
 import { parseInstrumentCsv, type InstrumentDraft, type AttributeColumn } from './bulk-csv.js';
-import { buildTelemetryOverview, loadAliases, instrumentLimitsWithText, NO_LIMIT_TEXT, loadActiveWindowMinutes } from './telemetry-overview.js';
-import { loadLimitConfig, enabledBoundsFor } from '../alarms/load-limits.js';
-import { loadDecimalsConfig, decimalsFor, annotateAttribute } from './decimals.js';
+import { buildTelemetryOverview, instrumentLimitsWithText, NO_LIMIT_TEXT, loadActiveWindowMinutes } from './telemetry-overview.js';
+import { enabledBoundsFor } from '../alarms/load-limits.js';
+import { decimalsFor, annotateAttribute } from './decimals.js';
+import { slotConfigForProfile } from './profile-measurements.js';
 import { loadAttributeAccess, refuseAttributeWrite, needsReauth } from './attribute-access.js';
 import {
   ATTRIBUTE_REMARK_MAX, lttb, isInstrumentReporting,
   parseInstrumentAttributeKeys, coerceAttributeLabels, ATTRIBUTE_LABELS_CONFIG_KEY,
-  isMktEnabled, mktFromExpMean,
+  isMktOn, mktFromExpMean,
 } from '@digilog/shared';
 import { invalidateIngestAuthCache } from './ingest-auth.js';
 import { kickMqttClient } from './broker-kick.js';
@@ -1208,6 +1209,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       // breach counts reported as "no limit set" in a signed document.
       select: {
         id: true,
+        profileId: true,
         room: { select: { tempMin: true, tempMax: true, rhMin: true, rhMax: true } },
       },
     });
@@ -1235,24 +1237,22 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // Loaded BEFORE the branch, not after it: the chart path needs the slot
     // mapping and the resolved limits to bound its per-key breach counts, and
     // the table path needs the same two for its annotation anyway.
-    const [aliases, decimalsCfg, attributes, limitCfg] = await Promise.all([
-      loadAliases(),
-      loadDecimalsConfig(),
+    const [slotCfg, attributes] = await Promise.all([
+      // The instrument PROFILE's key mappings (2026-10-26) — the SAME resolver
+      // the alarm evaluator and the dashboard use. Nothing here reads an
+      // attribute name directly — two surfaces disagreeing about which limit
+      // applies is a defect this repo has already paid for once.
+      slotConfigForProfile(exists.profileId),
       prisma.instrumentAttribute.findMany({
         where: { instrumentId: id },
         select: { key: true, value: true },
       }),
-      // The SAME administered key mapping the alarm evaluator and the dashboard
-      // resolve limits with. Nothing here reads an attribute name directly —
-      // two surfaces disagreeing about which limit applies is a defect this
-      // repo has already paid for once.
-      loadLimitConfig(),
     ]);
-    const dp = decimalsFor(decimalsCfg, attributes);
+    const dp = decimalsFor(slotCfg.decimals, attributes);
     const slotFor = (key: string): 'temperature' | 'humidity' | null => {
       const k = key.toLowerCase();
-      if (aliases.temperature.includes(k)) return 'temperature';
-      if (aliases.humidity.includes(k)) return 'humidity';
+      if (slotCfg.aliases.temperature.includes(k)) return 'temperature';
+      if (slotCfg.aliases.humidity.includes(k)) return 'humidity';
       return null;
     };
     /**
@@ -1265,7 +1265,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
      * against a band the alarm system deliberately ignores would put a number
      * in a §11 report that no alarm on this system could ever corroborate.
      */
-    const ownResolved = instrumentLimitsWithText(limitCfg.keys, attributes);
+    const ownResolved = instrumentLimitsWithText(slotCfg.limitKeys, attributes);
     const own = ownResolved?.band ?? null;
     const rawBand = own ?? (exists.room
       ? { tempMin: exists.room.tempMin, tempMax: exists.room.tempMax, rhMin: exists.room.rhMin, rhMax: exists.room.rhMax }
@@ -1297,7 +1297,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
      * overview: the flag is the instrument's statement about which of ITS
      * bounds are judged, and a room bound it disowns enforces nothing either.
      */
-    const boundEnabled = enabledBoundsFor(limitCfg.enableKeys, attributes);
+    const boundEnabled = enabledBoundsFor(slotCfg, attributes);
     const band = rawBand && {
       tempMin: boundEnabled.temperatureLow ? rawBand.tempMin : null,
       tempMax: boundEnabled.temperatureHigh ? rawBand.tempMax : null,
@@ -1396,12 +1396,14 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       historyTotal = perKey.reduce((n, k) => n + k.total, 0);
       historySampled = perKey.some((k) => k.truncated || k.dropped);
       summaries = {};
-      // MKT is the INSTRUMENT's choice (`isMktCalculationEnabled`), decided
-      // here from the attributes already loaded, so the Data Report prints the
-      // row iff the server sent a number — nothing in the browser re-reads the
-      // flag. Temperature slot only: the formula is in kelvin from °C, and a
-      // "mean kinetic humidity" is not a thing.
-      const mktOn = isMktEnabled(attributes);
+      // MKT is the PROFILE's switch AND then the INSTRUMENT's attribute
+      // (`isMktCalculationEnabled`; 2026-10-26, operator: "in instrument
+      // profiles … MKT attributes … enabled or disabled"), decided here from the
+      // attributes already loaded, so the Data Report prints the row iff the
+      // server sent a number — nothing in the browser re-reads the flag.
+      // Temperature slot only: the formula is in kelvin from °C, and a "mean
+      // kinetic humidity" is not a thing.
+      const mktOn = isMktOn(slotCfg.mkt.temperature, attributes);
       for (const k of perKey) {
         if (!k.summary) continue;
         const { mktExpMean, ...rest } = k.summary;
@@ -1477,15 +1479,16 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const { where: visibility } = await resolveVisibility(buildContext(req));
     const exists = await prisma.instrument.findFirst({
       where: withVisibility({ id }, visibility) as { id: string },
-      // Existence only. This route computes no breach counts, so it needs no
-      // room band — the read is here purely to decide 404 vs 200.
-      select: { id: true },
+      // Existence and the PROFILE (whose device keys label each key). This route
+      // computes no breach counts, so it needs no room band.
+      select: { id: true, profileId: true },
     });
     if (!exists) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
 
-    // Same alias resolution the telemetry route uses, so the picker and the
-    // charts agree about which key is "temperature".
-    const [aliases, keys] = await Promise.all([loadAliases(), getDistinctKeys(id)]);
+    // Same per-profile resolution the telemetry route uses, so the picker and
+    // the charts agree about which key is "temperature".
+    const [slotCfg, keys] = await Promise.all([slotConfigForProfile(exists.profileId), getDistinctKeys(id)]);
+    const { aliases } = slotCfg;
     const annotateKey = (k: string) => {
       const lower = k.toLowerCase();
       return aliases.temperature.includes(lower)
@@ -2834,7 +2837,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const exists = await prisma.instrument.findFirst({ where: await visibleInstrumentWhere(req, id), select: { id: true } });
+    const exists = await prisma.instrument.findFirst({ where: await visibleInstrumentWhere(req, id), select: { id: true, profileId: true } });
     if (!exists) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
 
     const all = await prisma.instrumentAttribute.findMany({
@@ -2846,10 +2849,11 @@ export default async function instrumentRoutes(app: FastifyInstance) {
 
     // A limit or a range is a reading, so it is shown at the same precision as
     // the reading it bounds — resolved here, from this instrument's own decimals
-    // attributes, so the attributes panel cannot quote a limit differently from
-    // the set-point column or the alarm row that fired against it. `value` is
-    // untouched: `display` is presentation, `value` is the record.
-    const cfg = await loadDecimalsConfig();
+    // attributes and its PROFILE's mapping (2026-10-26), so the attributes panel
+    // cannot quote a limit differently from the set-point column or the alarm row
+    // that fired against it. `value` is untouched: `display` is presentation,
+    // `value` is the record.
+    const cfg = (await slotConfigForProfile(exists.profileId)).decimals;
     const dp = decimalsFor(cfg, data);
     return { data: data.map((a) => ({ ...a, ...annotateAttribute(cfg, dp, a) })) };
   });

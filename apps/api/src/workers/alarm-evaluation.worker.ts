@@ -1,6 +1,7 @@
 import { Prisma, type Alarm } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { buildTelemetryOverview } from '../modules/instruments/telemetry-overview.js';
+import { slotConfigLookup } from '../modules/instruments/profile-measurements.js';
 import { enqueueAlarmNotification } from '../modules/alarms/enqueue-notification.js';
 import { enqueueAlarmWebhook } from '../modules/alarm-webhooks/enqueue.js';
 import {
@@ -196,6 +197,10 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
   // the note. Every remaining source derives from the instrument itself, so
   // this pass needs only the fleet overview.
   const overview = await buildTelemetryOverview({});
+  // Each instrument's limit / enable / range keys and its profile's NMT / NLT
+  // switches are its PROFILE's (2026-10-26) — the same resolver the overview
+  // just used, so this pass and the dashboard cannot read different keys.
+  const slotOf = await slotConfigLookup();
 
   let raised = 0;
   let cleared = 0;
@@ -232,7 +237,8 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
       const attributes = attrsByInstrument.get(row.instrumentId) ?? [];
       if (attributes.length === 0) continue;
 
-      const { limits, attributeKeys, texts: limitTexts } = limitsFor(limitCfg.keys, attributes);
+      const slot = slotOf(row.profileId);
+      const { limits, attributeKeys, texts: limitTexts } = limitsFor(slot.limitKeys, attributes);
       const reading = {
         temperature: row.temperature?.value ?? null,
         humidity: row.humidity?.value ?? null,
@@ -242,7 +248,10 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
       // `Enable_Temp_NMT` / `Enable_Temp_NLT` / `Enable_Humid_NMT` /
       // `Enable_Humid_NLT` attributes. Absent means enabled, so an instrument
       // carrying no flags behaves exactly as it did before these existed.
-      const boundEnabled = enabledBoundsFor(limitCfg.enableKeys, attributes);
+      // The PROFILE's NMT / NLT switch gates first (2026-10-26): off = never
+      // enforced, and an alarm open on it clears below, exactly like a bound the
+      // instrument's own attribute switches off.
+      const boundEnabled = enabledBoundsFor(slot, attributes);
 
       // Audit 2026-10-12 #8: judge only a CURRENT reading. The overview keeps the
       // last value of a slot however old it is, so without this a decommissioned
@@ -904,7 +913,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
         if (action === 'raise' && rawNumber !== null && raw) {
           const shown = formatDecimals(rawNumber, decimals) ?? String(rawNumber);
           const condition = describeRangeFault(metric, shown, low, high);
-          const { attributeKeys, texts } = rangeFor(rangeCfg.keys, attrsByInstrument.get(row.instrumentId) ?? []);
+          const { attributeKeys, texts } = rangeFor(slotOf(row.profileId).rangeKeys, attrsByInstrument.get(row.instrumentId) ?? []);
           const snapshot: SensorRangeSnapshot = {
             kind: 'SENSOR_RANGE',
             metric,

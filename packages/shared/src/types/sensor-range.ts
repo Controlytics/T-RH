@@ -61,10 +61,14 @@ export function rangeText(configured?: string | null): string {
   return t || SENSOR_RANGE_TEXT_DEFAULT;
 }
 
+/**
+ * The GLOBAL half of the range feature: the switch and the word. Which
+ * attribute holds each bound is the instrument PROFILE's since 2026-10-26
+ * (`InstrumentSlotConfig.rangeKeys`, @digilog/shared/profile-measurements).
+ */
 export interface SensorRangeConfig {
   enabled: boolean;
   rangeText: string;
-  keys: Record<RangeBound, string[]>;
 }
 
 /** One instrument's four range bounds. Null = that bound is not declared. */

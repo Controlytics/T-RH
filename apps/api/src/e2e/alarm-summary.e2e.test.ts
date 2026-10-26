@@ -16,7 +16,12 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp, loginAs } from './test-helper.js';
 import { fixtureProfileId } from '../test-support/fixture-profile.js';
 import { prisma } from '../lib/prisma.js';
-import { loadLimitConfig } from '../modules/alarms/load-limits.js';
+import { slotConfigForProfile } from '../modules/instruments/profile-measurements.js';
+
+/** The limit keys are the instrument PROFILE's since 2026-10-26 — read this file's own. */
+const loadLimitConfig = async () => ({
+  keys: (await slotConfigForProfile(await fixtureProfileId('fixture:alarm-summary'))).limitKeys,
+});
 
 let app: FastifyInstance;
 let auth: Record<string, string>;

@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma.js';
 import { buildApp, loginAs, authGet, authPost, authPut, ADMIN_PASSWORD } from './test-helper.js';
 import { Prisma } from '@prisma/client';
 import { fixtureProfileId } from '../test-support/fixture-profile.js';
+import { patchFixtureMeasurement } from '../test-support/fixture-measurements.js';
 
 /**
  * Bulk upload carries the profile's ATTRIBUTES (2026-09-16), headed by their
@@ -39,15 +40,18 @@ describe('POST /api/instruments/bulk — attribute columns', () => {
     expect(put.statusCode).toBe(200);
     // The float case reads a bound through the ADMINISTERED alias list. The
     // test database is seeded independently of the live one, so the list is
-    // pinned here rather than assumed (verification-gaps item 16).
+    // pinned here rather than assumed (verification-gaps item 16). The list is
+    // the PROFILE's since 2026-10-26; the master switch stays global.
     const limits = await prisma.systemConfig.findUnique({ where: { configKey: 'alarm-limits' } });
     baseLimits = limits?.configValue ?? null;
     const pinned = await authPut(app, '/api/config/dynamic/alarm-limits', token, {
       ...((baseLimits as Record<string, unknown>) ?? {}),
       enabled: true,
-      temperatureHighKeys: 't_hl\nHigh Temperature Limit',
     });
     expect(pinned.statusCode).toBe(200);
+    await patchFixtureMeasurement(profileId, 'TEMPERATURE', (m) => ({
+      ...m, high: { ...m.high, limitKeys: ['t_hl', 'High Temperature Limit'] },
+    }));
   });
 
   afterAll(async () => {

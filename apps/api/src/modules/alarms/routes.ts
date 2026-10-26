@@ -13,6 +13,8 @@ import { enqueueAlarmWebhook } from '../alarm-webhooks/enqueue.js';
 import { describeSnapshot, decimalsFromSnapshot } from '../alarm-webhooks/build-variables.js';
 import { validateAcknowledgement, clampSignature } from './validation.js';
 import { loadLimitConfig, countWithoutLimits } from './load-limits.js';
+import { loadProfileMeasurements } from '../instruments/profile-measurements.js';
+import { slotConfigFromMeasurements } from '@digilog/shared';
 import {
   ALARM_TYPE_TOKENS, ALARM_STATUS_TOKENS,
   parseAlarmListQuery, buildAlarmWhere, buildAlarmOrderBy, pageBounds,
@@ -471,20 +473,32 @@ export default async function alarmRoutes(app: FastifyInstance) {
     // the evaluator watches it. (`resolveLimit` also trims the key; a key stored
     // with surrounding whitespace would miss here — attribute keys are trimmed
     // on write, so none is.)
-    const limitKeys = [...new Set(Object.values(cfg.keys).flat())];
+    //
+    // Each instrument is judged by ITS profile's limit keys (2026-10-26), so the
+    // SQL filter takes the union of every profile's lists and `countWithoutLimits`
+    // applies the instrument's own.
+    const profileMeasurements = await loadProfileMeasurements();
+    const slotByProfile = new Map([...profileMeasurements].map(([id, ms]) => [id, slotConfigFromMeasurements(ms)]));
+    const limitKeys = [...new Set([...slotByProfile.values()].flatMap((s) => Object.values(s.limitKeys).flat()))];
     const visibleInstruments = await prisma.instrument.findMany({
       where: visibility ?? {},
       select: {
         code: true,
+        profileId: true,
         attributes: {
           where: { key: { in: limitKeys, mode: 'insensitive' } },
           select: { key: true, value: true },
         },
       },
     });
+    const noKeys = slotConfigFromMeasurements([]).limitKeys;
     const without = countWithoutLimits(
-      visibleInstruments.map((i) => ({ code: i.code, attributes: i.attributes })),
-      cfg.keys,
+      visibleInstruments.map((i) => ({
+        code: i.code,
+        attributes: i.attributes,
+        limitKeys: slotByProfile.get(i.profileId)?.limitKeys ?? noKeys,
+      })),
+      noKeys,
     );
 
     return {

@@ -1,84 +1,34 @@
 /**
- * Reading the administered decimals mapping off the `telemetry-slots` config.
+ * An instrument's display precision, and which of its attributes are shown at it.
  *
- * Its own module because three unrelated callers need the same answer — the
- * fleet overview, the room-history chart, and the alarm evaluator that freezes
- * precision onto a raised alarm — and a second copy of "which key, what
- * fallback" is exactly how one instrument comes to render at two precisions in
- * two places.
+ * Its own module because several unrelated callers need the same answer — the
+ * fleet overview, the room-history chart, the per-instrument telemetry route and
+ * the alarm evaluator that freezes precision onto a raised alarm — and a second
+ * copy of "which key, what fallback" is exactly how one instrument comes to
+ * render at two precisions in two places.
  *
- * The rules themselves (parsing, precedence, clamping) live in
- * @digilog/shared/telemetry-decimals; this file only fetches the settings.
+ * WHICH attribute holds the decimals, the fallback, and which attributes are
+ * "valued" (limits and ranges, shown at the reading's precision) are the
+ * instrument PROFILE's since 2026-10-26 — `InstrumentSlotConfig.decimals`,
+ * resolved by `profile-measurements.ts`; until then they were the global
+ * `telemetry-slots` row. The rules themselves (parsing, precedence, clamping)
+ * live in @digilog/shared/telemetry-decimals.
  */
-import { prisma } from '../../lib/prisma.js';
 import {
-  parseTelemetryAliases,
   resolveDecimals,
-  clampDecimals,
   slotForAttributeKey,
   formatDecimals,
-  TELEMETRY_DECIMALS_KEYS_DEFAULT,
-  TELEMETRY_DECIMALS_FALLBACK,
-  TELEMETRY_VALUED_KEYS_DEFAULT,
+  slotConfigFromMeasurements,
+  DEFAULT_PROFILE_MEASUREMENTS,
+  type InstrumentSlotConfig,
   type TelemetrySlot,
 } from '@digilog/shared';
 
-export interface DecimalsConfig {
-  keys: Record<TelemetrySlot, string[]>;
-  fallback: Record<TelemetrySlot, number>;
-  /**
-   * Which attribute keys hold a temperature and which a humidity, so a LIMIT or a
-   * RANGE is shown at the same precision as the reading it bounds. Nothing about
-   * a free-text `High Temperature Range = 50` says it is degrees, so the
-   * classification is administered rather than guessed from the words in the key.
-   */
-  valuedKeys: Record<TelemetrySlot, string[]>;
-}
+/** One profile's decimals mapping — `InstrumentSlotConfig.decimals`. */
+export type DecimalsConfig = InstrumentSlotConfig['decimals'];
 
-export const DECIMALS_CONFIG_DEFAULT: DecimalsConfig = {
-  keys: {
-    temperature: parseTelemetryAliases(TELEMETRY_DECIMALS_KEYS_DEFAULT.temperature),
-    humidity: parseTelemetryAliases(TELEMETRY_DECIMALS_KEYS_DEFAULT.humidity),
-  },
-  fallback: {
-    temperature: TELEMETRY_DECIMALS_FALLBACK,
-    humidity: TELEMETRY_DECIMALS_FALLBACK,
-  },
-  valuedKeys: {
-    temperature: parseTelemetryAliases(TELEMETRY_VALUED_KEYS_DEFAULT.temperature),
-    humidity: parseTelemetryAliases(TELEMETRY_VALUED_KEYS_DEFAULT.humidity),
-  },
-};
-
-/**
- * Same config row the slot aliases come from — one setting group answering "how
- * is this reading presented". A missing row means the shipped defaults, never
- * "no formatting": an unseeded install must still render numbers.
- */
-export async function loadDecimalsConfig(): Promise<DecimalsConfig> {
-  const row = await prisma.systemConfig.findUnique({ where: { configKey: 'telemetry-slots' } });
-  const cfg = (row?.configValue ?? {}) as Record<string, unknown>;
-
-  const list = (key: string, fallback: string) =>
-    parseTelemetryAliases(typeof cfg[key] === 'string' ? (cfg[key] as string) : fallback);
-  const num = (key: string) =>
-    typeof cfg[key] === 'number' ? clampDecimals(cfg[key]) : TELEMETRY_DECIMALS_FALLBACK;
-
-  return {
-    keys: {
-      temperature: list('temperatureDecimalsKeys', TELEMETRY_DECIMALS_KEYS_DEFAULT.temperature),
-      humidity: list('humidityDecimalsKeys', TELEMETRY_DECIMALS_KEYS_DEFAULT.humidity),
-    },
-    fallback: {
-      temperature: num('temperatureDecimals'),
-      humidity: num('humidityDecimals'),
-    },
-    valuedKeys: {
-      temperature: list('temperatureValuedKeys', TELEMETRY_VALUED_KEYS_DEFAULT.temperature),
-      humidity: list('humidityValuedKeys', TELEMETRY_VALUED_KEYS_DEFAULT.humidity),
-    },
-  };
-}
+/** The mapping of a never-customised profile. */
+export const DECIMALS_CONFIG_DEFAULT: DecimalsConfig = slotConfigFromMeasurements(DEFAULT_PROFILE_MEASUREMENTS).decimals;
 
 /** One instrument's precision for both slots. */
 export function decimalsFor(

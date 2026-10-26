@@ -74,6 +74,16 @@ export async function slotConfigForProfile(profileId: string): Promise<Instrumen
 }
 
 /**
+ * A synchronous profile id → key mappings lookup over ONE snapshot, for a caller
+ * that already holds each instrument's `profileId` (the fleet overview maps over
+ * hundreds of rows; one snapshot means one consistent answer for all of them).
+ */
+export async function slotConfigLookup(): Promise<(profileId: string) => InstrumentSlotConfig> {
+  const snap = await snapshot();
+  return (profileId: string) => snap.slots.get(profileId) ?? DEFAULT_SLOT;
+}
+
+/**
  * Key mappings for a set of instruments, by instrument id — one query for their
  * profile ids, however many there are. An instrument that does not exist is
  * simply absent from the map.

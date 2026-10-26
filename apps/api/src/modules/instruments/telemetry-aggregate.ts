@@ -19,9 +19,9 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { withVisibility, type ScopeWhere } from './visibility.js';
-import { loadAliases } from './telemetry-overview.js';
 import { NUMERIC_READING } from './telemetry.repository.js';
-import { loadLimitConfig, limitsFor } from '../alarms/load-limits.js';
+import { limitsFor } from '../alarms/load-limits.js';
+import { slotConfigLookup } from './profile-measurements.js';
 import { WINDOW_SPEC, type HistoryWindow } from '../floorplans/room-history.js';
 import { resolveLocationIds, type FlNode } from '../functional-locations/tree.js';
 
@@ -159,18 +159,28 @@ export async function getTelemetryAggregate(opts: AggregateOptions): Promise<Agg
   // out-of-scope instrument's readings out of the database.
   const instruments = await prisma.instrument.findMany({
     where: withVisibility(selection, opts.visibility) as object,
-    select: { id: true, attributes: { select: { key: true, value: true } } },
+    select: { id: true, profileId: true, attributes: { select: { key: true, value: true } } },
   });
   if (instruments.length === 0) return empty();
 
-  const [aliases, limitCfg] = await Promise.all([loadAliases(), loadLimitConfig()]);
-  const tempKeys = aliases.temperature.map((k) => k.toLowerCase());
-  const humidKeys = aliases.humidity.map((k) => k.toLowerCase());
-  const allKeys = [...new Set([...tempKeys, ...humidKeys])];
-  if (allKeys.length === 0) return empty();
+  // Which key is which slot is each instrument's PROFILE's (2026-10-26), so the
+  // mapping is per instrument: one (instrument, key, slot) row per device-key
+  // alias, joined in SQL below. A single fleet-wide "temperature keys" list
+  // would read an instrument through another profile's keys.
+  const slotOf = await slotConfigLookup();
+  const mIds: string[] = [];
+  const mKeys: string[] = [];
+  const mSlots: AggregateSlot[] = [];
+  for (const i of instruments) {
+    const { aliases } = slotOf(i.profileId);
+    for (const s of ['temperature', 'humidity'] as const) {
+      for (const k of aliases[s]) { mIds.push(i.id); mKeys.push(k.toLowerCase()); mSlots.push(s); }
+    }
+  }
+  if (mKeys.length === 0) return empty();
 
   const ids = instruments.map((i) => i.id);
-  const resolved = instruments.map((i) => limitsFor(limitCfg.keys, i.attributes).limits);
+  const resolved = instruments.map((i) => limitsFor(slotOf(i.profileId).limitKeys, i.attributes).limits);
   const tempBounds = limitsAgree(resolved.map((l) => ({ min: l.temperatureLow, max: l.temperatureHigh })));
   const humidBounds = limitsAgree(resolved.map((l) => ({ min: l.humidityLow, max: l.humidityHigh })));
   const anyTemp = resolved.some((l) => l.temperatureLow !== null || l.temperatureHigh !== null);
@@ -184,15 +194,18 @@ export async function getTelemetryAggregate(opts: AggregateOptions): Promise<Agg
     : Prisma.sql`to_timestamp(floor(extract(epoch FROM ts) / ${bucket}) * ${bucket})`;
 
   const rows = await prisma.$queryRaw<AggregateRow[]>`
+    WITH m AS (
+      SELECT * FROM unnest(${mIds}::text[], ${mKeys}::text[], ${mSlots}::text[]) AS m(instrument_id, mkey, slot)
+    )
     SELECT ${bucketExpr} AS ts,
-           CASE WHEN lower(key) = ANY(${tempKeys}::text[]) THEN 'temperature' ELSE 'humidity' END AS slot,
+           m.slot AS slot,
            min(${NUMERIC_READING}) AS min,
            avg(${NUMERIC_READING}) AS avg,
            max(${NUMERIC_READING}) AS max,
-           count(DISTINCT instrument_id) AS "instrumentCount"
-    FROM instrument_telemetry_history
-    WHERE instrument_id = ANY(${ids}::text[])
-      AND lower(key) = ANY(${allKeys}::text[])
+           count(DISTINCT h.instrument_id) AS "instrumentCount"
+    FROM instrument_telemetry_history h
+    JOIN m ON m.instrument_id = h.instrument_id AND m.mkey = lower(h.key)
+    WHERE h.instrument_id = ANY(${ids}::text[])
       AND ts >= ${from} AND ts <= ${to}
       AND ${NUMERIC_READING} IS NOT NULL
     GROUP BY 1, 2

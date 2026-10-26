@@ -1,66 +1,52 @@
 import { prisma } from '../../lib/prisma.js';
 import {
-  parseLimitKeys,
   resolveLimit,
   resolveEnableFlag,
-  ALARM_LIMIT_KEYS_DEFAULT,
-  ALARM_LIMIT_ENABLE_KEYS_DEFAULT,
+  type InstrumentSlotConfig,
   type LimitBound,
 } from '@digilog/shared';
 import type { InstrumentLimits } from './limit-decide.js';
 import { limitsInverted } from './limit-decide.js';
 
+/** Ordered, lower-cased attribute-key aliases per bound. */
+export type LimitKeys = Record<LimitBound, string[]>;
+
 /**
- * The administered attribute-key mapping, read from the `alarm-limits` config.
- *
- * Loaded the same way telemetry-overview.ts loads `telemetry-slots`: one row, with
- * the shipped defaults as the fallback so a missing config never means "no alarms".
+ * The GLOBAL half of the limit feature: the master switch, read from the
+ * `alarm-limits` config. Which attributes hold the bounds, which attribute
+ * switches each bound, and the profile's own NMT / NLT switch are the
+ * instrument PROFILE's since 2026-10-26 — `InstrumentSlotConfig.limitKeys` /
+ * `enableKeys` / `boundSwitch`, resolved by
+ * `modules/instruments/profile-measurements.ts`.
  */
 export interface LimitConfig {
   enabled: boolean;
-  keys: Record<LimitBound, string[]>;
-  /** Which attribute says whether each bound is IN FORCE. See
-   *  ALARM_LIMIT_ENABLE_KEYS_DEFAULT for why a bound needs a switch of its own. */
-  enableKeys: Record<LimitBound, string[]>;
 }
 
 export async function loadLimitConfig(): Promise<LimitConfig> {
   const row = await prisma.systemConfig.findUnique({ where: { configKey: 'alarm-limits' } });
   const cfg = (row?.configValue ?? {}) as Record<string, unknown>;
-
-  const list = (key: string, fallback: string) =>
-    parseLimitKeys(typeof cfg[key] === 'string' ? (cfg[key] as string) : fallback);
-
-  return {
-    // Absent config means enabled: the feature ships on, and a half-seeded row
-    // must not silently stop every limit alarm.
-    enabled: cfg.enabled !== false,
-    keys: {
-      temperatureHigh: list('temperatureHighKeys', ALARM_LIMIT_KEYS_DEFAULT.temperatureHigh),
-      temperatureLow: list('temperatureLowKeys', ALARM_LIMIT_KEYS_DEFAULT.temperatureLow),
-      humidityHigh: list('humidityHighKeys', ALARM_LIMIT_KEYS_DEFAULT.humidityHigh),
-      humidityLow: list('humidityLowKeys', ALARM_LIMIT_KEYS_DEFAULT.humidityLow),
-    },
-    enableKeys: {
-      temperatureHigh: list('temperatureHighEnableKeys', ALARM_LIMIT_ENABLE_KEYS_DEFAULT.temperatureHigh),
-      temperatureLow: list('temperatureLowEnableKeys', ALARM_LIMIT_ENABLE_KEYS_DEFAULT.temperatureLow),
-      humidityHigh: list('humidityHighEnableKeys', ALARM_LIMIT_ENABLE_KEYS_DEFAULT.humidityHigh),
-      humidityLow: list('humidityLowEnableKeys', ALARM_LIMIT_ENABLE_KEYS_DEFAULT.humidityLow),
-    },
-  };
+  // Absent config means enabled: the feature ships on, and a half-seeded row
+  // must not silently stop every limit alarm.
+  return { enabled: cfg.enabled !== false };
 }
 
 /**
  * Which of an instrument's four bounds are switched on.
  *
- * Absent flag = enabled, so an instrument that carries no flags at all behaves
- * exactly as it did before this existed.
+ * Two gates, ANDed (operator 2026-10-26: "in instrument profiles NLT and MNT
+ * … enabled or disabled"): the PROFILE's NMT / NLT switch (`boundSwitch`) —
+ * off means the bound is never enforced for any instrument of the profile —
+ * then the instrument's own enable attribute, exactly as before. Absent
+ * attribute = enabled, so an instrument that carries no flags behaves as it did
+ * before flags existed; an empty enable-key list therefore means "always on".
  */
 export function enabledBoundsFor(
-  enableKeys: LimitConfig['enableKeys'],
+  cfg: Pick<InstrumentSlotConfig, 'enableKeys' | 'boundSwitch'>,
   attributes: { key: string; value: string }[],
 ): Record<LimitBound, boolean> {
-  const on = (bound: LimitBound) => resolveEnableFlag(enableKeys[bound], attributes)?.enabled ?? true;
+  const on = (bound: LimitBound) =>
+    cfg.boundSwitch[bound] && (resolveEnableFlag(cfg.enableKeys[bound], attributes)?.enabled ?? true);
   return {
     temperatureHigh: on('temperatureHigh'),
     temperatureLow: on('temperatureLow'),
@@ -74,10 +60,10 @@ export function enabledBoundsFor(
  *
  * The key is kept so it can be frozen onto the alarm snapshot: "this fired against
  * `High Temperature` = 25" is answerable later even after the attribute is renamed
- * or deleted.
+ * or deleted. `keys` is the instrument's profile `limitKeys`.
  */
 export function limitsFor(
-  keys: LimitConfig['keys'],
+  keys: LimitKeys,
   attributes: { key: string; value: string }[],
 ): {
   limits: InstrumentLimits;
@@ -128,15 +114,18 @@ const CODE_CAP = 50;
  * "nothing is being watched". Counts the three ways an instrument ends up
  * unwatched — no limit attribute, an unparseable value, and an inverted pair —
  * because all three look identical to an operator who believes it is configured.
+ *
+ * Each instrument is judged by ITS profile's keys (`limitKeys`, 2026-10-26);
+ * `keys` is the fallback for an entry that carries none.
  */
 export function countWithoutLimits(
-  instruments: { code: string; attributes: { key: string; value: string }[] }[],
-  keys: LimitConfig['keys'],
+  instruments: { code: string; attributes: { key: string; value: string }[]; limitKeys?: LimitKeys }[],
+  keys: LimitKeys,
 ): { count: number; codes: string[] } {
   const codes: string[] = [];
   let count = 0;
   for (const inst of instruments) {
-    const { limits } = limitsFor(keys, inst.attributes);
+    const { limits } = limitsFor(inst.limitKeys ?? keys, inst.attributes);
     const tempUsable = !limitsInverted(limits.temperatureHigh, limits.temperatureLow)
       && (limits.temperatureHigh !== null || limits.temperatureLow !== null);
     const rhUsable = !limitsInverted(limits.humidityHigh, limits.humidityLow)

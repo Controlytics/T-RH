@@ -17,6 +17,7 @@ import type { FastifyInstance } from 'fastify';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { fixtureProfileId } from '../test-support/fixture-profile.js';
+import { setFixtureMeasurements } from '../test-support/fixture-measurements.js';
 import { invalidateRolePermsCache } from '../plugins/rbac.js';
 
 let app: FastifyInstance;
@@ -37,8 +38,8 @@ let rolePermsBefore: string[] = [];
 const LEAK_VALUE = 999;
 const IN_SCOPE_VALUES = [20, 22, 24];
 
-const SLOTS = { temperatureKeys: 'temperature', humidityKeys: 'humidity' };
-let slotsBefore: { value: unknown; existed: boolean } = { value: null, existed: false };
+/** Pinned on this file's own fixture PROFILE — where device keys live since 2026-10-26. */
+const SLOTS = { temperature: 'temperature', humidity: 'humidity' };
 
 interface AggregateBody {
   instrumentCount: number;
@@ -83,13 +84,9 @@ beforeAll(async () => {
   app = await buildApp();
   auth = { authorization: `Bearer ${await loginAs(app)}` };
 
-  const existing = await prisma.systemConfig.findUnique({ where: { configKey: 'telemetry-slots' } });
-  slotsBefore = { value: existing?.configValue ?? null, existed: Boolean(existing) };
-  await prisma.systemConfig.upsert({
-    where: { configKey: 'telemetry-slots' },
-    create: { configKey: 'telemetry-slots', configValue: SLOTS, configType: 'object' },
-    update: { configValue: SLOTS },
-  });
+  await setFixtureMeasurements(await fixtureProfileId('fixture:aggregate'), (ms) => ms.map((m) => (
+    m.code === 'TEMPERATURE' ? { ...m, deviceKeys: [SLOTS.temperature] }
+      : m.code === 'HUMIDITY' ? { ...m, deviceKeys: [SLOTS.humidity] } : m)));
 
   const block = await prisma.functionalLocation.create({ data: { name: `agg-block-${s}`, type: 'BLOCK' } });
   blockId = block.id;
@@ -137,11 +134,6 @@ afterAll(async () => {
     await app.inject({ method: 'DELETE', url: `/api/instruments/${id}`, headers: auth });
   }
   await prisma.functionalLocation.deleteMany({ where: { id: { in: [areaId, blockId, otherBlockId].filter(Boolean) } } });
-  if (slotsBefore.existed) {
-    await prisma.systemConfig.update({ where: { configKey: 'telemetry-slots' }, data: { configValue: slotsBefore.value as never } });
-  } else {
-    await prisma.systemConfig.deleteMany({ where: { configKey: 'telemetry-slots' } });
-  }
   await app.close();
 });
 

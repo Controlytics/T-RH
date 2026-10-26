@@ -29,6 +29,7 @@ import type { FastifyInstance } from 'fastify';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { fixtureProfileId } from '../test-support/fixture-profile.js';
+import { setFixtureMeasurements } from '../test-support/fixture-measurements.js';
 import { invalidateRolePermsCache } from '../plugins/rbac.js';
 
 let app: FastifyInstance;
@@ -54,13 +55,12 @@ let planId = '';
 let roomId = '';
 
 /**
- * `telemetry-slots` decides which keys count as temperature. It is administered
- * live and this install's list has drifted, so the room-history case below would
- * otherwise be testing this machine's configuration rather than the code.
- * Restored verbatim in afterAll — the suite shares `compliance_core_db_test`.
+ * The instrument's PROFILE decides which keys count as temperature (since
+ * 2026-10-26; the global `telemetry-slots` list before that). Pinned on this
+ * file's own fixture profile, so the room-history case below tests the code,
+ * not whatever the shared test database's profile happens to hold.
  */
-const SLOTS = { temperatureKeys: 'temperature', humidityKeys: 'humidity' };
-let slotsBefore: { value: unknown; existed: boolean } = { value: null, existed: false };
+const SLOTS = { temperature: 'temperature', humidity: 'humidity' };
 
 async function seedReading(instrumentId: string, value: number) {
   await prisma.$executeRaw`
@@ -157,13 +157,9 @@ beforeAll(async () => {
   // A room holding BOTH the in-scope and the out-of-scope instrument. The room is
   // geometry, not a grouping concept — membership here says nothing about who may
   // see what, which is exactly why its history endpoint has to be scoped.
-  const existingSlots = await prisma.systemConfig.findUnique({ where: { configKey: 'telemetry-slots' } });
-  slotsBefore = { value: existingSlots?.configValue ?? null, existed: Boolean(existingSlots) };
-  await prisma.systemConfig.upsert({
-    where: { configKey: 'telemetry-slots' },
-    create: { configKey: 'telemetry-slots', configValue: SLOTS, configType: 'object' },
-    update: { configValue: SLOTS },
-  });
+  await setFixtureMeasurements(await fixtureProfileId('fixture:scope-selection'), (ms) => ms.map((m) => (
+    m.code === 'TEMPERATURE' ? { ...m, deviceKeys: [SLOTS.temperature] }
+      : m.code === 'HUMIDITY' ? { ...m, deviceKeys: [SLOTS.humidity] } : m)));
 
   const plan = await prisma.floorplan.create({
     data: { name: `scope-e2e-plan-${s}`, imagePath: 'x.png', imageWidth: 100, imageHeight: 100 },
@@ -189,13 +185,6 @@ afterAll(async () => {
     await prisma.instrument.updateMany({ where: { id: { in: instruments } }, data: { roomId: null } });
   }
   if (planId) await prisma.floorplan.deleteMany({ where: { id: planId } });
-  if (slotsBefore.existed) {
-    await prisma.systemConfig.update({
-      where: { configKey: 'telemetry-slots' }, data: { configValue: slotsBefore.value as never },
-    });
-  } else {
-    await prisma.systemConfig.deleteMany({ where: { configKey: 'telemetry-slots' } });
-  }
   await prisma.roleConfig.updateMany({
     where: { role: 'OPERATOR' }, data: { instrumentScope: Prisma.DbNull },
   });

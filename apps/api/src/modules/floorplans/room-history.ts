@@ -10,14 +10,11 @@
  * Design: docs/superpowers/specs/2026-08-11-instrument-dashboard-floorplan-design.md
  */
 import { prisma } from '../../lib/prisma.js';
-import {
-  parseTelemetryAliases,
-  TELEMETRY_SLOT_ALIASES_DEFAULT,
-  type TelemetrySlot,
-} from '@digilog/shared';
-import { loadDecimalsConfig, decimalsFor } from '../instruments/decimals.js';
+import { type TelemetrySlot } from '@digilog/shared';
+import { decimalsFor } from '../instruments/decimals.js';
 import { withVisibility, type ScopeWhere } from '../instruments/visibility.js';
 import { NUMERIC_READING } from '../instruments/telemetry.repository.js';
+import { slotConfigLookup } from '../instruments/profile-measurements.js';
 
 export type HistoryWindow = '15m' | '1h' | '6h' | '24h' | '7d';
 
@@ -58,19 +55,6 @@ export interface Series {
 
 interface RawPoint { instrumentId: string; key: string; ts: Date; value: number | null }
 
-async function slotAliases(): Promise<Record<TelemetrySlot, string[]>> {
-  const row = await prisma.systemConfig.findUnique({ where: { configKey: 'telemetry-slots' } });
-  const cfg = (row?.configValue ?? {}) as Record<string, unknown>;
-  return {
-    temperature: parseTelemetryAliases(
-      (cfg.temperatureKeys as string) ?? TELEMETRY_SLOT_ALIASES_DEFAULT.temperature,
-    ),
-    humidity: parseTelemetryAliases(
-      (cfg.humidityKeys as string) ?? TELEMETRY_SLOT_ALIASES_DEFAULT.humidity,
-    ),
-  };
-}
-
 // `NUMERIC_READING` (telemetry.repository.ts) is the ONE SQL definition of a
 // reading — a CASE-guarded cast that also accepts a quoted number. This file
 // carried its own number-only copy until audit 2026-10-03 INGEST-9, so a room
@@ -91,15 +75,20 @@ export async function getRoomHistory(roomId: string, window: HistoryWindow, visi
 
   const instruments = await prisma.instrument.findMany({
     where: withVisibility({ roomId }, visibility) as { roomId: string },
-    select: { id: true, code: true, attributes: { select: { key: true, value: true } } },
+    select: { id: true, code: true, profileId: true, attributes: { select: { key: true, value: true } } },
     orderBy: { code: 'asc' },
   });
   if (instruments.length === 0) {
     return { from: from.toISOString(), to: to.toISOString(), bucketSeconds: spec.bucketSec, series: [] };
   }
 
-  const [aliases, decimalsCfg] = await Promise.all([slotAliases(), loadDecimalsConfig()]);
-  const allKeys = [...new Set([...aliases.temperature, ...aliases.humidity])];
+  // Each instrument's key mappings are its PROFILE's (2026-10-26). The SQL reads
+  // the union of every member's device keys; `slotOf` below then labels each row
+  // by ITS instrument's own mapping, so a key one profile calls temperature is
+  // not read as temperature for an instrument whose profile does not.
+  const profileSlot = await slotConfigLookup();
+  const slotCfgOf = new Map(instruments.map((i) => [i.id, profileSlot(i.profileId)]));
+  const allKeys = [...new Set([...slotCfgOf.values()].flatMap((c) => [...c.aliases.temperature, ...c.aliases.humidity]))];
   if (allKeys.length === 0) {
     return { from: from.toISOString(), to: to.toISOString(), bucketSeconds: spec.bucketSec, series: [] };
   }
@@ -128,8 +117,10 @@ export async function getRoomHistory(roomId: string, window: HistoryWindow, visi
         ORDER BY 3 ASC`;
 
   const codeOf = new Map(instruments.map((i) => [i.id, i.code]));
-  const decimalsOf = new Map(instruments.map((i) => [i.id, decimalsFor(decimalsCfg, i.attributes)]));
-  const slotOf = (key: string): TelemetrySlot | null => {
+  const decimalsOf = new Map(instruments.map((i) => [i.id, decimalsFor(slotCfgOf.get(i.id)!.decimals, i.attributes)]));
+  const slotOf = (instrumentId: string, key: string): TelemetrySlot | null => {
+    const aliases = slotCfgOf.get(instrumentId)?.aliases;
+    if (!aliases) return null;
     const k = key.toLowerCase();
     if (aliases.temperature.includes(k)) return 'temperature';
     if (aliases.humidity.includes(k)) return 'humidity';
@@ -142,7 +133,7 @@ export async function getRoomHistory(roomId: string, window: HistoryWindow, visi
   const grouped = new Map<string, Series>();
   for (const r of rows) {
     if (r.value === null || !Number.isFinite(r.value)) continue;
-    const slot = slotOf(r.key);
+    const slot = slotOf(r.instrumentId, r.key);
     if (slot === null) continue;
 
     const gk = `${r.instrumentId}|${r.key}`;
@@ -153,7 +144,7 @@ export async function getRoomHistory(roomId: string, window: HistoryWindow, visi
         instrumentCode: codeOf.get(r.instrumentId) ?? r.instrumentId,
         slot,
         key: r.key,
-        decimals: decimalsOf.get(r.instrumentId)?.[slot] ?? decimalsCfg.fallback[slot],
+        decimals: decimalsOf.get(r.instrumentId)![slot],
         points: [],
       };
       grouped.set(gk, series);

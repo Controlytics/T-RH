@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { prisma } from '../lib/prisma.js';
 import { fixtureProfileId } from '../test-support/fixture-profile.js';
+import { setFixtureMeasurements } from '../test-support/fixture-measurements.js';
 import { evaluateAlarms } from '../workers/alarm-evaluation.worker.js';
 import { buildTelemetryOverview } from '../modules/instruments/telemetry-overview.js';
 
@@ -32,7 +33,6 @@ const KEY = 'sensor-range-alarms';
 const LIMITS_KEY = 'alarm-limits';
 const INACTIVITY_KEY = 'inactivity-alarms';
 const RS485_KEY = 'rs485-alarms';
-const SLOTS_KEY = 'telemetry-slots';
 const before: Record<string, { value: unknown; existed: boolean }> = {};
 
 async function setConfig(key: string, value: Record<string, unknown>) {
@@ -73,7 +73,7 @@ const rowFor = async () =>
   (await buildTelemetryOverview()).find((r) => r.instrumentId === instrumentId)!;
 
 beforeAll(async () => {
-  for (const key of [KEY, LIMITS_KEY, INACTIVITY_KEY, RS485_KEY, SLOTS_KEY]) {
+  for (const key of [KEY, LIMITS_KEY, INACTIVITY_KEY, RS485_KEY]) {
     const row = await prisma.systemConfig.findUnique({ where: { configKey: key } });
     before[key] = { value: row?.configValue ?? null, existed: Boolean(row) };
   }
@@ -82,13 +82,15 @@ beforeAll(async () => {
   await setConfig(LIMITS_KEY, { ...(before[LIMITS_KEY].value as object ?? {}), enabled: true });
   await setConfig(INACTIVITY_KEY, { ...(before[INACTIVITY_KEY].value as object ?? {}), enabled: false });
   await setConfig(RS485_KEY, { ...(before[RS485_KEY].value as object ?? {}), enabled: false });
-  await setConfig(SLOTS_KEY, {
-    ...(before[SLOTS_KEY].value as object ?? {}),
-    temperatureKeys: 'temperature', humidityKeys: 'humidity',
-  });
+  // Device keys live on the instrument's PROFILE since 2026-10-26 — this file's
+  // own fixture profile.
+  const profileId = await fixtureProfileId('fixture:alarm-range');
+  await setFixtureMeasurements(profileId, (ms) => ms.map((m) => (
+    m.code === 'TEMPERATURE' ? { ...m, deviceKeys: ['temperature'] }
+      : m.code === 'HUMIDITY' ? { ...m, deviceKeys: ['humidity'] } : m)));
 
   const inst = await prisma.instrument.create({
-    data: { name: `range ${CODE}`, code: CODE, profileId: await fixtureProfileId('fixture:alarm-range') },
+    data: { name: `range ${CODE}`, code: CODE, profileId },
   });
   instrumentId = inst.id;
   // Both kinds of bound, exactly as this installation's instruments carry them.

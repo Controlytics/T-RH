@@ -40,7 +40,8 @@ import {
   REDRAW_ROOM_SELECT, REDRAW_LINK_SELECT, REDRAW_TX_OPTIONS, assertUniqueRoomCodes, carriedLimits, describeLimits,
   linkCode, replacePlanRooms, type RedrawRoom,
 } from '../src/modules/floorplans/redraw.js';
-import { loadLimitConfig, limitsFor, enabledBoundsFor } from '../src/modules/alarms/load-limits.js';
+import { limitsFor, enabledBoundsFor } from '../src/modules/alarms/load-limits.js';
+import { slotConfigsForInstruments } from '../src/modules/instruments/profile-measurements.js';
 import type { InstrumentLimits } from '../src/modules/alarms/limit-decide.js';
 import { Prisma } from '@prisma/client';
 
@@ -432,7 +433,6 @@ async function main() {
 
   // Every attribute of every instrument on the plan: the administered alias lists
   // decide which keys are the bounds, so the keys cannot be filtered here.
-  const limitCfg = await loadLimitConfig();
   const attrRows = await prisma.instrumentAttribute.findMany({
     where: { instrumentId: { in: instruments.map((i) => i.id) } },
     select: { instrumentId: true, key: true, value: true },
@@ -444,10 +444,13 @@ async function main() {
     if (!list) { list = []; attrsByInstrument.set(a.instrumentId, list); }
     list.push({ key: a.key, value: a.value });
   }
+  // Each instrument's limit / enable keys are its PROFILE's (2026-10-26).
+  const slotById = await slotConfigsForInstruments(instruments.map((i) => i.id));
   /** The four bounds as the dashboard sees them: resolved by alias, disabled = absent. */
-  const resolvedLimits = (attrs: { key: string; value: string }[]): InstrumentLimits => {
-    const { limits } = limitsFor(limitCfg.keys, attrs);
-    const on = enabledBoundsFor(limitCfg.enableKeys, attrs);
+  const resolvedLimits = (instrumentId: string, attrs: { key: string; value: string }[]): InstrumentLimits => {
+    const slot = slotById.get(instrumentId)!;
+    const { limits } = limitsFor(slot.limitKeys, attrs);
+    const on = enabledBoundsFor(slot, attrs);
     return {
       temperatureHigh: on.temperatureHigh ? limits.temperatureHigh : null,
       temperatureLow: on.temperatureLow ? limits.temperatureLow : null,
@@ -546,7 +549,7 @@ async function main() {
     const used = new Set<string>();
     const gradeOfInstrument = (id: string): Grade => {
       const attrs = attrsByInstrument.get(id);
-      return attrs ? gradeFromLimits(resolvedLimits(attrs)) : grade;
+      return attrs ? gradeFromLimits(resolvedLimits(id, attrs)) : grade;
     };
     // Grade per ROOM from its instrument's own limits, so a floor carries
     // variety that means something rather than one flat hue.

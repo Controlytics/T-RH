@@ -3,6 +3,7 @@ import { buildApp, loginAs } from './test-helper.js';
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { fixtureProfileId } from '../test-support/fixture-profile.js';
+import { patchFixtureMeasurement } from '../test-support/fixture-measurements.js';
 
 let app: FastifyInstance;
 let auth: Record<string, string>;
@@ -320,6 +321,34 @@ describe('telemetry-overview and the per-bound enable attributes', () => {
  * is why one case sets that column to something different and asserts it is not
  * what comes back.
  */
+/**
+ * The PROFILE's NMT / NLT switch (2026-10-26, operator: "in instrument profiles
+ * NLT and MNT … enabled or disabled"). An AND gate in front of the per-instrument
+ * enable attribute: off at the profile = withheld for every instrument in it,
+ * whatever the instrument's own flag says. Its own fixture profile, so no other
+ * case here sees the switch.
+ */
+describe('telemetry-overview and the profile NMT / NLT switch', () => {
+  it('a profile with temperature NMT off withholds the high bound and only it', async () => {
+    const profileId = await fixtureProfileId('fixture:telemetry-overview-nmt-off');
+    await patchFixtureMeasurement(profileId, 'TEMPERATURE', (m) => ({ ...m, high: { ...m.high, enabled: false } }));
+    const inst = await createInstrument(`TOV-PNMT-${s}`, { profileId });
+    await prisma.instrumentAttribute.createMany({
+      data: [
+        // The instrument's own flag says ON — the profile still wins.
+        { instrumentId: inst.id, key: 'Enable_Temp_NMT', value: '1' },
+        { instrumentId: inst.id, key: 'High Temperature Limit', value: '25' },
+        { instrumentId: inst.id, key: 'Low Temperature Limit', value: '18' },
+      ],
+    });
+    const row = rowFor(await overview(), inst.id)!;
+    expect(row.limits.tempMax).toBeNull();
+    expect(row.limitEnabled.tempMax).toBe(false);
+    expect(row.limits.tempMin).toBe(18);
+    expect(row.limitEnabled.tempMin).toBe(true);
+  });
+});
+
 describe('telemetry-overview placement columns (Area and Location)', () => {
   it('returns the FUNCTIONAL location name and the Location attribute over the wire', async () => {
     const block = await prisma.functionalLocation.create({

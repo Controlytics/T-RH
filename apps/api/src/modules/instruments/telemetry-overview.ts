@@ -16,7 +16,6 @@ import { prisma } from '../../lib/prisma.js';
 import { resolveLocationIds } from '../functional-locations/tree.js';
 import type { FlType } from '../functional-locations/validation.js';
 import {
-  parseTelemetryAliases,
   resolveSlot,
   isSensorFailureValue,
   coerceReading,
@@ -26,14 +25,15 @@ import {
   computeInstrumentStatus,
   isInstrumentReporting,
   INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN,
-  TELEMETRY_SLOT_ALIASES_DEFAULT,
   type InstrumentStatus,
   type RoomLimits,
+  type TelemetrySlot,
 } from '@digilog/shared';
-import { loadDecimalsConfig, decimalsFor } from './decimals.js';
-import { loadLimitConfig, limitsFor, enabledBoundsFor } from '../alarms/load-limits.js';
+import { decimalsFor } from './decimals.js';
+import { limitsFor, enabledBoundsFor, type LimitKeys } from '../alarms/load-limits.js';
 import { loadRangeConfig, rangeFor } from '../alarms/load-range.js';
 import { limitsInverted } from '../alarms/limit-decide.js';
+import { slotConfigLookup } from './profile-measurements.js';
 
 export interface SlotValue {
   key: string;
@@ -185,6 +185,14 @@ export interface OverviewRow {
   rangeError: { temperature: boolean; humidity: boolean };
   /** The span each slot was judged against, for the tooltip and the alarm. */
   rangeBounds: SensorRangeBounds;
+  /**
+   * The instrument's PROFILE, and which slots that profile measures
+   * (2026-10-26). INTERNAL — for the alarm evaluator's stranded-alarm pass,
+   * which must clear an alarm on a measurement the profile no longer has. Not
+   * named in the dashboard route's response schema, so Fastify strips both.
+   */
+  profileId: string;
+  measured: Record<TelemetrySlot, boolean>;
 }
 
 interface RawReading {
@@ -193,21 +201,6 @@ interface RawReading {
   value: unknown;
   valueType: string;
   ts: Date;
-}
-
-/** Exported so the per-instrument telemetry route can label a reading with its slot
- *  using the SAME administered vocabulary the fleet overview resolves with. */
-export async function loadAliases(): Promise<{ temperature: string[]; humidity: string[] }> {
-  const row = await prisma.systemConfig.findUnique({ where: { configKey: 'telemetry-slots' } });
-  const cfg = (row?.configValue ?? {}) as Record<string, unknown>;
-  return {
-    temperature: parseTelemetryAliases(
-      (cfg.temperatureKeys as string) ?? TELEMETRY_SLOT_ALIASES_DEFAULT.temperature,
-    ),
-    humidity: parseTelemetryAliases(
-      (cfg.humidityKeys as string) ?? TELEMETRY_SLOT_ALIASES_DEFAULT.humidity,
-    ),
-  };
 }
 
 /**
@@ -326,7 +319,7 @@ async function selectionWhere(
  * a permanent breach.
  */
 export function instrumentLimits(
-  keys: Awaited<ReturnType<typeof loadLimitConfig>>['keys'],
+  keys: LimitKeys,
   attributes: { key: string; value: string }[],
 ): RoomLimits | null {
   return instrumentLimitsWithText(keys, attributes)?.band ?? null;
@@ -344,7 +337,7 @@ export const NO_LIMIT_TEXT: LimitTexts = { tempMin: null, tempMax: null, rhMin: 
  * has none — so a caption can never print for a bound that is not there.
  */
 export function instrumentLimitsWithText(
-  keys: Awaited<ReturnType<typeof loadLimitConfig>>['keys'],
+  keys: LimitKeys,
   attributes: { key: string; value: string }[],
 ): { band: RoomLimits; texts: LimitTexts } | null {
   const { limits, texts } = limitsFor(keys, attributes);
@@ -380,17 +373,15 @@ export async function buildTelemetryOverview(
     visibilityWhere?: object;
   } = {},
 ): Promise<OverviewRow[]> {
-  const [aliases, activeWindowMinutes, decimalsCfg, limitCfg, rangeCfg] = await Promise.all([
-    loadAliases(),
+  const [activeWindowMinutes, slotOf, rangeCfg] = await Promise.all([
     loadActiveWindowMinutes(),
-    loadDecimalsConfig(),
-    // The SAME administered key mapping the alarm evaluator resolves limits with.
-    // One config, one resolver — two would drift, and the drift would be a table
-    // contradicting the alarm sitting beside it.
-    loadLimitConfig(),
-    // The range bounds are resolved from the SAME attribute rows the limits come
-    // from, by the same alias resolver — so "which key holds the high range" has
-    // one answer here, in the alarm, and on the dashboard.
+    // Every key mapping — device keys, decimals, limit / enable / range keys and
+    // the profile's NMT / NLT switches — is the instrument's PROFILE's
+    // (2026-10-26), through the SAME resolver the alarm evaluator, the
+    // per-instrument telemetry route and ingest use. One resolver; two would
+    // drift, and the drift would be a table contradicting the alarm beside it.
+    slotConfigLookup(),
+    // The range switch and word stay global; the range KEYS are the profile's.
     loadRangeConfig(),
   ]);
 
@@ -406,7 +397,7 @@ export async function buildTelemetryOverview(
     where: effectiveWhere,
     select: {
       id: true, code: true, name: true, isActive: true,
-      expectedIntervalSec: true, lastSeenAt: true,
+      expectedIntervalSec: true, lastSeenAt: true, profileId: true,
       // Two string columns per instrument, for the rows already being returned.
       //
       // The alarm evaluator calls this function AND separately loads the whole
@@ -457,10 +448,11 @@ export async function buildTelemetryOverview(
 
   return instruments.map((inst) => {
     const mine = byInstrument.get(inst.id) ?? [];
+    const slot = slotOf(inst.profileId);
     // Resolved ONCE per slot and used for both shapes, so the numeric view and
     // the raw view can never name different keys.
-    const rawTemperature = resolveSlot(aliases.temperature, mine);
-    const rawHumidity = resolveSlot(aliases.humidity, mine);
+    const rawTemperature = resolveSlot(slot.aliases.temperature, mine);
+    const rawHumidity = resolveSlot(slot.aliases.humidity, mine);
     let temperature = toSlot(rawTemperature);
     let humidity = toSlot(rawHumidity);
 
@@ -468,7 +460,7 @@ export async function buildTelemetryOverview(
     // than in each consumer because this function is the one place a stored
     // value becomes "a reading" — putting the test anywhere else would leave
     // some consumer trusting a number the others had rejected.
-    const { bounds: rangeBounds } = rangeFor(rangeCfg.keys, inst.attributes);
+    const { bounds: rangeBounds } = rangeFor(slot.rangeKeys, inst.attributes);
     const rangeError = {
       temperature: rangeCfg.enabled && temperature !== null
         && isOutOfRange(temperature.value, rangeBounds.temperatureLow, rangeBounds.temperatureHigh),
@@ -503,7 +495,7 @@ export async function buildTelemetryOverview(
     // that declares nothing — a cleanroom's specification IS a property of the
     // room, and that reasoning (2026-08-11) still holds where the device is
     // silent.
-    const ownResolved = instrumentLimitsWithText(limitCfg.keys, inst.attributes);
+    const ownResolved = instrumentLimitsWithText(slot.limitKeys, inst.attributes);
     const own = ownResolved?.band ?? null;
     const roomBand: RoomLimits | null = inst.room
       ? {
@@ -532,8 +524,12 @@ export async function buildTelemetryOverview(
      * INSTRUMENT's statement about its own bounds, and the evaluator reads
      * instrument attributes ONLY — on a room-sourced row it is enforcing nothing
      * anyway, so a bound the instrument disowns has no claim to be drawn.
+     *
+     * The PROFILE's NMT / NLT switch (2026-10-26) gates first, inside
+     * `enabledBoundsFor`: a bound the profile switches off — or a slot the
+     * profile does not measure at all — is withheld the same way.
      */
-    const boundEnabled = enabledBoundsFor(limitCfg.enableKeys, inst.attributes);
+    const boundEnabled = enabledBoundsFor(slot, inst.attributes);
     const limitEnabled = {
       tempMax: boundEnabled.temperatureHigh,
       tempMin: boundEnabled.temperatureLow,
@@ -582,7 +578,7 @@ export async function buildTelemetryOverview(
       limitSource,
       temperature,
       humidity,
-      decimals: decimalsFor(decimalsCfg, inst.attributes),
+      decimals: decimalsFor(slot.decimals, inst.attributes),
       reporting,
       status: computeInstrumentStatus({
         temperature: temperature?.value ?? null,
@@ -599,6 +595,8 @@ export async function buildTelemetryOverview(
         temperature: rawTemperature !== null && isSensorFailureValue(rawTemperature.value),
         humidity: rawHumidity !== null && isSensorFailureValue(rawHumidity.value),
       },
+      profileId: inst.profileId,
+      measured: slot.measured,
     };
   });
 }

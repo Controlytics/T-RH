@@ -29,6 +29,7 @@ import type { FastifyInstance } from 'fastify';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { fixtureProfileId } from '../test-support/fixture-profile.js';
+import { setFixtureMeasurements } from '../test-support/fixture-measurements.js';
 import { invalidateRolePermsCache } from '../plugins/rbac.js';
 // The route's own decision about which number `historyTotal` reports.
 import { chartRangeTotal } from '../modules/instruments/telemetry.repository.js';
@@ -70,25 +71,17 @@ const TEMP_HIGH = 25;
 const TEMP_LOW = 15;
 
 /**
- * The two administered configs the breach counts depend on, PINNED for this file.
+ * The key mappings the breach counts depend on, PINNED for this file.
  *
- * `loadAliases` (which key is a temperature) and `loadLimitConfig` (which
- * attribute name carries a bound) both read `system_config` live, and this
- * install's lists have already drifted from the shipped defaults. Without
- * pinning, these assertions would be testing this machine's configuration
- * rather than the code. Restored verbatim in afterAll — the suite shares
- * `compliance_core_db_test`.
+ * Which key is a temperature and which attribute carries a bound live on the
+ * instrument's PROFILE (since 2026-10-26; global `telemetry-slots` /
+ * `alarm-limits` rows before that), and lists drift. Pinned on this file's own
+ * fixture profile so these assertions test the code, not the database.
  */
-const PINNED_CONFIG: Record<string, Record<string, string>> = {
-  'telemetry-slots': { temperatureKeys: 'temperature', humidityKeys: 'humidity' },
-  'alarm-limits': {
-    temperatureHighKeys: 'High Temperature Limit',
-    temperatureLowKeys: 'Low Temperature Limit',
-    humidityHighKeys: 'High Humidity Limit',
-    humidityLowKeys: 'Low Humidity Limit',
-  },
+const PINNED: Record<'TEMPERATURE' | 'HUMIDITY', { deviceKeys: string[]; high: string[]; low: string[] }> = {
+  TEMPERATURE: { deviceKeys: ['temperature'], high: ['High Temperature Limit'], low: ['Low Temperature Limit'] },
+  HUMIDITY: { deviceKeys: ['humidity'], high: ['High Humidity Limit'], low: ['Low Humidity Limit'] },
 };
-const configBefore = new Map<string, { value: unknown; existed: boolean }>();
 
 /**
  * Window start. 2,500 readings 30s apart span ~20.8h, so `to` lands about
@@ -152,15 +145,12 @@ beforeAll(async () => {
   app = await buildApp();
   auth = { authorization: `Bearer ${await loginAs(app)}` };
 
-  for (const [key, value] of Object.entries(PINNED_CONFIG)) {
-    const existing = await prisma.systemConfig.findUnique({ where: { configKey: key } });
-    configBefore.set(key, { value: existing?.configValue ?? null, existed: Boolean(existing) });
-    await prisma.systemConfig.upsert({
-      where: { configKey: key },
-      create: { configKey: key, configValue: value, configType: 'object' },
-      update: { configValue: value },
-    });
-  }
+  await setFixtureMeasurements(await fixtureProfileId('fixture:telemetry-range'), (ms) => ms.map((m) => {
+    const pin = PINNED[m.code as keyof typeof PINNED];
+    return pin
+      ? { ...m, deviceKeys: pin.deviceKeys, high: { ...m.high, limitKeys: pin.high }, low: { ...m.low, limitKeys: pin.low } }
+      : m;
+  }));
 
   instId = await createInstrument(`TRNG-A-${s}`);
 
@@ -230,15 +220,6 @@ afterAll(async () => {
     await app.inject({ method: 'DELETE', url: `/api/instruments/${id}`, headers: auth });
   }
   if (flId) await prisma.functionalLocation.deleteMany({ where: { id: flId } });
-  for (const [key, prev] of configBefore) {
-    if (prev.existed) {
-      await prisma.systemConfig.update({
-        where: { configKey: key }, data: { configValue: prev.value as never },
-      });
-    } else {
-      await prisma.systemConfig.deleteMany({ where: { configKey: key } });
-    }
-  }
   await app.close();
 });
 
