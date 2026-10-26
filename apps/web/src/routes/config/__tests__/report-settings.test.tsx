@@ -17,8 +17,8 @@ const CANDIDATES = [{ value: 'u1', label: 'sup1 (SUPERVISOR)' }, { value: 'u2', 
 let approversRow: unknown = APPROVERS_ROW;
 // The server's readiness answer (2026-10-24): the toggles each role / user lacks to approve.
 const READY = { roles: { SUPERVISOR: [], OPERATOR: [] }, users: { u1: [], u2: [] } };
-const NOT_READY = { roles: { SUPERVISOR: ['Approve / Reject Reports'], OPERATOR: [] }, users: { u1: ['Approve / Reject Reports'], u2: [] } };
-const ONLY_USER_READY = { roles: { SUPERVISOR: ['Approve / Reject Reports'], OPERATOR: [] }, users: { u1: [], u2: [] } };
+const NOT_READY = { roles: { SUPERVISOR: ['Approve Reports'], OPERATOR: [] }, users: { u1: ['Approve Reports'], u2: [] } };
+const ONLY_USER_READY = { roles: { SUPERVISOR: ['Approve Reports'], OPERATOR: [] }, users: { u1: [], u2: [] } };
 let readiness: unknown = READY;
 // The server's manifest names the action both rows' PUT enforces (2026-10-12).
 const MANIFEST = [
@@ -147,8 +147,8 @@ describe('Report Settings says which ticked approvers cannot approve', () => {
   it('a ticked role and a ticked user that cannot approve are named, with the toggle to tick, and the page says nobody can', () => {
     readiness = NOT_READY;
     mount();
-    expect(screen.getByTestId('role-cannot-approve-SUPERVISOR')).toHaveTextContent('needs Approve / Reject Reports');
-    expect(screen.getByTestId('user-cannot-approve-u1')).toHaveTextContent('needs Approve / Reject Reports');
+    expect(screen.getByTestId('role-cannot-approve-SUPERVISOR')).toHaveTextContent('needs Approve Reports');
+    expect(screen.getByTestId('user-cannot-approve-u1')).toHaveTextContent('needs Approve Reports');
     expect(screen.getByTestId('no-approver-can-approve')).toBeInTheDocument();
   });
 

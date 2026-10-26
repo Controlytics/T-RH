@@ -11,7 +11,7 @@
 > and `user-groups` are LIVE** — this banner listed all four as removed until
 > 2026-08-27, which was wrong; verified against `ls apps/api/src/modules/`),
 > **53** frontend
-> routes (not 76), **37 models / 13 enums** (not 61/23), **44 permissions / 56 reauth
+> routes (not 76), **37 models / 13 enums** (not 61/23), **45 permissions / 56 reauth
 > actions** (not 102/92), **98 audit actions / 111 audit templates** (re-derived 2026-10-12), **14** sidebar items (15 → 14 on 2026-09-19, `home` removed),
 > **7** graphile-worker tasks. There is
 > no `orgId` review note needed either way (still true: single-tenant). See `CLAUDE.md` for
@@ -26,7 +26,7 @@ Branch: RFID (active development) → merges to DigitalFMS → main.
 - **Backend:** **25** API modules (`ls apps/api/src/modules/ | wc -l`; 24 → 25 on 2026-09-07, `report-reviews`)
 - **Frontend:** **54** `<Route`s in `apps/web/src/main.tsx` (`grep -cE "<Route"`; 53 → 54, 2026-10-24: `/config/attribute-access`; unchanged 2026-09-16; 52 → 53 on 2026-09-08, `/settings`; 51 → 52 on 2026-09-07, `/reports`; 50 → 51 the same day, `/data-report`)
 - **Database:** **36** Prisma models, **13** enums (35/12 → 36/13 on 2026-09-07: `ReportReview` + `ReportReviewStatus`; single database `compliance_core_db`, plus `compliance_core_db_test`; TimescaleDB `digilog_tsdb` dropped 2026-06-11)
-- **Permissions:** **44** constants, **38** feature privileges, **56** reauth actions across **8** categories, **14** sidebar items (re-derived 2026-10-24: feature privileges 45 → 38 — seven Permissions-tab toggles that could never take effect left the tab, see `docs/feature-notes.md` "Roles & Access → PERMISSIONS"; the reauth and sidebar numbers here had been stale since 2026-10-12 / 2026-09-19; 2026-09-08: sidebar 14 → 15 and feature privileges 43 → 45 with the Settings page, `settings.view` / `settings.edit`; 2026-09-07: permissions 42 → 44, reauth 48 → 50, feature privileges 41 → 43 and sidebar items 13 → 14 with the report review workflow; earlier that day 40 → 41 / 12 → 13 with `data-report`)
+- **Permissions:** **45** constants, **39** feature privileges, **56** reauth actions across **8** categories, **14** sidebar items (re-derived 2026-10-26: permissions 44 → 45 and feature privileges 38 → 39 — `REPORT_REVIEW_REJECT` / `reports.reject`, Approve and Reject Reports split into two toggles; 2026-10-24: feature privileges 45 → 38 — seven Permissions-tab toggles that could never take effect left the tab, see `docs/feature-notes.md` "Roles & Access → PERMISSIONS"; the reauth and sidebar numbers here had been stale since 2026-10-12 / 2026-09-19; 2026-09-08: sidebar 14 → 15 and feature privileges 43 → 45 with the Settings page, `settings.view` / `settings.edit`; 2026-09-07: permissions 42 → 44, reauth 48 → 50, feature privileges 41 → 43 and sidebar items 13 → 14 with the report review workflow; earlier that day 40 → 41 / 12 → 13 with `data-report`)
 - **Audit registries:** **103** audit actions, **97** audit templates across **7** categories (102 → 103 / 96 → 97 on 2026-09-21: `ALARMS_PURGED`; earlier 98 → 102 / 92 → 96 on 2026-09-07, report review)
 - **Queue:** **6** graphile-worker tasks (`notification`, `password_expiry_check`, `session_sweep`, `telemetry_partition_maintenance`, `alarm_evaluation`, `alarm_webhook`)
 

@@ -27,7 +27,7 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 ## Exports Inventory
 
 ### Permissions
-- `PERMISSIONS` enum — **44** permission constants (42 → 44 on 2026-09-07, `REPORT_REVIEW_READ` / `REPORT_REVIEW_APPROVE`; earlier verified `grep -cE "^\s+[A-Z_]+:\s*'"
+- `PERMISSIONS` enum — **45** permission constants (44 → 45 on 2026-10-26, `REPORT_REVIEW_REJECT`; 42 → 44 on 2026-09-07, `REPORT_REVIEW_READ` / `REPORT_REVIEW_APPROVE`; earlier verified `grep -cE "^\s+[A-Z_]+:\s*'"
   packages/shared/src/types/permissions.ts` 2026-08-24; see Live Type Inventory below). The examples
   this line used to give — `ASSET_CREATE`, `ASSET_READ`, `FILTER_MANAGE` — don't exist any more
   (asset/filter domain removed); current examples: `USER_CREATE`, `USER_READ`, `USER_UPDATE`.
@@ -60,7 +60,8 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 
 > **The per-file counts in the table below are inherited from upstream DigiLog and were
 > NEVER true in this fork.** Verified by `grep` 2026-08-27, the real numbers are
-> **44** permission constants, **38** feature privileges (45 → 38 on 2026-10-24: seven toggles
+> **45** permission constants, **39** feature privileges (38 → 39 on 2026-10-26: `reports.reject`,
+> Approve and Reject Reports split into two toggles; 45 → 38 on 2026-10-24: seven toggles
 > that could never take effect left the Permissions tab — the two Alarm Rules nodes were deleted,
 > Dashboards create / manage / assign, Delete Users and Field IDs stay as nodes, not configurable),
 > **56** reauth actions in
@@ -70,8 +71,8 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 > "A ↔ B", no new placeholder). Earlier **103** / **97** in **7**
 > categories (102 → 103 / 96 → 97 on 2026-09-21: `ALARMS_PURGED`, the
 > whole-table purge recorded by `apps/api/scripts/purge-alarms.ts`; generic
-> `{actor}` only), **14** sidebar items, **14** PERMISSION_TREE groups, **55** tree
-> nodes (57 → 55 on 2026-10-24, the Alarm Rules pair).
+> `{actor}` only), **14** sidebar items, **14** PERMISSION_TREE groups, **56** tree
+> nodes (55 → 56 on 2026-10-26, `reports.reject`; 57 → 55 on 2026-10-24, the Alarm Rules pair).
 > 2026-09-19 (Home removed): sidebar items 15 → 14 (`home`, the Module Guide —
 > the one item that had NO tree group; every remaining item has one, and
 > `apps/web`'s `sidebar-visibility.test.ts` now locks that). Tree unchanged.
@@ -124,8 +125,8 @@ someone may be using was not part of that change.
 
 | File | Live count (command, 2026-10-05) |
 |---|---|
-| `permissions.ts` | **44** permission constants (`grep -cE "^\s+[A-Z_]+:\s*'"`) |
-| `feature-privileges.ts` | **38** feature privileges + `FEATURE_TO_PERMISSION_MAP`, DERIVED from `PERMISSION_TREE` (`legacy-maps-derived.test.ts` pins 38; 45 until 2026-10-24) |
+| `permissions.ts` | **45** permission constants (`grep -cE "^\s+[A-Z_]+:\s*'"`) |
+| `feature-privileges.ts` | **39** feature privileges + `FEATURE_TO_PERMISSION_MAP`, DERIVED from `PERMISSION_TREE` (`legacy-maps-derived.test.ts` pins 39; 38 until 2026-10-26, 45 until 2026-10-24) |
 | `reauth-actions.ts` | **56** reauth actions in **8** categories (`grep -cE "^\s+[A-Z_]+:"`; `grep -oE "category: '[^']+'" \| sort -u \| wc -l`) |
 | `roles.ts` | Role constants + hierarchy + display labels; `defaultRoles` lives in `apps/api/prisma/default-roles.ts` |
 | `permission-categories.ts` | Permission grouping for the role-access UI |

@@ -35,7 +35,7 @@ live instrument monitoring with alarms.
 ```
 apps/api/        Fastify backend — 25 modules (`ls apps/api/src/modules/ | wc -l`, 2026-10-05), 249 route registrations
 apps/web/        React SPA — 53 routes, 22 config pages (2026-10-05, after `alarm-rule-dialog.tsx` was deleted that day)
-packages/shared/ permissions (44), reauth actions (55), sidebar items (14) — 2026-10-05,
+packages/shared/ permissions (45), reauth actions (56), sidebar items (14) — 2026-10-26,
                  PERMISSION_TREE, zod schemas, telemetry maths
 packages/queue/  graphile-worker wrapper + crontab.txt
 docs/            active docs; docs/recreation/ is the verified inventory;

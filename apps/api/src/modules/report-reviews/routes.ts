@@ -54,6 +54,9 @@ const listRowSchema = {
   properties: {
     ...summaryProps,
     canDecide: { type: 'boolean' },
+    // Which of the two the caller may do (2026-10-26): separate permissions now.
+    canApprove: { type: 'boolean' },
+    canReject: { type: 'boolean' },
     approverUserNames: { type: 'array', items: { type: 'string' } },
   },
 } as const;
@@ -169,12 +172,15 @@ export default async function reportReviewRoutes(app: FastifyInstance) {
   });
 
   // ── POST /:id/approve | /:id/reject ───────────────────────────────────────
-  for (const [verb, decision, action] of [
-    ['approve', 'APPROVED', 'APPROVE_REPORT'],
-    ['reject', 'REJECTED', 'REJECT_REPORT'],
+  // Each verb has its OWN permission since 2026-10-26 (operator: "approve and
+  // reject reports both should be two different permissions"); APPROVE gated
+  // both until then.
+  for (const [verb, decision, action, permission] of [
+    ['approve', 'APPROVED', 'APPROVE_REPORT', 'REPORT_REVIEW_APPROVE'],
+    ['reject', 'REJECTED', 'REJECT_REPORT', 'REPORT_REVIEW_REJECT'],
   ] as const) {
     app.post(`/:id/${verb}`, {
-      preHandler: [app.requirePermission('REPORT_REVIEW_APPROVE')],
+      preHandler: [app.requirePermission(permission)],
       schema: {
         tags: ['Report Reviews'],
         summary: `${verb === 'approve' ? 'Approve' : 'Reject'} a request (approvers in scope only; password re-auth)`,

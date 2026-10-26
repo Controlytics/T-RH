@@ -348,7 +348,9 @@ GET    /api/report-reviews/:id                  — the full row with its snapsh
                                                     (party = signer, SUPER_ADMIN, or requester's role / approver in scope)
 POST   /api/report-reviews/:id/approve | reject — assignee only, never the requester — EXCEPT SUPER_ADMIN,
                                                     who may decide ANY pending request, their own included (2026-09-08);
-                                                    REPORT_REVIEW_APPROVE + APPROVE_REPORT / REJECT_REPORT reauth;
+                                                    approve: REPORT_REVIEW_APPROVE + APPROVE_REPORT reauth;
+                                                    reject: REPORT_REVIEW_REJECT + REJECT_REPORT reauth
+                                                    (two permissions since 2026-10-26);
                                                     one decision (409 on a second); audited; requester notified
 POST   /api/report-reviews/:id/download-log     — a party downloading the APPROVED copy; written BEFORE save
 GET    /api/config/report-approvers/current     — the administered approvers, every authenticated user; the
@@ -781,7 +783,8 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
     kind of reason: a report must not reach an approver nobody appointed.
     Consequence, stated plainly: after deploy NO PDF can be requested until a
     super admin ticks a role once under Configuration → Report Approvers.
-  - Approving still needs `REPORT_REVIEW_APPROVE` and the request assigned to
+  - Approving still needs `REPORT_REVIEW_APPROVE` (rejecting needs `REPORT_REVIEW_REJECT`,
+    a separate permission since 2026-10-26) and the request assigned to
     you or your role; the list governs who a request may be SENT to. A pending
     request survives a later config change — it is a record.
   - No migration, model, enum, permission, reauth action, page or sidebar item.

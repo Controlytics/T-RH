@@ -28,7 +28,8 @@ import type { ReviewFull } from '@/lib/report-review';
  * requests waiting for MY decision, the requests raised by me OR ANYONE IN MY
  * ROLE, and the approved reports I may see. A row's actions follow its state
  * and my part in it: only an approver (a configured role or user) may decide a
- * PENDING one, and only with the `reports.approve` gate; an APPROVED one
+ * PENDING one — Approve with `reports.approve`, Reject with `reports.reject`,
+ * two separate permissions since 2026-10-26; an APPROVED one
  * downloads with both signatures.
  *
  * **No "View draft" (removed 2026-10-01, operator: "remove view draft and how
@@ -89,8 +90,10 @@ export function ReportsPage() {
   // (SUPER_ADMIN may decide their own, operator 2026-09-08), approver AND
   // instrument scope — `canDecide` on each list row. This page used to
   // re-derive it and omitted the scope. The decision route's 403 / 404 is
-  // still the control.
-  const mayDecide = (r: ReviewSummary) => r.canDecide === true;
+  // still the control. Approve and Reject are SEPARATE permissions since
+  // 2026-10-26, so each button follows its own flag.
+  const mayApprove = (r: ReviewSummary) => r.canApprove === true;
+  const mayReject = (r: ReviewSummary) => r.canReject === true;
 
   const switchList = (next: ReviewList) => { setList(next); setPage(1); };
 
@@ -190,11 +193,11 @@ export function ReportsPage() {
                         open or close the row under it. */}
                     <TableCell className="whitespace-nowrap align-top text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1.5">
-                        {mayDecide(r) && (
-                          <>
-                            <Button size="sm" onClick={() => { setDialogError(''); setPending({ review: r, decision: 'approve' }); }}>Approve</Button>
-                            <Button size="sm" variant="secondary" onClick={() => { setDialogError(''); setPending({ review: r, decision: 'reject' }); }}>Reject</Button>
-                          </>
+                        {mayApprove(r) && (
+                          <Button size="sm" onClick={() => { setDialogError(''); setPending({ review: r, decision: 'approve' }); }}>Approve</Button>
+                        )}
+                        {mayReject(r) && (
+                          <Button size="sm" variant="secondary" onClick={() => { setDialogError(''); setPending({ review: r, decision: 'reject' }); }}>Reject</Button>
                         )}
                         {r.status === 'APPROVED' && (
                           <Button size="sm" onClick={() => download(r)}>Download</Button>

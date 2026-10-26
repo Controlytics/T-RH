@@ -20,7 +20,7 @@ re-derive any count from live code before repeating it.
 ```
 apps/api/         — Fastify backend (TypeScript, port 3001)
 apps/web/         — React SPA (Vite, port 5176 dev)
-packages/shared/  — Permissions (44), reauth actions (55), sidebar items (14),
+packages/shared/  — Permissions (45), reauth actions (56), sidebar items (14),
                     permission tree, zod schemas
 packages/queue/   — graphile-worker job queue (Postgres-backed)
 docs/             — Project docs; `docs/recreation/` is a 2026-07-25 snapshot (see above)
@@ -171,9 +171,13 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   Only `compliance_core_db` + `compliance_core_db_test` exist — **no TimescaleDB,
   no `digilog_tsdb`**. The test database is migrated **separately**; a migration
   applied to only one of them makes every instrument-touching e2e 500.
-- **Permissions:** **44** constants, **56** reauth actions in **8** categories,
+- **Permissions:** **45** constants, **56** reauth actions in **8** categories,
   **14** sidebar items (`grep -cE` against `permissions.ts` / `reauth-actions.ts`
-  / `sidebar-items.ts`). 55 → 56 reauth actions (2026-10-12): `UPDATE_AUDIT_HARD_DELETE`
+  / `sidebar-items.ts`). 44 → 45 permissions (2026-10-26): `REPORT_REVIEW_REJECT`
+  — Approve Reports and Reject Reports are two permissions and two Permissions-tab
+  toggles (`reports.approve`, `reports.reject`); only Approve makes a role a valid
+  report approver. No reauth action moved (`APPROVE_REPORT` / `REJECT_REPORT` were
+  already separate). 55 → 56 reauth actions (2026-10-12): `UPDATE_AUDIT_HARD_DELETE`
   under `Configuration`, gating the new Audit Hard Delete toggle. Earlier 50 → 55 reauth actions (2026-10-05, audit SEC-7):
   `CREATE_INSTRUMENT` / `UPDATE_INSTRUMENT` / `DELETE_INSTRUMENT` /
   `UPDATE_INSTRUMENT_PROFILE` / `DELETE_INSTRUMENT_PROFILE` under the EXISTING

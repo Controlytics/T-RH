@@ -58,6 +58,10 @@ export interface ReviewSummary {
    *  this?" for the caller — status, the approve permission, separation of
    *  duties, approver and instrument scope. Never re-derived in the browser. */
   canDecide?: boolean;
+  /** LIST rows only: which of the two the caller may do — Approve and Reject
+   *  are separate permissions since 2026-10-26. The server's answer, per row. */
+  canApprove?: boolean;
+  canReject?: boolean;
   /** LIST rows only: `approverUserIds` as usernames, in the same order. */
   approverUserNames?: string[];
 }

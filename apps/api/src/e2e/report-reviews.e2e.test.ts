@@ -43,6 +43,8 @@ const U = {
   APPR: `rra${STAMP}`, APPR_OUT: `rrx${STAMP}`, NAMED: `rrn${STAMP}`, OTHER: `rrz${STAMP}`,
 };
 const USERNAMES = Object.values(U);
+/** Roles a later block creates; deleted in afterAll after the users that hold them. */
+const EXTRA_ROLES: string[] = [];
 const CONFIG_KEYS = ['action-reauth', 'report-approvers', 'report-downloads'] as const;
 
 let app: FastifyInstance;
@@ -104,8 +106,8 @@ async function scopeUserTo(userId: string, instrumentIds: string[]) {
 beforeAll(async () => {
   app = await buildApp();
   await prisma.role.create({ data: { name: ROLE_REQ, displayName: 'RR Operator', hierarchyLevel: 1, permissions: ['REPORT_REVIEW_READ', 'INSTRUMENT_READ'] } });
-  await prisma.role.create({ data: { name: ROLE_APPR, displayName: 'RR Supervisor', hierarchyLevel: 2, permissions: ['REPORT_REVIEW_READ', 'REPORT_REVIEW_APPROVE', 'INSTRUMENT_READ'] } });
-  await prisma.role.create({ data: { name: ROLE_OTHER, displayName: 'RR QA', hierarchyLevel: 2, permissions: ['REPORT_REVIEW_READ', 'REPORT_REVIEW_APPROVE', 'INSTRUMENT_READ'] } });
+  await prisma.role.create({ data: { name: ROLE_APPR, displayName: 'RR Supervisor', hierarchyLevel: 2, permissions: ['REPORT_REVIEW_READ', 'REPORT_REVIEW_APPROVE', 'REPORT_REVIEW_REJECT', 'INSTRUMENT_READ'] } });
+  await prisma.role.create({ data: { name: ROLE_OTHER, displayName: 'RR QA', hierarchyLevel: 2, permissions: ['REPORT_REVIEW_READ', 'REPORT_REVIEW_APPROVE', 'REPORT_REVIEW_REJECT', 'INSTRUMENT_READ'] } });
   invalidateRolePermsCache();
 
   const profileId = await fixtureProfileId('fixture:report-reviews');
@@ -155,7 +157,7 @@ afterAll(async () => {
   try { await prisma.session.deleteMany({ where: { user: { username: { in: USERNAMES } } } }); } catch { /* sessions may cascade */ }
   try { await prisma.user.deleteMany({ where: { username: { in: USERNAMES } } }); } catch (e) { console.error(e); }
   try { await prisma.instrument.deleteMany({ where: { id: { in: [instA, instB].filter(Boolean) } } }); } catch (e) { console.error(e); }
-  try { await prisma.role.deleteMany({ where: { name: { in: [ROLE_REQ, ROLE_APPR, ROLE_OTHER] } } }); } catch (e) { console.error(e); }
+  try { await prisma.role.deleteMany({ where: { name: { in: [ROLE_REQ, ROLE_APPR, ROLE_OTHER, ...EXTRA_ROLES] } } }); } catch (e) { console.error(e); }
   invalidateRolePermsCache();
   await app.close();
 });
@@ -309,9 +311,9 @@ describe('report-approvers/readiness — Report Settings says which approvers ca
     expect(res.statusCode, res.body).toBe(200);
     const { roles, users } = res.json();
     // ROLE_REQ holds View Reports only — the AWS approver role's state.
-    expect(roles[ROLE_REQ]).toEqual(['Approve / Reject Reports']);
+    expect(roles[ROLE_REQ]).toEqual(['Approve Reports']);
     expect(roles[ROLE_APPR]).toEqual([]);
-    expect(users[ids.MATE!]).toEqual(['Approve / Reject Reports']);
+    expect(users[ids.MATE!]).toEqual(['Approve Reports']);
     expect(users[ids.NAMED!]).toEqual([]);
     expect(roles).not.toHaveProperty('SUPER_ADMIN');
   });
@@ -453,6 +455,7 @@ describe('who sees what', () => {
     const rowFor = async (list: string, t: string) =>
       ((await get(`/api/report-reviews?list=${list}&pageSize=200`, t)).json().data as any[]).find((r) => r.id === created[0]);
     expect((await rowFor('queue', tok.APPR)).canDecide).toBe(true);
+    expect(await rowFor('queue', tok.APPR)).toMatchObject({ canApprove: true, canReject: true });
     expect((await rowFor('queue', tok.NAMED)).canDecide).toBe(true);
     expect((await rowFor('queue', tokAdmin)).canDecide).toBe(true);
     // The requester and a role-mate (no APPROVE permission) see it, never decide it.
@@ -738,5 +741,85 @@ describe('eligibleApprovers', () => {
       instrumentIds: [instB], reportType: 'Instrument Time Series',
     });
     expect([...forB].sort()).toEqual([U.APPR, U.APPR_OUT].sort());
+  });
+});
+
+/**
+ * Approve and Reject are SEPARATE permissions (2026-10-26, operator: "approve
+ * and reject reports both should be two different permissions"). Until then
+ * REPORT_REVIEW_APPROVE gated both routes and one `canDecide` showed both
+ * buttons. Only APPROVE makes someone a valid approver for a request (the
+ * operator's choice): a request reaching only reject-only reviewers could never
+ * be approved.
+ */
+describe('Approve and Reject are separate permissions', () => {
+  const ROLE_APPROVE_ONLY = `RR_AO_${STAMP}`;
+  const ROLE_REJECT_ONLY = `RR_RO_${STAMP}`;
+  const U_AO = `rrao${STAMP}`;
+  const U_RO = `rrro${STAMP}`;
+  let tokAO = '';
+  let tokRO = '';
+  const decide = (id: string, verb: 'approve' | 'reject', token: string) =>
+    app.inject({ method: 'POST', url: `/api/report-reviews/${id}/${verb}`, headers: bearer(token, PASSWORD), payload: { remarks: 'separate' } });
+  const rowFor = async (id: string, t: string) =>
+    ((await get('/api/report-reviews?list=queue&pageSize=200', t)).json().data as any[]).find((r) => r.id === id);
+
+  beforeAll(async () => {
+    EXTRA_ROLES.push(ROLE_APPROVE_ONLY, ROLE_REJECT_ONLY);
+    USERNAMES.push(U_AO, U_RO);
+    await prisma.role.create({ data: { name: ROLE_APPROVE_ONLY, displayName: 'RR Approve only', hierarchyLevel: 2, permissions: ['REPORT_REVIEW_READ', 'REPORT_REVIEW_APPROVE', 'INSTRUMENT_READ'] } });
+    await prisma.role.create({ data: { name: ROLE_REJECT_ONLY, displayName: 'RR Reject only', hierarchyLevel: 2, permissions: ['REPORT_REVIEW_READ', 'REPORT_REVIEW_REJECT', 'INSTRUMENT_READ'] } });
+    invalidateRolePermsCache();
+    await makeUser(U_AO, ROLE_APPROVE_ONLY);
+    await makeUser(U_RO, ROLE_REJECT_ONLY);
+    tokAO = await loginAs(app, U_AO, PASSWORD);
+    tokRO = await loginAs(app, U_RO, PASSWORD);
+  });
+
+  afterAll(async () => {
+    await setApprovers([ROLE_APPR], [ids.NAMED!]);
+  });
+
+  it('each row says which of the two the caller may do, and each route refuses the other', async () => {
+    await setApprovers([ROLE_APPROVE_ONLY, ROLE_REJECT_ONLY], []);
+    const res = await submit(tok.REQ);
+    expect(res.statusCode, res.body).toBe(201);
+    const id = res.json().id as string;
+    created.push(id);
+
+    expect(await rowFor(id, tokAO)).toMatchObject({ canDecide: true, canApprove: true, canReject: false });
+    expect(await rowFor(id, tokRO)).toMatchObject({ canDecide: true, canApprove: false, canReject: true });
+
+    // Holding one is not holding the other.
+    expect((await decide(id, 'reject', tokAO)).statusCode).toBe(403);
+    expect((await decide(id, 'approve', tokRO)).statusCode).toBe(403);
+
+    const rejected = await decide(id, 'reject', tokRO);
+    expect(rejected.statusCode, rejected.body).toBe(200);
+    expect(rejected.json()).toMatchObject({ status: 'REJECTED', decidedByName: U_RO });
+  });
+
+  it('an approve-only reviewer approves', async () => {
+    await setApprovers([ROLE_APPROVE_ONLY, ROLE_REJECT_ONLY], []);
+    const res = await submit(tok.REQ);
+    expect(res.statusCode, res.body).toBe(201);
+    created.push(res.json().id);
+    const approved = await decide(res.json().id, 'approve', tokAO);
+    expect(approved.statusCode, approved.body).toBe(200);
+    expect(approved.json().status).toBe('APPROVED');
+  });
+
+  it('a request that reaches ONLY reject-only reviewers is refused — nobody could approve it', async () => {
+    await setApprovers([ROLE_REJECT_ONLY], []);
+    const res = await submit(tok.REQ);
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('NO_ELIGIBLE_APPROVER');
+  });
+
+  it('Report Settings names the missing Approve toggle for a reject-only role, nothing for an approve-only one', async () => {
+    await setApprovers([ROLE_APPROVE_ONLY, ROLE_REJECT_ONLY], []);
+    const { roles } = (await get('/api/config/report-approvers/readiness', tokAdmin)).json();
+    expect(roles[ROLE_REJECT_ONLY]).toEqual(['Approve Reports']);
+    expect(roles[ROLE_APPROVE_ONLY]).toEqual([]);
   });
 });

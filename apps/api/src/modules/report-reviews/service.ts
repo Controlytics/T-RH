@@ -276,18 +276,34 @@ export type ReviewSummary = Prisma.ReportReviewGetPayload<{ select: typeof SUMMA
  * `/api/users` (USER_READ) on a REPORT_REVIEW_READ page. Parallel to
  * `approverUserIds`; an id whose user no longer exists is given as the id.
  */
-export type ReviewListRow = ReviewSummary & { canDecide: boolean; approverUserNames: string[] };
+export type ReviewListRow = ReviewSummary & {
+  /** May the caller approve OR reject it — the page shows an action cell. */
+  canDecide: boolean;
+  /** Approve and Reject are separate permissions since 2026-10-26. */
+  canApprove: boolean;
+  canReject: boolean;
+  approverUserNames: string[];
+};
 
 async function decorateRows(ctx: Actor, rows: ReviewSummary[], visible: VisibleInstruments): Promise<ReviewListRow[]> {
-  const canApprove = await roleHasPermission(ctx.userRole, 'REPORT_REVIEW_APPROVE');
+  // The same permissions the two decision routes are gated on, through the same resolver.
+  const holdsApprove = await roleHasPermission(ctx.userRole, 'REPORT_REVIEW_APPROVE');
+  const holdsReject = await roleHasPermission(ctx.userRole, 'REPORT_REVIEW_REJECT');
   const ids = [...new Set(rows.flatMap((r) => r.approverUserIds))];
   const users = ids.length === 0 ? [] : await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, username: true } });
   const nameOf = new Map(users.map((u) => [u.id, u.username]));
-  return rows.map((r) => ({
-    ...r,
-    canDecide: r.status === 'PENDING' && canApprove && !isSelfDecision(ctx, r) && mayDecide(ctx, r, visible),
-    approverUserNames: r.approverUserIds.map((id) => nameOf.get(id) ?? id),
-  }));
+  return rows.map((r) => {
+    const decidable = r.status === 'PENDING' && !isSelfDecision(ctx, r) && mayDecide(ctx, r, visible);
+    const canApprove = decidable && holdsApprove;
+    const canReject = decidable && holdsReject;
+    return {
+      ...r,
+      canDecide: canApprove || canReject,
+      canApprove,
+      canReject,
+      approverUserNames: r.approverUserIds.map((id) => nameOf.get(id) ?? id),
+    };
+  });
 }
 export type ReviewFull = ReviewSummary & { dataSnapshot: Prisma.JsonValue };
 
@@ -304,6 +320,11 @@ function titleLabel(title: string): string {
  * role (`/api/config/report-approvers/readiness`, 2026-10-24: on AWS the only
  * approver role, QA, held READ alone, every request was refused, and nothing
  * on the settings page said why).
+ *
+ * REPORT_REVIEW_REJECT is deliberately NOT required (operator's choice,
+ * 2026-10-26, when Reject became its own permission): a request must reach
+ * someone who can APPROVE it, or it could never finish; a reject-only role
+ * still sees and may reject it, but does not count on its own.
  */
 export async function approvalPermissionsMissing(role: string): Promise<string[]> {
   const missing: string[] = [];

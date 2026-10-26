@@ -28,16 +28,16 @@ const legacy = { assigneeUserId: null, assigneeRole: null, instrumentIds: ['i1']
 // Since 2026-10-12 (audit #9) every list row carries the SERVER's `canDecide`
 // for the caller and the approver users by NAME; the page re-derives neither.
 // The fixtures are therefore what the server answers for the approver `qa1`.
-const toMe = { ...base, ...legacy, id: 'r-user', status: 'PENDING', approverRoles: [], approverUserIds: ['u-appr'], approverUserNames: ['qa1'], canDecide: true };
-const toMyRole = { ...base, ...legacy, id: 'r-role', status: 'PENDING', approverRoles: ['QA'], approverUserIds: [], approverUserNames: [], canDecide: true, title: 'ALARM REPORT', reportType: 'Alarms' };
-const toSomeoneElse = { ...base, ...legacy, id: 'r-other', status: 'PENDING', approverRoles: ['SUPERVISOR'], approverUserIds: ['u-x'], approverUserNames: ['other'], canDecide: false, title: 'Instrument Trend — Temperature', reportType: 'Instrument Trend — Temperature' };
-const approved = { ...base, ...legacy, id: 'r-ok', status: 'APPROVED', approverRoles: ['QA'], approverUserIds: ['u-appr'], approverUserNames: ['qa1'], canDecide: false, decidedBy: 'u-appr', decidedByName: 'qa1', decidedAt: '2026-09-07T15:10:00.000Z', decisionRemarks: 'checked' };
+const toMe = { ...base, ...legacy, id: 'r-user', status: 'PENDING', approverRoles: [], approverUserIds: ['u-appr'], approverUserNames: ['qa1'], canDecide: true, canApprove: true, canReject: true };
+const toMyRole = { ...base, ...legacy, id: 'r-role', status: 'PENDING', approverRoles: ['QA'], approverUserIds: [], approverUserNames: [], canDecide: true, canApprove: true, canReject: true, title: 'ALARM REPORT', reportType: 'Alarms' };
+const toSomeoneElse = { ...base, ...legacy, id: 'r-other', status: 'PENDING', approverRoles: ['SUPERVISOR'], approverUserIds: ['u-x'], approverUserNames: ['other'], canDecide: false, canApprove: false, canReject: false, title: 'Instrument Trend — Temperature', reportType: 'Instrument Trend — Temperature' };
+const approved = { ...base, ...legacy, id: 'r-ok', status: 'APPROVED', approverRoles: ['QA'], approverUserIds: ['u-appr'], approverUserNames: ['qa1'], canDecide: false, canApprove: false, canReject: false, decidedBy: 'u-appr', decidedByName: 'qa1', decidedAt: '2026-09-07T15:10:00.000Z', decisionRemarks: 'checked' };
 
-const myOwn = { ...base, ...legacy, id: 'r-own', status: 'PENDING', requestedBy: 'u-appr', requestedByName: 'qa1', approverRoles: ['QA'], approverUserIds: [], approverUserNames: [], canDecide: false, title: 'MY OWN REQUEST' };
-const superAdminsOwn = { ...base, ...legacy, id: 'r-sa-own', status: 'PENDING', requestedBy: 'u-sa', requestedByName: 'superadmin', approverRoles: ['ADMIN'], approverUserIds: [], approverUserNames: [], canDecide: false, title: 'SUPER ADMIN OWN REQUEST' };
+const myOwn = { ...base, ...legacy, id: 'r-own', status: 'PENDING', requestedBy: 'u-appr', requestedByName: 'qa1', approverRoles: ['QA'], approverUserIds: [], approverUserNames: [], canDecide: false, canApprove: false, canReject: false, title: 'MY OWN REQUEST' };
+const superAdminsOwn = { ...base, ...legacy, id: 'r-sa-own', status: 'PENDING', requestedBy: 'u-sa', requestedByName: 'superadmin', approverRoles: ['ADMIN'], approverUserIds: [], approverUserNames: [], canDecide: false, canApprove: false, canReject: false, title: 'SUPER ADMIN OWN REQUEST' };
 // Assigned to my ROLE, not mine, PENDING — everything the browser used to check
 // says "approve" — but about an instrument outside my scope, so the server says no.
-const outOfScope = { ...base, ...legacy, id: 'r-scope', status: 'PENDING', approverRoles: ['QA'], approverUserIds: [], approverUserNames: [], canDecide: false, instrumentIds: ['i-elsewhere'], title: 'OUT OF MY SCOPE' };
+const outOfScope = { ...base, ...legacy, id: 'r-scope', status: 'PENDING', approverRoles: ['QA'], approverUserIds: [], approverUserNames: [], canDecide: false, canApprove: false, canReject: false, instrumentIds: ['i-elsewhere'], title: 'OUT OF MY SCOPE' };
 
 const QUEUE_FOR_APPROVER = [toMe, toMyRole, toSomeoneElse, myOwn, superAdminsOwn, outOfScope];
 const lists: Record<string, any[]> = { queue: QUEUE_FOR_APPROVER, mine: [], approved: [approved] };
@@ -135,6 +135,20 @@ describe('ReportsPage', () => {
     expect(within(rowOf('OUT OF MY SCOPE')).queryByRole('button', { name: 'Reject' })).toBeNull();
   });
 
+  // Approve and Reject are SEPARATE permissions (2026-10-26): each button
+  // follows its own server flag, never the other's.
+  it('shows only Approve to an approve-only reviewer, and only Reject to a reject-only one', () => {
+    lists.queue = [
+      { ...toMe, title: 'APPROVE ONLY', canApprove: true, canReject: false },
+      { ...toMyRole, id: 'r-ro', title: 'REJECT ONLY', canApprove: false, canReject: true },
+    ];
+    mount();
+    expect(within(rowOf('APPROVE ONLY')).getByRole('button', { name: 'Approve' })).toBeInTheDocument();
+    expect(within(rowOf('APPROVE ONLY')).queryByRole('button', { name: 'Reject' })).toBeNull();
+    expect(within(rowOf('REJECT ONLY')).getByRole('button', { name: 'Reject' })).toBeInTheDocument();
+    expect(within(rowOf('REJECT ONLY')).queryByRole('button', { name: 'Approve' })).toBeNull();
+  });
+
   it('names the approver users from the rows themselves — it never reads /api/users (USER_READ)', () => {
     mount();
     expect(rowOf('Instrument Trend — Temperature')).toHaveTextContent('any SUPERVISOR, other');
@@ -144,7 +158,7 @@ describe('ReportsPage', () => {
   it('SUPER_ADMIN may approve any pending request, their own included (operator, 2026-09-08)', () => {
     me = asSuperAdmin;
     // The server's answer for a SUPER_ADMIN: every pending row is theirs to decide.
-    lists.queue = QUEUE_FOR_APPROVER.map((r) => ({ ...r, canDecide: true }));
+    lists.queue = QUEUE_FOR_APPROVER.map((r) => ({ ...r, canDecide: true, canApprove: true, canReject: true }));
     mount();
     expect(within(rowOf('SUPER ADMIN OWN REQUEST')).getByRole('button', { name: 'Approve' })).toBeInTheDocument();
     expect(within(rowOf('SUPER ADMIN OWN REQUEST')).getByRole('button', { name: 'Reject' })).toBeInTheDocument();

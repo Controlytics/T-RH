@@ -1128,7 +1128,7 @@ compliance-core/
 │           ├── hooks/          # 25 entries incl. __tests__ (2026-10-05)
 │           └── lib/            # 22 entries incl. __tests__ (2026-10-05)
 ├── packages/
-│   ├── shared/                 # permissions (44), reauth actions (50), sidebar items (14), PERMISSION_TREE, zod schemas
+│   ├── shared/                 # permissions (45), reauth actions (56), sidebar items (14), PERMISSION_TREE, zod schemas
 │   └── queue/                  # graphile-worker wrapper + crontab.txt
 ├── scripts/                    # start-app / stop-app, installer build + provisioning, linux/ (.deb), emqx/ templates
 ├── docs/                       # docs/recreation/ is a 2026-07-25 snapshot; docs/archive/ is history

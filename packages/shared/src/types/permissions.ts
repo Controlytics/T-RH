@@ -11,9 +11,12 @@ export const PERMISSIONS = {
 
   // Reports (2026-09-07) — the report review workflow: every PDF download is a
   // REQUEST; READ sees the Reports page, raises requests and downloads approved
-  // reports one is a party to; APPROVE signs or rejects a request.
+  // reports one is a party to; APPROVE signs a request; REJECT turns it down.
+  // Two permissions since 2026-10-26 (operator: "approve and reject reports
+  // both should be two different permissions") — APPROVE covered both until then.
   REPORT_REVIEW_READ: 'REPORT_REVIEW_READ',
   REPORT_REVIEW_APPROVE: 'REPORT_REVIEW_APPROVE',
+  REPORT_REVIEW_REJECT: 'REPORT_REVIEW_REJECT',
 
   // Configuration
   CONFIG_READ: 'CONFIG_READ',

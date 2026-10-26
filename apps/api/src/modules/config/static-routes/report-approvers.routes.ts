@@ -73,7 +73,7 @@ export async function reportApproversRoutes(app: FastifyInstance) {
    * Can each role, and each candidate user (by their role), actually DECIDE a
    * report request? (2026-10-24, operator: "when im giving request approval
    * request is not coming why".) On AWS the only approver role, QA, held View
-   * Reports but not Approve / Reject Reports: every request from an ordinary
+   * Reports but not Approve Reports: every request from an ordinary
    * user was refused, a super admin's reached nobody, and this page — the one
    * place approvers are chosen — said nothing. The answer is the SAME check a
    * request applies (`approvalPermissionsMissing`, shared with

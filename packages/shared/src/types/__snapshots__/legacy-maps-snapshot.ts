@@ -234,9 +234,15 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
   },
   {
     "id": "reports.approve",
-    "label": "Approve / Reject Reports",
+    "label": "Approve Reports",
     "category": "Reports",
     "icon": "check"
+  },
+  {
+    "id": "reports.reject",
+    "label": "Reject Reports",
+    "category": "Reports",
+    "icon": "x-circle"
   },
   {
     "id": "settings.view",
@@ -376,6 +382,10 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   ],
   "reports.approve": [
     "REPORT_REVIEW_APPROVE",
+    "REPORT_REVIEW_READ"
+  ],
+  "reports.reject": [
+    "REPORT_REVIEW_REJECT",
     "REPORT_REVIEW_READ"
   ],
   "settings.view": [
@@ -520,7 +530,8 @@ export const SIDEBAR_PRIVILEGE_MAP_SNAPSHOT: SidebarSectionSnapshot[] = [
     "description": "Report requests awaiting approval, and approved reports to download",
     "privilegeIds": [
       "reports.view",
-      "reports.approve"
+      "reports.approve",
+      "reports.reject"
     ]
   },
   {

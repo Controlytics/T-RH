@@ -18,11 +18,11 @@ import {
 } from './__snapshots__/legacy-maps-snapshot.js';
 
 describe('Phase 5E: derived maps === original snapshots', () => {
-  it('FEATURE_PRIVILEGES (38 entries) matches snapshot exactly — order-sensitive', () => {
+  it('FEATURE_PRIVILEGES (39 entries) matches snapshot exactly — order-sensitive', () => {
     expect(FEATURE_PRIVILEGES).toEqual(FEATURE_PRIVILEGES_SNAPSHOT);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP (38 keys) matches snapshot exactly — per-key array equality', () => {
+  it('FEATURE_TO_PERMISSION_MAP (39 keys) matches snapshot exactly — per-key array equality', () => {
     expect(FEATURE_TO_PERMISSION_MAP).toEqual(FEATURE_TO_PERMISSION_MAP_SNAPSHOT);
   });
 
@@ -40,7 +40,7 @@ describe('Phase 5E: derived maps === original snapshots', () => {
     }
   });
 
-  it('configurable node count is exactly 38', () => {
+  it('configurable node count is exactly 39', () => {
     // Post domain-strip: the 8 core sidebar groups (dashboard, users,
     // admin-requests, configuration, notifications, audit, system-health,
     // debug-traces) contribute 26 configurable nodes. The old version-history
@@ -66,16 +66,18 @@ describe('Phase 5E: derived maps === original snapshots', () => {
     // Webhooks) were deleted; Dashboards create / manage / assign (parked
     // module, no screen), Delete Users (SUPER_ADMIN-only route) and Field IDs
     // (a SUPER_ADMIN-only screen) stay as nodes, not configurable → 38.
+    // 2026-10-26 split Approve / Reject Reports into two toggles (operator: "approve
+    // and reject reports both should be two different permissions") → 39.
     const count = PERMISSION_TREE.flatMap(g => g.nodes).filter(n => n.configurable === true).length;
-    expect(count).toBe(38);
+    expect(count).toBe(39);
   });
 
-  it('FEATURE_PRIVILEGES has exactly 38 entries', () => {
-    expect(FEATURE_PRIVILEGES).toHaveLength(38);
+  it('FEATURE_PRIVILEGES has exactly 39 entries', () => {
+    expect(FEATURE_PRIVILEGES).toHaveLength(39);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP has exactly 38 keys', () => {
-    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(38);
+  it('FEATURE_TO_PERMISSION_MAP has exactly 39 keys', () => {
+    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(39);
   });
 
   it('SIDEBAR_PRIVILEGE_MAP has exactly 14 sections', () => {

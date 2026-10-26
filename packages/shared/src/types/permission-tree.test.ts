@@ -242,13 +242,19 @@ describe('reports group (2026-09-07)', () => {
   // docs/superpowers/specs/2026-09-07-report-review-workflow-design.md
   const group = PERMISSION_TREE.find((g) => g.sidebarId === 'reports');
 
-  it('has a View node gated on REPORT_REVIEW_READ and an Approve node gated on REPORT_REVIEW_APPROVE with the APPROVE_REPORT re-auth', () => {
+  it('has a View node, and SEPARATE Approve and Reject nodes each with its own gate and re-auth', () => {
+    // Two toggles since 2026-10-26 (one "Approve / Reject Reports" until then).
     expect(group).toBeTruthy();
-    expect(group!.nodes.map((n) => n.id)).toEqual(['reports.view', 'reports.approve']);
+    expect(group!.nodes.map((n) => n.id)).toEqual(['reports.view', 'reports.approve', 'reports.reject']);
     expect(resolveNodeGate('reports.view')).toEqual([PERMISSIONS.REPORT_REVIEW_READ]);
     expect(resolveNodeGate('reports.approve')).toEqual([PERMISSIONS.REPORT_REVIEW_APPROVE]);
+    expect(resolveNodeGate('reports.reject')).toEqual([PERMISSIONS.REPORT_REVIEW_REJECT]);
     expect(group!.nodes[1].reauthAction).toBe('APPROVE_REPORT');
-    expect(group!.visibilityPrivilegeIds).toEqual(['reports.view', 'reports.approve']);
+    expect(group!.nodes[2].reauthAction).toBe('REJECT_REPORT');
+    // Neither grant carries the other: approving does not let you reject.
+    expect(group!.nodes[1].permissions).not.toContain(PERMISSIONS.REPORT_REVIEW_REJECT);
+    expect(group!.nodes[2].permissions).not.toContain(PERMISSIONS.REPORT_REVIEW_APPROVE);
+    expect(group!.visibilityPrivilegeIds).toEqual(['reports.view', 'reports.approve', 'reports.reject']);
   });
 
   it('registers the two decision re-auth actions under Reports and the four audit actions with templates', () => {

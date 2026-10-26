@@ -1,5 +1,36 @@
 # Changelog
 
+## [Unreleased] - Approve Reports and Reject Reports are two permissions (2026-10-26)
+
+Operator: "approve and reject reports both should be two different permissions".
+Until now `REPORT_REVIEW_APPROVE` gated both `POST /api/report-reviews/:id/approve`
+and `/reject`, behind one "Approve / Reject Reports" toggle.
+
+- New permission `REPORT_REVIEW_REJECT` (44 → 45). `/reject` is gated on it;
+  `/approve` stays on `REPORT_REVIEW_APPROVE`. The re-auth actions were already
+  separate (`APPROVE_REPORT` / `REJECT_REPORT`) — none added.
+- Roles & Access → Permissions: **Approve Reports** (`reports.approve`) and
+  **Reject Reports** (`reports.reject`, new) — feature privileges 38 → 39, tree
+  nodes 55 → 56. The frozen `legacy-maps-snapshot.ts` gained the node after
+  `reports.approve`, its label changed with it.
+- List rows carry the server's `canApprove` and `canReject` (declared in the
+  response schema) beside `canDecide` (= either); the Reports page shows each
+  button from its own flag.
+- **Who counts as an approver is unchanged (operator's choice, asked):** a
+  request must reach someone who can APPROVE it — `approvalPermissionsMissing`
+  still requires View + Approve, so a reject-only role sees and may reject a
+  request but on its own leaves it refused `NO_ELIGIBLE_APPROVER`, and Report
+  Settings names "Approve Reports" for it.
+- No role held `REPORT_REVIEW_APPROVE` on AWS or locally (read-only checks
+  2026-10-26), so nobody loses a power they had; nothing to migrate. On AWS the
+  owed step becomes: tick QA **Approve Reports** and, if QA should also turn
+  requests down, **Reject Reports**.
+- Tests: `report-reviews.e2e.test.ts` 49 (+4: per-row flags, each route
+  refusing the other, approve-only approves, reject-only rejects, a
+  reject-only-approver request refused, readiness); mutation-checked (the reject
+  gate on APPROVE; the two flags undeclared). Web `reports-page.test.tsx` +1
+  (mutation-checked), shared tree + snapshot tests updated.
+
 ## [Unreleased] - A limited user can no longer create an instrument they cannot see (2026-10-26)
 
 Operator: "in aws in instruments page its coming load error and instrument not

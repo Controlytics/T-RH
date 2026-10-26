@@ -431,14 +431,20 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   {
     sidebarId: 'reports', label: 'Reports', icon: '📑',
     description: 'Report requests awaiting approval, and approved reports to download',
-    visibilityPrivilegeIds: ['reports.view', 'reports.approve'],
+    visibilityPrivilegeIds: ['reports.view', 'reports.approve', 'reports.reject'],
     nodes: [
       { id: 'reports.view', label: 'View Reports', sidebarId: 'reports', page: 'Reports', action: 'View',
         icon: 'file-text', category: 'Reports', permissions: ['REPORT_REVIEW_READ'], enforce: 'a',
         gate: ['REPORT_REVIEW_READ'], configurable: true },
-      { id: 'reports.approve', label: 'Approve / Reject Reports', sidebarId: 'reports', page: 'Reports', action: 'Approve',
+      // Approve and Reject are SEPARATE toggles since 2026-10-26 (one "Approve /
+      // Reject Reports" toggle until then). Only Approve makes a role a valid
+      // approver for a request — see `approvalPermissionsMissing` in the API.
+      { id: 'reports.approve', label: 'Approve Reports', sidebarId: 'reports', page: 'Reports', action: 'Approve',
         icon: 'check', category: 'Reports', permissions: ['REPORT_REVIEW_APPROVE', 'REPORT_REVIEW_READ'], enforce: 'a',
         gate: ['REPORT_REVIEW_APPROVE'], reauthAction: 'APPROVE_REPORT', configurable: true },
+      { id: 'reports.reject', label: 'Reject Reports', sidebarId: 'reports', page: 'Reports', action: 'Reject',
+        icon: 'x-circle', category: 'Reports', permissions: ['REPORT_REVIEW_REJECT', 'REPORT_REVIEW_READ'], enforce: 'a',
+        gate: ['REPORT_REVIEW_REJECT'], reauthAction: 'REJECT_REPORT', configurable: true },
     ],
   },
   // 2026-09-08 — Settings. Operator: "in side bar add settings, in that page
@@ -482,7 +488,7 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'functional_locations.view', 'functional_locations.create', 'functional_locations.edit', 'functional_locations.delete',
   'alarm_webhooks.view', 'alarm_webhooks.manage', 'alarms.view', 'alarms.acknowledge',
   'data_report.view',
-  'reports.view', 'reports.approve',
+  'reports.view', 'reports.approve', 'reports.reject',
   'settings.view', 'settings.edit',
 ] as const;
 
