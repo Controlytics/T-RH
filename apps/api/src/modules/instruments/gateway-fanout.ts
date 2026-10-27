@@ -9,7 +9,10 @@
  */
 import { toReadings, parseDeviceTs, nullReadingKeys, type Reading } from './payload-parser.js';
 
-export interface ChildRef { id: string; isActive: boolean }
+// `requiresCertificate` (2026-10-27): the child's profile requires a device
+// certificate — a gateway may then report for it only over a connection that
+// presented the GATEWAY's own current certificate (fan-out option, Task 6).
+export interface ChildRef { id: string; isActive: boolean; requiresCertificate: boolean }
 /** code → child. The gateway's OWN code is deliberately absent. */
 export type ChildMap = Map<string, ChildRef>;
 

@@ -585,8 +585,17 @@ async function lookupByCode(code: string): Promise<IngestIdentity | null> {
   // loop down.
   const inst = await prisma.instrument.findUnique({
     where: { code },
-    select: { id: true, code: true, isGateway: true, isActive: true },
+    select: {
+      id: true, code: true, isGateway: true, isActive: true, deviceCertIssueId: true,
+      profile: { select: { requireDeviceCertificate: true } },
+    },
   });
   if (!inst || !inst.isActive) return null;
-  return { id: inst.id, code: inst.code, isGateway: inst.isGateway };
+  // The bridge never judges the certificate itself — MQTT is judged at
+  // CONNECT by the EMQX hook — but the identity type carries the facts so no
+  // consumer can mistake an MQTT identity for "certificate not required".
+  return {
+    id: inst.id, code: inst.code, isGateway: inst.isGateway,
+    deviceCert: { required: inst.profile.requireDeviceCertificate, issueId: inst.deviceCertIssueId },
+  };
 }

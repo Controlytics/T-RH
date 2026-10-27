@@ -21,7 +21,10 @@ const row = (token: string, over: Record<string, unknown> = {}) => ({
   tokenHash: hashToken(token),
   tokenPrefix: tokenPrefix(token),
   revokedAt: null,
-  instrument: { id: 'inst-1', code: 'TEMP-01', isActive: true, isGateway: false },
+  instrument: {
+    id: 'inst-1', code: 'TEMP-01', isActive: true, isGateway: false,
+    deviceCertIssueId: null, profile: { requireDeviceCertificate: false },
+  },
   ...over,
 });
 

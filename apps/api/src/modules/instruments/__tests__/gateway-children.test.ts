@@ -10,10 +10,16 @@ import { childMapFor, invalidateChildMapCache } from '../gateway-children.js';
 beforeEach(() => { findMany.mockReset(); invalidateChildMapCache(); });
 
 describe('childMapFor', () => {
-  it('maps code -> {id, isActive}', async () => {
-    findMany.mockResolvedValue([{ id: 'id-a', code: 'SENSOR-A', isActive: true }]);
+  it('maps code -> {id, isActive, requiresCertificate}', async () => {
+    findMany.mockResolvedValue([{ id: 'id-a', code: 'SENSOR-A', isActive: true, profile: { requireDeviceCertificate: false } }]);
     const map = await childMapFor('gw-1');
-    expect(map.get('SENSOR-A')).toEqual({ id: 'id-a', isActive: true });
+    expect(map.get('SENSOR-A')).toEqual({ id: 'id-a', isActive: true, requiresCertificate: false });
+  });
+
+  it('flags a child whose profile requires a device certificate', async () => {
+    findMany.mockResolvedValue([{ id: 'id-b', code: 'SENSOR-B', isActive: true, profile: { requireDeviceCertificate: true } }]);
+    const map = await childMapFor('gw-1');
+    expect(map.get('SENSOR-B')?.requiresCertificate).toBe(true);
   });
 
   it('queries only this gateway\'s children', async () => {
@@ -50,7 +56,7 @@ describe('childMapFor', () => {
     const pending = childMapFor('gw-1');
     await Promise.resolve(); // let childMapFor reach its await
     invalidateChildMapCache('gw-1');
-    resolveFind([{ id: 'id-a', code: 'SENSOR-A', isActive: true }]);
+    resolveFind([{ id: 'id-a', code: 'SENSOR-A', isActive: true, profile: { requireDeviceCertificate: false } }]);
     await pending;
 
     // Nothing was cached, so the next call must go back to the database.
@@ -67,7 +73,7 @@ describe('childMapFor', () => {
     const pending = childMapFor('gw-1');
     await Promise.resolve();
     invalidateChildMapCache();
-    resolveFind([{ id: 'id-a', code: 'SENSOR-A', isActive: true }]);
+    resolveFind([{ id: 'id-a', code: 'SENSOR-A', isActive: true, profile: { requireDeviceCertificate: false } }]);
     await pending;
 
     findMany.mockResolvedValue([]);

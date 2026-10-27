@@ -41,9 +41,11 @@ export async function childMapFor(gatewayId: string): Promise<ChildMap> {
   const gen = generation;
   const rows = await prisma.instrument.findMany({
     where: { gatewayId },
-    select: { id: true, code: true, isActive: true },
+    select: { id: true, code: true, isActive: true, profile: { select: { requireDeviceCertificate: true } } },
   });
-  const map: ChildMap = new Map(rows.map((r) => [r.code, { id: r.id, isActive: r.isActive }]));
+  const map: ChildMap = new Map(rows.map((r) => [r.code, {
+    id: r.id, isActive: r.isActive, requiresCertificate: r.profile.requireDeviceCertificate,
+  }]));
   // Scope of the guarantee, precisely: the map is still RETURNED to this
   // caller, and it may itself predate the invalidation. What the check buys is
   // that a stale read is never PUBLISHED for the next 10s — the next request

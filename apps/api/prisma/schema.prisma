@@ -652,6 +652,10 @@ model InstrumentProfile {
   /// `coerceProfileMeasurements`. Three states like `attributeKeys`: a list,
   /// `[]` (measures nothing), NULL (never customised → the shipped defaults).
   measurements Json?
+  /// DEVICE CERTIFICATES (2026-10-27): when true, every instrument of this
+  /// profile is refused on every ingest channel unless its device connects
+  /// with its own platform-issued client certificate. Default OFF.
+  requireDeviceCertificate Boolean @default(false) @map("require_device_certificate")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
   createdBy   String?  @map("created_by")
@@ -1060,6 +1064,18 @@ model Instrument {
   // gateway feature exists to serve.
   lastSeenAt          DateTime? @map("last_seen_at") @db.Timestamptz(3)
   lastSeenVia         String?   @map("last_seen_via")
+
+  // DEVICE CERTIFICATE (2026-10-27): the ONE certificate this instrument's
+  // device may present when its profile requires one. `deviceCertIssueId` is
+  // the random 32-hex id in the certificate's subject serialNumber — the
+  // identity every channel compares (`device-certificate.ts`); re-issue or
+  // revoke replaces / clears it, which kills every older certificate at once.
+  // The private key is never stored. History is in the audit trail.
+  deviceCertIssueId     String?   @map("device_cert_issue_id")
+  deviceCertFingerprint String?   @map("device_cert_fingerprint")
+  deviceCertNotAfter    DateTime? @map("device_cert_not_after") @db.Timestamptz(3)
+  deviceCertIssuedAt    DateTime? @map("device_cert_issued_at") @db.Timestamptz(3)
+  deviceCertIssuedBy    String?   @map("device_cert_issued_by")
 
   // Every instrument belongs to exactly one profile. NOT NULL: rows predating
   // profiles were backfilled to "Default" by migration 20260808120000, so there
