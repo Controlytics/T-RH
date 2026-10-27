@@ -65,7 +65,9 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 > that could never take effect left the Permissions tab — the two Alarm Rules nodes were deleted,
 > Dashboards create / manage / assign, Delete Users and Field IDs stay as nodes, not configurable),
 > **56** reauth actions in
-> **8** categories, **98** audit actions, **111** audit templates in **7**
+> **8** categories, **100** audit actions, **113** audit templates in **7**
+> categories (98 → 100 / 111 → 113 on 2026-10-27: `DEVICE_CERTIFICATE_ISSUED` /
+> `DEVICE_CERTIFICATE_REVOKED`, Instruments). Earlier **98** / **111** in **7**
 > categories (103 → 106 / 97 → 100 on 2026-09-22: `FLOORPLAN_LINK_CREATED` /
 > `UPDATED` / `DELETED`, the Layout Designer's room links; `{room}` carries
 > "A ↔ B", no new placeholder). Earlier **103** / **97** in **7**
@@ -133,8 +135,8 @@ someone may be using was not part of that change.
 | `permission-tree.ts` | The single Sidebar→Page→Action catalog; derives `FEATURE_PRIVILEGES` / `FEATURE_TO_PERMISSION_MAP` / `SIDEBAR_PRIVILEGE_MAP`; `resolveNodeGate(nodeId)` feeds `useCan()` |
 | `sidebar-items.ts` | **14** sidebar items (`grep -c "id: '"`) |
 | `sidebar-privilege-map.ts` | Sidebar item → privilege binding, DERIVED from the tree's `visibilityPrivilegeIds` (**14** sections) |
-| `audit-actions.ts` | **98** audit action constants (`grep -cE "^\s+[A-Z_]+:\s*'"`) |
-| `audit-templates.ts` | **102** templates in **7** categories (`grep -cE "^\s+[A-Z_]+:\s*\{"`, 2026-10-05 after that day's sweeps). A template using a NEW placeholder is **two** edits: the template here AND the substitution in `apps/web/src/routes/audit/audit-helpers.ts`, or it renders literally in the exported §11 record; `{targetName}` and `{actor}` are substituted generically. `template-placeholders.test.ts` is the check. |
+| `audit-actions.ts` | **100** audit action constants (98 → 100 on 2026-10-27, the device-certificate pair) (`grep -cE "^\s+[A-Z_]+:\s*'"`) |
+| `audit-templates.ts` | **113** templates in **7** categories (`grep -cE "^\s+[A-Z_]+:\s*\{"`, 2026-10-27; this row read 102 — a 2026-10-05 figure, already stale at 111 — until then). A template using a NEW placeholder is **two** edits: the template here AND the substitution in `apps/web/src/routes/audit/audit-helpers.ts`, or it renders literally in the exported §11 record; `{targetName}` and `{actor}` are substituted generically. `template-placeholders.test.ts` is the check. |
 
 A "(historic) verified 2026-06-30" table stood here until 2026-10-05 with the upstream DigiLog
 numbers (102 / 83 / 92 / 27) struck through and every removal narrated in the cells (audit

@@ -1,5 +1,84 @@
 # Changelog
 
+## [Unreleased] - Device certificates: a profile can require each device's own client certificate (2026-10-27)
+
+Operator: "without ssl cert i wont receive any data for only test instrument
+is it possible or not", then "both https and mqtt and other communication ways
+also i need to receive data when user used ssl at that time only", then — told
+that the server cannot see whether a device loaded `ca.crt`, so only a
+certificate the DEVICE presents can be enforced — "yes client wants it, go
+ahead, only for testing profile instruments". Design
+`docs/superpowers/specs/2026-10-27-device-certificates-design.md`, plan
+`docs/superpowers/plans/2026-10-27-device-certificates.md`, feature note at the
+top of `docs/feature-notes.md`.
+
+- **Profile switch "Require device certificate"** (Configuration → Instrument
+  Attributes → the profile): SUPER_ADMIN only, reason required, audited; ON is
+  refused while the server has no device CA. Every instrument of a profile with
+  it ON is refused on HTTPS (403), WebSocket (close 4403), MQTT (hook deny, so
+  plain 1883 can never pass) and raw TCP unless its device connects with its
+  own current certificate; a gateway must present its own to report for such a
+  child. Each refusal is a dead letter (at most one per instrument, channel and
+  reason per minute) — the client's evidence.
+- **Device certificate per instrument** (Instruments → the instrument →
+  Device certificate): Issue / Re-issue / Revoke behind the token's always-on
+  re-auth; the bundle (`client.crt`, `client.key`, `ca.crt`) downloads once and
+  the key is never kept. Identity is a random issue id in the subject's
+  `serialNumber`, pinned on the instrument: re-issue or revoke kills every
+  older certificate at once, a rename keeps it valid. New audit actions
+  `DEVICE_CERTIFICATE_ISSUED` / `_REVOKED` (98 → 100, templates 111 → 113).
+- **A separate device CA** issues them (`device-ca.{pem,key}`, env
+  `DEVICE_CA_CERT_PATH` / `DEVICE_CA_KEY_PATH`, bundle CA `TLS_CA_PATH`), created
+  once by `digilog-lib.sh` / `install.ps1` / the AWS rollout script; new
+  dependencies `@peculiar/x509` 2.1.0 and `reflect-metadata` 0.2.2 (exact).
+- **Nothing changes until it is configured**, and little after: with a device
+  CA, HTTPS and MQTTS ASK for a client certificate (naming only the device CA)
+  but reject nobody at the handshake, so browsers, the EMQX hook and every free
+  profile connect as before — pinned by a real-TLS e2e.
+- **EMQX template**: the SSL listener verifies against the device CA when one
+  exists (`verify_peer`, never required); the hook body forwards
+  `cert_subject`. `scripts/aws/enable-device-certificates.sh` (dry run by
+  default; `--apply` backs up, applies, restarts, proves clients without a
+  certificate still connect, rolls back on failure) and also provisions the
+  EMQX REST API key AWS was missing (broker kicks).
+- Migration `20261027120000_device_certificates` (five nullable `instruments`
+  columns, `instrument_profiles.require_device_certificate` DEFAULT false).
+- **Fixed on the way:** the AWS runbook's broker-repair line exported
+  `DIGILOG_API_PORT=443` AFTER sourcing the lib, which renders the hook URL on
+  :3000 — running it would have refused every MQTT login on AWS.
+
+## [Unreleased] - Server certificate names the address devices dial; Quectel modems pass TLS (2026-10-27)
+
+A device engineer reported: Quectel EC200 modems with our CA loaded failed the
+TLS handshake with `+CME ERROR: 732`; with no CA (no verification) the same
+request got HTTP 200. Reproduced on both 443 and 8883:
+`openssl s_client -verify_hostname 13.204.15.17` returned `62 (hostname
+mismatch)` while `-verify_ip` returned `0 (ok)`. The AWS certificate's CN was
+the PRIVATE IP and the Elastic IP was an IP-type SAN entry only. The modem's
+TLS stack matches the host as text against the CN and DNS entries and never
+reads IP entries; curl and browsers do, which is why they worked.
+
+- **AWS (live, 2026-10-27 07:18Z):** `server.crt` re-signed with the SAME CA
+  (`DigiLog Local CA`, SHA-256 `AE:11:72:25…D1:28` — the `ca.crt` already
+  given to device teams stays valid) and the SAME server key. CN `13.204.15.17`;
+  SAN `DNS:13.204.15.17, IP:13.204.15.17, DNS:localhost, DNS:ip-172-31-7-180,
+  DNS:172.31.7.180, IP:172.31.7.180, IP:127.0.0.1`; EKU serverAuth. API and
+  EMQX restarted; both ports verify as a name and as an IP, TLS 1.2 and 1.3;
+  the ingest bridge reconnected through the auth hook. Old certificate in
+  `/etc/digilog/certs/backup-20261027T071821Z/`.
+- **Generators fixed** so a new install does not repeat it:
+  `scripts/linux/digilog-lib.sh` (`.deb` + AWS provisioning) makes the dialled
+  address the CN (`DIGILOG_EXTRA_SAN_IP` when set, else the LAN IP) and writes
+  every IP as a DNS entry too; `scripts/install.ps1` adds the LAN IP as a DNS
+  entry. Both add `extendedKeyUsage = serverAuth` and `subjectKeyIdentifier`, and
+  the CA they create now carries `keyUsage` (strict X.509 clients — Python
+  3.13+ — refuse a CA without it). `DNS:localhost` stays in both: the EMQX auth
+  hook verifies the API with SNI `localhost`. Existing installs keep their
+  certificates (both generators reuse what is there).
+- Not changed: the AWS CA still has no `keyUsage` (replacing it would mean
+  re-sending `ca.crt` to every device team). A strict client (Python 3.13+'s
+  default context) still refuses it; the Quectel stack does not.
+
 ## [Unreleased] - Each instrument profile carries its own key mappings, with NMT / NLT / MKT switches (2026-10-26, phase 1)
 
 Operator: "temperature and humidity keys assining or limits keys assigning

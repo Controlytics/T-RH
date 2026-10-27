@@ -476,6 +476,38 @@ node apps/api/dist/app.js
   gained a STRANDED pass. **A test must own its fixture profile** — three
   worker tests took `instrumentProfile.findFirst()` and failed once profiles
   differed. Feature note: `docs/feature-notes.md` PROFILE MEASUREMENTS.
+- **2026-10-27 — DEVICE CERTIFICATES: a profile can require each device's own
+  client certificate.** Migration `20261027120000_device_certificates`
+  (hand-authored, applied to `compliance_core_db` AND `_test`; models 38 / enums
+  13 unchanged — five nullable `instruments.device_cert_*` columns and
+  `instrument_profiles.require_device_certificate` DEFAULT false). Audit 98 →
+  100 / 111 → 113. No permission, reauth action, module, def or page moved.
+  - **ONE decision** (`modules/instruments/device-certificate.ts`) for HTTPS
+    (`ingest-routes.ts`, 403), WebSocket (`ws-listener.ts`, close 4403, also on
+    every later frame), MQTT (`mqtt-auth-routes.ts`, from `cert_subject`) and raw
+    TCP (`tcp-listener.ts`, never TLS → refused); the gateway fan-out drops a
+    requiring child unless the connection carried the gateway's own certificate
+    (`fanoutDevices(…, { certificateVerified })`, omitted on MQTT = judged at
+    CONNECT). The facts ride on the cached `IngestIdentity.deviceCert` and
+    `ChildRef.requiresCertificate` — every route that changes them invalidates
+    the caches and kicks the MQTT session.
+  - **`lib/https-options.ts`** builds the server's TLS options (lifted from
+    `app.ts` so a test builds the same server): with the device CA it adds
+    `requestCert: true, rejectUnauthorized: false, ca: <device CA only>`.
+    **`app.inject` never performs a TLS handshake** — `socket.authorized` is
+    exercised ONLY by `e2e/device-certificate-tls.e2e.test.ts`, which runs a real
+    https listener. Keep that file when touching any of this.
+  - `modules/instruments/device-ca.ts` issues with `@peculiar/x509` 2.1.0
+    (exact; needs `reflect-metadata`, imported there). `device-certificate-
+    routes.ts` is a child plugin of `instruments/routes.ts`, so it needed no
+    registration in `app.ts` / `test-helper.ts`. `codeLabel` moved to
+    `code-label.ts` (both route files use it; importing back from `routes.ts`
+    would be circular).
+  - **Every device-certificate test owns its env**: they set
+    `DEVICE_CA_CERT_PATH` / `_KEY_PATH` to a temp CA in `beforeAll` and restore
+    it FIRST in `afterAll`; the "inert" cases delete the variable inside a
+    try/finally. `apps/api/.env` on this checkout now carries a real local
+    device CA (`certs/device-ca.*`, git-ignored).
 - **2026-10-03 — a SUPER_ADMIN deletes a functional location with everything
   in it.** `DELETE /api/functional-locations/:id` takes `?cascade=true`:
   refused 409 `NOT_EMPTY` without it (as before), 403 `SUPER_ADMIN_ONLY` with

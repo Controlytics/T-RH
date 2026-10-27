@@ -156,3 +156,19 @@ looks up its gateway by id; IOTGW01 has no location -> 404 toast for every scope
 - [x] Docs: CHANGELOG, feature-notes visibility note, endpoints.md
 - [x] Push to trh (`ac56a54`), deploy over SSM (`5e49636 -> ac56a54`, no migration, no npm ci), health 200; dist greps confirm the fix is live
 - [ ] Hand operator: place or delete CWH/RDU/001-01 and CWH/RDU/201-00 (no attributes saved)
+
+## 2026-10-27 — Device certificates: a profile can require each device's own certificate
+
+Spec `docs/superpowers/specs/2026-10-27-device-certificates-design.md`, plan `docs/superpowers/plans/2026-10-27-device-certificates.md`.
+
+- [x] T1 decision + subject parsing + rate-limited refusal dead letters
+- [x] T2 migration (both DBs), identity / child map carry the facts, device CA availability
+- [x] T3 issuing (`@peculiar/x509` 2.1.0, `reflect-metadata` 0.2.2), openssl-strict verified
+- [x] T4 issue / re-issue / revoke routes + audit actions (98 -> 100 / 111 -> 113)
+- [x] T5 profile switch + EMQX hook
+- [x] T6 HTTPS (real-TLS e2e) / WebSocket / TCP / gateway fan-out
+- [x] T7 EMQX template, provisioning (Linux + Windows), AWS rollout script, local broker reconfigured
+- [x] T8 web: certificate card + profile switch
+- [x] T9 docs + counts (CHANGELOG, feature note, CLAUDE x3, AGENTS, endpoints, runbooks)
+- [ ] Push to trh, deploy (lockfile moved -> npm ci; one migration), then `enable-device-certificates.sh` dry run -> --apply (operator-confirmed)
+- [ ] In the app on AWS: issue `Test`'s certificate, switch "Testing Profile" ON (reason), device engineer loads client.crt + client.key (Quectel seclevel 2) and retests
