@@ -39,6 +39,8 @@ import {
 import { invalidateIngestAuthCache } from './ingest-auth.js';
 import { kickMqttClient } from './broker-kick.js';
 import { invalidateChildMapCache } from './gateway-children.js';
+import { codeLabel } from './code-label.js';
+import deviceCertificateRoutes from './device-certificate-routes.js';
 import {
   gatewayInvariantError, lockedGatewayRecheck, lockInstrumentRows, isDeadlock,
   GatewayInvariantViolation,
@@ -339,10 +341,6 @@ function placementRefusal(functionalLocationId: unknown): { error: string; messa
     : { error: 'LOCATION_REQUIRED', message: 'Choose a functional location. Your instrument view is limited to selected locations, and an instrument registered outside them would be hidden from you.' };
 }
 
-const SIGNATURE_CODE_MAX = 80;
-function codeLabel(code: string): string {
-  return code.length <= SIGNATURE_CODE_MAX ? code : `${code.slice(0, SIGNATURE_CODE_MAX)}…`;
-}
 
 /**
  * Tell a gateway who its children are. CALLED AFTER THE COMMIT.
@@ -535,6 +533,10 @@ async function visibleInstrumentWhere(req: FastifyRequest, id: string): Promise<
 }
 
 export default async function instrumentRoutes(app: FastifyInstance) {
+  // GET/POST/DELETE /api/instruments/:id/device-certificate (2026-10-27) — a
+  // child plugin, so it inherits this prefix and the RBAC decorators.
+  await app.register(deviceCertificateRoutes);
+
   // GET /api/instruments — paginated list
   app.get('/', {
     preHandler: [app.requirePermission('INSTRUMENT_READ')],

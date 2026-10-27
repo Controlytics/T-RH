@@ -172,6 +172,12 @@ export const AUDIT_ACTIONS = {
   // never is. Neither row ever carries the token value — only its prefix.
   INSTRUMENT_TOKEN_VIEWED: 'INSTRUMENT_TOKEN_VIEWED',
   INSTRUMENT_TOKEN_SET: 'INSTRUMENT_TOKEN_SET',
+  // Device certificates (2026-10-27): the ONE client certificate a device may
+  // present when its profile requires one. Issue / re-issue (afterValue carries
+  // the new issue id and the one it replaced) and revoke. Neither row ever
+  // carries the private key — the server never keeps it.
+  DEVICE_CERTIFICATE_ISSUED: 'DEVICE_CERTIFICATE_ISSUED',
+  DEVICE_CERTIFICATE_REVOKED: 'DEVICE_CERTIFICATE_REVOKED',
   // Profiles are grouping only, but a RENAME changes what an inspector reads
   // against every instrument inside the profile — so the change to the profile
   // is itself an auditable event. MOVING an instrument between profiles is

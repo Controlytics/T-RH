@@ -570,6 +570,18 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Access token for instrument "{instrument}" replaced with an operator-supplied value by {actor} — the previous token was revoked',
     placeholders: ['actor', 'instrument'],
   },
+  DEVICE_CERTIFICATE_ISSUED: {
+    label: 'Device Certificate Issued',
+    category: 'Instruments',
+    template: 'Device certificate for instrument "{instrument}" issued by {actor} — any previous certificate stops working',
+    placeholders: ['actor', 'instrument'],
+  },
+  DEVICE_CERTIFICATE_REVOKED: {
+    label: 'Device Certificate Revoked',
+    category: 'Instruments',
+    template: 'Device certificate for instrument "{instrument}" revoked by {actor}',
+    placeholders: ['actor', 'instrument'],
+  },
   INSTRUMENT_GATEWAY_ENABLED: {
     label: 'Instrument Gateway Mode Enabled',
     category: 'Instruments',
