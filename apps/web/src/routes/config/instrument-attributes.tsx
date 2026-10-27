@@ -6,6 +6,7 @@ import {
   ATTRIBUTE_LABEL_MAX, type AttributeLabels, type SettingsHidden, type ProfileMeasurement,
 } from '@digilog/shared';
 import { ProfileMeasurementsEditor } from './profile-measurements/editor';
+import { ProfileDeviceCertificateSwitch } from './device-certificates/profile-switch';
 import { ATTRIBUTE_LABELS_URL } from '@/hooks/use-attribute-labels';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
@@ -69,7 +70,7 @@ import { RemarkDialog } from '@/routes/instruments/remark-dialog';
  * as the names — see `mergeSettingsHidden`.
  */
 interface Row { id: number; key: string; name: string; shown: boolean }
-interface Profile { id: string; name: string; instrumentCount: number; attributeKeys: string | null; measurements?: ProfileMeasurement[] }
+interface Profile { id: string; name: string; instrumentCount: number; attributeKeys: string | null; measurements?: ProfileMeasurement[]; requireDeviceCertificate?: boolean }
 
 const fold = (k: string) => k.trim().toLowerCase();
 const nameOf = (labels: AttributeLabels, key: string): string => {
@@ -620,6 +621,17 @@ export function InstrumentAttributesConfigPage() {
             </p>
           </div>
           <ProfileMeasurementsEditor profile={selectedProfile} onSaved={() => void mutateProfiles()} />
+        </section>
+      )}
+
+      {/* Device certificates (2026-10-27): every instrument of the profile must
+          connect with its own client certificate. Its own signed save. */}
+      {selectedProfile && (
+        <section aria-labelledby="profile-device-certificate-heading" className="space-y-3 pt-2">
+          <h2 id="profile-device-certificate-heading" className="text-base font-semibold text-slate-800">
+            Device certificates — {selectedProfile.name}
+          </h2>
+          <ProfileDeviceCertificateSwitch profile={selectedProfile} onSaved={() => void mutateProfiles()} />
         </section>
       )}
 

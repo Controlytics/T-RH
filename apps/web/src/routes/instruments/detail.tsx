@@ -20,6 +20,7 @@ import { ConnectionInstructions } from './connection-instructions';
 import { TokenDialog } from './token-dialog';
 import { GatewayPanel } from './gateway-panel';
 import { TokenPanel } from './token-panel';
+import { DeviceCertificateCard } from './device-certificate-card';
 import { AttributesPanel } from './attributes-panel';
 import { RejectedPayloadsCard, type DeadLetter } from './rejected-payloads';
 import { SkeletonCard } from '@/components/ui/skeleton';
@@ -525,6 +526,15 @@ export function InstrumentDetailPage() {
             onSetToken={setToken}
             onRegenerate={regenerate}
           />
+        </CardContent>
+      </Card>
+
+      {/* Device certificate (2026-10-27): the client certificate the device
+          must present when its profile requires one. Same gate as the token. */}
+      <Card>
+        <CardHeader><CardTitle className="flex items-center gap-2">{sectionIcon('bg-violet-100 text-violet-600', ICON.token)}Device certificate</CardTitle></CardHeader>
+        <CardContent>
+          <DeviceCertificateCard instrumentId={inst.id} canManage={can('instruments.edit')} />
         </CardContent>
       </Card>
 
