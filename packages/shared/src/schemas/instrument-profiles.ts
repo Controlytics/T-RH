@@ -68,6 +68,10 @@ export const updateInstrumentProfileSchema = z.object({
   // only and needs `reason`; a list EQUIVALENT to the stored one (a page
   // saving other fields sends it back) changes nothing and needs neither.
   measurements: profileMeasurementsSchema.optional(),
+  // Device certificates (2026-10-27): every instrument of the profile must
+  // connect with its own client certificate. A change is super-admin only,
+  // needs `reason`, and ON is refused while the server has no device CA.
+  requireDeviceCertificate: z.boolean().optional(),
 });
 
 export type CreateInstrumentProfileInput = z.infer<typeof createInstrumentProfileSchema>;

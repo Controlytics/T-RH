@@ -13,6 +13,10 @@ import {
   type ProfileMeasurement,
 } from '@digilog/shared';
 import { invalidateProfileMeasurementsCache, loadMeasurementTypes } from '../instruments/profile-measurements.js';
+import { DeviceCaNotConfiguredError, deviceCaAvailable } from '../instruments/device-ca.js';
+import { invalidateIngestAuthCache } from '../instruments/ingest-auth.js';
+import { invalidateChildMapCache } from '../instruments/gateway-children.js';
+import { kickMqttClient } from '../instruments/broker-kick.js';
 import { alarmsClearedBy } from '../alarms/stranded-decide.js';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
@@ -99,6 +103,7 @@ const profileProps = {
   isActive: { type: 'boolean' },
   attributeKeys: { type: 'string', nullable: true },
   measurements: { type: 'array', items: measurementItem },
+  requireDeviceCertificate: { type: 'boolean' },
   instrumentCount: { type: 'integer' },
   activeCount: { type: 'integer' },
   createdAt: { type: 'string', format: 'date-time' },
@@ -113,6 +118,7 @@ type ProfileRow = {
   isActive: boolean;
   attributeKeys: string | null;
   measurements: unknown;
+  requireDeviceCertificate: boolean;
   createdAt: Date;
   updatedAt: Date;
   createdBy: string | null;
@@ -507,10 +513,23 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
           isActive: { type: 'boolean' },
           attributeKeys: { type: ['string', 'null'] },
           measurements: { type: 'array', items: { type: 'object' }, description: 'What the profile measures. A change is super-admin only and requires `reason`; an equivalent list is a no-op.' },
-          reason: { type: 'string', description: 'Required when a removed key is carried by instruments (recorded on each INSTRUMENT_ATTRIBUTE_REMOVED row), and when the measurements change.' },
+          requireDeviceCertificate: { type: 'boolean', description: 'Every instrument of the profile must connect with its own device certificate. A change is super-admin only and requires `reason`; ON is 409 DEVICE_CA_NOT_CONFIGURED while the server has no device CA.' },
+          reason: { type: 'string', description: 'Required when a removed key is carried by instruments (recorded on each INSTRUMENT_ATTRIBUTE_REMOVED row), when the measurements change, and when requireDeviceCertificate changes.' },
         },
       },
-      response: { 200: { type: 'object', properties: profileProps }, ...errorResponses },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            ...profileProps,
+            // Set only when this save switched the requirement ON: how many of
+            // the profile's instruments have no certificate yet, i.e. whose
+            // data is refused from now on.
+            instrumentsWithoutCertificate: { type: 'integer', nullable: true },
+          },
+        },
+        ...errorResponses,
+      },
     },
   }, async (req, reply) => {
     // Configurable e-signature (audit 2026-10-03, SEC-7): this PUT can delete an
@@ -584,6 +603,33 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
           });
         }
         measurementsChanged = true;
+      }
+    }
+    // DEVICE CERTIFICATES (2026-10-27): whether every instrument of this
+    // profile must connect with its own client certificate decides which
+    // devices the platform accepts data from — super admin only, signed with a
+    // reason, and ON is refused while the server has no device CA (the switch
+    // would refuse every device with no way to issue them a certificate).
+    // Sending the stored value back (a page saving other fields) is a no-op.
+    let certificateChanged = false;
+    if (data.requireDeviceCertificate !== undefined) {
+      if (data.requireDeviceCertificate === before.requireDeviceCertificate) {
+        delete data.requireDeviceCertificate;
+      } else {
+        if (req.user?.role !== 'SUPER_ADMIN') {
+          return reply.code(403).send({ error: 'SUPER_ADMIN_ONLY', message: 'Only a super admin may change whether a profile requires device certificates.' });
+        }
+        if (data.requireDeviceCertificate && !deviceCaAvailable()) {
+          return reply.code(409).send({ error: 'DEVICE_CA_NOT_CONFIGURED', message: new DeviceCaNotConfiguredError().message });
+        }
+        const problem = validateAttributeRemark(reason);
+        if (problem) {
+          return reply.code(400).send({
+            error: 'REASON_REQUIRED',
+            message: `Changing whether this profile requires device certificates changes which devices it accepts data from. ${problem}`,
+          });
+        }
+        certificateChanged = true;
       }
     }
     const ctx = buildContext(req);
@@ -704,11 +750,13 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
             name: before.name, description: before.description, isActive: before.isActive,
             attributeKeys: keysBefore,
             measurements: storedMeasurements,
+            requireDeviceCertificate: before.requireDeviceCertificate,
           },
           afterValue: {
             name: row.name, description: row.description, isActive: row.isActive,
             attributeKeys: keysAfter,
             measurements: coerceProfileMeasurements(row.measurements),
+            requireDeviceCertificate: row.requireDeviceCertificate,
           },
           // A rename is called out first: it changes what an inspector reads
           // against every instrument in the profile, so "updated" alone would
@@ -719,7 +767,13 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
           // The cascade note is clamped so a long key list cannot overflow
           // signature_meaning's varchar(255) — `auditLog` does not truncate.
           signatureMeaning: (() => {
-            const base = before.name !== row.name
+            const certificateNote = certificateChanged
+              ? (row.requireDeviceCertificate ? 'device certificate now required' : 'device certificate no longer required')
+              : '';
+            if (certificateChanged && before.name === row.name && !keysChanged && !measurementsChanged && deleted.length === 0) {
+              return `Instrument profile "${row.name}": ${certificateNote}`.slice(0, 250);
+            }
+            const named = before.name !== row.name
               ? `Instrument profile renamed "${before.name}" → "${row.name}"`
               : keysChanged && measurementsChanged
                 ? `Instrument profile "${row.name}" attribute keys and measurements changed`
@@ -728,12 +782,13 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
                   : measurementsChanged
                     ? `Instrument profile "${row.name}" measurements changed`
                     : `Instrument profile "${row.name}" updated`;
+            const base = certificateChanged ? `${named}; ${certificateNote}` : named;
             const full = base + cascadeNote;
             if (full.length <= 250) return full;
             const short = base + `; removed ${affected.length} key(s) from ${new Set(deleted.map((d) => d.instrument.id)).size} instrument(s)`;
             return short.length <= 250 ? short : short.slice(0, 249) + '…';
           })(),
-          ...((deleted.length > 0 || measurementsChanged) && reason ? { reason } : {}),
+          ...((deleted.length > 0 || measurementsChanged || certificateChanged) && reason ? { reason } : {}),
           ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
         }, tx as unknown as Prisma.TransactionClient);
         return updated;
@@ -756,7 +811,34 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
       // every few seconds and must read the new keys on its very next poll.
       invalidateProfileMeasurementsCache();
 
-      return (await forCaller(req))(present(row as ProfileRow));
+      let instrumentsWithoutCertificate: number | null = null;
+      if (certificateChanged) {
+        // Every cached ingest identity and gateway child map of this profile now
+        // carries the wrong flag — drop them, so the next reading is judged by
+        // the new rule rather than after the 10 s TTL.
+        invalidateIngestAuthCache();
+        invalidateChildMapCache();
+        const members = await prisma.instrument.findMany({
+          where: { profileId: id }, select: { code: true, gatewayId: true, deviceCertIssueId: true },
+        });
+        if (row.requireDeviceCertificate) instrumentsWithoutCertificate = members.filter((m) => !m.deviceCertIssueId).length;
+        // MQTT is judged only at CONNECT: drop the open sessions of the
+        // profile's instruments and of their gateways so they reconnect under
+        // the new rule. After the response and best effort, like the cascade
+        // announcements above — `kickMqttClient` logs its own failures and is a
+        // no-op where the EMQX API key is not provisioned.
+        const gatewayIds = [...new Set(members.map((m) => m.gatewayId).filter((g): g is string => g !== null))];
+        void (async () => {
+          const gateways = gatewayIds.length > 0
+            ? await prisma.instrument.findMany({ where: { id: { in: gatewayIds } }, select: { code: true } })
+            : [];
+          for (const code of [...members.map((m) => m.code), ...gateways.map((g) => g.code)]) {
+            await kickMqttClient(code, 'profile device-certificate requirement changed');
+          }
+        })().catch((e: unknown) => logger.error('[instrument-profiles] device-certificate kick pass failed', e));
+      }
+
+      return { ...(await forCaller(req))(present(row as ProfileRow)), instrumentsWithoutCertificate };
     } catch (err) {
       if (err instanceof OutOfScope) {
         return reply.code(403).send({

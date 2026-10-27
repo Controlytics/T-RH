@@ -1,6 +1,8 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { type FastifyInstance } from 'fastify';
 import { resolveInstrumentByToken } from './ingest-auth.js';
+import { childMapFor } from './gateway-children.js';
+import { deviceCertificateDecision, issueIdFromEmqxSubject, recordCertificateRefusal } from './device-certificate.js';
 
 /**
  * `POST /api/ingest/v1/mqtt-auth` — the hook EMQX calls on every CONNECT.
@@ -113,7 +115,9 @@ export default async function mqttAuthRoutes(app: FastifyInstance) {
       description:
         'Called by EMQX on every MQTT CONNECT. The device token is presented as the MQTT '
         + 'username and the instrument CODE (e.g. CWH/RDU/001-00) as the MQTT client id; both must match the same '
-        + 'instrument. Always answers 200 with {"result":"allow"|"deny"} — deny is the default '
+        + 'instrument. When the instrument\'s profile requires a device certificate (or, for a gateway, '
+        + 'any linked child\'s does), `cert_subject` must carry its current certificate\'s '
+        + '`SERIALNUMBER=<issue id>`. Always answers 200 with {"result":"allow"|"deny"} — deny is the default '
         + 'for every unrecognised body.',
       response: {
         200: { type: 'object', properties: { result: { type: 'string' } } },
@@ -150,6 +154,28 @@ export default async function mqttAuthRoutes(app: FastifyInstance) {
         { clientid, instrument: identity.id, code: identity.code },
         '[ingest:mqtt-auth] denied — client id does not match the token\'s instrument code',
       );
+      return reply.send(DENY);
+    }
+
+    // DEVICE CERTIFICATES (2026-10-27). EMQX forwards the client
+    // certificate's subject as `cert_subject` — "" when the device sent none,
+    // which plain 1883 always does; a certificate from another CA never
+    // reaches here (the SSL listener refuses it at the handshake). A gateway
+    // must present its OWN current certificate when any child it reports for
+    // requires one: the bridge cannot see who published a message, so this
+    // CONNECT is the only place that can hold the child's requirement.
+    let required = identity.deviceCert.required;
+    if (!required && identity.isGateway) {
+      required = [...(await childMapFor(identity.id)).values()].some((c) => c.requiresCertificate);
+    }
+    const verdict = deviceCertificateDecision({
+      required,
+      currentIssueId: identity.deviceCert.issueId,
+      presentedIssueId: issueIdFromEmqxSubject((body as Record<string, unknown>).cert_subject),
+    });
+    if (!verdict.ok) {
+      req.log.warn({ clientid, instrument: identity.id, code: verdict.code }, '[ingest:mqtt-auth] denied — device certificate');
+      await recordCertificateRefusal(identity.id, 'mqtt', verdict.code);
       return reply.send(DENY);
     }
 
