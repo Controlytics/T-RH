@@ -46,6 +46,14 @@ api_key {
 }
 
 ## Plain MQTT on the LAN for devices that cannot do TLS; MQTTS beside it.
+##
+## DEVICE CERTIFICATES (2026-10-27): when the install has a device CA, the SSL
+## listener's `verify` renders `verify_peer` and its `cacertfile` the device
+## CA — a client certificate is then VERIFIED (one from another CA is refused
+## at the handshake) but never REQUIRED (`fail_if_no_peer_cert = false`), so a
+## device without one connects exactly as before and the auth hook decides per
+## instrument from the subject it is handed below. Without a device CA they
+## render `verify_none` and the server CA: the listener of every earlier install.
 listeners.tcp.default {
   bind = "0.0.0.0:@@MQTT_PORT@@"
 }
@@ -54,7 +62,8 @@ listeners.ssl.default {
   ssl_options {
     certfile = "@@CERT_FILE@@"
     keyfile  = "@@KEY_FILE@@"
-    verify = verify_none
+    cacertfile = "@@SSL_CACERT_FILE@@"
+    verify = @@SSL_VERIFY@@
     fail_if_no_peer_cert = false
   }
 }
@@ -91,10 +100,15 @@ authentication = [
     method = post
     url = "@@HOOK_URL@@"
     headers { content-type = "application/json" }
+    ## cert_subject: the client certificate's subject, "" when the device sent
+    ## none (always "" on plain 1883). Measured on 5.3.2:
+    ## "CN=<code>,SERIALNUMBER=<issue id>,O=DigiLog Device".
     body {
       clientid = "${clientid}"
       username = "${username}"
       password = "${password}"
+      cert_subject = "${cert_subject}"
+      cert_common_name = "${cert_common_name}"
     }
     pool_size = 8
     connect_timeout = 5s

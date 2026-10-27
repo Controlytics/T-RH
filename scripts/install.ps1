@@ -93,19 +93,28 @@ if (Test-Path $srvCrt) {
   New-Item -ItemType Directory -Force -Path $certDir | Out-Null
   $caKey = Join-Path $certDir 'rootCA.key'
   $ext = Join-Path $certDir 'server.ext'
+  # The LAN IP is ALSO a DNS entry: embedded TLS stacks (Quectel EC200 modems)
+  # compare the host as TEXT against the CN and DNS entries and never read IP
+  # entries (+CME ERROR: 732, 2026-10-27). DNS.1 = localhost must stay: the EMQX
+  # auth hook verifies the API with SNI `localhost`.
   Set-Content -Path $ext -Encoding ascii -Value @"
 authorityKeyIdentifier=keyid,issuer
+subjectKeyIdentifier=hash
 basicConstraints=CA:FALSE
 keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
 subjectAltName = @alt
 [alt]
 DNS.1 = localhost
+DNS.2 = $lanIp
 IP.1 = 127.0.0.1
 IP.2 = $lanIp
 "@
   & $openssl genrsa -out $caKey 2048
   if ($LASTEXITCODE -ne 0) { Write-Host "FATAL: openssl genrsa (CA) failed." -ForegroundColor Red; exit 1 }
-  & $openssl req -x509 -new -nodes -key $caKey -sha256 -days 3650 -subj "/CN=DigiLog Local CA" -out $caPem
+  # keyUsage on the CA is required by strict X.509 clients (Python 3.13+'s
+  # default context refuses a CA without it: "CA cert does not include key usage extension").
+  & $openssl req -x509 -new -nodes -key $caKey -sha256 -days 3650 -subj "/CN=DigiLog Local CA" -addext "keyUsage=critical,keyCertSign,cRLSign" -out $caPem
   if ($LASTEXITCODE -ne 0) { Write-Host "FATAL: openssl CA cert failed." -ForegroundColor Red; exit 1 }
   & $openssl genrsa -out $srvKey 2048
   if ($LASTEXITCODE -ne 0) { Write-Host "FATAL: openssl genrsa (server) failed." -ForegroundColor Red; exit 1 }
@@ -116,6 +125,29 @@ IP.2 = $lanIp
   # Trust the CA on the SERVER so the PC browser does not warn under HTTPS.
   Import-Certificate -FilePath $caPem -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
   Write-Host "==> Generated HTTPS certs (SAN includes $lanIp); rootCA.pem = $caPem" -ForegroundColor Cyan
+}
+
+# 1c. Device CA (device certificates, 2026-10-27): issues each instrument's
+#     CLIENT certificate from the app. Separate from the server CA above; created
+#     ONCE - a new one would cut off every device carrying a certificate from the
+#     old one, so half a pair is refused rather than "repaired". provision-emqx.ps1
+#     adds the env lines and points the broker's SSL listener at it.
+$devCaPem = Join-Path $certDir 'device-ca.pem'
+$devCaKey = Join-Path $certDir 'device-ca.key'
+if ((Test-Path $devCaPem) -and (Test-Path $devCaKey)) {
+  Write-Host "==> Reusing device CA in $certDir" -ForegroundColor Cyan
+} elseif ((Test-Path $devCaPem) -or (Test-Path $devCaKey)) {
+  Write-Host "FATAL: half a device CA in $certDir ($devCaPem / $devCaKey) - refusing to replace it; restore the missing file." -ForegroundColor Red; exit 1
+} elseif ($DryRun) {
+  Write-Host "[dry-run] openssl generate device CA in $certDir" -ForegroundColor Yellow
+} elseif (-not (Test-Path $openssl)) {
+  Write-Host "FATAL: openssl.exe not found at $openssl (needed for the device CA)." -ForegroundColor Red; exit 1
+} else {
+  & $openssl genrsa -out $devCaKey 2048
+  if ($LASTEXITCODE -ne 0) { Write-Host "FATAL: openssl genrsa (device CA) failed." -ForegroundColor Red; exit 1 }
+  & $openssl req -x509 -new -nodes -key $devCaKey -sha256 -days 7305 -subj "/CN=DigiLog Device CA" -addext "keyUsage=critical,keyCertSign,cRLSign" -out $devCaPem
+  if ($LASTEXITCODE -ne 0 -or -not (Test-Path $devCaPem)) { Write-Host "FATAL: device CA certificate failed." -ForegroundColor Red; exit 1 }
+  Write-Host "==> Generated device CA $devCaPem" -ForegroundColor Cyan
 }
 
 # 2. Secrets + env file. Reuse if present (idempotent); never regenerate.

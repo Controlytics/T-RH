@@ -34,7 +34,7 @@ the DATABASE is RDS.
 | `/opt/digilog/node` | portable Node 24 (official tarball); symlinked into `/usr/local/bin` |
 | `/opt/digilog/emqx` | EMQX 5.3.2 (ubuntu22.04 build), config rendered from `scripts/emqx/` via the symlink `/opt/digilog/emqx-templates` |
 | `/etc/digilog/digilog.env` | every secret and setting (`EnvironmentFile=`), `0640 root:digilog` |
-| `/etc/digilog/certs` | local CA + server cert (SAN: localhost, 127.0.0.1, private IP, **13.204.15.17**) |
+| `/etc/digilog/certs` | local CA + server cert — **CN `13.204.15.17`**, SAN: DNS + IP `13.204.15.17`, localhost, 127.0.0.1, private IP (re-signed 2026-10-27, same CA + key: Quectel modems match the host against CN / DNS entries only; old cert in `backup-20261027T071821Z/`) |
 | `/var/lib/digilog/{uploads,emqx}` | the only places the app writes |
 | `/etc/systemd/system/digilog-api.service` | `scripts/aws/digilog-api.service` — port 443 via `CAP_NET_BIND_SERVICE`, hardened |
 | `/etc/systemd/system/digilog-emqx.service` | `scripts/linux/systemd/digilog-emqx.service`, unchanged |
@@ -69,9 +69,33 @@ serving. **SSM "Success" means the command ran; read the output.**
 systemctl status digilog-api digilog-emqx
 journalctl -u digilog-api -f
 sudo -u digilog /opt/digilog/emqx/bin/emqx_ctl status
-# repair the broker config from a root shell:
-. /opt/digilog/app/scripts/linux/digilog-lib.sh && DIGILOG_API_PORT=443 digilog_provision_emqx && systemctl restart digilog-emqx
+# repair the broker config from a root shell. The port MUST be exported BEFORE
+# sourcing: the lib computes the auth-hook URL when it is sourced, and a line
+# that set it afterwards (this doc's, until 2026-10-27) rendered :3000 — every
+# MQTT CONNECT on this box would then be refused.
+export DIGILOG_API_PORT=443 && . /opt/digilog/app/scripts/linux/digilog-lib.sh && digilog_provision_emqx && systemctl restart digilog-emqx
 ```
+
+### Device certificates (2026-10-27)
+
+A profile can require each of its instruments' devices to connect with its own
+client certificate (spec `docs/superpowers/specs/2026-10-27-device-certificates-design.md`).
+Inert until the box has a device CA. To enable, AFTER deploying the code:
+
+```bash
+sudo bash /opt/digilog/app/scripts/aws/enable-device-certificates.sh          # dry run: device CA, env lines, emqx.conf diff
+sudo bash /opt/digilog/app/scripts/aws/enable-device-certificates.sh --apply  # backs up, applies, restarts, verifies, rolls back on failure
+```
+
+It creates `/etc/digilog/certs/device-ca.{pem,key}` (key `0640 root:digilog`;
+never replaced), adds `DEVICE_CA_CERT_PATH` / `DEVICE_CA_KEY_PATH` /
+`TLS_CA_PATH`, provisions the EMQX REST API key (so a revoked device's session
+is dropped at once), and re-renders `emqx.conf`: the 8883 listener verifies
+client certificates against the device CA but never requires one, and the
+auth hook receives `cert_subject`. Then in the app: Configuration → Instrument
+Attributes → the profile → **Require device certificate**, and Instruments →
+the instrument → **Device certificate → Issue** (downloads `client.crt`,
+`client.key`, `ca.crt` once).
 
 Ports: **443** HTTPS (web + API), **1883** MQTT, **8883** MQTTS (self-signed —
 devices must trust `/etc/digilog/certs/rootCA.pem`), 18083 EMQX dashboard on

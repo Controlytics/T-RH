@@ -120,6 +120,18 @@ $dashPw    = EnvEnsure 'EMQX_DASHBOARD_PASSWORD' (NewDashboardPassword)
 $apiKey    = EnvEnsure 'EMQX_API_KEY' ("digilog" + (NewSecret 8))
 $apiSecret = EnvEnsure 'EMQX_API_SECRET' (NewSecret 24)
 $null      = EnvEnsure 'EMQX_API_URL' "http://127.0.0.1:$DashboardPort"
+# Device certificates (2026-10-27): point the API at the device CA install.ps1
+# created (it issues each instrument's client certificate) and at the server CA
+# that goes into each certificate bundle. Without a device CA nothing is added
+# and the broker's SSL listener renders exactly as before (verify_none).
+$deviceCaFile = Join-Path $certDir 'device-ca.pem'
+$deviceCaKey  = Join-Path $certDir 'device-ca.key'
+$hasDeviceCa  = (Test-Path $deviceCaFile) -and (Test-Path $deviceCaKey)
+if ($hasDeviceCa) {
+  $null = EnvEnsure 'DEVICE_CA_CERT_PATH' $deviceCaFile
+  $null = EnvEnsure 'DEVICE_CA_KEY_PATH' $deviceCaKey
+  $null = EnvEnsure 'TLS_CA_PATH' (Join-Path $certDir 'rootCA.pem')
+}
 if ($pending.Count -gt 0) {
   if ($DryRun) { Write-Host "[dry-run] append to $envFile : $($pending -replace '=.*','=<generated>' -join ', ')" -ForegroundColor Yellow }
   else {
@@ -149,6 +161,8 @@ $map = @{
   '@@CERT_FILE@@'      = (Hocon $certFile)
   '@@KEY_FILE@@'       = (Hocon $keyFile)
   '@@CA_FILE@@'        = (Hocon $caFile)
+  '@@SSL_VERIFY@@'     = $(if ($hasDeviceCa) { 'verify_peer' } else { 'verify_none' })
+  '@@SSL_CACERT_FILE@@' = (Hocon $(if ($hasDeviceCa) { $deviceCaFile } else { $caFile }))
   '@@HOOK_URL@@'       = "https://127.0.0.1:$ApiPort/api/ingest/v1/mqtt-auth"
   '@@ACL_FILE@@'       = (Hocon $aclOut)
   '@@API_KEY_FILE@@'   = (Hocon $keyOut)

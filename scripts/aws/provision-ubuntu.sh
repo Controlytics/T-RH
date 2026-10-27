@@ -129,8 +129,11 @@ phase_install() {
   grep -q '^AUDIT_CHAIN_KEY=' "$CFG/digilog.env" || die "digilog.env has no AUDIT_CHAIN_KEY — refusing to continue"
   # 32-byte key for encrypting instrument tokens at rest (none exist on RDS yet).
   env_ensure INSTRUMENT_TOKEN_KEY "$(openssl rand -hex 32)" >/dev/null
+  # Device certificates (2026-10-27): the device CA + its env lines, BEFORE the
+  # broker render, whose SSL listener verifies against it when it exists.
+  digilog_ensure_device_ca
   digilog_provision_emqx
-  ok "broker config rendered; MQTT_* keys present"
+  ok "broker config rendered; MQTT_* keys present; device CA in $CFG/certs"
 
   log "Dependencies"
   cd "$APP"

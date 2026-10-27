@@ -24,7 +24,7 @@ Created at install, survive upgrade **and** `apt remove` (destroyed only by `apt
 | `/var/lib/digilog/db` | The private PostgreSQL cluster, port **5433**, localhost only |
 | `/var/lib/digilog/uploads`, `/emqx`, `/backups` | Uploads; the broker's retained slots and built-in database; nightly dumps |
 | `/etc/digilog/digilog.env` | Every secret and setting the API reads (`EnvironmentFile=`), `0640 root:digilog`, generated **once** |
-| `/etc/digilog/certs/` | Local CA + server cert (SAN: localhost, hostname, 127.0.0.1, LAN IPv4) |
+| `/etc/digilog/certs/` | Local CA + server cert (CN = LAN IPv4; SAN: localhost, hostname, 127.0.0.1, LAN IPv4 as both DNS and IP — some modem TLS stacks read DNS entries only), and the **device CA** `device-ca.{pem,key}` that issues each instrument's client certificate (since 2026-10-27; created on install and on upgrade, never replaced) |
 | `/etc/digilog/initial-admin-password.txt` | Only when no `DIGILOG_ADMIN_PASSWORD` was given at install; root-only; delete after first login |
 | `/var/log/digilog/` | Provisioning and backup logs (services log to the journal) |
 
@@ -89,6 +89,14 @@ sudo -u digilog /opt/digilog/emqx/bin/emqx_ctl status
 # repair the broker config / service from a root shell:
 . /opt/digilog/scripts/digilog-lib.sh && digilog_provision_emqx && systemctl restart digilog-emqx
 ```
+
+**Device certificates (2026-10-27).** With the device CA present, HTTPS and
+MQTTS ask every client for a certificate and verify one against the device CA,
+but never require one — browsers and devices without a certificate connect as
+before. A profile switched to **Require device certificate** (Configuration →
+Instrument Attributes) refuses its instruments' data on every channel unless
+the device presents the certificate issued from Instruments → the instrument →
+**Device certificate**. Raw TCP and plain 1883 can never carry one.
 
 Ports: **3000** HTTPS (web + API), **1883** MQTT, **8883** MQTTS, **18083**
 EMQX dashboard on loopback only (`admin` / `EMQX_DASHBOARD_PASSWORD` from

@@ -62,34 +62,76 @@ digilog_ensure_user_dirs() {
 # HTTPS certs: a local CA + a server cert whose SAN covers localhost, 127.0.0.1
 # and this host's LAN IPv4 (same as install.ps1), plus DIGILOG_EXTRA_SAN_IP when
 # set (the AWS instance's Elastic IP, which `hostname -I` cannot see). Reused if present.
+# The address devices dial (the Elastic IP when set, else the LAN IP) is the CN,
+# and every IP is ALSO a DNS entry: embedded TLS stacks (Quectel EC200 modems)
+# compare the host as TEXT against the CN and DNS entries and never read IP
+# entries — with the Elastic IP as an IP entry only, they failed the handshake
+# (+CME ERROR: 732, 2026-10-27). DNS.1 = localhost must stay: the EMQX auth hook
+# verifies the API with SNI `localhost`, so without it every MQTT CONNECT fails.
 digilog_ensure_certs() {
   local ca="$CERT_DIR/rootCA.pem" cakey="$CERT_DIR/rootCA.key" key="$CERT_DIR/server.key" crt="$CERT_DIR/server.crt"
   if [ -s "$crt" ]; then log "Reusing certs in $CERT_DIR"; return; fi
   local lan; lan="$(hostname -I 2>/dev/null | awk '{print $1}')"; [ -n "$lan" ] || lan=127.0.0.1
+  local cn="${DIGILOG_EXTRA_SAN_IP:-$lan}"
   local ext="$CERT_DIR/server.ext"
   cat > "$ext" <<EOF
 authorityKeyIdentifier=keyid,issuer
+subjectKeyIdentifier=hash
 basicConstraints=CA:FALSE
 keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
 subjectAltName = @alt
 [alt]
 DNS.1 = localhost
 DNS.2 = $(hostname -s 2>/dev/null || echo digilog)
+DNS.3 = $lan
 IP.1 = 127.0.0.1
 IP.2 = $lan
+${DIGILOG_EXTRA_SAN_IP:+DNS.4 = $DIGILOG_EXTRA_SAN_IP}
 ${DIGILOG_EXTRA_SAN_IP:+IP.3 = $DIGILOG_EXTRA_SAN_IP}
 EOF
   openssl genrsa -out "$cakey" 2048 >/dev/null 2>&1
-  openssl req -x509 -new -nodes -key "$cakey" -sha256 -days 3650 -subj "/CN=DigiLog Local CA" -out "$ca"
+  # keyUsage on the CA is required by strict X.509 clients (Python 3.13+'s
+  # default context refuses a CA without it: "CA cert does not include key usage extension").
+  openssl req -x509 -new -nodes -key "$cakey" -sha256 -days 3650 -subj "/CN=DigiLog Local CA" -addext "keyUsage=critical,keyCertSign,cRLSign" -out "$ca"
   openssl genrsa -out "$key" 2048 >/dev/null 2>&1
-  openssl req -new -key "$key" -subj "/CN=$lan" -out "$CERT_DIR/server.csr"
+  openssl req -new -key "$key" -subj "/CN=$cn" -out "$CERT_DIR/server.csr"
   openssl x509 -req -in "$CERT_DIR/server.csr" -CA "$ca" -CAkey "$cakey" -CAcreateserial -days 3650 -sha256 -extfile "$ext" -out "$crt" >/dev/null 2>&1
   [ -s "$crt" ] || die "server certificate generation failed"
   chown root:"$DIGILOG_USER" "$key" "$crt" "$ca"; chmod 0640 "$key"; chmod 0644 "$crt" "$ca"
   # Trust the CA on this server so curl/browsers on the box do not warn; the
   # broker's auth hook verifies against the file path, not the system store.
   if [ -d /usr/local/share/ca-certificates ]; then cp "$ca" /usr/local/share/ca-certificates/digilog-rootCA.crt; update-ca-certificates >/dev/null 2>&1 || true; fi
-  log "Generated HTTPS certs (SAN includes $lan); rootCA.pem = $ca"
+  log "Generated HTTPS certs (CN $cn; SAN includes $lan${DIGILOG_EXTRA_SAN_IP:+, $DIGILOG_EXTRA_SAN_IP}); rootCA.pem = $ca"
+}
+
+# DEVICE CA (device certificates, 2026-10-27): issues each instrument's CLIENT
+# certificate from the app. Separate from the server CA above on purpose — the
+# API (service user) must read this key to issue certificates, and the server
+# CA key stays root-only. Created ONCE: a new device CA would cut off every
+# device carrying a certificate from the old one, so a half-present pair is
+# refused rather than "repaired". Also writes the env lines the API reads
+# (env_ensure: an existing value is never changed).
+digilog_ensure_device_ca() {
+  local ca="$CERT_DIR/device-ca.pem" key="$CERT_DIR/device-ca.key"
+  if [ -s "$ca" ] && [ -s "$key" ]; then
+    log "Reusing device CA in $CERT_DIR"
+  else
+    if [ -e "$ca" ] || [ -e "$key" ]; then
+      die "half a device CA in $CERT_DIR ($ca / $key) — refusing to replace it; restore the missing file"
+    fi
+    openssl genrsa -out "$key" 2048 >/dev/null 2>&1
+    openssl req -x509 -new -nodes -key "$key" -sha256 -days 7305 -subj "/CN=DigiLog Device CA" \
+      -addext "keyUsage=critical,keyCertSign,cRLSign" -out "$ca"
+    [ -s "$ca" ] || die "device CA generation failed"
+    log "Generated device CA $ca"
+  fi
+  chown root:"$DIGILOG_USER" "$ca" "$key"; chmod 0644 "$ca"; chmod 0640 "$key"
+  if [ -f "$ENV_FILE" ]; then
+    env_ensure DEVICE_CA_CERT_PATH "$ca" >/dev/null
+    env_ensure DEVICE_CA_KEY_PATH "$key" >/dev/null
+    env_ensure TLS_CA_PATH "$CERT_DIR/rootCA.pem" >/dev/null
+  fi
 }
 
 # The runtime env file the API service loads (EnvironmentFile=). Written once.
@@ -201,6 +243,10 @@ digilog_provision_emqx() {
   local conf="$OPT/emqx/etc/emqx.conf" acl="$OPT/emqx/etc/acl.conf" keyfile="$OPT/emqx/etc/api_key.bootstrap"
   [ -f "$conf" ] && [ ! -f "$conf.orig" ] && cp "$conf" "$conf.orig"
   [ -f "$acl" ]  && [ ! -f "$acl.orig" ]  && cp "$acl"  "$acl.orig"
+  # Device certificates: the SSL listener verifies client certificates against
+  # the device CA only when one exists (see the template's note).
+  local ssl_verify=verify_none ssl_cacert="$CERT_DIR/rootCA.pem"
+  if [ -s "$CERT_DIR/device-ca.pem" ]; then ssl_verify=verify_peer; ssl_cacert="$CERT_DIR/device-ca.pem"; fi
   sed -e "s|@@NODE_COOKIE@@|$cookie|g" \
       -e "s|@@DATA_DIR@@|$DATA/emqx|g" \
       -e "s|@@DASHBOARD_PORT@@|$DASHBOARD_PORT|g" \
@@ -209,6 +255,8 @@ digilog_provision_emqx() {
       -e "s|@@CERT_FILE@@|$CERT_DIR/server.crt|g" \
       -e "s|@@KEY_FILE@@|$CERT_DIR/server.key|g" \
       -e "s|@@CA_FILE@@|$CERT_DIR/rootCA.pem|g" \
+      -e "s|@@SSL_VERIFY@@|$ssl_verify|g" \
+      -e "s|@@SSL_CACERT_FILE@@|$ssl_cacert|g" \
       -e "s|@@HOOK_URL@@|https://127.0.0.1:$API_PORT/api/ingest/v1/mqtt-auth|g" \
       -e "s|@@ACL_FILE@@|$acl|g" \
       -e "s|@@API_KEY_FILE@@|$keyfile|g" \

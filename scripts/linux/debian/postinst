@@ -25,6 +25,7 @@ case "${1:-}" in
       if [ -z "$ADMIN_PW" ]; then ADMIN_PW="$(openssl rand -base64 12 | tr -d '/+=' | cut -c1-14)"; GENERATED=1; fi
       [ "${#ADMIN_PW}" -ge 8 ] || die "DIGILOG_ADMIN_PASSWORD must be at least 8 characters"
       digilog_provision_db_fresh "$ADMIN_PW"
+      digilog_ensure_device_ca
       if [ "$GENERATED" = 1 ]; then
         ( umask 077; printf 'superadmin initial password: %s\nGenerated at install %s. Change it after first login, then delete this file.\n' "$ADMIN_PW" "$(date -Is)" > "$CFG/initial-admin-password.txt" )
       fi
@@ -37,6 +38,7 @@ case "${1:-}" in
       systemctl daemon-reload
       systemctl stop digilog-api.service 2>/dev/null || true
       digilog_upgrade_db "$NEW_VERSION"
+      digilog_ensure_device_ca
       digilog_provision_emqx
       systemctl restart digilog-emqx.service
       systemctl enable --now digilog-db.service digilog-emqx.service digilog-backup.timer
