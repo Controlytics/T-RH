@@ -134,11 +134,22 @@ export async function createDeviceCaFiles(certPath: string, keyPath: string): Pr
 }
 
 /**
+ * The CN for a code. Informational only — nothing compares it — so it is made
+ * SAFE rather than faithful: every DN-special character becomes `_` and it is
+ * capped at RFC 5280's 64. A code is free text, and a CN carrying
+ * `,SERIALNUMBER=<id>` would forge a second serialNumber component in the
+ * subject string EMQX hands the auth hook (final review, 2026-10-27).
+ */
+export function certificateCommonName(code: string): string {
+  const safe = code.replace(/[,+=\\";<>#\r\n]/g, '_').trim();
+  return (safe || 'device').slice(0, 64);
+}
+
+/**
  * Issue a client certificate for one instrument. Subject
- * `O=DigiLog Device, serialNumber=<issueId>, CN=<code>`: the issue id is the
- * identity every channel compares; the CN is informational (a rename does not
- * invalidate it). Built from attribute OIDs, not a DN string, so a code with
- * `,` `=` or `+` needs no escaping.
+ * `O=DigiLog Device, serialNumber=<issueId>, CN=<code, neutralised>`: the
+ * issue id is the identity every channel compares; the CN is informational (a
+ * rename does not invalidate it). Built from attribute OIDs, not a DN string.
  */
 export async function issueDeviceCertificate(code: string): Promise<IssuedDeviceCertificate> {
   const ca = await loadDeviceCa();
@@ -170,7 +181,7 @@ export async function issueDeviceCertificate(code: string): Promise<IssuedDevice
     subject: new x509.Name([
       { '2.5.4.10': ['DigiLog Device'] }, // O
       { '2.5.4.5': [issueId] },           // serialNumber
-      { '2.5.4.3': [code] },              // CN
+      { '2.5.4.3': [certificateCommonName(code)] }, // CN
     ]),
     issuer: caCert.subjectName,
     notBefore,

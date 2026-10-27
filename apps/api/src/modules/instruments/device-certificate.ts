@@ -76,14 +76,22 @@ export function certificateVerified(
  */
 export function issueIdFromEmqxSubject(subject: unknown): string | null {
   if (typeof subject !== 'string' || subject.length === 0) return null;
-  for (const part of subject.split(',')) {
-    const eq = part.indexOf('=');
-    if (eq < 0) continue;
-    if (part.slice(0, eq).trim().toUpperCase() !== 'SERIALNUMBER') continue;
-    const value = part.slice(eq + 1).trim();
-    if (ISSUE_ID.test(value)) return value;
-  }
-  return null;
+  // An escape means a component boundary we would have to interpret; our own
+  // certificates never carry one (issuance neutralises DN-special characters
+  // in the CN), so refuse rather than guess.
+  if (subject.includes('\\')) return null;
+  // EXACTLY ONE serialNumber component, or nothing. The CN comes first in
+  // what EMQX renders and a code is free text: an instrument renamed to
+  // `X,SERIALNUMBER=<another's id>` would otherwise present a second one, and
+  // "take the first" read the forged one (final review, 2026-10-27).
+  const serials = subject.split(',')
+    .map((part) => {
+      const eq = part.indexOf('=');
+      return eq < 0 ? null : { key: part.slice(0, eq).trim().toUpperCase(), value: part.slice(eq + 1).trim() };
+    })
+    .filter((p): p is { key: string; value: string } => p !== null && p.key === 'SERIALNUMBER');
+  if (serials.length !== 1) return null;
+  return ISSUE_ID.test(serials[0].value) ? serials[0].value : null;
 }
 
 /**

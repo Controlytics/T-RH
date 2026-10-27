@@ -78,6 +78,18 @@ describe('issueDeviceCertificate', () => {
     expect(Buffer.compare(fromKey, fromCert)).toBe(0);
   });
 
+  it('neutralises DN-special characters in the CN and caps it at 64 (a code is free text)', async () => {
+    const forged = await issueDeviceCertificate(`X,SERIALNUMBER=${'b'.repeat(32)}`);
+    const subject = new X509Certificate(forged.certificatePem).subject;
+    // Exactly ONE serialNumber, and it is the issue id.
+    expect(subject.match(/serialNumber=/g)).toHaveLength(1);
+    expect(subject).toContain(`serialNumber=${forged.issueId}`);
+    expect(subject).not.toMatch(/CN=.*[,+=\\";<>#]/);
+    const long = await issueDeviceCertificate('C'.repeat(100));
+    const cn = /CN=([^\n]*)/.exec(new X509Certificate(long.certificatePem).subject)?.[1] ?? '';
+    expect(cn.length).toBeLessThanOrEqual(64);
+  });
+
   it('gives every issue a new id', async () => {
     const a = await issueDeviceCertificate('Test');
     const b = await issueDeviceCertificate('Test');

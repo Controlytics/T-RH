@@ -58,8 +58,18 @@ describe('issueIdFromEmqxSubject', () => {
     expect(issueIdFromEmqxSubject('CN=Test,SERIALNUMBER=iss-7f3a9c')).toBeNull();
     expect(issueIdFromEmqxSubject(`CN=Test,SERIALNUMBER=${A.toUpperCase()}`)).toBeNull();
   });
-  it('returns the first well-formed component', () => {
-    expect(issueIdFromEmqxSubject(`CN=x,SERIALNUMBER=${A},SERIALNUMBER=${B}`)).toBe(A);
+  it('refuses an ambiguous subject — a SERIALNUMBER forged inside a free-text CN must never be read', () => {
+    // A code is free text; renamed to `X,SERIALNUMBER=<B's id>` it would put a
+    // second component in the subject EMQX renders (CN first). Final review
+    // 2026-10-27: reading "the first well-formed one" let a certificate for X
+    // pass as B's.
+    expect(issueIdFromEmqxSubject(`CN=x,SERIALNUMBER=${A},SERIALNUMBER=${B}`)).toBeNull();
+    expect(issueIdFromEmqxSubject(`CN=x,SERIALNUMBER=${A},SERIALNUMBER=${A}`)).toBeNull();
+    expect(issueIdFromEmqxSubject(`CN=x,SERIALNUMBER=junk,SERIALNUMBER=${A}`)).toBeNull();
+  });
+  it('refuses a subject carrying an escape — an escaped comma could hide a component', () => {
+    expect(issueIdFromEmqxSubject(`CN=x\\,SERIALNUMBER=${B},SERIALNUMBER=${A}`)).toBeNull();
+    expect(issueIdFromEmqxSubject(`CN=a\\+b,SERIALNUMBER=${A}`)).toBeNull();
   });
 });
 
