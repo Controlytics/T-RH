@@ -89,6 +89,14 @@ function plusYears(d: Date, years: number): Date {
   return out;
 }
 
+/**
+ * @peculiar/x509 ends a PEM without a newline. A device engineer whose loader
+ * takes ONE file concatenates client.crt and client.key, and without the
+ * newline the key's BEGIN line lands on the certificate's END line — the
+ * combined file then reads as a lone certificate (found 2026-10-27).
+ */
+function withFinalNewline(pem: string): string { return pem.endsWith('\n') ? pem : `${pem}\n`; }
+
 /** A positive 16-byte X.509 serial (the leading 01 keeps the DER INTEGER positive). */
 function certSerial(): string { return `01${randomBytes(15).toString('hex')}`; }
 
@@ -130,7 +138,7 @@ export async function createDeviceCaFiles(certPath: string, keyPath: string): Pr
   // Key first, exclusive-create, owner-only where the OS honours it; the
   // installers then hand it to the service user's group.
   fs.writeFileSync(keyPath, keyPem, { mode: 0o600, flag: 'wx' });
-  fs.writeFileSync(certPath, cert.toString('pem'), { flag: 'wx' });
+  fs.writeFileSync(certPath, withFinalNewline(cert.toString('pem')), { flag: 'wx' });
 }
 
 /**
@@ -192,7 +200,7 @@ export async function issueDeviceCertificate(code: string): Promise<IssuedDevice
     extensions,
   });
 
-  const certificatePem = cert.toString('pem');
+  const certificatePem = withFinalNewline(cert.toString('pem'));
   const privateKeyPem = createPrivateKey({ key: await privateKeyDer(keys.privateKey), format: 'der', type: 'pkcs8' })
     .export({ type: 'pkcs1', format: 'pem' }) as string;
   const fingerprint = new NodeX509Certificate(certificatePem).fingerprint256.replace(/:/g, '').toLowerCase();

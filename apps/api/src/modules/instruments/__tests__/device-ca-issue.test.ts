@@ -90,6 +90,16 @@ describe('issueDeviceCertificate', () => {
     expect(cn.length).toBeLessThanOrEqual(64);
   });
 
+  it('ends every PEM with a newline, so files can be concatenated into one (a one-slot loader)', async () => {
+    // Found 2026-10-27: `cat client.crt client.key` glued the key's BEGIN line
+    // onto the certificate's END line and the combined file read as a lone
+    // certificate.
+    const issued = await issueDeviceCertificate('Test');
+    expect(issued.certificatePem.endsWith('\n')).toBe(true);
+    expect(issued.privateKeyPem.endsWith('\n')).toBe(true);
+    expect(fs.readFileSync(caCertPath, 'utf8').endsWith('\n')).toBe(true);
+  });
+
   it('gives every issue a new id', async () => {
     const a = await issueDeviceCertificate('Test');
     const b = await issueDeviceCertificate('Test');
