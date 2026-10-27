@@ -29,7 +29,9 @@ top of `docs/feature-notes.md`.
   `DEVICE_CERTIFICATE_ISSUED` / `_REVOKED` (98 → 100, templates 111 → 113).
 - **A separate device CA** issues them (`device-ca.{pem,key}`, env
   `DEVICE_CA_CERT_PATH` / `DEVICE_CA_KEY_PATH`, bundle CA `TLS_CA_PATH`), created
-  once by `digilog-lib.sh` / `install.ps1` / the AWS rollout script; new
+  once and only ON REQUEST (AWS rollout script, `DIGILOG_DEVICE_CERTIFICATES=1`
+  for the `.deb`, `install.ps1 -EnableDeviceCertificates`) — never by an upgrade on
+  its own, since it changes every TLS handshake on 443 / 8883; new
   dependencies `@peculiar/x509` 2.1.0 and `reflect-metadata` 0.2.2 (exact).
 - **Nothing changes until it is configured**, and little after: with a device
   CA, HTTPS and MQTTS ASK for a client certificate (naming only the device CA)

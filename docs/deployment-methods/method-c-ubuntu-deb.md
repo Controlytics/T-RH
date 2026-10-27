@@ -24,7 +24,7 @@ Created at install, survive upgrade **and** `apt remove` (destroyed only by `apt
 | `/var/lib/digilog/db` | The private PostgreSQL cluster, port **5433**, localhost only |
 | `/var/lib/digilog/uploads`, `/emqx`, `/backups` | Uploads; the broker's retained slots and built-in database; nightly dumps |
 | `/etc/digilog/digilog.env` | Every secret and setting the API reads (`EnvironmentFile=`), `0640 root:digilog`, generated **once** |
-| `/etc/digilog/certs/` | Local CA + server cert (CN = LAN IPv4; SAN: localhost, hostname, 127.0.0.1, LAN IPv4 as both DNS and IP — some modem TLS stacks read DNS entries only), and the **device CA** `device-ca.{pem,key}` that issues each instrument's client certificate (since 2026-10-27; created on install and on upgrade, never replaced) |
+| `/etc/digilog/certs/` | Local CA + server cert (CN = LAN IPv4; SAN: localhost, hostname, 127.0.0.1, LAN IPv4 as both DNS and IP — some modem TLS stacks read DNS entries only), and — only if device certificates are enabled — the **device CA** `device-ca.{pem,key}` that issues each instrument's client certificate (since 2026-10-27; OPT-IN, never replaced) |
 | `/etc/digilog/initial-admin-password.txt` | Only when no `DIGILOG_ADMIN_PASSWORD` was given at install; root-only; delete after first login |
 | `/var/log/digilog/` | Provisioning and backup logs (services log to the journal) |
 
@@ -90,7 +90,7 @@ sudo -u digilog /opt/digilog/emqx/bin/emqx_ctl status
 . /opt/digilog/scripts/digilog-lib.sh && digilog_provision_emqx && systemctl restart digilog-emqx
 ```
 
-**Device certificates (2026-10-27).** With the device CA present, HTTPS and
+**Device certificates (2026-10-27) are OPT-IN**: `sudo DIGILOG_DEVICE_CERTIFICATES=1 apt install ./digilog_<version>_amd64.deb`, or on an installed box `sudo bash -c '. /opt/digilog/scripts/digilog-lib.sh && digilog_ensure_device_ca && digilog_provision_emqx && systemctl restart digilog-api digilog-emqx'`. Back the device CA up with the server CA: a new one orphans every issued certificate. With the device CA present, HTTPS and
 MQTTS ask every client for a certificate and verify one against the device CA,
 but never require one — browsers and devices without a certificate connect as
 before. A profile switched to **Require device certificate** (Configuration →

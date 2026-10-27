@@ -17,6 +17,12 @@
 .PARAMETER AdminPassword  INITIAL_ADMIN_PASSWORD for the seed (required on fresh
                           install). The app forces a change on first login.
 .PARAMETER DryRun         Print the plan + commands without executing.
+.PARAMETER EnableDeviceCertificates  Create the DEVICE CA (device certificates,
+                          2026-10-27). OPT-IN: with it, HTTPS and MQTTS ask every
+                          client for a certificate (never require one) - a TLS
+                          change every browser and device sees, so it is never
+                          made by an upgrade on its own. An existing device CA
+                          is always kept.
 #>
 [CmdletBinding()]
 param(
@@ -27,7 +33,8 @@ param(
   [string]$AdminPassword,
   [int]$BackupRetainDays = 14,
   [switch]$Upgrade,
-  [switch]$DryRun
+  [switch]$DryRun,
+  [switch]$EnableDeviceCertificates
 )
 
 $pgBin      = Join-Path $InstallDir 'pgsql\bin'
@@ -138,6 +145,11 @@ if ((Test-Path $devCaPem) -and (Test-Path $devCaKey)) {
   Write-Host "==> Reusing device CA in $certDir" -ForegroundColor Cyan
 } elseif ((Test-Path $devCaPem) -or (Test-Path $devCaKey)) {
   Write-Host "FATAL: half a device CA in $certDir ($devCaPem / $devCaKey) - refusing to replace it; restore the missing file." -ForegroundColor Red; exit 1
+} elseif (-not $EnableDeviceCertificates) {
+  # OPT-IN (final review, 2026-10-27): creating it changes every TLS
+  # handshake on 443 / 8883 (a client-certificate REQUEST), which must not
+  # arrive with an upgrade nobody asked for it in.
+  Write-Host "==> Device certificates not enabled (re-run with -EnableDeviceCertificates to create the device CA)" -ForegroundColor Gray
 } elseif ($DryRun) {
   Write-Host "[dry-run] openssl generate device CA in $certDir" -ForegroundColor Yellow
 } elseif (-not (Test-Path $openssl)) {
