@@ -1,6 +1,9 @@
 import { type FastifyInstance } from 'fastify';
 import { resolveInstrumentByToken } from './ingest-auth.js';
 import { ingestPayload } from './ingest-core.js';
+import {
+  certificateVerified, issueIdFromTlsSocket, judgeConnection, recordCertificateRefusal, refusalReason,
+} from './device-certificate.js';
 
 function bearer(header?: string): string {
   if (!header) return '';
@@ -47,6 +50,9 @@ export default async function ingestRoutes(app: FastifyInstance) {
         202: { type: 'object', properties: { accepted: { type: 'integer' } } },
         400: { type: 'object', properties: { error: { type: 'string' }, message: { type: 'string' } } },
         401: { type: 'object', properties: { error: { type: 'string' } } },
+        // The instrument's profile requires a device certificate and this
+        // connection did not present its current one.
+        403: { type: 'object', properties: { error: { type: 'string' }, message: { type: 'string' } } },
         422: { type: 'object', properties: { error: { type: 'string' }, message: { type: 'string' } } },
         503: { type: 'object', properties: { error: { type: 'string' }, message: { type: 'string' } } },
       },
@@ -55,8 +61,21 @@ export default async function ingestRoutes(app: FastifyInstance) {
     const identity = await resolveInstrumentByToken(bearer(req.headers.authorization));
     if (!identity) return reply.code(401).send({ error: 'INVALID_DEVICE_TOKEN' });
 
+    // Device certificates (2026-10-27): the certificate the TLS layer
+    // AUTHORIZED against the device CA on this connection, if any. The
+    // server requests one only when the device CA is configured
+    // (lib/https-options.ts); without TLS there is none.
+    const presented = issueIdFromTlsSocket(req.raw.socket);
+    const verdict = judgeConnection(identity, presented);
+    if (!verdict.ok) {
+      await recordCertificateRefusal(identity.id, 'http', verdict.code);
+      return reply.code(403).send({ error: verdict.code, message: refusalReason(verdict.code, 'http') });
+    }
+
     const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body ?? ''));
-    const outcome = await ingestPayload({ identity, raw, transport: 'http' });
+    const outcome = await ingestPayload({
+      identity, raw, transport: 'http', certificateVerified: certificateVerified(identity, presented),
+    });
 
     if (!outcome.ok) {
       // 202 for an unparseable payload: it was recorded as a dead-letter and

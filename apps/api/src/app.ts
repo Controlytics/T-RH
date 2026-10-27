@@ -70,23 +70,16 @@ import { startRtcTicker } from './modules/instruments/listeners/rtc-sync.js';
 let rtcTicker: { stop(): void } | null = null;
 import { logger, attachLogger } from './lib/logger.js';
 import { parseTrustProxy } from './lib/trust-proxy.js';
+import { buildHttpsOptions } from './lib/https-options.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// TLS cert location is env-overridable so the customer install can point it at
-// C:\ProgramData\DigiLog\certs (data dir → survives upgrades; regenerating the CA
-// on upgrade would re-break the tablet's trust). Defaults to the dev repo's
-// certs/server.{key,crt} so local dev is unchanged. See EXE-PACKAGING-PLAN.md §13.
+// TLS options — server key/cert (env-overridable, defaults to the dev repo's
+// certs/server.{key,crt}) and, when the device CA is configured, the client-
+// certificate request device certificates rely on. See lib/https-options.ts.
 const defaultCertDir = path.resolve(__dirname, '../../../certs');
-const tlsKeyPath  = process.env.TLS_KEY_PATH  ?? path.join(defaultCertDir, 'server.key');
-const tlsCertPath = process.env.TLS_CERT_PATH ?? path.join(defaultCertDir, 'server.crt');
-const httpsOptions = process.env.API_HTTPS === 'true'
-  ? {
-      key: fs.readFileSync(tlsKeyPath),
-      cert: fs.readFileSync(tlsCertPath),
-    }
-  : null;
+const httpsOptions = buildHttpsOptions(process.env, defaultCertDir);
 
 // May 16 H2 fix (2026-05-20): trustProxy was unconditionally 1. When the
 // API serves browsers DIRECTLY (no reverse proxy in front — the local

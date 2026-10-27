@@ -1,6 +1,7 @@
 import net from 'node:net';
 import { LineFramer } from './line-framer.js';
 import { resolveInstrumentByToken, reauthorizeConnection, type IngestIdentity } from '../ingest-auth.js';
+import { judgeConnection, recordCertificateRefusal } from '../device-certificate.js';
 import { ingestPayload } from '../ingest-core.js';
 import { logger } from '../../../lib/logger.js';
 
@@ -238,6 +239,15 @@ export async function startTcpListener(
               kill('closing socket — invalid device token');
               return;
             }
+            // Device certificates (2026-10-27): raw TCP is never TLS, so it
+            // never carries one — an instrument whose profile requires a
+            // certificate cannot report here at all.
+            const verdict = judgeConnection(resolved, null);
+            if (!verdict.ok) {
+              await recordCertificateRefusal(resolved.id, 'tcp', verdict.code);
+              kill('closing socket — device certificate required (raw TCP cannot carry one)', { code: resolved.code });
+              return;
+            }
             identity = resolved;
             authToken = token;
             clearTimeout(authDeadline);
@@ -262,9 +272,17 @@ export async function startTcpListener(
             return;
           }
           identity = current;
+          // The profile may have started requiring a certificate since this
+          // socket authenticated.
+          const verdict = judgeConnection(identity, null);
+          if (!verdict.ok) {
+            await recordCertificateRefusal(identity.id, 'tcp', verdict.code);
+            kill('closing socket — device certificate required (raw TCP cannot carry one)', { code: identity.code });
+            return;
+          }
 
           const outcome = await ingestPayload({
-            identity, raw: Buffer.from(line, 'utf8'), transport: 'tcp',
+            identity, raw: Buffer.from(line, 'utf8'), transport: 'tcp', certificateVerified: false,
           });
 
           // A refusal is the core having RECORDED the problem correctly —

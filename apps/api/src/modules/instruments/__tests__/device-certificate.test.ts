@@ -6,7 +6,9 @@ vi.mock('../telemetry.repository.js', () => ({
 }));
 
 import {
+  certificateVerified,
   deviceCertificateDecision,
+  judgeConnection,
   issueIdFromEmqxSubject,
   issueIdFromTlsSocket,
   recordCertificateRefusal,
@@ -117,5 +119,24 @@ describe('recordCertificateRefusal — one dead letter per instrument, channel a
   it('never throws when the write fails', async () => {
     writeDeadLetters.mockRejectedValueOnce(new Error('db down'));
     await expect(recordCertificateRefusal('inst-1', 'tcp', 'DEVICE_CERTIFICATE_REQUIRED')).resolves.toBeUndefined();
+  });
+});
+
+describe('judgeConnection / certificateVerified — a connection against an identity', () => {
+  const id = (required: boolean, issueId: string | null) => ({ deviceCert: { required, issueId } });
+
+  it("judgeConnection applies the decision to the identity's own facts", () => {
+    expect(judgeConnection(id(true, A), A)).toEqual({ ok: true });
+    expect(judgeConnection(id(true, A), null)).toEqual({ ok: false, code: 'DEVICE_CERTIFICATE_REQUIRED' });
+    expect(judgeConnection(id(true, A), B)).toEqual({ ok: false, code: 'DEVICE_CERTIFICATE_MISMATCH' });
+    expect(judgeConnection(id(false, null), null)).toEqual({ ok: true });
+  });
+
+  it("certificateVerified is true only for the identity's CURRENT certificate", () => {
+    expect(certificateVerified(id(false, A), A)).toBe(true);
+    expect(certificateVerified(id(true, A), A)).toBe(true);
+    expect(certificateVerified(id(false, A), B)).toBe(false);
+    expect(certificateVerified(id(false, A), null)).toBe(false);
+    expect(certificateVerified(id(false, null), null)).toBe(false);
   });
 });

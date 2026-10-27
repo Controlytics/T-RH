@@ -45,6 +45,13 @@ export function fanoutDevices(
   childMap: ChildMap,
   ts: Date,
   gatewayCode: string,
+  /**
+   * `certificateVerified` (device certificates, 2026-10-27): whether THIS
+   * connection presented the gateway's own current certificate. `false` drops
+   * every child whose profile requires one. Omitted = not judged here — MQTT,
+   * where the EMQX hook already required the gateway's certificate at CONNECT.
+   */
+  opts: { certificateVerified?: boolean } = {},
 ): FanoutResult {
   const readings: FanoutResult['readings'] = [];
   const rejected: FanoutResult['rejected'] = [];
@@ -78,6 +85,13 @@ export function fanoutDevices(
     }
     if (!child.isActive) {
       rejected.push({ code, reason: `Instrument "${code}" is not active` });
+      continue;
+    }
+    if (child.requiresCertificate && opts.certificateVerified === false) {
+      rejected.push({
+        code,
+        reason: `"${code}" requires a device certificate: gateway "${gatewayCode}" did not present its own current device certificate on this connection`,
+      });
       continue;
     }
     if (block === null || typeof block !== 'object' || Array.isArray(block)) {

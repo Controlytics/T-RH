@@ -5,6 +5,7 @@ import type { WebSocket } from 'ws';
 // by the composition root (app.ts / test-helper.ts), not here.
 import type {} from '@fastify/websocket';
 import { resolveInstrumentByToken, reauthorizeConnection, type IngestIdentity } from '../ingest-auth.js';
+import { certificateVerified, issueIdFromTlsSocket, judgeConnection, recordCertificateRefusal } from '../device-certificate.js';
 import { ingestPayload } from '../ingest-core.js';
 import { logger } from '../../../lib/logger.js';
 
@@ -89,6 +90,11 @@ const DEFAULT_MAX_CONNECTIONS = 200;
 const CLOSE_UNAUTHENTICATED = 4401;
 /** Authenticated once, but the credential or the instrument has since been revoked. */
 const CLOSE_REVOKED = 4403;
+/**
+ * The instrument's profile requires a device certificate and this connection
+ * did not present its current one (2026-10-27). Forbidden, like a revocation.
+ */
+const CLOSE_CERTIFICATE_REQUIRED = 4403;
 const CLOSE_FRAME_TOO_LARGE = 4413;
 const CLOSE_RATE_EXCEEDED = 4429;
 const CLOSE_INTERNAL = 4500;
@@ -159,6 +165,10 @@ export default async function wsIngestRoutes(
     },
   }, (socket: WebSocket, req: FastifyRequest) => {
     const remote = req.ip;
+    // Device certificates (2026-10-27): what the TLS layer authorized on the
+    // upgrade's socket — fixed for the connection's life, judged against the
+    // instrument at authentication and again before every frame.
+    const presentedIssueId = issueIdFromTlsSocket(req.raw.socket);
 
     // FIRST, before any branch that can return: an ECONNRESET with no 'error'
     // listener takes the whole process down. A REFUSED connection is exactly
@@ -219,6 +229,15 @@ export default async function wsIngestRoutes(
       t.unref();
     };
 
+    /** Close on a device-certificate refusal, leaving a (rate-limited) dead letter. */
+    const refusedCertificate = async (who: IngestIdentity): Promise<boolean> => {
+      const verdict = judgeConnection(who, presentedIssueId);
+      if (verdict.ok) return false;
+      await recordCertificateRefusal(who.id, 'ws', verdict.code);
+      close(CLOSE_CERTIFICATE_REQUIRED, 'device certificate required', { code: who.code, refusal: verdict.code });
+      return true;
+    };
+
     // ABSOLUTE, not an inactivity timer: a client dribbling a frame every few
     // seconds without ever presenting a token would reset an idle timer forever
     // and hold the slot for free.
@@ -248,6 +267,7 @@ export default async function wsIngestRoutes(
             close(CLOSE_UNAUTHENTICATED, 'invalid device token on the upgrade header');
             return;
           }
+          if (await refusedCertificate(resolved)) return;
           identity = resolved;
           authToken = headerToken;
           clearTimeout(authDeadline);
@@ -322,6 +342,7 @@ export default async function wsIngestRoutes(
               close(CLOSE_UNAUTHENTICATED, 'invalid device token in the first frame');
               return;
             }
+            if (await refusedCertificate(resolved)) return;
             identity = resolved;
             authToken = token;
             clearTimeout(authDeadline);
@@ -338,8 +359,13 @@ export default async function wsIngestRoutes(
             return;
           }
           identity = current;
+          // The profile may have started requiring a certificate, or the
+          // certificate been re-issued / revoked, since this socket opened.
+          if (await refusedCertificate(identity)) return;
 
-          const outcome = await ingestPayload({ identity, raw: frame, transport: 'ws' });
+          const outcome = await ingestPayload({
+            identity, raw: frame, transport: 'ws', certificateVerified: certificateVerified(identity, presentedIssueId),
+          });
 
           // A refusal is the core having RECORDED the problem correctly —
           // UNPARSEABLE and NOT_A_GATEWAY are both dead-lettered in there.

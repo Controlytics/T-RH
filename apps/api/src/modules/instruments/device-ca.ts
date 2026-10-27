@@ -28,15 +28,15 @@ x509.cryptoProvider.set(webcrypto as unknown as Crypto);
  * of serving a cached key.
  */
 
-export function deviceCaPaths(): { certPath: string; keyPath: string } | null {
-  const certPath = process.env.DEVICE_CA_CERT_PATH;
-  const keyPath = process.env.DEVICE_CA_KEY_PATH;
+export function deviceCaPaths(env: NodeJS.ProcessEnv = process.env): { certPath: string; keyPath: string } | null {
+  const certPath = env.DEVICE_CA_CERT_PATH;
+  const keyPath = env.DEVICE_CA_KEY_PATH;
   if (!certPath || !keyPath) return null;
   return { certPath, keyPath };
 }
 
-export function deviceCaAvailable(): boolean {
-  const p = deviceCaPaths();
+export function deviceCaAvailable(env: NodeJS.ProcessEnv = process.env): boolean {
+  const p = deviceCaPaths(env);
   return p !== null && fs.existsSync(p.certPath) && fs.existsSync(p.keyPath);
 }
 

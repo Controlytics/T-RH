@@ -43,6 +43,30 @@ export function deviceCertificateDecision(a: {
   return { ok: true };
 }
 
+/** The decision for a connection that authenticated AS this identity. */
+export function judgeConnection(
+  identity: { deviceCert: { required: boolean; issueId: string | null } },
+  presentedIssueId: string | null,
+): DeviceCertVerdict {
+  return deviceCertificateDecision({
+    required: identity.deviceCert.required,
+    currentIssueId: identity.deviceCert.issueId,
+    presentedIssueId,
+  });
+}
+
+/**
+ * Did this connection present the identity's CURRENT certificate? What a
+ * gateway's batch needs before it may report for a child that requires one —
+ * true only for a real match, never for "not required".
+ */
+export function certificateVerified(
+  identity: { deviceCert: { issueId: string | null } },
+  presentedIssueId: string | null,
+): boolean {
+  return presentedIssueId !== null && presentedIssueId === identity.deviceCert.issueId;
+}
+
 /**
  * The issue id from the subject string EMQX 5.3.2 renders for
  * `${cert_subject}` — measured on the broker 2026-10-27:

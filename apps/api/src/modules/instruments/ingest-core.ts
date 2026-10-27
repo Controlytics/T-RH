@@ -186,6 +186,13 @@ export async function ingestPayload(args: {
   raw: Buffer;
   /** The transport it actually ARRIVED on. Recorded verbatim on dead-letters. */
   transport: string;
+  /**
+   * Device certificates (2026-10-27): whether the connection presented the
+   * sender's own current certificate — what a gateway batch needs to report
+   * for a child that requires one. The CHANNEL has already judged the sender
+   * itself before calling here. Omitted on MQTT, judged at CONNECT.
+   */
+  certificateVerified?: boolean;
 }): Promise<IngestOutcome> {
   const { identity, raw, transport } = args;
 
@@ -239,7 +246,9 @@ export async function ingestPayload(args: {
     }
 
     const childMap = await childMapFor(identity.id);
-    const { readings, rejected } = fanoutDevices(devices, childMap, ts, identity.code);
+    const { readings, rejected } = fanoutDevices(devices, childMap, ts, identity.code, {
+      certificateVerified: args.certificateVerified,
+    });
 
     if (rejected.length > 0) {
       // Attributed to the GATEWAY: the named child either does not exist or

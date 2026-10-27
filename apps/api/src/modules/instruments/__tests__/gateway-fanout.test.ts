@@ -89,3 +89,28 @@ describe('fanoutDevices', () => {
     expect(r.readings).toHaveLength(2);
   });
 });
+
+describe('fanoutDevices — a child whose profile requires a device certificate', () => {
+  const certMap: ChildMap = new Map([
+    ['SENSOR-REQ', { id: 'id-req', isActive: true, requiresCertificate: true }],
+    ['SENSOR-FREE', { id: 'id-free', isActive: true, requiresCertificate: false }],
+  ]);
+  const batch = { 'SENSOR-REQ': { temperature: 21.5 }, 'SENSOR-FREE': { humidity: 47 } };
+
+  it('is refused when the gateway connection did not present its own current certificate', () => {
+    const r = fanoutDevices(batch, certMap, TS, 'GW-1', { certificateVerified: false });
+    expect(r.readings.map((x) => x.instrumentId)).toEqual(['id-free']);
+    expect(r.rejected).toEqual([{ code: 'SENSOR-REQ', reason: expect.stringContaining('device certificate') }]);
+  });
+
+  it('is accepted when it did', () => {
+    const r = fanoutDevices(batch, certMap, TS, 'GW-1', { certificateVerified: true });
+    expect(r.rejected).toEqual([]);
+    expect(r.readings.map((x) => x.instrumentId).sort()).toEqual(['id-free', 'id-req']);
+  });
+
+  it('is accepted when the caller does not judge (MQTT is judged at CONNECT)', () => {
+    const r = fanoutDevices(batch, certMap, TS, 'GW-1');
+    expect(r.rejected).toEqual([]);
+  });
+});
