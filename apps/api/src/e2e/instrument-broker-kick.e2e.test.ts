@@ -111,6 +111,86 @@ describe('revocation drops the open MQTT session at the broker', () => {
     expect(kicks.map((k) => k.url)).toEqual([enc(code)]);
   });
 
+  // Device certificates (final review, 2026-10-27): the EMQX hook judges the
+  // certificate requirement only at CONNECT, so every change that can move it
+  // — the instrument's PROFILE, its GATEWAY link — must drop the sessions it
+  // touches, or a plain-1883 device keeps delivering while the screen says
+  // its data is refused.
+  async function mkGateway(code: string): Promise<string> {
+    const res = await app.inject({
+      method: 'POST', url: '/api/instruments', headers: auth,
+      payload: { name: code, code, isGateway: true, profileId: await fixtureProfileId('fixture:broker-kick') },
+    });
+    expect(res.statusCode).toBe(201);
+    created.unshift(res.json().id);
+    return res.json().id as string;
+  }
+
+  it('moving an instrument into another profile kicks it', async () => {
+    const code = `KICK-G-${S}`;
+    const id = await mk(code);
+    const res = await app.inject({
+      method: 'PUT', url: `/api/instruments/${id}`, headers: auth,
+      payload: { profileId: await fixtureProfileId('fixture:broker-kick-other') },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(kicks.map((k) => k.url)).toEqual([enc(code)]);
+  });
+
+  it('linking a child to a gateway kicks the child and the gateway', async () => {
+    const gw = `KICK-GW1-${S}`;
+    const gwId = await mkGateway(gw);
+    const code = `KICK-H-${S}`;
+    const id = await mk(code);
+    kicks = [];
+    const res = await app.inject({ method: 'PUT', url: `/api/instruments/${id}`, headers: auth, payload: { gatewayId: gwId } });
+    expect(res.statusCode).toBe(200);
+    expect(kicks.map((k) => k.url).sort()).toEqual([enc(code), enc(gw)].sort());
+  });
+
+  it('moving a child between gateways kicks it and BOTH gateways', async () => {
+    const gwA = `KICK-GW2-${S}`;
+    const gwB = `KICK-GW3-${S}`;
+    const aId = await mkGateway(gwA);
+    const bId = await mkGateway(gwB);
+    const code = `KICK-I-${S}`;
+    const id = await mk(code);
+    expect((await app.inject({ method: 'PUT', url: `/api/instruments/${id}`, headers: auth, payload: { gatewayId: aId } })).statusCode).toBe(200);
+    kicks = [];
+    const res = await app.inject({ method: 'PUT', url: `/api/instruments/${id}`, headers: auth, payload: { gatewayId: bId } });
+    expect(res.statusCode).toBe(200);
+    expect(kicks.map((k) => k.url).sort()).toEqual([enc(code), enc(gwA), enc(gwB)].sort());
+  });
+
+  it('moving a LINKED child into another profile kicks its gateway too', async () => {
+    const gw = `KICK-GW4-${S}`;
+    const gwId = await mkGateway(gw);
+    const code = `KICK-J-${S}`;
+    const id = await mk(code);
+    expect((await app.inject({ method: 'PUT', url: `/api/instruments/${id}`, headers: auth, payload: { gatewayId: gwId } })).statusCode).toBe(200);
+    kicks = [];
+    const res = await app.inject({
+      method: 'PUT', url: `/api/instruments/${id}`, headers: auth,
+      payload: { profileId: await fixtureProfileId('fixture:broker-kick-other') },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(kicks.map((k) => k.url).sort()).toEqual([enc(code), enc(gw)].sort());
+  });
+
+  it('a child BORN linked kicks its gateway', async () => {
+    const gw = `KICK-GW5-${S}`;
+    const gwId = await mkGateway(gw);
+    kicks = [];
+    const code = `KICK-K-${S}`;
+    const res = await app.inject({
+      method: 'POST', url: '/api/instruments', headers: auth,
+      payload: { name: code, code, gatewayId: gwId, profileId: await fixtureProfileId('fixture:broker-kick') },
+    });
+    expect(res.statusCode).toBe(201);
+    created.unshift(res.json().id);
+    expect(kicks.map((k) => k.url)).toEqual([enc(gw)]);
+  });
+
   it('a broker that refuses the kick never fails the committed revocation', async () => {
     failWith = 500;
     const code = `KICK-F-${S}`;

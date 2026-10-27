@@ -1645,6 +1645,14 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       // An instrument born linked must be writable by its gateway at once, not
       // after the child-map TTL.
       if (parsed.data.gatewayId) invalidateChildMapCache(parsed.data.gatewayId);
+      // ...and if its profile requires a device certificate the gateway's open
+      // MQTT session must be judged again (final review, 2026-10-27: the hook
+      // decides only at CONNECT). Kicking it unconditionally keeps the rule in
+      // ONE place — the hook — at the cost of one reconnect per link.
+      if (parsed.data.gatewayId) {
+        const gatewayCode = await codeOf(parsed.data.gatewayId);
+        if (gatewayCode) await kickMqttClient(gatewayCode, 'a child was registered under it');
+      }
       // Born linked → its new parent's roster gained a member. Born a GATEWAY →
       // publish its (empty) roster now, so a gateway that connects before it
       // ever gains a child reads an explicit "no children" instead of an empty
@@ -2111,6 +2119,21 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // deactivation kicks the current one. Best effort, never throws.
     if (priorCode !== null && priorCode !== updated.code) await kickMqttClient(priorCode, 'instrument code changed');
     if (existing.isActive && !updated.isActive) await kickMqttClient(updated.code, 'instrument deactivated');
+    // DEVICE CERTIFICATES (final review, 2026-10-27): the hook decides whether a
+    // certificate is required only at CONNECT, from the instrument's PROFILE and,
+    // for a gateway, its children's. A profile move or a gateway link change can
+    // flip that, so drop the instrument's session and those of its former and
+    // new gateway — otherwise a plain-1883 device keeps delivering while its
+    // card says its data is refused. Best effort, never throws.
+    const profileMoved = existing.profileId !== updated.profileId;
+    const relinked = existing.gatewayId !== updated.gatewayId;
+    if (profileMoved || relinked) {
+      if (updated.isActive) await kickMqttClient(updated.code, 'instrument profile or gateway changed');
+      for (const gatewayId of new Set([existing.gatewayId, updated.gatewayId].filter((g): g is string => g !== null))) {
+        const gatewayCode = await codeOf(gatewayId);
+        if (gatewayCode) await kickMqttClient(gatewayCode, 'a child\'s profile or gateway link changed');
+      }
+    }
 
     // BOTH sides of a move: left to the 10s TTL a just-unlinked child stays
     // writable by its former gateway. The old parent is invalidated on EVERY
