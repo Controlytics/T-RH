@@ -60,6 +60,18 @@ describe('ProfileDeviceCertificateSwitch', () => {
     expect(await screen.findByText('1 instrument has no certificate yet — its data will be refused.')).toBeInTheDocument();
   });
 
+  it('names the gateways that must now present their own certificate', async () => {
+    apiPut.mockResolvedValue({
+      ...profile, requireDeviceCertificate: true, instrumentsWithoutCertificate: 0,
+      gatewaysNeedingCertificate: [{ code: 'GW-1', certificateIssued: false }, { code: 'GW-2', certificateIssued: true }],
+    });
+    render(<ProfileDeviceCertificateSwitch profile={profile} onSaved={vi.fn()} />);
+    turnOnWithReason('client requirement');
+    expect(await screen.findByText(/Gateways that must now present their own certificate/)).toBeInTheDocument();
+    expect(screen.getByText(/GW-1 \(none issued — refused on MQTT until one is\)/)).toBeInTheDocument();
+    expect(screen.getByText(/GW-2 \(issued\)/)).toBeInTheDocument();
+  });
+
   it('shows the server\'s refusal (no device CA on this server)', async () => {
     apiPut.mockRejectedValue({ message: 'Device certificates are not set up on this server (no device CA configured).' });
     render(<ProfileDeviceCertificateSwitch profile={profile} onSaved={vi.fn()} />);

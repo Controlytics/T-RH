@@ -72,6 +72,12 @@ beforeAll(async () => {
   await mk('NOCERT', switchProfileId);
   await mk('GW', freeProfileId, { isGateway: true, deviceCertIssueId: ISSUE_G });
   await mk('KID', requiredProfileId, { gatewayId: inst.GW.id });
+  // A gateway with no certificate, reporting for an instrument of the switch profile.
+  await mk('GW2', freeProfileId, { isGateway: true });
+  await mk('B', switchProfileId, { gatewayId: inst.GW2.id });
+  // A gateway whose only requiring child is DEACTIVATED.
+  await mk('GW3', freeProfileId, { isGateway: true });
+  await mk('KIDOFF', requiredProfileId, { gatewayId: inst.GW3.id, isActive: false });
 
   const role = await prisma.role.findFirstOrThrow({ where: { name: 'OPERATOR' } });
   operatorRoleId = role.id;
@@ -141,7 +147,10 @@ describe('profile switch: Require device certificate', () => {
     const res = await putProfile(switchProfileId, { requireDeviceCertificate: true, reason: 'client requirement' });
     expect(res.statusCode).toBe(200);
     expect(res.json().requireDeviceCertificate).toBe(true);
-    expect(res.json().instrumentsWithoutCertificate).toBe(1);
+    expect(res.json().instrumentsWithoutCertificate).toBe(2);
+    // The blast radius the switch cannot show by counting its own instruments:
+    // a gateway reporting for one of them must now present its own certificate.
+    expect(res.json().gatewaysNeedingCertificate).toEqual([{ code: inst.GW2.code, certificateIssued: false }]);
     const audit = await prisma.auditTrail.findFirst({
       where: { action: 'INSTRUMENT_PROFILE_UPDATED', targetId: switchProfileId }, orderBy: { timestamp: 'desc' },
     });
@@ -212,5 +221,17 @@ describe('EMQX hook judges the certificate at CONNECT', () => {
   it('a gateway with a child that requires a certificate must present its OWN current one', async () => {
     expect((await ask('GW', '')).json()).toEqual({ result: 'deny' });
     expect((await ask('GW', subject(ISSUE_G))).json()).toEqual({ result: 'allow' });
+  });
+
+  it("a gateway's refusal says WHY: it reports for an instrument that requires one", async () => {
+    await ask('GW', '');
+    const dl = await prisma.deadLetter.findFirst({
+      where: { instrumentId: inst.GW.id, transport: 'mqtt' }, orderBy: { receivedAt: 'desc' },
+    });
+    expect(dl?.reason).toMatch(/gateway reports for an instrument whose profile requires a device certificate/);
+  });
+
+  it('a DEACTIVATED requiring child does not cut its gateway off', async () => {
+    expect((await ask('GW3', '')).json()).toEqual({ result: 'allow' });
   });
 });

@@ -9,6 +9,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 type Status = {
   available: boolean; required: boolean; profileName: string;
   issued: null | { issueId: string; fingerprint: string; issuedAt: string; issuedBy: string | null; notAfter: string };
+  requiredForChildrenCount: number; requiredForChildren: string[];
+  gateway: null | { code: string; certificateIssued: boolean };
 };
 let status: Status;
 const mutate = vi.fn();
@@ -47,7 +49,10 @@ const ISSUED = { issueId: 'f'.repeat(32), fingerprint: FP, issuedAt: '2026-10-27
 
 beforeEach(() => {
   apiPost.mockReset(); apiDelete.mockReset(); mutate.mockReset(); toastError.mockReset();
-  status = { available: true, required: false, profileName: 'Testing Profile', issued: null };
+  status = {
+    available: true, required: false, profileName: 'Testing Profile', issued: null,
+    requiredForChildrenCount: 0, requiredForChildren: [], gateway: null,
+  };
 });
 afterEach(() => { vi.restoreAllMocks(); });
 
@@ -96,6 +101,22 @@ describe('DeviceCertificateCard', () => {
     render(<DeviceCertificateCard instrumentId="i-1" canManage />);
     fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
     await waitFor(() => expect(apiDelete).toHaveBeenCalledWith('/api/instruments/i-1/device-certificate'));
+  });
+
+  it('a GATEWAY that reports for requiring instruments says so, and what refusing means for it', () => {
+    status = { ...status, requiredForChildrenCount: 2, requiredForChildren: ['K-1'] };
+    render(<DeviceCertificateCard instrumentId="i-1" canManage />);
+    expect(screen.getByText(/Required because this gateway reports for 2 instruments that require a device certificate/)).toBeInTheDocument();
+    expect(screen.getByText(/K-1/)).toBeInTheDocument();
+    expect(screen.getByText(/this gateway is refused on MQTT, and its readings for those instruments are refused on every channel/)).toBeInTheDocument();
+  });
+
+  it("a CHILD reported through a gateway is told the gateway's certificate is what counts there", () => {
+    status = { ...status, required: true, gateway: { code: 'GW-1', certificateIssued: false } };
+    render(<DeviceCertificateCard instrumentId="i-1" canManage />);
+    expect(screen.getByText(/this instrument's own connections are refused/)).toBeInTheDocument();
+    expect(screen.getByText(/through gateway GW-1 are accepted only while GW-1 connects with its own certificate \(none issued yet\)/)).toBeInTheDocument();
+    expect(screen.queryByText(/data is being refused/)).toBeNull();
   });
 
   it('without the manage right there are no buttons', () => {

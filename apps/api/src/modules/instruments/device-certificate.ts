@@ -110,7 +110,25 @@ export function issueIdFromTlsSocket(socket: unknown): string | null {
   return typeof value === 'string' && ISSUE_ID.test(value) ? value : null;
 }
 
-export function refusalReason(code: DeviceCertRefusal, transport: string): string {
+/**
+ * `subject` — whose requirement refused it: the instrument's own profile
+ * (`self`), or, for a GATEWAY, an instrument it reports for (`gateway`). The
+ * record must say which: "this instrument's profile requires…" on a gateway
+ * whose own profile requires nothing is a false §11 statement.
+ */
+export type RefusalSubject = 'self' | 'gateway';
+
+export function refusalReason(code: DeviceCertRefusal, transport: string, subject: RefusalSubject = 'self'): string {
+  if (subject === 'gateway') {
+    switch (code) {
+      case 'DEVICE_CERTIFICATE_REQUIRED':
+        return `Refused on ${transport}: this gateway reports for an instrument whose profile requires a device certificate, and it presented none of its own.`;
+      case 'DEVICE_CERTIFICATE_NOT_ISSUED':
+        return `Refused on ${transport}: this gateway reports for an instrument whose profile requires a device certificate, and no device certificate has been issued for the gateway.`;
+      case 'DEVICE_CERTIFICATE_MISMATCH':
+        return `Refused on ${transport}: this gateway reports for an instrument whose profile requires a device certificate, and the certificate presented is not the gateway's current one.`;
+    }
+  }
   switch (code) {
     case 'DEVICE_CERTIFICATE_REQUIRED':
       return `Refused on ${transport}: this instrument's profile requires a device certificate and none was presented.`;
@@ -133,15 +151,16 @@ export async function recordCertificateRefusal(
   instrumentId: string,
   transport: string,
   code: DeviceCertRefusal,
+  subject: RefusalSubject = 'self',
 ): Promise<void> {
-  const key = `${instrumentId}|${transport}|${code}`;
+  const key = `${instrumentId}|${transport}|${code}|${subject}`;
   const now = Date.now();
   const last = lastRecorded.get(key);
   if (last !== undefined && now - last < REFUSAL_WINDOW_MS) return;
   lastRecorded.set(key, now);
   try {
     await writeDeadLetters([{
-      id: randomUUID(), instrumentId, transport, reason: refusalReason(code, transport), rawPayload: null,
+      id: randomUUID(), instrumentId, transport, reason: refusalReason(code, transport, subject), rawPayload: null,
     }]);
   } catch (e) {
     // The refusal itself already happened; failing to record it must not turn

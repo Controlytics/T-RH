@@ -84,7 +84,10 @@ describe('device certificate routes', () => {
   it('GET before any issue: available, not required, nothing issued', async () => {
     const res = await app.inject({ method: 'GET', url: url(), headers: admin });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ available: true, required: false, profileName: `fixture:devcert-routes-${s}`, issued: null });
+    expect(res.json()).toEqual({
+      available: true, required: false, profileName: `fixture:devcert-routes-${s}`, issued: null,
+      requiredForChildrenCount: 0, requiredForChildren: [], gateway: null,
+    });
   });
 
   it('POST refuses without the password re-auth', async () => {
@@ -186,5 +189,41 @@ describe('device certificate routes', () => {
     } finally {
       process.env.DEVICE_CA_CERT_PATH = certPath;
     }
+  });
+});
+
+describe('the EFFECTIVE requirement, stated by the server', () => {
+  let requiredId = '';
+  const ids: string[] = [];
+  const codes: Record<string, string> = {};
+  beforeAll(async () => {
+    requiredId = (await prisma.instrumentProfile.create({ data: { name: `fixture:devcert-effective-${s}`, requireDeviceCertificate: true } })).id;
+    const mkI = async (key: string, profile: string, extra: Record<string, unknown> = {}) => {
+      codes[key] = `DCR-EFF-${key}-${s}`;
+      const row = await prisma.instrument.create({ data: { name: codes[key], code: codes[key], profileId: profile, ...extra } });
+      ids.push(row.id);
+      return row.id;
+    };
+    const gw = await mkI('GW', profileId, { isGateway: true });
+    await mkI('KID', requiredId, { gatewayId: gw });
+    await mkI('KIDOFF', requiredId, { gatewayId: gw, isActive: false });
+  });
+  afterAll(async () => {
+    await prisma.instrument.updateMany({ where: { id: { in: ids } }, data: { gatewayId: null } }).catch(() => {});
+    await prisma.instrument.deleteMany({ where: { id: { in: ids } } }).catch(() => {});
+    await prisma.instrumentProfile.deleteMany({ where: { id: requiredId } }).catch(() => {});
+  });
+
+  it('a gateway names the ACTIVE children whose profile requires a certificate', async () => {
+    const res = await app.inject({ method: 'GET', url: `/api/instruments/${ids[0]}/device-certificate`, headers: admin });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ required: false, requiredForChildrenCount: 1, requiredForChildren: [codes.KID], gateway: null });
+  });
+
+  it("a child names its gateway and whether that gateway holds a certificate", async () => {
+    const res = await app.inject({ method: 'GET', url: `/api/instruments/${ids[1]}/device-certificate`, headers: admin });
+    expect(res.json()).toMatchObject({
+      required: true, requiredForChildren: [], gateway: { code: codes.GW, certificateIssued: false },
+    });
   });
 });

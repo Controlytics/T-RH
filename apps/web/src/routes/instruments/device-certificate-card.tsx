@@ -22,7 +22,17 @@ import { apiClient } from '@/lib/api-client';
  * private key is never kept by the server — so it is downloaded at once.
  */
 interface Issued { issueId: string; fingerprint: string; issuedAt: string; issuedBy: string | null; notAfter: string }
-interface Status { available: boolean; required: boolean; profileName: string; issued: Issued | null }
+interface Status {
+  available: boolean;
+  required: boolean;
+  profileName: string;
+  issued: Issued | null;
+  /** For a gateway: the active children whose profile requires a certificate (count all; codes those you may see). */
+  requiredForChildrenCount: number;
+  requiredForChildren: string[];
+  /** For a child: its gateway, whose own certificate is what counts for readings sent through it. */
+  gateway: { code: string; certificateIssued: boolean } | null;
+}
 interface IssueResponse { issued: Issued; fileName: string; bundle: string }
 
 function downloadBase64Zip(base64: string, fileName: string): void {
@@ -94,12 +104,30 @@ export function DeviceCertificateCard({ instrumentId, canManage }: { instrumentI
     });
   };
 
-  const { issued, required, profileName } = data;
+  const { issued, required, profileName, gateway } = data;
+  const forChildren = data.requiredForChildrenCount ?? 0;
+  // Every sentence below restates a fact the SERVER returned — what its rules
+  // do with it is stated, never re-decided (final review: the card said "data
+  // is being refused" for a child its gateway's certificate still carries).
+  const notIssuedText = forChildren > 0 && !required
+    ? 'Not issued — this gateway is refused on MQTT, and its readings for those instruments are refused on every channel.'
+    : required && gateway
+      ? `Not issued — this instrument's own connections are refused. Readings it sends through gateway ${gateway.code} are accepted only while ${gateway.code} connects with its own certificate (${gateway.certificateIssued ? 'issued' : 'none issued yet'}).`
+      : required
+        ? 'Not issued — this instrument\'s data is being refused.'
+        : 'Not issued.';
   return (
     <div className="space-y-3 text-sm">
       <p className={required ? 'font-medium text-amber-700' : 'text-slate-600'}>
         {required ? `Required by profile ${profileName}` : `Not required by profile ${profileName}`}
       </p>
+      {forChildren > 0 && (
+        <p className="font-medium text-amber-700">
+          Required because this gateway reports for {forChildren} instrument{forChildren === 1 ? '' : 's'} that
+          require{forChildren === 1 ? 's' : ''} a device certificate
+          {data.requiredForChildren.length > 0 ? ` (${data.requiredForChildren.join(', ')})` : ''}.
+        </p>
+      )}
 
       {issued ? (
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
@@ -113,8 +141,8 @@ export function DeviceCertificateCard({ instrumentId, canManage }: { instrumentI
           <dd className="font-mono text-xs text-slate-700" title={issued.fingerprint}>{issued.fingerprint.slice(0, 16)}…</dd>
         </dl>
       ) : (
-        <p className={required ? 'font-medium text-red-700' : 'text-slate-500'}>
-          {required ? 'Not issued — this instrument\'s data is being refused.' : 'Not issued.'}
+        <p className={required || forChildren > 0 ? 'font-medium text-red-700' : 'text-slate-500'}>
+          {notIssuedText}
         </p>
       )}
 

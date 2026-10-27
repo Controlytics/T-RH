@@ -164,9 +164,13 @@ export default async function mqttAuthRoutes(app: FastifyInstance) {
     // must present its OWN current certificate when any child it reports for
     // requires one: the bridge cannot see who published a message, so this
     // CONNECT is the only place that can hold the child's requirement.
+    // Only ACTIVE children count: a deactivated child delivers nothing, and
+    // must not cut its whole gateway off (final review, 2026-10-27).
     let required = identity.deviceCert.required;
+    let forChildren = false;
     if (!required && identity.isGateway) {
-      required = [...(await childMapFor(identity.id)).values()].some((c) => c.requiresCertificate);
+      forChildren = [...(await childMapFor(identity.id)).values()].some((c) => c.isActive && c.requiresCertificate);
+      required = forChildren;
     }
     const verdict = deviceCertificateDecision({
       required,
@@ -175,7 +179,7 @@ export default async function mqttAuthRoutes(app: FastifyInstance) {
     });
     if (!verdict.ok) {
       req.log.warn({ clientid, instrument: identity.id, code: verdict.code }, '[ingest:mqtt-auth] denied — device certificate');
-      await recordCertificateRefusal(identity.id, 'mqtt', verdict.code);
+      await recordCertificateRefusal(identity.id, 'mqtt', verdict.code, forChildren ? 'gateway' : 'self');
       return reply.send(DENY);
     }
 

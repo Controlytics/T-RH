@@ -526,6 +526,14 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
             // the profile's instruments have no certificate yet, i.e. whose
             // data is refused from now on.
             instrumentsWithoutCertificate: { type: 'integer', nullable: true },
+            // ...and the gateways reporting for one of its ACTIVE instruments:
+            // each must now present its OWN certificate, and is refused on
+            // MQTT without one (final review, 2026-10-27 — the blast radius a
+            // count of the profile's own instruments cannot show).
+            gatewaysNeedingCertificate: {
+              type: 'array', nullable: true,
+              items: { type: 'object', properties: { code: { type: 'string' }, certificateIssued: { type: 'boolean' } } },
+            },
           },
         },
         ...errorResponses,
@@ -812,6 +820,7 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
       invalidateProfileMeasurementsCache();
 
       let instrumentsWithoutCertificate: number | null = null;
+      let gatewaysNeedingCertificate: { code: string; certificateIssued: boolean }[] | null = null;
       if (certificateChanged) {
         // Every cached ingest identity and gateway child map of this profile now
         // carries the wrong flag — drop them, so the next reading is judged by
@@ -819,9 +828,16 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
         invalidateIngestAuthCache();
         invalidateChildMapCache();
         const members = await prisma.instrument.findMany({
-          where: { profileId: id }, select: { code: true, gatewayId: true, deviceCertIssueId: true },
+          where: { profileId: id }, select: { code: true, gatewayId: true, deviceCertIssueId: true, isActive: true },
         });
-        if (row.requireDeviceCertificate) instrumentsWithoutCertificate = members.filter((m) => !m.deviceCertIssueId).length;
+        if (row.requireDeviceCertificate) {
+          instrumentsWithoutCertificate = members.filter((m) => !m.deviceCertIssueId).length;
+          const reportingGateways = [...new Set(members.filter((m) => m.isActive && m.gatewayId).map((m) => m.gatewayId as string))];
+          gatewaysNeedingCertificate = reportingGateways.length === 0 ? [] : (await prisma.instrument.findMany({
+            where: { id: { in: reportingGateways }, isActive: true },
+            select: { code: true, deviceCertIssueId: true }, orderBy: { code: 'asc' },
+          })).map((g) => ({ code: g.code, certificateIssued: g.deviceCertIssueId !== null }));
+        }
         // MQTT is judged only at CONNECT: drop the open sessions of the
         // profile's instruments and of their gateways so they reconnect under
         // the new rule. After the response and best effort, like the cascade
@@ -838,7 +854,7 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
         })().catch((e: unknown) => logger.error('[instrument-profiles] device-certificate kick pass failed', e));
       }
 
-      return { ...(await forCaller(req))(present(row as ProfileRow)), instrumentsWithoutCertificate };
+      return { ...(await forCaller(req))(present(row as ProfileRow)), instrumentsWithoutCertificate, gatewaysNeedingCertificate };
     } catch (err) {
       if (err instanceof OutOfScope) {
         return reply.code(403).send({

@@ -30,11 +30,15 @@ export function ProfileDeviceCertificateSwitch({ profile, onSaved }: ProfileDevi
   const [pending, setPending] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [withoutCertificate, setWithoutCertificate] = useState<number | null>(null);
+  const [gateways, setGateways] = useState<{ code: string; certificateIssued: boolean }[]>([]);
 
   const save = async (next: boolean, reason: string) => {
     setSaving(true);
     const body = { requireDeviceCertificate: next, reason };
-    let res: { instrumentsWithoutCertificate?: number | null } | undefined;
+    let res: {
+      instrumentsWithoutCertificate?: number | null;
+      gatewaysNeedingCertificate?: { code: string; certificateIssued: boolean }[] | null;
+    } | undefined;
     await reauth.execute('UPDATE_INSTRUMENT_PROFILE', async (password?: string) => {
       if (res) return;
       res = password
@@ -45,6 +49,7 @@ export function ProfileDeviceCertificateSwitch({ profile, onSaved }: ProfileDevi
         setSaving(false);
         setPending(null);
         setWithoutCertificate(next ? (res?.instrumentsWithoutCertificate ?? null) : null);
+        setGateways(next ? (res?.gatewaysNeedingCertificate ?? []) : []);
         onSaved();
         toast.success(
           next ? 'Device certificates required' : 'Device certificates no longer required',
@@ -75,6 +80,21 @@ export function ProfileDeviceCertificateSwitch({ profile, onSaved }: ProfileDevi
             ? '1 instrument has no certificate yet — its data will be refused.'
             : `${withoutCertificate} instruments have no certificate yet — their data will be refused.`}
         </p>
+      )}
+      {gateways.length > 0 && (
+        // The blast radius the count above cannot show: a gateway reporting
+        // for one of these instruments must present its OWN certificate, and
+        // is refused on MQTT (with every instrument it carries) until it does.
+        <div role="status" className="text-sm text-amber-800">
+          <p className="font-medium">Gateways that must now present their own certificate:</p>
+          <ul className="ml-4 list-disc">
+            {gateways.map((g) => (
+              <li key={g.code}>
+                {g.code} ({g.certificateIssued ? 'issued' : 'none issued — refused on MQTT until one is'})
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       <RemarkDialog
         open={pending !== null}

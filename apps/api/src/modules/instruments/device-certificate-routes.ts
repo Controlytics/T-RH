@@ -95,6 +95,18 @@ export default async function deviceCertificateRoutes(app: FastifyInstance) {
             required: { type: 'boolean' },
             profileName: { type: 'string' },
             issued: issuedProps,
+            // The EFFECTIVE requirement (final review, 2026-10-27). For a
+            // gateway: the ACTIVE children whose profile requires a
+            // certificate — the gateway must then present its OWN to report
+            // for them, and is refused on MQTT without it. For a child: its
+            // gateway, and whether that gateway holds a certificate — readings
+            // it sends through the gateway ride on the gateway's.
+            requiredForChildrenCount: { type: 'integer' },
+            requiredForChildren: { type: 'array', items: { type: 'string' } },
+            gateway: {
+              type: 'object', nullable: true,
+              properties: { code: { type: 'string' }, certificateIssued: { type: 'boolean' } },
+            },
           },
         },
         ...errorResponses,
@@ -104,14 +116,33 @@ export default async function deviceCertificateRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const inst = await prisma.instrument.findFirst({
       where: await visibleWhere(req, id),
-      include: { profile: { select: { name: true, requireDeviceCertificate: true } } },
+      include: {
+        profile: { select: { name: true, requireDeviceCertificate: true } },
+        gateway: { select: { code: true, deviceCertIssueId: true } },
+      },
     });
     if (!inst) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
+    // A gateway's requirement follows from ALL of its children, so the COUNT is
+    // unscoped; the CODES named are only those this caller may see (an
+    // out-of-view instrument is never named — the visibility rule).
+    const requiringWhere = { gatewayId: inst.id, isActive: true, profile: { requireDeviceCertificate: true } };
+    const [requiringCount, requiringVisible] = inst.isGateway
+      ? await Promise.all([
+          prisma.instrument.count({ where: requiringWhere }),
+          prisma.instrument.findMany({
+            where: withVisibility(requiringWhere, (await resolveVisibility(buildContext(req))).where) as never,
+            select: { code: true }, orderBy: { code: 'asc' },
+          }),
+        ])
+      : [0, []];
     return {
       available: deviceCaAvailable(),
       required: inst.profile.requireDeviceCertificate,
       profileName: inst.profile.name,
       issued: issuedView(inst),
+      requiredForChildrenCount: requiringCount,
+      requiredForChildren: requiringVisible.map((c) => c.code),
+      gateway: inst.gateway ? { code: inst.gateway.code, certificateIssued: inst.gateway.deviceCertIssueId !== null } : null,
     };
   });
 
