@@ -187,8 +187,9 @@ A device starts sending a key `p` tomorrow.
   chart path (`points`) every requested key gets its LTTB sample and its `summaries[key]`; a raw
   key's summary has `belowCount` / `aboveCount` / `outOfSpecCount` = `null` (the existing
   "no limit resolved" meaning).
-- The chart path adds `nonNumericCount[key]`, so a chart can say "12 text readings not plotted"
-  instead of dropping them silently.
+- No new field is needed for text readings: `summaries[key]` already carries `count` (every
+  reading) and `numericCount`, so a chart says "12 text readings not plotted" from
+  `count - numericCount` instead of dropping them silently.
 - `GET /api/instruments/telemetry-history` gains a `keys` filter; the pivot stays in SQL.
 
 ### 5.4 Tests (API, e2e, each file owning its own super admin, profile and instruments)
@@ -201,7 +202,8 @@ A device starts sending a key `p` tomorrow.
 4. An attribute key is listed under its administered display name.
 5. A measured key returns the server's decimals and status; a raw key returns `judged: null` and
    `decimals: null`.
-6. `keys` on `/:id/telemetry` returns only those keys, with summaries and `nonNumericCount`.
+6. `keys` on `/:id/telemetry` returns only those keys, with summaries whose `count - numericCount`
+   is the number of text readings.
 7. Each new response field is mutation-checked by deleting its schema line.
 
 ## 6. Phase 2 — dashboard widgets
