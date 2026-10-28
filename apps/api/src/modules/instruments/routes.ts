@@ -42,6 +42,7 @@ import { invalidateChildMapCache } from './gateway-children.js';
 import { codeLabel } from './code-label.js';
 import deviceCertificateRoutes from './device-certificate-routes.js';
 import dataKeysRoutes from './data-keys-routes.js';
+import { parseKeysParam } from './keys-param.js';
 import { measuredSlotFor, measurementFor } from './data-keys.js';
 import {
   gatewayInvariantError, lockedGatewayRecheck, lockInstrumentRows, isDeadlock,
@@ -1056,6 +1057,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         properties: {
           /** Comma-separated instrument UUIDs. */
           instrumentIds: { type: 'string', minLength: 1 },
+          /** Comma-separated telemetry keys, exactly as stored (2026-10-28). Absent = every key. */
+          keys: { type: 'string' },
           from: { type: 'string', format: 'date-time' },
           to: { type: 'string', format: 'date-time' },
           limit: { type: 'integer', default: 50 },
@@ -1088,7 +1091,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const q = req.query as { instrumentIds: string; from?: string; to?: string; limit?: number; offset?: number };
+    const q = req.query as { instrumentIds: string; keys?: string; from?: string; to?: string; limit?: number; offset?: number };
+    const keyFilter = parseKeysParam(q.keys);
+    if ('error' in keyFilter) return reply.code(400).send({ error: 'VALIDATION_ERROR', message: keyFilter.error });
     const asked = [...new Set(q.instrumentIds.split(',').map((s) => s.trim()).filter(Boolean))];
     const bad = asked.find((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
     if (bad) {
@@ -1106,6 +1111,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     });
     const { rows, total } = await getMultiInstrumentHistory({
       instrumentIds: visible.map((i) => i.id),
+      keys: keyFilter.keys ?? undefined,
       from, to,
       limit: q.limit, offset: q.offset,
     });
@@ -1163,6 +1169,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         type: 'object',
         properties: {
           key: { type: 'string' },
+          // Several keys, comma-separated, exactly as stored (widget data keys,
+          // 2026-10-28). Not together with `key`. Absent = every key.
+          keys: { type: 'string' },
           limit: { type: 'integer', default: 100 },
           offset: { type: 'integer', default: 0, minimum: 0 },
           // Additive: getHistory() has always accepted a time range, the route
@@ -1223,8 +1232,13 @@ export default async function instrumentRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const q = req.query as {
-      key?: string; limit?: number; offset?: number; from?: string; to?: string; points?: number;
+      key?: string; keys?: string; limit?: number; offset?: number; from?: string; to?: string; points?: number;
     };
+    const keyFilter = parseKeysParam(q.keys);
+    if ('error' in keyFilter) return reply.code(400).send({ error: 'VALIDATION_ERROR', message: keyFilter.error });
+    if (q.key && keyFilter.keys) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'Give `key` or `keys`, not both.' });
+    }
     // Visibility is applied as part of the LOOKUP, not checked after it, so an
     // out-of-scope instrument is indistinguishable from a non-existent one —
     // matching the /:id detail route above (404, never 403).
@@ -1360,14 +1374,16 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     let summaries: Record<string, SerialisedSummary> | undefined;
 
     if (points === null) {
-      const history = await getHistory({ instrumentId: id, key: q.key, limit, offset, from, to });
+      const history = await getHistory({
+        instrumentId: id, key: q.key, keys: keyFilter.keys ?? undefined, limit, offset, from, to,
+      });
       historyRows = history.rows;
       historyTotal = history.total;
     } else {
       // No `key` means "every key this instrument has sent" — the trend page
       // charts them all in one request. A key with no readings inside the range
       // simply contributes no rows and no summary entry.
-      const keys = q.key ? [q.key] : (await getDistinctKeys(id)).map((k) => k.key);
+      const keys = keyFilter.keys ?? (q.key ? [q.key] : (await getDistinctKeys(id)).map((k) => k.key));
       const perKey = await Promise.all(keys.map(async (key) => {
         const bounds = boundsFor(key);
         const [{ rows, truncated }, summary] = await Promise.all([

@@ -243,7 +243,10 @@ export async function getLatest(instrumentId: string): Promise<TelemetryRow[]> {
 }
 
 export async function getHistory(opts: {
-  instrumentId: string; key?: string; from?: Date; to?: Date; limit?: number; offset?: number;
+  instrumentId: string; key?: string;
+  /** Only these keys (widget data keys, 2026-10-28); absent or empty = every key. */
+  keys?: string[];
+  from?: Date; to?: Date; limit?: number; offset?: number;
 }): Promise<{ rows: TelemetryRow[]; total: number }> {
   // NO ceiling (operator, 2026-09-02). This `Math.min(…, 1000)` is the exact cap
   // recorded in CLAUDE.md as the trend page's truncation defect: with `ORDER BY ts
@@ -256,6 +259,7 @@ export async function getHistory(opts: {
   const where = Prisma.sql`
     WHERE instrument_id = ${opts.instrumentId}
     ${opts.key ? Prisma.sql`AND key = ${opts.key}` : Prisma.empty}
+    ${opts.keys && opts.keys.length > 0 ? Prisma.sql`AND key IN (${Prisma.join(opts.keys)})` : Prisma.empty}
     ${opts.from ? Prisma.sql`AND ts >= ${opts.from}` : Prisma.empty}
     ${opts.to ? Prisma.sql`AND ts <= ${opts.to}` : Prisma.empty}`;
 
@@ -298,13 +302,21 @@ export interface MultiHistoryRow {
  * the list it is given. An empty list returns nothing rather than everything.
  */
 export async function getMultiInstrumentHistory(opts: {
-  instrumentIds: string[]; from?: Date; to?: Date; limit?: number; offset?: number;
+  instrumentIds: string[];
+  /**
+   * Only these keys (widget data keys, 2026-10-28); absent or empty = every key.
+   * `total` then counts the instants carrying at least one of them — the rows
+   * the pager pages.
+   */
+  keys?: string[];
+  from?: Date; to?: Date; limit?: number; offset?: number;
 }): Promise<{ rows: MultiHistoryRow[]; total: number }> {
   if (opts.instrumentIds.length === 0) return { rows: [], total: 0 };
   const limit = resolvePageSize(opts.limit, 100);
   const offset = Math.max(opts.offset ?? 0, 0);
   const where = Prisma.sql`
     WHERE instrument_id IN (${Prisma.join(opts.instrumentIds)})
+    ${opts.keys && opts.keys.length > 0 ? Prisma.sql`AND key IN (${Prisma.join(opts.keys)})` : Prisma.empty}
     ${opts.from ? Prisma.sql`AND ts >= ${opts.from}` : Prisma.empty}
     ${opts.to ? Prisma.sql`AND ts <= ${opts.to}` : Prisma.empty}`;
 

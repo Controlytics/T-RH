@@ -1,5 +1,49 @@
 # Changelog
 
+## [Unreleased] - Widget data keys, phase 1: the server lists and reads ANY key an instrument has (2026-10-28)
+
+Operator: "in application dashboards widgets, if different keys data was coming to
+instrument where i can add those in widgets to see that data … in future new key was
+came to instrument, how can i see that new key data in dashboard … like in thingsboard
+… time series or attribute types keys". Then "give complete plan" and "go ahead".
+Design `docs/superpowers/specs/2026-10-28-widget-data-keys-design.md` (operator
+answers: only a SUPER_ADMIN builds dashboard widgets; trend-page extra keys per
+profile), plan `docs/superpowers/plans/2026-10-28-widget-data-keys-phase1.md`.
+**Server only — no screen changes yet** (phases 2 and 3 are the dashboard widgets and
+the trend page).
+
+- **`GET /api/instruments/data-keys`** — every TELEMETRY key a set of instruments has
+  sent (from `instrument_telemetry_latest`, one row per key) and every ATTRIBUTE key
+  they carry (case-folded, blank values left out, labelled by Attribute Display
+  Names). A key appears with its first stored reading; nothing is configured.
+  `numeric` is judged by `NUMERIC_READING`, so the gateways' QUOTED readings count;
+  it is a hint for the picker, never a gate. A key the profile measures is labelled
+  by its measurement (`measurement: {code, name, unit}`). Selector: an id list (≤ 200),
+  a Block/Area (the Block includes its Areas) or a profile. Offset attributes are
+  SUPER_ADMIN-only. Out-of-scope instruments are absent, never 403.
+- **`POST /api/instruments/latest-values`** — the latest value of each named key on
+  each visible instrument. The rows ARE `buildTelemetryOverview()`'s (it gained an
+  `instrumentIds` option), so a measured key's precision, unit, bounds and fault flags
+  are the overview's own answer; a raw key carries `unit`, `decimals` and `judged` =
+  null (`decimals: null` = print as received — the shared 1-decimal fallback is never
+  applied to a raw key). Of two device keys of one measurement only the one the
+  overview resolved is judged. Joins the "every server resolver agrees about a bound"
+  e2e.
+- **`keys`** (comma list, ≤ 20) on `GET /:id/telemetry` (both paths; not with `key`)
+  and `GET /telemetry-history`. No new response field: a chart's "N text readings not
+  plotted" is `summaries[key].count - numericCount`.
+- `GET /:id/telemetry-keys` reads the same latest-table catalogue and gains `numeric`
+  and `measurement`. `getDistinctKeys` stays on HISTORY for the chart path's
+  "every key" branch, whose question is keys with readings.
+- **Counts:** 2 routes; shared type files 34 → 35 (`data-keys.ts`). No model, enum,
+  permission (45), re-auth action (56), audit action (100), module (25), config def
+  (36), config page (23), `<Route` (54) or migration moved (re-derived 2026-10-28).
+- Tests: `apps/api/src/e2e/data-keys.e2e.test.ts` (24), a case in
+  `instrument-telemetry-range.test.ts`, `__tests__/keys-param.test.ts` (5),
+  `packages/shared/src/types/data-keys.test.ts` (6). Mutation-checked: dropping the
+  `numeric` / `measurement.code` / `judged.limitMin` schema lines, the resolved-alias
+  rule and the multi-history key filter each fail a test.
+
 ## [Unreleased] - Device certificates: a profile can require each device's own client certificate (2026-10-27)
 
 Operator: "without ssl cert i wont receive any data for only test instrument

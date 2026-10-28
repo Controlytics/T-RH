@@ -397,3 +397,68 @@ describe('POST /api/instruments/latest-values', () => {
     expect((await latest({ instrumentIds: [a], keys: [{ source: 'other', key: 'p' }] })).statusCode).toBe(400);
   });
 });
+
+describe('keys on the history routes', () => {
+  let a: string;
+
+  beforeAll(async () => {
+    a = await createInstrument(`HK-A-${s}`);
+    await reading(a, 't', 21.5, at(0));
+    await reading(a, 'h', 50, at(0));
+    await reading(a, 'p', 101, at(0));
+    await reading(a, 'p', 'NA', at(1));
+    await reading(a, 'p', 102, at(2));
+  });
+
+  const range = `from=${at(-10).toISOString()}&to=${at(30).toISOString()}`;
+
+  it('telemetry-history filters by keys', async () => {
+    const res = await app.inject({
+      method: 'GET', url: `/api/instruments/telemetry-history?instrumentIds=${a}&keys=t&${range}`, headers: auth,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { data: { ts: string; values: Record<string, unknown> }[]; total: number };
+    expect(body.total).toBe(1);
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0].values).toEqual({ t: 21.5 });
+  });
+
+  it('/:id/telemetry chart path charts only the asked keys', async () => {
+    const res = await app.inject({
+      method: 'GET', url: `/api/instruments/${a}/telemetry?keys=p,t&points=100&${range}`, headers: auth,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      summaries: Record<string, { count: number; numericCount: number; limitMin: number | null; belowCount: number | null }>;
+      history: { key: string }[];
+    };
+    expect(Object.keys(body.summaries).sort()).toEqual(['p', 't']);
+    expect(body.summaries.p.limitMin).toBeNull();
+    expect(body.summaries.p.belowCount).toBeNull();
+    // "N text readings not plotted" is count - numericCount.
+    expect(body.summaries.p.count - body.summaries.p.numericCount).toBe(1);
+    expect(new Set(body.history.map((r) => r.key))).toEqual(new Set(['p', 't']));
+  });
+
+  it('/:id/telemetry table path filters by keys', async () => {
+    const res = await app.inject({
+      method: 'GET', url: `/api/instruments/${a}/telemetry?keys=p&${range}`, headers: auth,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { history: { key: string }[]; historyTotal: number };
+    expect(body.historyTotal).toBe(3);
+    expect(body.history.every((r) => r.key === 'p')).toBe(true);
+  });
+
+  it('key and keys together is a 400, and so is a bad keys list', async () => {
+    const both = await app.inject({ method: 'GET', url: `/api/instruments/${a}/telemetry?key=p&keys=t`, headers: auth });
+    expect(both.statusCode).toBe(400);
+    const many = Array.from({ length: 21 }, (_, i) => `k${i}`).join(',');
+    const tooMany = await app.inject({ method: 'GET', url: `/api/instruments/${a}/telemetry?keys=${many}`, headers: auth });
+    expect(tooMany.statusCode).toBe(400);
+    const multi = await app.inject({
+      method: 'GET', url: `/api/instruments/telemetry-history?instrumentIds=${a}&keys=${many}`, headers: auth,
+    });
+    expect(multi.statusCode).toBe(400);
+  });
+});

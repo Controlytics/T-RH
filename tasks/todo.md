@@ -157,6 +157,19 @@ looks up its gateway by id; IOTGW01 has no location -> 404 toast for every scope
 - [x] Push to trh (`ac56a54`), deploy over SSM (`5e49636 -> ac56a54`, no migration, no npm ci), health 200; dist greps confirm the fix is live
 - [ ] Hand operator: place or delete CWH/RDU/001-01 and CWH/RDU/201-00 (no attributes saved)
 
+## 2026-10-28 — Widget data keys: any key an instrument sends, in any widget
+
+Spec `docs/superpowers/specs/2026-10-28-widget-data-keys-design.md`; phase 1 plan `docs/superpowers/plans/2026-10-28-widget-data-keys-phase1.md`.
+
+- [x] Phase 1 T1 shared contract (`data-keys.ts`)
+- [x] Phase 1 T2 `GET /api/instruments/data-keys` + `telemetry-keys` gains `numeric` / `measurement`
+- [x] Phase 1 T3 `POST /api/instruments/latest-values` (overview's own bounds)
+- [x] Phase 1 T4 `keys` on the history routes + docs + full API suite
+- [ ] Phase 2 dashboard widgets (SUPER_ADMIN builds, Save as role default, `custom_widgets` panel)
+- [ ] Phase 3 trend page extra keys per profile (migration `display_keys`)
+- [ ] Phase 4 downloads (separate approval)
+- [ ] Push to trh / deploy — operator's call
+
 ## 2026-10-27 — Device certificates: a profile can require each device's own certificate
 
 Spec `docs/superpowers/specs/2026-10-27-device-certificates-design.md`, plan `docs/superpowers/plans/2026-10-27-device-certificates.md`.

@@ -476,6 +476,21 @@ node apps/api/dist/app.js
   gained a STRANDED pass. **A test must own its fixture profile** — three
   worker tests took `instrumentProfile.findFirst()` and failed once profiles
   differed. Feature note: `docs/feature-notes.md` PROFILE MEASUREMENTS.
+- **2026-10-28 — WIDGET DATA KEYS, phase 1 (server).** Two routes in a child
+  plugin of the instruments routes (`data-keys-routes.ts`, so no `app.ts` /
+  `test-helper.ts` registration): `GET /api/instruments/data-keys` and
+  `POST /api/instruments/latest-values`; `keys` on `/:id/telemetry` and
+  `/telemetry-history`. **No count moved, no migration.** Rules: the catalogue
+  reads `instrument_telemetry_latest` (never a history `GROUP BY`) and judges
+  `numeric` by `NUMERIC_READING`; latest-values takes its rows from
+  `buildTelemetryOverview({ instrumentIds, visibilityWhere })` — a measured key's
+  bounds are the overview's, never re-resolved, and the route is in the
+  "every server resolver agrees" e2e; a raw key's `decimals` is null (print as
+  received). Every response field is declared (`value` with no type = any JSON);
+  the latest-values body is validated by the shared zod schema, the JSON schema
+  only documents it. `getDistinctKeys` stays on history (the chart path's
+  "every key"). Pinned by `e2e/data-keys.e2e.test.ts` (24, mutation-checked five
+  ways) and `__tests__/keys-param.test.ts`.
 - **2026-10-27 — DEVICE CERTIFICATES: a profile can require each device's own
   client certificate.** Migration `20261027120000_device_certificates`
   (hand-authored, applied to `compliance_core_db` AND `_test`; models 38 / enums
