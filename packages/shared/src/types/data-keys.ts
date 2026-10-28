@@ -35,8 +35,9 @@ export type DataKeyRef = z.infer<typeof dataKeyRefSchema>;
 
 /** Body of `POST /api/instruments/latest-values`. */
 export const latestValuesRequestSchema = z.object({
+  // No minimum: a selection can hold nothing (an empty Area, a scope that
+  // leaves nothing), and its answer is an empty list, never an error.
   instrumentIds: z.array(z.string().uuid('Not an instrument id'))
-    .min(1, 'Name at least one instrument')
     .max(DATA_KEYS_INSTRUMENTS_MAX, `At most ${DATA_KEYS_INSTRUMENTS_MAX} instruments per request`),
   keys: z.array(dataKeyRefSchema)
     .min(1, 'Name at least one key')

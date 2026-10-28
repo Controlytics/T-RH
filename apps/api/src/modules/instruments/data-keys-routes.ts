@@ -104,7 +104,9 @@ export default async function dataKeysRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const q = req.query as { instrumentIds?: string; functionalLocationId?: string; profileId?: string };
-    const given = [q.instrumentIds, q.functionalLocationId, q.profileId].filter((v) => v !== undefined && v !== '');
+    // `instrumentIds=` (present, empty) IS a selector — of nothing — and is
+    // answered with an empty list, as an empty selection always is.
+    const given = [q.instrumentIds, q.functionalLocationId, q.profileId].filter((v) => v !== undefined);
     if (given.length !== 1) {
       return reply.code(400).send({
         error: 'VALIDATION_ERROR',
@@ -113,7 +115,7 @@ export default async function dataKeysRoutes(app: FastifyInstance) {
     }
 
     let selector: object;
-    if (q.instrumentIds) {
+    if (q.instrumentIds !== undefined) {
       const asked = [...new Set(q.instrumentIds.split(',').map((x) => x.trim()).filter(Boolean))];
       const bad = asked.find((x) => !UUID_RE.test(x));
       if (bad) {
@@ -124,6 +126,7 @@ export default async function dataKeysRoutes(app: FastifyInstance) {
           error: 'VALIDATION_ERROR', message: `At most ${DATA_KEYS_INSTRUMENTS_MAX} instruments per request.`,
         });
       }
+      if (asked.length === 0) return { data: [] };
       selector = { id: { in: asked } };
     } else if (q.functionalLocationId) {
       // `resolveLocationIds`, never a bare equality: a Block's instruments are

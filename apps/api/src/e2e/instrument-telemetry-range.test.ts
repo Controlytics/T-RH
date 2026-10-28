@@ -689,6 +689,69 @@ describe('every server resolver agrees about a disabled bound', () => {
     ).toEqual({ min: row.limits!.tempMin, max: row.limits!.tempMax });
   });
 
+  it('two device keys of one measurement: only the one the overview resolved is judged, on EVERY route', async () => {
+    // `temperature` comes before `t` in the default device-key order, so the
+    // overview — and therefore the alarm evaluator — judges `temperature`. Every
+    // other route must say the same about both keys, or a chart's breach count
+    // and a value card would judge a key no alarm is raised on.
+    // Its OWN profile, listing BOTH device keys for temperature (this file's
+    // shared fixture pins `temperature` alone, under which `t` is raw anyway
+    // and the case would prove nothing). Same limit keys as the shared pin.
+    const twoProfile = await fixtureProfileId('fixture:telemetry-range-two-keys');
+    await setFixtureMeasurements(twoProfile, (ms) => ms.map((m) => (m.code === 'TEMPERATURE'
+      ? { ...m, deviceKeys: ['temperature', 't'], high: { ...m.high, limitKeys: ['High Temperature Limit'] }, low: { ...m.low, limitKeys: ['Low Temperature Limit'] } }
+      : m)));
+    const made = await app.inject({
+      method: 'POST', url: '/api/instruments', headers: auth,
+      payload: { name: `TRNG-TWO-${s}`, code: `TRNG-TWO-${s}`, profileId: twoProfile },
+    });
+    expect(made.statusCode).toBe(201);
+    const twoId = (made.json() as { id: string }).id;
+    instruments.push(twoId);
+    await prisma.instrumentAttribute.createMany({
+      data: [
+        { instrumentId: twoId, key: 'High Temperature Limit', value: '27' },
+        { instrumentId: twoId, key: 'Low Temperature Limit', value: '18' },
+      ],
+    });
+    await seed(twoId, 'temperature', [{ ts: new Date(t0.getTime()), value: 21 }]);
+    await seed(twoId, 't', [{ ts: new Date(t0.getTime()), value: 30 }]);
+    for (const [key, value] of [['temperature', 21], ['t', 30]] as const) {
+      await prisma.$executeRaw`
+        INSERT INTO instrument_telemetry_latest (instrument_id, key, value, value_type, ts)
+        VALUES (${twoId}, ${key}, ${JSON.stringify(value)}::jsonb, 'int', ${new Date(t0.getTime())})
+        ON CONFLICT (instrument_id, key) DO UPDATE SET value = EXCLUDED.value, ts = EXCLUDED.ts`;
+    }
+
+    const ov = await app.inject({ method: 'GET', url: '/api/instruments/telemetry-overview', headers: auth });
+    const row = (ov.json().data as { instrumentId: string; temperature: { key: string } | null }[])
+      .find((r) => r.instrumentId === twoId)!;
+    expect(row.temperature?.key).toBe('temperature');
+
+    const chart = (await telemetry(twoId, `?from=${FROM}&to=${TO}&points=100`)).json() as ChartBody & { history: { key: string; slot: string | null }[] };
+    expect(chart.summaries!.temperature.limitMax, 'chart: the resolved key is judged').toBe(27);
+    expect(chart.summaries!.t.limitMax, 'chart: the other key must not be judged').toBeNull();
+    expect(chart.history.filter((h) => h.key === 't').every((h) => h.slot === null), 'chart: the other key is not temperature').toBe(true);
+
+    const keysRes = await app.inject({ method: 'GET', url: `/api/instruments/${twoId}/telemetry-keys`, headers: auth });
+    const keyRows = keysRes.json().data as { key: string; slot: string | null; measurement: object | null }[];
+    expect(keyRows.find((k) => k.key === 'temperature')).toMatchObject({ slot: 'temperature' });
+    expect(keyRows.find((k) => k.key === 't'), 'telemetry-keys: the other key').toMatchObject({ slot: null, measurement: null });
+
+    const cat = await app.inject({ method: 'GET', url: `/api/instruments/data-keys?instrumentIds=${twoId}`, headers: auth });
+    const entries = cat.json().data as { source: string; key: string; measurement: object | null }[];
+    expect(entries.find((e) => e.source === 'telemetry' && e.key === 'temperature')!.measurement).not.toBeNull();
+    expect(entries.find((e) => e.source === 'telemetry' && e.key === 't')!.measurement, 'catalogue: the other key').toBeNull();
+
+    const lv = await app.inject({
+      method: 'POST', url: '/api/instruments/latest-values', headers: auth,
+      payload: { instrumentIds: [twoId], keys: [{ source: 'telemetry', key: 'temperature' }, { source: 'telemetry', key: 't' }] },
+    });
+    const values = lv.json().data[0].values as { key: string; judged: object | null }[];
+    expect(values[0].judged).not.toBeNull();
+    expect(values[1].judged, 'latest-values: the other key').toBeNull();
+  });
+
   it('latest-values reports the SAME bounds as the overview', async () => {
     const ov = await app.inject({ method: 'GET', url: '/api/instruments/telemetry-overview', headers: auth });
     const row = (ov.json().data as {

@@ -405,6 +405,15 @@ export async function getLatestFor(
     WHERE instrument_id IN (${Prisma.join(instrumentIds)}) AND key IN (${Prisma.join(keys)})`;
 }
 
+/** Which keys each instrument's latest table holds — the input `resolvedSlotFor` needs per instrument. */
+export async function getLatestKeysByInstrument(instrumentIds: string[]): Promise<{ instrumentId: string; key: string }[]> {
+  if (instrumentIds.length === 0) return [];
+  return prisma.$queryRaw<{ instrumentId: string; key: string }[]>`
+    SELECT instrument_id AS "instrumentId", key
+    FROM instrument_telemetry_latest
+    WHERE instrument_id IN (${Prisma.join(instrumentIds)})`;
+}
+
 /** One attribute key across a set of instruments — see {@link getAttributeKeyCatalogue}. */
 export interface AttributeKeyCatalogueRow {
   /** The spelling to show: the lowest of the case variants, so it is stable. */

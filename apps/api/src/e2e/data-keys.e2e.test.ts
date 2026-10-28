@@ -241,6 +241,41 @@ describe('GET /api/instruments/data-keys', () => {
     expect((await keys(`instrumentIds=${many}`)).statusCode).toBe(400);
   });
 
+  it('an empty id list is an empty answer, not an error', async () => {
+    const res = await keys('instrumentIds=');
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ data: [] });
+    const commas = await keys('instrumentIds=,');
+    expect(commas.statusCode).toBe(200);
+    expect(commas.json()).toEqual({ data: [] });
+  });
+
+  it('a key a device sends over HTTPS ingest is listed with nothing configured', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/instruments', headers: auth,
+      payload: { name: `DK-ING-${s}`, code: `DK-ING-${s}`, profileId },
+    });
+    expect(res.statusCode).toBe(201);
+    const { id, token } = res.json() as { id: string; token: string };
+    createdInstruments.push(id);
+    // Quoted, as the plant's gateways send every value.
+    const sent = await app.inject({
+      method: 'POST', url: '/api/ingest/v1/telemetry',
+      headers: { authorization: `Bearer ${token}` }, payload: { pressure_kpa: '101.3' },
+    });
+    expect(sent.statusCode).toBeLessThan(300);
+    const p = entry((await keys(`instrumentIds=${id}`)).json(), 'telemetry', 'pressure_kpa');
+    expect(p).toMatchObject({ source: 'telemetry', label: 'pressure_kpa', numeric: true, instruments: 1, measurement: null });
+    // …and readable: ingest stamped the instrument as seen.
+    const lv = await app.inject({
+      method: 'POST', url: '/api/instruments/latest-values', headers: auth,
+      payload: { instrumentIds: [id], keys: [{ source: 'telemetry', key: 'pressure_kpa' }] },
+    });
+    const row = lv.json().data[0];
+    expect(row.lastSeenAt).toEqual(expect.any(String));
+    expect(row.values[0]).toMatchObject({ value: '101.3', judged: null, decimals: null });
+  });
+
   it('a Block selects its Areas\' instruments; a profile selects the profile\'s', async () => {
     const block = await prisma.functionalLocation.create({ data: { name: `DK Block ${s}`, type: 'BLOCK' } });
     createdLocations.push(block.id);
@@ -262,7 +297,10 @@ describe('GET /api/instruments/data-keys', () => {
     const rows = res.json().data as { key: string; slot: string | null; numeric: boolean; measurement: { code: string } | null }[];
     expect(rows.find((r) => r.key === 'p')).toMatchObject({ slot: null, numeric: true, measurement: null });
     expect(rows.find((r) => r.key === 'state')).toMatchObject({ numeric: false });
-    expect(rows.find((r) => r.key === 't')).toMatchObject({ slot: 'temperature', measurement: { code: 'TEMPERATURE' } });
+    expect(rows.find((r) => r.key === 't')).toMatchObject({
+      slot: 'temperature',
+      measurement: { code: 'TEMPERATURE', name: temperatureType.name, unit: temperatureType.unit },
+    });
   });
 });
 
@@ -313,12 +351,15 @@ describe('POST /api/instruments/latest-values', () => {
     body.data.find((r) => r.instrumentId === id)!.values.find((v: any) => v.key === key);
 
   it('a raw key returns its value as stored and is not judged', async () => {
+    const seenAt = at(4);
+    await prisma.instrument.update({ where: { id: a }, data: { lastSeenAt: seenAt } });
     const res = await latest({ instrumentIds: [a], keys: [tel('p')] });
     expect(res.statusCode).toBe(200);
     const row = res.json().data[0];
     expect(row).toMatchObject({
       instrumentId: a, code: `LV-A-${s}`, name: `LV-A-${s}`,
       functionalLocationName: null, locationAttribute: null, reporting: expect.any(Boolean),
+      lastSeenAt: seenAt.toISOString(),
     });
     expect(row.values).toEqual([{
       source: 'telemetry', key: 'p', value: 101.333, ts: at(0).toISOString(),
@@ -391,8 +432,14 @@ describe('POST /api/instruments/latest-values', () => {
     expect((await latest({ instrumentIds: [a, b], keys: [tel('p')] })).json().data).toHaveLength(2);
   });
 
+  it('an empty id list is an empty answer, not an error', async () => {
+    const res = await latest({ instrumentIds: [], keys: [tel('p')] });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ data: [] });
+  });
+
   it('the body is validated', async () => {
-    expect((await latest({ instrumentIds: [], keys: [tel('p')] })).statusCode).toBe(400);
+    expect((await latest({ instrumentIds: [a], keys: [] })).statusCode).toBe(400);
     expect((await latest({ instrumentIds: [a], keys: Array(21).fill(tel('p')) })).statusCode).toBe(400);
     expect((await latest({ instrumentIds: [a], keys: [{ source: 'other', key: 'p' }] })).statusCode).toBe(400);
   });

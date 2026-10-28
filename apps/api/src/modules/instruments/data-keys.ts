@@ -12,12 +12,12 @@
  * The callers pass instrument ids ALREADY reduced to what the viewer may see.
  */
 import {
-  attributeLabel, coerceAttributeLabels, ATTRIBUTE_LABELS_CONFIG_KEY,
+  attributeLabel, coerceAttributeLabels, resolveSlot, ATTRIBUTE_LABELS_CONFIG_KEY,
   type DataKeyInfo, type DataKeyJudged, type DataKeyMeasurement, type DataKeyRef, type InstrumentSlotConfig,
   type LatestKeyValue, type LatestValuesRow, type MeasurementType, type TelemetrySlot,
 } from '@digilog/shared';
 import { prisma } from '../../lib/prisma.js';
-import { getAttributeKeyCatalogue, getKeyCatalogue, getLatestFor } from './telemetry.repository.js';
+import { getAttributeKeyCatalogue, getKeyCatalogue, getLatestFor, getLatestKeysByInstrument } from './telemetry.repository.js';
 import { loadMeasurementTypes, slotConfigLookup } from './profile-measurements.js';
 import { offsetKeyTest } from './load-offsets.js';
 import { buildTelemetryOverview, type OverviewRow } from './telemetry-overview.js';
@@ -42,6 +42,32 @@ export function measuredSlotFor(cfg: InstrumentSlotConfig, key: string): Telemet
   return null;
 }
 
+/**
+ * Which slot this key carries ON ONE INSTRUMENT — the ONE rule every route uses
+ * (chart summaries and annotation, `telemetry-keys`, the catalogue, and
+ * latest-values through the overview's own `rawSlots`, which apply it).
+ *
+ * The profile may list several device keys for one measurement; an instrument
+ * still has ONE temperature: the first of them it has sent, in the profile's
+ * order (`resolveSlot`, exactly as `buildTelemetryOverview` and therefore the
+ * alarm evaluator pick it). Any OTHER of those keys is raw on that instrument —
+ * judging it too would let a chart count breaches, or a card paint a status,
+ * on a key no alarm is ever raised on. A slot with no reading yet resolves
+ * nothing, so every listed key still carries the measurement's bounds.
+ *
+ * `instrumentKeys` = the keys in the instrument's latest table.
+ */
+export function resolvedSlotFor(
+  cfg: InstrumentSlotConfig,
+  key: string,
+  instrumentKeys: readonly string[],
+): TelemetrySlot | null {
+  const slot = measuredSlotFor(cfg, key);
+  if (!slot) return null;
+  const resolved = resolveSlot(cfg.aliases[slot], instrumentKeys.map((k) => ({ key: k })));
+  return resolved === null || resolved.key === key ? slot : null;
+}
+
 /** The registry entry for a slot; a registry missing it still names the code. */
 export function measurementFor(slot: TelemetrySlot, types: MeasurementType[]): DataKeyMeasurement {
   const code = SLOT_MEASUREMENT[slot];
@@ -64,19 +90,37 @@ export async function buildKeyCatalogue(opts: {
 }): Promise<DataKeyInfo[]> {
   const ids = opts.instruments.map((i) => i.id);
   if (ids.length === 0) return [];
-  const [telemetry, attributes, slotOf, types, labelsRow, isOffset] = await Promise.all([
+  const [telemetry, perInstrument, attributes, slotOf, types, labelsRow, isOffset] = await Promise.all([
     getKeyCatalogue(ids),
+    getLatestKeysByInstrument(ids),
     getAttributeKeyCatalogue(ids),
     slotConfigLookup(),
     loadMeasurementTypes(),
     prisma.systemConfig.findUnique({ where: { configKey: ATTRIBUTE_LABELS_CONFIG_KEY } }),
     offsetKeyTest(),
   ]);
-  const configs = [...new Set(opts.instruments.map((i) => i.profileId))].map((p) => slotOf(p));
   const labels = coerceAttributeLabels(labelsRow?.configValue);
 
+  // A key is MEASURED in this set when it is the resolved key of its slot on at
+  // least one instrument (`resolvedSlotFor`, per instrument and its profile).
+  const keysOf = new Map<string, string[]>();
+  for (const r of perInstrument) {
+    const list = keysOf.get(r.instrumentId);
+    if (list) list.push(r.key);
+    else keysOf.set(r.instrumentId, [r.key]);
+  }
+  const measuredSlot = new Map<string, TelemetrySlot>();
+  for (const inst of opts.instruments) {
+    const cfg = slotOf(inst.profileId);
+    const mine = keysOf.get(inst.id) ?? [];
+    for (const key of mine) {
+      const slot = resolvedSlotFor(cfg, key, mine);
+      if (slot && !measuredSlot.has(key)) measuredSlot.set(key, slot);
+    }
+  }
+
   const fromTelemetry: DataKeyInfo[] = telemetry.map((row) => {
-    const slot = configs.map((c) => measuredSlotFor(c, row.key)).find((x) => x !== null) ?? null;
+    const slot = measuredSlot.get(row.key) ?? null;
     const measurement = slot ? measurementFor(slot, types) : null;
     return {
       source: 'telemetry',

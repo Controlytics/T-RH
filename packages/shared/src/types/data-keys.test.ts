@@ -50,9 +50,12 @@ describe('latestValuesRequestSchema', () => {
     expect(latestValuesRequestSchema.safeParse({ instrumentIds: [ID], keys: Array(21).fill(key) }).success).toBe(false);
   });
 
-  it('refuses an empty list and a non-uuid id', () => {
-    expect(latestValuesRequestSchema.safeParse({ instrumentIds: [], keys: [key] }).success).toBe(false);
+  it('accepts an empty instrument list — a selection can hold nothing — but not an empty key list', () => {
+    expect(latestValuesRequestSchema.safeParse({ instrumentIds: [], keys: [key] }).success).toBe(true);
     expect(latestValuesRequestSchema.safeParse({ instrumentIds: [ID], keys: [] }).success).toBe(false);
+  });
+
+  it('refuses a non-uuid id', () => {
     expect(latestValuesRequestSchema.safeParse({ instrumentIds: ['not-a-uuid'], keys: [key] }).success).toBe(false);
   });
 });

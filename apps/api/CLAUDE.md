@@ -489,8 +489,12 @@ node apps/api/dist/app.js
   received). Every response field is declared (`value` with no type = any JSON);
   the latest-values body is validated by the shared zod schema, the JSON schema
   only documents it. `getDistinctKeys` stays on history (the chart path's
-  "every key"). Pinned by `e2e/data-keys.e2e.test.ts` (24, mutation-checked five
-  ways) and `__tests__/keys-param.test.ts`.
+  "every key"). **"Measured" is ONE function, `resolvedSlotFor`**: only the key a
+  slot RESOLVED to on the instrument (the overview's choice) is that measurement —
+  the chart path's `slotFor` uses it too, which fixed the trend page charting the
+  wrong one of two device keys. An empty id list is a 200 `[]`. Pinned by
+  `e2e/data-keys.e2e.test.ts` (27, mutation-checked six ways, incl. a real HTTPS
+  ingest case), the two-key resolver-agreement case and `__tests__/keys-param.test.ts`.
 - **2026-10-27 — DEVICE CERTIFICATES: a profile can require each device's own
   client certificate.** Migration `20261027120000_device_certificates`
   (hand-authored, applied to `compliance_core_db` AND `_test`; models 38 / enums

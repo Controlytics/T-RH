@@ -43,7 +43,7 @@ import { codeLabel } from './code-label.js';
 import deviceCertificateRoutes from './device-certificate-routes.js';
 import dataKeysRoutes from './data-keys-routes.js';
 import { parseKeysParam } from './keys-param.js';
-import { measuredSlotFor, measurementFor } from './data-keys.js';
+import { resolvedSlotFor, measurementFor } from './data-keys.js';
 import {
   gatewayInvariantError, lockedGatewayRecheck, lockInstrumentRows, isDeadlock,
   GatewayInvariantViolation,
@@ -1279,7 +1279,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // Loaded BEFORE the branch, not after it: the chart path needs the slot
     // mapping and the resolved limits to bound its per-key breach counts, and
     // the table path needs the same two for its annotation anyway.
-    const [slotCfg, attributes] = await Promise.all([
+    const [slotCfg, attributes, latest] = await Promise.all([
       // The instrument PROFILE's key mappings (2026-10-26) — the SAME resolver
       // the alarm evaluator and the dashboard use. Nothing here reads an
       // attribute name directly — two surfaces disagreeing about which limit
@@ -1289,14 +1289,15 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         where: { instrumentId: id },
         select: { key: true, value: true },
       }),
+      getLatest(id),
     ]);
     const dp = decimalsFor(slotCfg.decimals, attributes);
-    const slotFor = (key: string): 'temperature' | 'humidity' | null => {
-      const k = key.toLowerCase();
-      if (slotCfg.aliases.temperature.includes(k)) return 'temperature';
-      if (slotCfg.aliases.humidity.includes(k)) return 'humidity';
-      return null;
-    };
+    // The ONE rule (2026-10-28): of several device keys of one measurement, only
+    // the key the instrument's temperature RESOLVED to (the overview's and the
+    // alarm evaluator's choice) is a temperature here; it is the one the trend
+    // page charts and the one the breach counts are taken for.
+    const latestKeys = latest.map((r) => r.key);
+    const slotFor = (key: string): 'temperature' | 'humidity' | null => resolvedSlotFor(slotCfg, key, latestKeys);
     /**
      * The band the breach counts are taken against: the instrument's OWN limits
      * where it declares any, else its room's — `buildTelemetryOverview`'s rule,
@@ -1366,7 +1367,6 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       };
     };
 
-    const latest = await getLatest(id);
 
     let historyRows: TelemetryRow[];
     let historyTotal: number;
@@ -1542,21 +1542,15 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const [slotCfg, keys, types] = await Promise.all([
       slotConfigForProfile(exists.profileId), getKeyCatalogue([id]), loadMeasurementTypes(),
     ]);
-    const { aliases } = slotCfg;
-    const annotateKey = (k: string) => {
-      const lower = k.toLowerCase();
-      return aliases.temperature.includes(lower)
-        ? 'temperature' as const
-        : aliases.humidity.includes(lower)
-          ? 'humidity' as const
-          : null;
-    };
+    const keyNames = keys.map((k) => k.key);
 
     return {
       data: keys.map((k) => {
-        const measured = measuredSlotFor(slotCfg, k.key);
+        // The ONE rule, so the picker, the chart and the overview name the
+        // same key the instrument's temperature.
+        const measured = resolvedSlotFor(slotCfg, k.key, keyNames);
         return {
-          key: k.key, slot: annotateKey(k.key), lastSeen: k.lastSeen,
+          key: k.key, slot: measured, lastSeen: k.lastSeen,
           numeric: k.numeric,
           measurement: measured ? measurementFor(measured, types) : null,
         };

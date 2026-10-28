@@ -26,9 +26,20 @@ the trend page).
   `instrumentIds` option), so a measured key's precision, unit, bounds and fault flags
   are the overview's own answer; a raw key carries `unit`, `decimals` and `judged` =
   null (`decimals: null` = print as received — the shared 1-decimal fallback is never
-  applied to a raw key). Of two device keys of one measurement only the one the
-  overview resolved is judged. Joins the "every server resolver agrees about a bound"
-  e2e.
+  applied to a raw key). Joins the "every server resolver agrees about a bound" e2e.
+  An empty id list is an empty answer (200 `[]`), never a 400 — on both routes.
+- **ONE "measured" rule on every route** (`resolvedSlotFor`, `data-keys.ts`): of
+  several device keys a profile lists for one measurement, only the key the
+  instrument RESOLVED to (the first it has sent, in the profile's order — the
+  overview's and the alarm evaluator's choice) is that measurement; any other is raw
+  on that instrument. Used by the catalogue, `telemetry-keys` (its `slot` too),
+  latest-values and the `/:id/telemetry` chart / table annotation and breach bounds.
+  **This fixes a pre-existing trend-page defect**: on an instrument sending two such
+  keys (`temperature` and `t`), the chart path tagged both as temperature and counted
+  breaches for both, and the trend page charted whichever key came first — possibly
+  not the one the dashboard and alarms judge. Pinned by a two-key case in the
+  resolver-agreement e2e (failed before the fix: "chart: the other key must not be
+  judged: expected 27 to be null").
 - **`keys`** (comma list, ≤ 20) on `GET /:id/telemetry` (both paths; not with `key`)
   and `GET /telemetry-history`. No new response field: a chart's "N text readings not
   plotted" is `summaries[key].count - numericCount`.
@@ -38,11 +49,13 @@ the trend page).
 - **Counts:** 2 routes; shared type files 34 → 35 (`data-keys.ts`). No model, enum,
   permission (45), re-auth action (56), audit action (100), module (25), config def
   (36), config page (23), `<Route` (54) or migration moved (re-derived 2026-10-28).
-- Tests: `apps/api/src/e2e/data-keys.e2e.test.ts` (24), a case in
+- Tests: `apps/api/src/e2e/data-keys.e2e.test.ts` (27, incl. a key sent through
+  HTTPS ingest appearing with nothing configured), two cases in
   `instrument-telemetry-range.test.ts`, `__tests__/keys-param.test.ts` (5),
-  `packages/shared/src/types/data-keys.test.ts` (6). Mutation-checked: dropping the
-  `numeric` / `measurement.code` / `judged.limitMin` schema lines, the resolved-alias
-  rule and the multi-history key filter each fail a test.
+  `packages/shared/src/types/data-keys.test.ts` (7). Mutation-checked: dropping the
+  `numeric` / `measurement.code` / `judged.limitMin` / `lastSeenAt` schema lines, the
+  resolved-alias rule and the multi-history key filter each fail a test. A fresh
+  whole-branch review's Important findings were fixed test-first.
 
 ## [Unreleased] - Device certificates: a profile can require each device's own client certificate (2026-10-27)
 
