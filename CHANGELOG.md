@@ -28,7 +28,7 @@ the trend page).
   null (`decimals: null` = print as received — the shared 1-decimal fallback is never
   applied to a raw key). Joins the "every server resolver agrees about a bound" e2e.
   An empty id list is an empty answer (200 `[]`), never a 400 — on both routes.
-- **ONE "measured" rule on every route** (`resolvedSlotFor`, `data-keys.ts`): of
+- **ONE "measured" rule on the key-naming routes** (`resolvedSlotFor`, `data-keys.ts`): of
   several device keys a profile lists for one measurement, only the key the
   instrument RESOLVED to (the first it has sent, in the profile's order — the
   overview's and the alarm evaluator's choice) is that measurement; any other is raw
@@ -39,7 +39,14 @@ the trend page).
   breaches for both, and the trend page charted whichever key came first — possibly
   not the one the dashboard and alarms judge. Pinned by a two-key case in the
   resolver-agreement e2e (failed before the fix: "chart: the other key must not be
-  judged: expected 27 to be null").
+  judged: expected 27 to be null"). It is NOT yet used by `floorplans/room-history.ts` or `telemetry-aggregate.ts`, which still treat every device key of a slot as that measurement (pre-existing; raised as a follow-up). **Behaviour change in
+  signed reports:** the trend page's charts and the Data Report now follow the key the
+  overview resolved, not the most recently active one. Those differ only on an
+  instrument that once sent the preferred key and moved to another — then the
+  overview and alarms are ALREADY judging the stale key (a larger pre-existing
+  defect). Checked read-only 2026-10-28 on `compliance_core_db`: 102 instruments, one
+  (CWH/RDU/101-00) sends two device keys per measurement, and its resolved key IS the
+  newest — no instrument differs. AWS not checked.
 - **`keys`** (comma list, ≤ 20) on `GET /:id/telemetry` (both paths; not with `key`)
   and `GET /telemetry-history`. No new response field: a chart's "N text readings not
   plotted" is `summaries[key].count - numericCount`.

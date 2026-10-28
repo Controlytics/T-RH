@@ -480,7 +480,8 @@ node apps/api/dist/app.js
   plugin of the instruments routes (`data-keys-routes.ts`, so no `app.ts` /
   `test-helper.ts` registration): `GET /api/instruments/data-keys` and
   `POST /api/instruments/latest-values`; `keys` on `/:id/telemetry` and
-  `/telemetry-history`. **No count moved, no migration.** Rules: the catalogue
+  `/telemetry-history`. **No count moved, no migration.** `resolvedSlotFor` is
+  NOT yet used by `floorplans/room-history.ts` or `telemetry-aggregate.ts`, which still treat every device key of a slot as that measurement (pre-existing; raised as a follow-up). Rules: the catalogue
   reads `instrument_telemetry_latest` (never a history `GROUP BY`) and judges
   `numeric` by `NUMERIC_READING`; latest-values takes its rows from
   `buildTelemetryOverview({ instrumentIds, visibilityWhere })` — a measured key's
@@ -489,7 +490,7 @@ node apps/api/dist/app.js
   received). Every response field is declared (`value` with no type = any JSON);
   the latest-values body is validated by the shared zod schema, the JSON schema
   only documents it. `getDistinctKeys` stays on history (the chart path's
-  "every key"). **"Measured" is ONE function, `resolvedSlotFor`**: only the key a
+  "every key"). **"Measured" is ONE function on the key-naming routes, `resolvedSlotFor`**: only the key a
   slot RESOLVED to on the instrument (the overview's choice) is that measurement —
   the chart path's `slotFor` uses it too, which fixed the trend page charting the
   wrong one of two device keys. An empty id list is a 200 `[]`. Pinned by

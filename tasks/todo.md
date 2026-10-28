@@ -165,6 +165,11 @@ Spec `docs/superpowers/specs/2026-10-28-widget-data-keys-design.md`; phase 1 pla
 - [x] Phase 1 T2 `GET /api/instruments/data-keys` + `telemetry-keys` gains `numeric` / `measurement`
 - [x] Phase 1 T3 `POST /api/instruments/latest-values` (overview's own bounds)
 - [x] Phase 1 T4 `keys` on the history routes + docs + full API suite
+- [x] Phase 1 review fix pass (`35df40e`): empty id list = 200 `[]`; one `resolvedSlotFor` rule on the key-naming routes (fixed the trend page charting the wrong one of two device keys); HTTPS-ingest e2e; `lastSeenAt` / measurement asserted. Full API suite 245 files / 3194 green.
+- [ ] Follow-up (operator's call): route `floorplans/room-history.ts` and `telemetry-aggregate.ts` through `resolvedSlotFor` — both still take every device key of a slot.
+- [ ] Follow-up (operator's call): a device that moved from the preferred device key to another resolves to the STALE key in the overview / alarms / trend (latest table keeps every key). Local: none (102 instruments). Check AWS read-only before deploying phase 1.
+- Phase 1 deferred minors: latest-values reads value/ts separately from the overview's flags (one poll can mix them; use `rawSlots`); an unresolved slot gives every listed device key the bounds; a padded device key (" t") is catalogued but unrequestable (requests trim); no Area-scoped OPERATOR case in `data-keys.e2e`; latest-values loads every attribute row when any attribute key is asked, `loadMeasurementTypes` uncached per poll; POST JSON schema has no `maxItems`; test hygiene (orphan history rows, unchecked DELETEs, a restore outside `finally`); `UUID_RE` duplicates `/telemetry-history`'s regex; `measurement` is `{code,name,unit}` (spec said `typeId`) — phase 3 keys off `code`; `apps/api/CLAUDE.md` entry order.
+- Phase 1 rulings: `getDistinctKeys` stays on history; no `take` on Block/profile selectors; attribute SQL in the repository; an unreported slot's keys keep their bounds; a blank attribute reads as absent; `lastSeenAt` by an extra query; phase 2 must page selections over 200 and handle mixed-profile device keys for one card.
 - [ ] Phase 2 dashboard widgets (SUPER_ADMIN builds, Save as role default, `custom_widgets` panel)
 - [ ] Phase 3 trend page extra keys per profile (migration `display_keys`)
 - [ ] Phase 4 downloads (separate approval)

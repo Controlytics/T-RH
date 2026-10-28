@@ -43,9 +43,15 @@ export function measuredSlotFor(cfg: InstrumentSlotConfig, key: string): Telemet
 }
 
 /**
- * Which slot this key carries ON ONE INSTRUMENT — the ONE rule every route uses
- * (chart summaries and annotation, `telemetry-keys`, the catalogue, and
- * latest-values through the overview's own `rawSlots`, which apply it).
+ * Which slot this key carries ON ONE INSTRUMENT — the rule the key-naming
+ * routes share (chart summaries and annotation on `/:id/telemetry`,
+ * `telemetry-keys`, the catalogue, and latest-values through the overview's own
+ * `rawSlots`, which apply it). NOT yet used by `floorplans/room-history.ts` or
+ * `telemetry-aggregate.ts`, which still take every device key of a slot.
+ *
+ * Decided from the LATEST table, which keeps every key ever sent: an instrument
+ * that once sent the preferred key and has since moved to another resolves to
+ * the old one — exactly as the overview and the alarm evaluator already do.
  *
  * The profile may list several device keys for one measurement; an instrument
  * still has ONE temperature: the first of them it has sent, in the profile's
