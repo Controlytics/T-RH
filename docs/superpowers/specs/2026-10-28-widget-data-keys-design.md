@@ -68,7 +68,7 @@ A device starts sending a key `p` tomorrow.
 - **No one configures anything for it to be pickable.** The first stored reading puts `p` into the
   key picker of every widget that covers that instrument, shown as *Time series · number · last
   seen 12:04*.
-- **A super admin** (or every user, if §13.1 says so) opens the dashboard, presses Arrange → Add
+- **A super admin** opens the dashboard, presses Arrange → Add
   widget, picks *Value cards*, the instruments
   (or "follow the dashboard's Block/Area selection"), ticks `p`, types a label and a unit, and the
   card shows the latest value, refreshed as the dashboard refreshes. A *Trend chart* widget plots
@@ -230,13 +230,16 @@ A device starts sending a key `p` tomorrow.
   `INSTRUMENT_READ` and apply the viewer's own scope. A role-default widget that names an instrument
   outside a viewer's scope shows the rest; one whose every instrument is outside it shows "No
   instruments in your view".
-- **Who may add one: OPEN — the operator's to decide (§13).** Arrange is SUPER_ADMIN-only by the
-  operator's 2026-08-29 instruction. Either (a) widgets follow it: a SUPER_ADMIN builds them and
-  saves the arrangement as a role's default through the existing audited role route (a new *Save
-  as role default* in Arrange mode), and every other user sees their role's widgets; or (b) every
-  dashboard user may also add widgets to their own layout (not audited, a preference), reversing
-  2026-08-29 for widgets. Under (b), a user who has saved their own arrangement keeps it whole, so
-  a widget added to their role's default later reaches them after *Reset to role default*.
+- **Who may add one: a SUPER_ADMIN only** (operator, 2026-10-28: "super admin only" — the
+  2026-08-29 Arrange rule stands). The add / edit / remove controls exist only in Arrange mode,
+  which only a SUPER_ADMIN reaches; the two layout PUT routes refuse a layout whose `widgets`
+  differ from the caller's stored ones unless the caller is a SUPER_ADMIN (the screen hiding them
+  is presentation; the 403 is the control). A widget a SUPER_ADMIN builds sits in their own layout
+  — seen by them alone — until they press *Save as role default* (new, in Arrange mode, through
+  the existing audited `PUT /api/roles/dashboard-layout/role/:name`); every user of that role then
+  sees it, subject to the `custom_widgets` panel. Other users keep their role's layout (they cannot
+  arrange, so none of them should hold a layout of their own; any that does keeps it whole and
+  meets the role's widgets after *Reset to role default*).
 - **No new permission, and no reuse of `DASHBOARD_*`.** Reusing those would reverse the 2026-10-24
   strip, which is still owed on AWS and would remove the grant again on its first run. **[my call]**
 
@@ -346,7 +349,7 @@ deploy; nothing has to be run by hand. Independent of the owed 2026-10-24 permis
 
 1. Widgets live on the existing dashboard and trend page, not in a revived `/api/dashboards`.
 2. Dashboard widgets are stored in the layout JSON, not a new table.
-3. Built widgets are governed by one new panel, `custom_widgets`, on Roles & Access → Panels.
+3. Built widgets are governed by one new panel, `custom_widgets`, on Roles & Access → Panels, and the layout routes refuse a widget change from anyone but a SUPER_ADMIN.
 4. No new permission; `DASHBOARD_*` is not reused.
 5. Trend-page extra keys are per PROFILE, set by a SUPER_ADMIN, not per user.
 6. A raw key is never judged and prints as received unless the widget sets decimals.
@@ -356,9 +359,10 @@ deploy; nothing has to be run by hand. Independent of the owed 2026-10-24 permis
 10. Four widget types first: Value cards, Latest values table, Trend chart, Time series table.
 11. No downloads until Phase 4.
 
-## 13. Open — the operator's to answer
+## 13. Answered by the operator (2026-10-28)
 
-1. **Who may add a dashboard widget** — SUPER_ADMIN only, shared to roles (follows the 2026-08-29
-   Arrange rule), or every dashboard user for their own layout as well (§6.1).
-2. **Was the trend page's extra-keys picker removed on purpose on 2026-09-01?** If yes, Phase 3
-   is dropped and extra keys reach people only through dashboard widgets.
+1. **Who may add a dashboard widget:** "super admin only" — read as: only a SUPER_ADMIN builds,
+   edits and removes widgets, and shares them by saving a role's default (§6.1). If it meant that
+   only super admins should ever SEE built widgets, *Save as role default* is simply never used;
+   nothing else changes.
+2. **Trend page extra keys:** "Yes, per profile" — Phase 3 stays as written (§7).
