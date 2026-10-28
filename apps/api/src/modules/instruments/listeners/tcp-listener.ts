@@ -3,6 +3,8 @@ import { LineFramer } from './line-framer.js';
 import { resolveInstrumentByToken, reauthorizeConnection, type IngestIdentity } from '../ingest-auth.js';
 import { judgeConnection, recordCertificateRefusal } from '../device-certificate.js';
 import { ingestPayload } from '../ingest-core.js';
+import { ingestAttributeReport } from '../attribute-report.js';
+import { classifyDeviceFrame, attributeSubscription } from '../device-attributes.js';
 import { logger } from '../../../lib/logger.js';
 
 /**
@@ -64,6 +66,13 @@ const DEFAULT_MAX_CONNECTIONS = 200;
  */
 const DEFAULT_MAX_MESSAGES_PER_WINDOW = 600;
 const DEFAULT_RATE_WINDOW_MS = 60_000;
+
+/**
+ * Attribute pushes waiting in the socket's write buffer (2026-10-28). A device
+ * that subscribed and then stopped READING its socket would otherwise grow it
+ * without bound; past this the socket is closed and the device reconnects.
+ */
+const MAX_PENDING_WRITE_BYTES = 1_048_576;
 
 export interface TcpListenerOptions {
   authTimeoutMs?: number;
@@ -159,9 +168,43 @@ export async function startTcpListener(
       socket.destroy();
     };
 
+    // ATTRIBUTES (2026-10-28): created on the first `{"subscribe":"attributes"}`
+    // line. Every push re-checks the credential and the certificate rule first
+    // (raw TCP never carries a certificate), so a revocation stops it even on a
+    // socket that sends nothing more. One JSON object per line, like the input.
+    let subscription: ReturnType<typeof attributeSubscription> | null = null;
+    const subscriptionFor = (who: IngestIdentity) => attributeSubscription({
+      targetId: who.id,
+      check: async () => {
+        if (socket.destroyed || !identity) return null;
+        const current = await reauthorizeConnection(authToken, identity);
+        if (!current) {
+          kill('closing socket — credential revoked, or instrument deactivated or deleted', { code: identity.code });
+          return null;
+        }
+        identity = current;
+        const verdict = judgeConnection(identity, null);
+        if (!verdict.ok) {
+          await recordCertificateRefusal(identity.id, 'tcp', verdict.code);
+          kill('closing socket — device certificate required (raw TCP cannot carry one)', { code: identity.code });
+          return null;
+        }
+        return { identity, certificateVerified: false };
+      },
+      write: (text) => {
+        if (socket.destroyed) return;
+        if (socket.writableLength > MAX_PENDING_WRITE_BYTES) {
+          kill('closing socket — attribute pushes not being read', { pending: socket.writableLength, code: identity?.code });
+          return;
+        }
+        socket.write(`${text}\n`);
+      },
+    });
+
     socket.on('close', () => {
       clearTimeout(authDeadline);
       sockets.delete(socket);
+      subscription?.close();
     });
 
     // EVERY socket. An ECONNRESET with no listener is an unhandled 'error'
@@ -279,6 +322,19 @@ export async function startTcpListener(
             await recordCertificateRefusal(identity.id, 'tcp', verdict.code);
             kill('closing socket — device certificate required (raw TCP cannot carry one)', { code: identity.code });
             return;
+          }
+
+          // An attribute report or subscription is decided only HERE — after
+          // the re-authorisation and the certificate check above.
+          const kind = classifyDeviceFrame(line);
+          if (kind.kind === 'subscribe') {
+            (subscription ??= subscriptionFor(identity)).subscribe();
+            continue;
+          }
+          if (kind.kind === 'attributes') {
+            const report = await ingestAttributeReport({ identity, raw: kind.raw, transport: 'tcp', certificateVerified: false });
+            if (!report.ok) log('attribute report refused', { code: report.code, instrument: identity.code });
+            continue;
           }
 
           const outcome = await ingestPayload({

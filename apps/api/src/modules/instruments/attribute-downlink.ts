@@ -1,5 +1,6 @@
 import { logger } from '../../lib/logger.js';
 import { offsetKeyTest } from './load-offsets.js';
+import { pushAttributeFrame } from './attribute-sessions.js';
 /**
  * Attribute DOWNLINK — the first platform→device path in this codebase.
  *
@@ -19,6 +20,13 @@ import { offsetKeyTest } from './load-offsets.js';
 
 /** What a route hands over after a committed attribute change. */
 export interface AttributeDownlink {
+  /**
+   * The instrument's ID, and its gateway's (2026-10-28): what the WebSocket /
+   * TCP subscribers are keyed by (`attribute-sessions.ts`). REQUIRED, so a
+   * caller that forgets them fails to compile rather than silently not pushing.
+   */
+  instrumentId: string;
+  gatewayId: string | null;
   /** The instrument's CODE — what the wire addresses it by (2026-09-04). */
   code: string;
   /** Its gateway's CODE, when it has one. A child has no broker connection. */
@@ -252,6 +260,12 @@ export async function publishAttributeDownlink(
   const isOffset = await offsetKeyTest();
   if (d.changedKey && isOffset(d.changedKey)) return;
   d = { ...d, attributes: Object.fromEntries(Object.entries(d.attributes).filter(([k]) => !isOffset(k))) };
+  // WebSocket / TCP connections subscribed to attributes (2026-10-28) — FIRST,
+  // and independent of the broker: an install with no MQTT_BROKER_URL has no
+  // publisher, and its WS/TCP devices must still be told. The MQTT slot rule:
+  // a child's change goes to its gateway's connection, naming the child.
+  const payload = buildAttributeDownlinkPayload(d);
+  pushAttributeFrame(d.gatewayId ?? d.instrumentId, d.instrumentId, { device: d.code, ...payload });
   await publishRetained(
     attributeDownlinkTopic(d.code, d.gatewayCode),
     JSON.stringify(buildAttributeDownlinkPayload(d)),

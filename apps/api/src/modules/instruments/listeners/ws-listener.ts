@@ -7,6 +7,8 @@ import type {} from '@fastify/websocket';
 import { resolveInstrumentByToken, reauthorizeConnection, type IngestIdentity } from '../ingest-auth.js';
 import { certificateVerified, issueIdFromTlsSocket, judgeConnection, recordCertificateRefusal } from '../device-certificate.js';
 import { ingestPayload } from '../ingest-core.js';
+import { ingestAttributeReport } from '../attribute-report.js';
+import { classifyDeviceFrame, attributeSubscription } from '../device-attributes.js';
 import { logger } from '../../../lib/logger.js';
 
 /**
@@ -161,7 +163,9 @@ export default async function wsIngestRoutes(
       description:
         'Upgrade endpoint. Present the device token as `Authorization: Bearer <token>` on the '
         + 'upgrade request, or as a first frame `{"token":"..."}`. Every frame after '
-        + 'authentication is one reading, in the same JSON shapes the HTTP route accepts.',
+        + 'authentication is one reading, in the same JSON shapes the HTTP route accepts — '
+        + 'except `{"attributes":{...}}` (an attribute report, the MQTT report payload) and '
+        + '`{"subscribe":"attributes"}` (the current attributes now, then every change).',
     },
   }, (socket: WebSocket, req: FastifyRequest) => {
     const remote = req.ip;
@@ -250,9 +254,30 @@ export default async function wsIngestRoutes(
     // ('error' is handled at the very top of this handler — see the comment
     // there for why it cannot wait until after the connection-cap branch.)
 
+    // ATTRIBUTES (2026-10-28): created on the first `{"subscribe":"attributes"}`.
+    // Every push re-checks the credential and the certificate first, so a
+    // revocation stops it even on a connection that sends nothing more.
+    let subscription: ReturnType<typeof attributeSubscription> | null = null;
+    const subscriptionFor = (who: IngestIdentity) => attributeSubscription({
+      targetId: who.id,
+      check: async () => {
+        if (shut || !identity) return null;
+        const current = await reauthorizeConnection(authToken, identity);
+        if (!current) {
+          close(CLOSE_REVOKED, 'credential revoked, or instrument deactivated or deleted', { code: identity.code });
+          return null;
+        }
+        identity = current;
+        if (await refusedCertificate(identity)) return null;
+        return { identity, certificateVerified: certificateVerified(identity, presentedIssueId) };
+      },
+      write: (text) => { if (!shut && socket.readyState === socket.OPEN) socket.send(text); },
+    });
+
     socket.on('close', () => {
       shut = true;
       clearTimeout(authDeadline);
+      subscription?.close();
     });
 
     // Header auth is resolved eagerly, so a bad Bearer token is refused even if
@@ -362,6 +387,21 @@ export default async function wsIngestRoutes(
           // The profile may have started requiring a certificate, or the
           // certificate been re-issued / revoked, since this socket opened.
           if (await refusedCertificate(identity)) return;
+
+          // An attribute report or subscription is decided only HERE — after
+          // the re-authorisation and the certificate check above.
+          const kind = classifyDeviceFrame(frame);
+          if (kind.kind === 'subscribe') {
+            (subscription ??= subscriptionFor(identity)).subscribe();
+            continue;
+          }
+          if (kind.kind === 'attributes') {
+            const report = await ingestAttributeReport({
+              identity, raw: kind.raw, transport: 'ws', certificateVerified: certificateVerified(identity, presentedIssueId),
+            });
+            if (!report.ok) log('attribute report refused', { code: report.code, instrument: identity.code });
+            continue;
+          }
 
           const outcome = await ingestPayload({
             identity, raw: frame, transport: 'ws', certificateVerified: certificateVerified(identity, presentedIssueId),

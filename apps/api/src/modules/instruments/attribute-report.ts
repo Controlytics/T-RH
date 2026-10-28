@@ -94,10 +94,14 @@ export function splitWritable(
  *  write back (the trap recorded on 2026-09-04). Clamped in the sentence only. */
 const clamp = (s: string) => (s.length > 60 ? `${s.slice(0, 57)}…` : s);
 
-async function deadLetter(instrumentId: string, reason: string, raw: Buffer): Promise<void> {
+/** How the trail names each transport. HTTPS is recorded `http`, WSS `ws` — as telemetry is. */
+export type AttributeReportTransport = 'mqtt' | 'http' | 'ws' | 'tcp';
+const TRANSPORT_LABEL: Record<AttributeReportTransport, string> = { mqtt: 'MQTT', http: 'HTTP', ws: 'WebSocket', tcp: 'TCP' };
+
+async function deadLetterFor(instrumentId: string, reason: string, raw: Buffer, transport: AttributeReportTransport): Promise<void> {
   try {
     await prisma.deadLetter.create({
-      data: { id: randomUUID(), instrumentId, transport: 'mqtt', reason, rawPayload: raw.toString('utf8').slice(0, 4000) },
+      data: { id: randomUUID(), instrumentId, transport, reason, rawPayload: raw.toString('utf8').slice(0, 4000) },
     });
   } catch { /* a dead-letter failure must not take the report down */ }
 }
@@ -106,8 +110,19 @@ export async function ingestAttributeReport(input: {
   identity: IngestIdentity;
   raw: Buffer;
   log?: PublishLogger;
+  /** The transport it ARRIVED on (2026-10-28). Omitted = MQTT, the original path. */
+  transport?: AttributeReportTransport;
+  /**
+   * Whether THIS connection presented the gateway's own current certificate —
+   * a child whose profile requires one is refused otherwise, as its telemetry
+   * is. Omitted on MQTT, where the EMQX hook judged it at CONNECT.
+   */
+  certificateVerified?: boolean;
 }): Promise<AttributeReportOutcome> {
-  const { identity, raw } = input;
+  const { identity } = input;
+  const transport = input.transport ?? 'mqtt';
+  const raw = input.raw;
+  const deadLetter = (instrumentId: string, reason: string, payload: Buffer) => deadLetterFor(instrumentId, reason, payload, transport);
   const parsed = parsePayload(raw);
   if (!parsed.ok) {
     await deadLetter(identity.id, `Attribute report: ${parsed.reason ?? 'unparseable'}`, raw);
@@ -126,7 +141,10 @@ export async function ingestAttributeReport(input: {
       await deadLetter(identity.id, 'Attribute report with a devices block from an instrument that is not a gateway', raw);
       return { ok: false, code: 'NOT_A_GATEWAY', message: `Instrument "${identity.code}" is not a gateway.` };
     }
-    const { readings, rejected } = fanoutDevices(devices, await childMapFor(identity.id), ts, identity.code);
+    const { readings, rejected } = fanoutDevices(
+      devices, await childMapFor(identity.id), ts, identity.code,
+      input.certificateVerified === undefined ? {} : { certificateVerified: input.certificateVerified },
+    );
     for (const r of rejected.slice(0, 20)) await deadLetter(identity.id, `Attribute report: ${r.reason}`, raw);
     for (const r of readings) {
       const m = perInstrument.get(r.instrumentId) ?? new Map<string, unknown>();
@@ -173,8 +191,8 @@ export async function ingestAttributeReport(input: {
         await auditLog({
           action: 'INSTRUMENT_ATTRIBUTE_REPORTED', targetType: 'Instrument', targetId: target.id,
           beforeValue: { code: target.code, attribute: key, value: before?.value ?? null },
-          afterValue: { code: target.code, attribute: key, value, reportedBy: identity.code, transport: 'mqtt' },
-          reason: `Reported by device "${identity.code}" over MQTT`,
+          afterValue: { code: target.code, attribute: key, value, reportedBy: identity.code, transport },
+          reason: `Reported by device "${identity.code}" over ${TRANSPORT_LABEL[transport]}`,
           signatureMeaning: `Attribute "${clamp(key)}" on instrument "${clamp(target.code)}" reported by device "${clamp(identity.code)}"`,
         }, tx);
         changed.push([key, value]);
@@ -190,6 +208,7 @@ export async function ingestAttributeReport(input: {
     const attributes = Object.fromEntries(rows.map((r) => [r.key, r.value]));
     for (const [key, value] of changed) {
       await publishAttributeDownlink({
+        instrumentId: target.id, gatewayId: target.gatewayId,
         code: target.code, gatewayCode: target.gateway?.code ?? null, attributes,
         changedKey: key, changedValue: value, ts: new Date(),
       }, input.log);

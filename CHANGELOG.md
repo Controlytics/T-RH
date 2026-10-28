@@ -1,5 +1,108 @@
 # Changelog
 
+## [Unreleased] - Device attributes on EVERY protocol: HTTP/HTTPS, WebSocket, TCP (2026-10-28)
+
+Operator: "why attributes topic was not there for http and https", then "add for all
+protocals". MQTT had a report topic and a retained slot; nothing else could exchange
+attributes. Now (`modules/instruments/device-attributes.ts`, `attribute-sessions.ts`):
+
+- **HTTP / HTTPS:** `POST /api/ingest/v1/attributes` reports (the MQTT report body),
+  `GET /api/ingest/v1/attributes` answers `{device, attributes, ts, children[]}`. Same
+  token, rate limit, body cap and certificate rule as `/telemetry`. HTTP cannot push —
+  a device sees an app-side change when it next GETs. New public path (guard test
+  updated deliberately: four device-token ingest paths).
+- **WebSocket / TCP:** a frame / line whose ONLY key is `attributes` (object) is a
+  report; `{"subscribe":"attributes"}` answers the current set (a gateway: one frame
+  per instrument, its own and each child's) and then pushes every committed change as
+  `{device, attributes, changed, ts}`. Opt-in, so a telemetry-only device never gets
+  an unexpected frame. Decided only after the connection's re-authorisation and
+  certificate check.
+- **One implementation:** every report runs `ingestAttributeReport` (device-writable
+  keys, offsets refused, unchanged not written, `INSTRUMENT_ATTRIBUTE_REPORTED`), now
+  recording the REAL transport (`http` / `ws` / `tcp`; HTTPS and WSS as telemetry
+  records them) in the audit row, its reason and dead letters. Every push comes from
+  `publishAttributeDownlink` — before, and independent of, the MQTT broker.
+- **Security:** subscribers are keyed by instrument ID (a rename cannot strand one);
+  every push re-runs the connection's re-authorisation and certificate check, so a
+  revoked token or a deactivated / deleted instrument stops receiving and is closed
+  even if it never sends again; a gateway on a connection without its certificate can
+  neither report for, nor receive the attributes of, a child whose profile requires
+  one; pushes are serialised per connection (commit order); a TCP subscriber that
+  stops reading is closed past 1 MB queued.
+- **Connection panel:** the HTTP, WebSocket and TCP tabs show their GET / POST or
+  subscribe / report frames (still never an MQTT topic there).
+- **Not included:** the gateway roster and the `children/attributes` change event stay
+  MQTT-only; no HTTP long-poll. No count moved, no migration.
+- Tests: `e2e/device-attributes.e2e.test.ts` (10, real WS and TCP listeners, no broker),
+  `__tests__/device-attributes.test.ts` (3), a push case in `attribute-downlink.test.ts`,
+  four panel cases; 9 mutations (push without broker, revocation, three certificate
+  rules, transport, the GET schema, the strict envelope, unsubscribe on close) all
+  caught. Existing ws / tcp / mqtt-attribute / downlink / gateway / device-cert TLS e2e
+  green.
+
+## [Unreleased] - Bulk upload UPDATES an Instrument ID that already exists; the template is the heading only (2026-10-28)
+
+Operator: "when user doing bulk upload with already exiting instrument ids and like
+attributes values changed and uploaded then already existed error was coming, there i
+need like what values are changed those data should update", and "every time when
+uploading its showing instrument id error was coming, only heading".
+
+- **An existing Instrument ID is updated, not refused.** `POST /api/instruments/bulk`
+  plans every row (`modules/instruments/bulk-plan.ts`, pure, ONE rule): a new ID is
+  created as before; an existing one has the ATTRIBUTE cells that differ written, or
+  is reported `unchanged`. Rules: a BLANK cell keeps the stored value (a file cannot
+  clear one); identity columns (`name`, `model`, ...) are not applied to an existing
+  instrument and a file carrying them is told so once; the ID matches IGNORING CASE
+  and the stored spelling answers; a stored key that differs only by case is written
+  in place (exact key first) — never a second attribute; offsets are compared signed
+  (`2` = `+2`); whitespace round a stored value is no change. An instrument in
+  ANOTHER profile is refused on its row (never moved — a profile move is governed),
+  one OUTSIDE the caller's view keeps the old "already exists" wording and nothing of
+  it is read, and a role without Instrument Update gets a row error for a CHANGE (an
+  unchanged row is no error). Each changed cell answers to the role's Attribute
+  Access (a refused cell fails its whole row, named by its heading) and its
+  attribute re-auth. A row is all or nothing.
+- **ONE remark** (`reason`) when a change OVERWRITES a recorded value — the single
+  attribute routes' rule, asked once for the file; a first fill asks none. Missing
+  = 400 `REMARK_REQUIRED` and NOTHING is written, new rows included. Each change is
+  one `INSTRUMENT_ATTRIBUTE_SET` (`beforeValue` + the remark), written exactly as
+  `PUT /:id/attributes/:key` writes it; an unchanged value writes and audits nothing;
+  the device is told after the commit. Every key is locked FIRST, in key order, so a
+  bulk row cannot deadlock against a single attribute write over the audit-chain lock.
+  A value recorded between the plan and the write is not overwritten without a
+  remark (409 `CHANGED_SINCE_CHECKED` on that row). Updated rows get no token.
+- **New `POST /api/instruments/bulk/preview`** (INSTRUMENT_CREATE): the same plan,
+  writing nothing — `create` / `update` (each change with `from` and `to`) /
+  `unchanged` / `errors` / `warnings` / `remarkRequired` (the server's answer). The
+  upload plans the file AGAIN; it never takes a diff from the browser. Response
+  fields `updated` and `unchanged` added to `/bulk`; every inner key declared.
+- **The page previews first** (`routes/instruments/bulk-create.tsx`): a file that
+  only creates goes straight on as before; one that changes an existing instrument
+  opens `bulk-review-dialog.tsx` — every change, from its current value ("Not set"
+  for a first fill) to the new one, and the Remarks box only when the server says
+  `remarkRequired`. Results add an **Updated** card; the button reads **Upload**.
+- **Why every upload showed an Instrument ID error.** The template's sample row was
+  `CWH/RDU/001-00`, a REAL instrument, so an untouched template failed on row 2 with
+  "already exists" — confirmed against `compliance_core_db` and the operator's own
+  saved `instrument-template (2).csv`. The template is now the heading row ONLY.
+  Fixed alongside, same symptom: Excel saves a CLEARED row as bare separators
+  (`,,,`), and each became "Instrument ID is required" — reproduced on a test file,
+  NOT seen in the operator's saved files; the parser now skips a row with no filled
+  cell, like a blank line.
+- **Behaviour reversed on purpose:** re-uploading an old registration file no longer
+  fails row by row — it proposes reverting any value that has changed since. The
+  review dialog lists those reverts before anything is written; that and the remark
+  are the protection.
+- **No count moved, no migration** — no model, enum, permission, reauth action or
+  audit action (reuses `INSTRUMENT_ATTRIBUTE_SET`). `attributeAccessRefusal()` was
+  lifted out of `refuseAttributeWrite()` so both word a refusal identically.
+- Tests: `e2e/bulk-update.e2e.test.ts` (15), `__tests__/bulk-plan.test.ts` (20), three
+  parser cases, two `instruments.test.ts` cases rewritten (they pinned the old
+  "already exists"), five page cases plus three re-pointed. Mutation-checked: 16 API
+  mutations (schema `from` / `updated`, the remark check, the visibility filter, the
+  update permission, the audit remark, the re-auth, the preview's remark flag, and
+  seven planner / parser rules) and 6 page mutations — every one fails a test.
+
 ## [Unreleased] - Widget data keys, phase 1: the server lists and reads ANY key an instrument has (2026-10-28)
 
 Operator: "in application dashboards widgets, if different keys data was coming to

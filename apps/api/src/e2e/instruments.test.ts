@@ -132,7 +132,10 @@ describe('Instruments registry', () => {
       expect(res.statusCode).toBe(409);
     });
 
-    it('rejects a bulk row that is a case variant of an existing ID, as an error row naming the cell', async () => {
+    // Until 2026-10-28 this row was an "already exists" error. An existing ID
+    // now UPDATES that instrument (bulk-update.e2e.test.ts); what this case
+    // still pins is the case rule — it is the SAME instrument, never a second.
+    it('a bulk row that is a case variant of an existing ID is THAT instrument — unchanged, never a second one', async () => {
       const stamp = Date.now();
       const first = await create({ name: 'A', code: `Bulk-${stamp}` });
       created.push(first.json().id);
@@ -144,17 +147,22 @@ describe('Instruments registry', () => {
       const body = res.json();
       for (const c of body.created) created.push(c.id);
       expect(body.created.map((c: { code: string }) => c.code)).toEqual([`Other-${stamp}`]);
-      expect(body.errors).toEqual([{ row: 2, column: 'Instrument ID', message: `Instrument ID "BULK-${stamp}" already exists` }]);
+      expect(body.errors).toEqual([]);
+      expect(body.unchanged).toEqual([{ row: 2, code: `Bulk-${stamp}` }]);
+      expect(await prisma.instrument.count({ where: { code: { equals: `bulk-${stamp}`, mode: 'insensitive' } } })).toBe(1);
     });
   });
 
-  it('reports a DB code collision as an error row with its SOURCE row number, not a failed batch', async () => {
+  // An existing ID in the upload's profile is updated since 2026-10-28; one it
+  // may NOT update — here, in another profile — is still an error on its
+  // SOURCE row while the rest of the file lands.
+  it('reports an existing ID it cannot update as an error row with its SOURCE row number, not a failed batch', async () => {
     const stamp = Date.now();
     const taken = `COL-${stamp}`;
-    const first = await create({ name: 'Taken', code: taken });
+    const first = await create({ name: 'Taken', code: taken, profileId: await fixtureProfileId('fixture:instruments-other') });
     created.push(first.json().id);
 
-    // Row 2 collides with the instrument above; rows 3 and 4 must still land.
+    // Row 2 names the instrument above; rows 3 and 4 must still land.
     const csv = `name,code\nDup,${taken}\nFresh 1,F1-${stamp}\nFresh 2,F2-${stamp}`;
     const res = await app.inject({
       method: 'POST', url: '/api/instruments/bulk', headers: auth,
@@ -165,7 +173,10 @@ describe('Instruments registry', () => {
     for (const c of body.created) created.push(c.id);
 
     expect(body.created).toHaveLength(2);
-    expect(body.errors).toEqual([{ row: 2, column: 'code', message: `Instrument ID "${taken}" already exists` }]);
+    expect(body.errors).toEqual([{
+      row: 2, column: 'code',
+      message: `Instrument ID "${taken}" belongs to profile "fixture:instruments-other". Choose that profile to update it.`,
+    }]);
   });
 
   // Until 2026-09-16 this case pinned "never its code". The operator asked for

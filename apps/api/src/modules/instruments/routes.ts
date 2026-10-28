@@ -1,6 +1,6 @@
 import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { offsetKeyTest, withoutOffsets } from './load-offsets.js';
-import { parseOffsetValue, formatOffsetValue, SENSOR_OFFSET_VALUE_MESSAGE } from '@digilog/shared';
+import { parseOffsetValue, formatOffsetValue, SENSOR_OFFSET_VALUE_MESSAGE, validateAttributeRemark } from '@digilog/shared';
 import { Prisma } from '@prisma/client';
 import {
   createInstrumentSchema,
@@ -25,12 +25,13 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { generateToken, hashToken, tokenPrefix, tokenMatches } from './token.js';
 import { encryptToken, decryptToken, tokenKeyConfigured } from './token-crypto.js';
-import { parseInstrumentCsv, type InstrumentDraft, type AttributeColumn } from './bulk-csv.js';
+import { parseInstrumentCsv, type AttributeColumn, type RowError } from './bulk-csv.js';
+import { planBulkUpload, remarkRequired, type ExistingInstrument, type PlannedChange, type RowPlan } from './bulk-plan.js';
 import { buildTelemetryOverview, instrumentLimitsWithText, NO_LIMIT_TEXT, loadActiveWindowMinutes } from './telemetry-overview.js';
 import { enabledBoundsFor } from '../alarms/load-limits.js';
 import { decimalsFor, annotateAttribute } from './decimals.js';
 import { slotConfigForProfile, allOffsetKeys, measurementsForProfile, loadMeasurementTypes } from './profile-measurements.js';
-import { loadAttributeAccess, refuseAttributeWrite, needsReauth } from './attribute-access.js';
+import { loadAttributeAccess, refuseAttributeWrite, needsReauth, attributeAccessRefusal } from './attribute-access.js';
 import {
   ATTRIBUTE_REMARK_MAX, lttb, isInstrumentReporting,
   parseInstrumentAttributeKeys, coerceAttributeLabels, ATTRIBUTE_LABELS_CONFIG_KEY,
@@ -503,6 +504,25 @@ class HandledRouteError extends Error {
 function isDuplicateCode(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
 }
+
+/**
+ * A bulk row that names an existing instrument, and one change it carries
+ * (2026-10-28). EVERY inner key is declared — Fastify strips what the schema
+ * does not name, and `from: null` (a first fill) must survive as null.
+ */
+const bulkChangeProps = {
+  key: { type: 'string' },
+  column: { type: 'string' },
+  from: { type: 'string', nullable: true },
+  to: { type: 'string' },
+} as const;
+const bulkUpdatedProps = {
+  id: { type: 'string' },
+  code: { type: 'string' },
+  row: { type: 'integer' },
+  changes: { type: 'array', items: { type: 'object', properties: bulkChangeProps } },
+} as const;
+const bulkRowRefProps = { row: { type: 'integer' }, code: { type: 'string' } } as const;
 
 /** One aggregate bucket on the wire. */
 const aggregatePointProps = {
@@ -1707,8 +1727,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     preHandler: [app.requirePermission('INSTRUMENT_CREATE')],
     schema: {
       tags: ['Instruments'],
-      summary: 'Bulk-create instruments from CSV',
-      description: 'Per-row validation with partial success: valid rows are created, invalid rows are reported with their source row number. The response carries one plaintext token per created instrument — it is a live credential file.',
+      summary: 'Bulk-create instruments from CSV, and update the ones that already exist',
+      description: 'Per-row validation with partial success: a new Instrument ID is created, an existing one has the attribute cells that differ updated (blank cells change nothing), invalid rows are reported with their source row number. `reason` is required when a change overwrites a recorded value — `POST /bulk/preview` says so first. The response carries one plaintext token per CREATED instrument — it is a live credential file.',
       // profileId is a SIBLING of csv, not a column: the CSV format operators
       // already have on disk stays exactly as it was.
       body: {
@@ -1719,12 +1739,19 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           // The functional location EVERY row is born in, chosen once like the
           // profile. Required when the caller's instrument view is limited.
           functionalLocationId: { type: 'string', format: 'uuid', nullable: true },
+          // ONE remark for every recorded value the file overwrites (2026-10-28).
+          reason: { type: 'string', maxLength: ATTRIBUTE_REMARK_MAX },
+          _currentPassword: { type: 'string' },
         },
       },
       response: {
         200: {
           type: 'object',
           properties: {
+            // Existing instruments whose attribute cells differed, with what
+            // each change replaced — no token: nothing about access moved.
+            updated: { type: 'array', items: { type: 'object', properties: bulkUpdatedProps } },
+            unchanged: { type: 'array', items: { type: 'object', properties: bulkRowRefProps } },
             created: {
               type: 'array',
               items: { type: 'object', properties: { id: { type: 'string' }, code: { type: 'string' }, name: { type: 'string' }, token: { type: 'string' } } },
@@ -1777,61 +1804,58 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       return reply.code(400).send(placementRefusal(locationId));
     }
 
-    // The file may carry the profile's ATTRIBUTES, headed by their administered
-    // display names (2026-09-16). The parser maps a heading back to the KEY;
-    // this is the one place the profile's list and the display-name map meet.
-    // Sensor-offset columns exist only for a SUPER_ADMIN (2026-10-01): for anyone
-    // else they are not columns of this profile, so a heading naming one is an
-    // unknown heading — ignored with the parser's one warning, never written.
-    const isOffset = await offsetKeyTest();
-    const attributeColumns = (await bulkAttributeColumns(parsed.data.profileId))
-      .filter((c) => req.user?.role === 'SUPER_ADMIN' || !isOffset(c.key));
-    const { rows, rowNumbers, errors, warnings, codeHeading } = parseInstrumentCsv(parsed.data.csv, attributeColumns);
+    const plan = await planBulkFile(req, parsed.data, visibility);
+    const { rows, errors, warnings } = plan;
     const ctx = buildContext(req);
 
-    // The attribute cells answer to the SAME gate as the single form's
-    // per-attribute POSTs (audit 2026-10-12): the role's Attribute Access rule
-    // (adding a key, which needs INSTRUMENT_UPDATE as that route does) and its
-    // attribute re-auth. Decided ONCE, before anything is created, so a
-    // refusal registers nothing — not a hundred instruments with their
-    // attributes silently dropped. A file with no filled attribute cell is not
-    // an attribute write and is not gated.
-    const writesAttributes = rows.some((r) => Object.values(r.attributes ?? {}).some((v) => v.trim() !== ''));
-    if (writesAttributes) {
-      const role = req.user?.role;
-      const access = await loadAttributeAccess(role, req.user?.sub);
-      const refusal = refuseAttributeWrite({
-        access,
-        hasUpdatePermission: role === 'SUPER_ADMIN' || (!!role && await roleHasPermission(role, 'INSTRUMENT_UPDATE')),
-        key: '', isNewKey: true,
-      });
-      if (refusal) return reply.code(refusal.status).send(refusal.body);
-      if (needsReauth(access) && !(req as unknown as { _reauthVerified?: boolean })._reauthVerified) {
-        const body = (req.body ?? {}) as Record<string, unknown>;
-        if (sentPassword) body._currentPassword = sentPassword;
-        const { ok: signed } = await enforceReauthAlways('UPDATE_INSTRUMENT_ATTRIBUTE', req, reply);
-        if (!signed) return;
-      }
+    // Every gate is decided ONCE, before anything is written, so a refusal
+    // registers nothing and changes nothing.
+    const refusal = createAttributesRefusal(plan);
+    if (refusal) return reply.code(refusal.status).send(refusal.body);
+
+    // ONE remark for every recorded value the file overwrites (2026-10-28) —
+    // the rule the single attribute routes apply, asked once for the batch. The
+    // plan is THIS request's, computed from the file again, never the preview's.
+    const reason = readRemark(req);
+    if (remarkRequired(plan.plans)) {
+      const problem = validateAttributeRemark(reason);
+      if (problem) return reply.code(400).send({ error: 'REMARK_REQUIRED', message: problem });
     }
+
+    // The attribute cells answer to the role's attribute re-auth as the single
+    // form's per-attribute writes do (audit 2026-10-12). A file with no filled
+    // attribute cell to write is not an attribute write and is not asked.
+    const writesAttributes = plan.plans.some((p) => (p.kind === 'create' && p.attributes) || p.kind === 'update');
+    if (writesAttributes && needsReauth(plan.access) && !(req as unknown as { _reauthVerified?: boolean })._reauthVerified) {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      if (sentPassword) body._currentPassword = sentPassword;
+      const { ok: signed } = await enforceReauthAlways('UPDATE_INSTRUMENT_ATTRIBUTE', req, reply);
+      if (!signed) return;
+    }
+
     const created: { id: string; code: string; name: string; token: string }[] = [];
-    // Rows are created one transaction at a time, not one big one: a code that
-    // collides with an EXISTING instrument (the realistic case — a re-uploaded
-    // file) must become an error row, not roll back the other 199. The parser's
-    // own `seen` set only catches duplicates within the file.
-    for (let i = 0; i < rows.length; i++) {
-      const draft: InstrumentDraft = rows[i];
+    const updated: { id: string; code: string; row: number; changes: PlannedChange[] }[] = [];
+    const unchanged: { row: number; code: string }[] = [];
+    // One transaction per ROW, not one for the file: a row that fails — a code
+    // registered meanwhile, a value changed meanwhile — becomes an error row
+    // and does not roll back the other 199.
+    for (const p of plan.plans) {
+      if (p.kind === 'unchanged') { unchanged.push({ row: p.row, code: p.code }); continue; }
+      if (p.kind === 'update') {
+        try {
+          const applied = await applyBulkChanges(p.id, p.code, p.changes, reason, ctx);
+          if (applied.length > 0) updated.push({ id: p.id, code: p.code, row: p.row, changes: applied });
+          else unchanged.push({ row: p.row, code: p.code });
+        } catch (err) {
+          if (err instanceof HandledRouteError) { errors.push({ row: p.row, message: err.body.message }); continue; }
+          req.log.error({ err, row: p.row, code: p.code }, 'bulk upload: row not updated');
+          errors.push({ row: p.row, message: `Not updated: ${(err as Error).message.slice(0, 200)}` });
+        }
+        continue;
+      }
+      const { attributes: _cells, ...identity } = rows[p.index];
+      const attributes = p.attributes;
       try {
-        const { attributes, ...identity } = draft;
-        // An offset cell must be a signed number, checked BEFORE the instrument
-        // is created so a bad cell fails its row rather than half-registering it.
-        const badOffset = Object.entries(attributes ?? {}).find(([k, v]) => isOffset(k) && v.trim() !== '' && parseOffsetValue(v) === null);
-        if (badOffset) {
-          errors.push({ row: rowNumbers[i], column: badOffset[0], message: SENSOR_OFFSET_VALUE_MESSAGE });
-          continue;
-        }
-        if (attributes) {
-          for (const [k, v] of Object.entries(attributes)) if (isOffset(k) && v.trim() !== '') attributes[k] = formatOffsetValue(parseOffsetValue(v)!);
-        }
         const row = await createWithCredential(
           {
             ...sanitizeStrings(identity as unknown as Record<string, unknown>, IDENTITY_FIELDS),
@@ -1856,28 +1880,86 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           } catch (err) {
             req.log.error({ err, instrumentId: row.id, code: row.code }, 'bulk upload: attributes not written');
             errors.push({
-              row: rowNumbers[i],
+              row: p.row,
               message: `Instrument "${row.code}" was registered, but its attributes were not written: ${(err as Error).message.slice(0, 200)}`,
             });
           }
         }
       } catch (err) {
+        // Registered by someone else between the plan and this row.
         if (isDuplicateCode(err)) {
-          errors.push({ row: rowNumbers[i], column: codeHeading, message: `Instrument ID "${draft.code}" already exists` });
+          errors.push({ row: p.row, column: plan.codeHeading, message: `Instrument ID "${p.code}" already exists` });
           continue;
         }
         // Any other failure fails THIS row, never the upload: the rows already
         // created must still get their tokens back.
-        req.log.error({ err, row: rowNumbers[i] }, 'bulk upload: row not created');
-        errors.push({ row: rowNumbers[i], message: `Not created: ${(err as Error).message.slice(0, 200)}` });
+        req.log.error({ err, row: p.row }, 'bulk upload: row not created');
+        errors.push({ row: p.row, message: `Not created: ${(err as Error).message.slice(0, 200)}` });
       }
     }
 
-    // Parse errors and collision errors are interleaved by source row so the
-    // operator reads one ascending list against their spreadsheet.
+    // Parse errors, plan errors and write errors are interleaved by source row
+    // so the operator reads one ascending list against their spreadsheet.
     errors.sort((a, b) => a.row - b.row);
 
-    return { created, errors, warnings };
+    return { created, updated, unchanged, errors, warnings };
+  });
+
+  // POST /api/instruments/bulk/preview — what an upload WOULD do, writing nothing
+  app.post('/bulk/preview', {
+    preHandler: [app.requirePermission('INSTRUMENT_CREATE')],
+    schema: {
+      tags: ['Instruments'],
+      summary: 'Preview a bulk upload: which rows create, which update and what each change replaces',
+      description: 'Runs the same plan `POST /bulk` runs, and writes nothing — no instrument, no attribute, no audit row, no re-auth. `remarkRequired` is the server\'s answer to whether the upload will demand a `reason`.',
+      body: {
+        type: 'object', required: ['csv', 'profileId'],
+        properties: {
+          csv: { type: 'string' },
+          profileId: { type: 'string', format: 'uuid' },
+          functionalLocationId: { type: 'string', format: 'uuid', nullable: true },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            create: { type: 'array', items: { type: 'object', properties: bulkRowRefProps } },
+            update: { type: 'array', items: { type: 'object', properties: bulkUpdatedProps } },
+            unchanged: { type: 'array', items: { type: 'object', properties: bulkRowRefProps } },
+            errors: { type: 'array', items: { type: 'object', properties: { row: { type: 'integer' }, column: { type: 'string' }, message: { type: 'string' } } } },
+            warnings: { type: 'array', items: { type: 'string' } },
+            remarkRequired: { type: 'boolean' },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const parsed = bulkCreateInstrumentsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
+    }
+    // The upload's own whole-file refusals, in its order, so the operator meets
+    // them here rather than after signing.
+    if (await profileMissing(parsed.data.profileId)) return reply.code(400).send(PROFILE_NOT_FOUND);
+    const locationId = parsed.data.functionalLocationId ?? null;
+    if (await locationMissing(locationId)) return reply.code(400).send(LOCATION_NOT_FOUND);
+    const { where: visibility, placeable } = await resolveVisibility(buildContext(req));
+    if (placeable && !(locationId && placeable.has(locationId))) {
+      return reply.code(400).send(placementRefusal(locationId));
+    }
+    const plan = await planBulkFile(req, parsed.data, visibility);
+    const refusal = createAttributesRefusal(plan);
+    if (refusal) return reply.code(refusal.status).send(refusal.body);
+    return {
+      create: plan.plans.filter((p) => p.kind === 'create').map((p) => ({ row: p.row, code: p.code })),
+      update: plan.plans.flatMap((p) => (p.kind === 'update' ? [{ id: p.id, code: p.code, row: p.row, changes: p.changes }] : [])),
+      unchanged: plan.plans.filter((p) => p.kind === 'unchanged').map((p) => ({ row: p.row, code: p.code })),
+      errors: plan.errors,
+      warnings: plan.warnings,
+      remarkRequired: remarkRequired(plan.plans),
+    };
   });
 
   // PUT /api/instruments/:id — update
@@ -2761,6 +2843,150 @@ export default async function instrumentRoutes(app: FastifyInstance) {
   }
 
   /**
+   * Parse and PLAN a bulk file (2026-10-28) — the one path `POST /bulk/preview`
+   * and `POST /bulk` both take, so what the operator reviewed is what is
+   * written. Reads what the pure `planBulkUpload` needs: the profile's columns,
+   * every instrument the file names (ignoring case), the caller's view, its
+   * Attribute Access and whether it may change instruments at all.
+   */
+  async function planBulkFile(
+    req: FastifyRequest,
+    data: { csv: string; profileId: string },
+    visibility: ScopeWhere | undefined,
+  ) {
+    // The file may carry the profile's ATTRIBUTES, headed by their administered
+    // display names (2026-09-16). The parser maps a heading back to the KEY;
+    // this is the one place the profile's list and the display-name map meet.
+    // Sensor-offset columns exist only for a SUPER_ADMIN (2026-10-01): for anyone
+    // else they are not columns of this profile, so a heading naming one is an
+    // unknown heading — ignored with the parser's one warning, never written.
+    const isOffset = await offsetKeyTest();
+    const role = req.user?.role;
+    const attributeColumns = (await bulkAttributeColumns(data.profileId))
+      .filter((c) => role === 'SUPER_ADMIN' || !isOffset(c.key));
+    const parsed = parseInstrumentCsv(data.csv, attributeColumns);
+    const mayUpdate = role === 'SUPER_ADMIN' || (!!role && await roleHasPermission(role, 'INSTRUMENT_UPDATE'));
+    const access = await loadAttributeAccess(role, req.user?.sub);
+    const existing = await existingForBulk(parsed.rows.map((r) => r.code), visibility);
+    const planned = planBulkUpload({
+      rows: parsed.rows, rowNumbers: parsed.rowNumbers, codeHeading: parsed.codeHeading,
+      headings: parsed.headings, identityColumns: parsed.identityColumns,
+      profileId: data.profileId, existing, isOffset, mayUpdate,
+      accessRefusal: (key, isNewKey) => attributeAccessRefusal({ access, hasUpdatePermission: mayUpdate, key, isNewKey }),
+    });
+    const errors: RowError[] = [...parsed.errors, ...planned.errors].sort((a, b) => a.row - b.row);
+    return {
+      rows: parsed.rows, codeHeading: parsed.codeHeading, plans: planned.plans as RowPlan[],
+      errors, warnings: [...parsed.warnings, ...planned.warnings], access, mayUpdate,
+    };
+  }
+
+  /**
+   * Attribute cells on NEW instruments answer to the role's Attribute Access
+   * rule for ADDING a key (audit 2026-10-12) — decided once for the whole file,
+   * so a refusal registers nothing rather than a hundred instruments with their
+   * attributes dropped. Cells on EXISTING instruments are judged per key by the
+   * plan instead, and a refusal there fails only its row.
+   */
+  function createAttributesRefusal(plan: Awaited<ReturnType<typeof planBulkFile>>) {
+    if (!plan.plans.some((p) => p.kind === 'create' && p.attributes)) return null;
+    return refuseAttributeWrite({ access: plan.access, hasUpdatePermission: plan.mayUpdate, key: '', isNewKey: true });
+  }
+
+  /**
+   * Every instrument a bulk file names, keyed by lower-cased code (codes are
+   * unique ignoring case). An instrument OUTSIDE the caller's view is returned
+   * as `visible: false` with nothing else read: the plan reports it as the
+   * collision it always was.
+   */
+  async function existingForBulk(codes: string[], visibility: ScopeWhere | undefined): Promise<Map<string, ExistingInstrument>> {
+    const out = new Map<string, ExistingInstrument>();
+    if (codes.length === 0) return out;
+    const lowered = [...new Set(codes.map((c) => c.toLowerCase()))];
+    const hits = await prisma.$queryRaw<{ id: string; code: string }[]>`
+      SELECT id, code FROM instruments WHERE lower(code) = ANY(${lowered}::text[])`;
+    if (hits.length === 0) return out;
+    const seen = new Set((await prisma.instrument.findMany({
+      where: withVisibility({ id: { in: hits.map((h) => h.id) } }, visibility) as Prisma.InstrumentWhereInput,
+      select: { id: true },
+    })).map((r) => r.id));
+    const rows = await prisma.instrument.findMany({
+      where: { id: { in: [...seen] } },
+      select: {
+        id: true, code: true, profileId: true, profile: { select: { name: true } },
+        attributes: { select: { key: true, value: true }, orderBy: { key: 'asc' } },
+      },
+    });
+    for (const h of hits) out.set(h.code.toLowerCase(), { id: h.id, code: h.code, profileId: '', profileName: '', visible: false, attributes: [] });
+    for (const r of rows) {
+      out.set(r.code.toLowerCase(), { id: r.id, code: r.code, profileId: r.profileId, profileName: r.profile.name, visible: true, attributes: r.attributes });
+    }
+    return out;
+  }
+
+  /**
+   * Write one existing instrument's planned changes (2026-10-28): ONE
+   * transaction, every key locked FIRST and in key order — an attribute lock
+   * taken after `auditLog` has taken the audit-chain lock could deadlock with a
+   * single attribute write holding that key and waiting for the chain. Each
+   * value is read again under its lock; one that already matches is skipped
+   * (no write, no audit row), and one recorded since the file was checked is
+   * not overwritten without a remark. One INSTRUMENT_ATTRIBUTE_SET per change,
+   * exactly as `PUT /:id/attributes/:key` writes it; the device is told after
+   * the commit. Returns what was applied, each `from` as read under the lock.
+   */
+  async function applyBulkChanges(
+    instrumentId: string,
+    code: string,
+    changes: PlannedChange[],
+    reason: string | null,
+    ctx: ReturnType<typeof buildContext>,
+  ): Promise<PlannedChange[]> {
+    const ordered = [...changes].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    const applied = await prisma.$transaction(async (tx) => {
+      for (const c of ordered) await lockAttribute(tx, instrumentId, c.key);
+      const done: PlannedChange[] = [];
+      for (const c of ordered) {
+        const before = await tx.instrumentAttribute.findUnique({
+          where: { instrumentId_key: { instrumentId, key: c.key } }, select: { value: true },
+        });
+        if (before && before.value.trim() === c.to) continue;
+        if (before && !reason) {
+          throw new HandledRouteError(409, {
+            error: 'CHANGED_SINCE_CHECKED',
+            message: `"${c.column}" on "${code}" was recorded while the file was being checked. Upload the file again.`,
+          });
+        }
+        await tx.instrumentAttribute.upsert({
+          where: { instrumentId_key: { instrumentId, key: c.key } },
+          create: { instrumentId, key: c.key, value: c.to },
+          update: { value: c.to },
+        });
+        await auditLog({
+          action: 'INSTRUMENT_ATTRIBUTE_SET', targetType: 'Instrument', targetId: instrumentId,
+          // No `beforeValue` on a first fill — an absent attribute is not an empty one.
+          ...(before ? { beforeValue: { code, attribute: c.key, value: before.value } } : {}),
+          afterValue: { code, attribute: c.key, value: c.to },
+          ...(before && reason ? { reason } : {}),
+          signatureMeaning: before
+            ? `Attribute "${c.key}" on instrument "${codeLabel(code)}" changed`
+            : `Attribute "${c.key}" set on instrument "${codeLabel(code)}"`,
+          userId: ctx.userId, userRole: ctx.userRole,
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, tx);
+        done.push({ ...c, from: before ? before.value : null });
+      }
+      return done;
+    });
+    if (applied.length > 0) {
+      const owner = await prisma.instrument.findUnique({ where: { id: instrumentId }, select: attributeOwnerSelect });
+      if (owner) for (const c of applied) await announceAttributeChange(instrumentId, owner, c.key, c.to);
+    }
+    // In the file's column order, as the preview showed them.
+    return changes.flatMap((c) => applied.filter((a) => a.key === c.key));
+  }
+
+  /**
    * First-fill of several attributes on a just-created instrument (bulk
    * upload). Mirrors `POST /:id/attributes` for a NEW key: no remark (a first
    * fill is registration, not a change), one INSTRUMENT_ATTRIBUTE_SET audit
@@ -2890,6 +3116,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         : null;
       await publishAttributeDownlink(
         {
+          instrumentId,
+          gatewayId: owner.gatewayId,
           code: owner.code,
           gatewayCode: gateway?.code ?? null,
           attributes: Object.fromEntries(rows.map((r) => [r.key, r.value])),

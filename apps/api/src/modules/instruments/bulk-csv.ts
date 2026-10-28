@@ -105,7 +105,19 @@ function parseCSVLine(line: string): string[] {
  * sidecar array rather than a field on the draft so the drafts stay
  * assignable straight to Prisma.
  */
-export function parseInstrumentCsv(text: string, attributeColumns: AttributeColumn[] = []): { rows: InstrumentDraft[]; rowNumbers: number[]; errors: RowError[]; warnings: string[]; codeHeading: string } {
+export interface ParsedInstrumentCsv {
+  rows: InstrumentDraft[];
+  rowNumbers: number[];
+  errors: RowError[];
+  warnings: string[];
+  codeHeading: string;
+  /** Attribute KEY -> its heading as the file spells it, so a refused cell is named as the operator sees it. */
+  headings: Record<string, string>;
+  /** The optional identity columns the file carries (`name`, `model`, ...). An update applies none of them. */
+  identityColumns: string[];
+}
+
+export function parseInstrumentCsv(text: string, attributeColumns: AttributeColumn[] = []): ParsedInstrumentCsv {
   // Split into lines WITHOUT filtering to preserve source row numbers
   const allLines = text.split(/\r?\n/);
 
@@ -124,7 +136,7 @@ export function parseInstrumentCsv(text: string, attributeColumns: AttributeColu
 
   // Check header validity
   if (headerRowIndex === -1) {
-    return { rows: [], rowNumbers: [], errors: [{ row: 1, message: 'Missing header row' }], warnings: [], codeHeading: INSTRUMENT_ID_HEADING };
+    return { rows: [], rowNumbers: [], errors: [{ row: 1, message: 'Missing header row' }], warnings: [], codeHeading: INSTRUMENT_ID_HEADING, headings: {}, identityColumns: [] };
   }
   // Remember how the file spells the code heading, so an error about that
   // cell names the column the operator can see.
@@ -142,7 +154,7 @@ export function parseInstrumentCsv(text: string, attributeColumns: AttributeColu
     // Named as the template prints it, so the message matches what the operator
     // sees in their spreadsheet.
     const named = missing.map((c) => (c === 'code' ? INSTRUMENT_ID_HEADING : c));
-    return { rows: [], rowNumbers: [], errors: [{ row: headerRowIndex + 1, column: INSTRUMENT_ID_HEADING, message: `Missing header column(s): ${named.join(', ')}` }], warnings, codeHeading: INSTRUMENT_ID_HEADING };
+    return { rows: [], rowNumbers: [], errors: [{ row: headerRowIndex + 1, column: INSTRUMENT_ID_HEADING, message: `Missing header column(s): ${named.join(', ')}` }], warnings, codeHeading: INSTRUMENT_ID_HEADING, headings: {}, identityColumns: [] };
   }
 
   // Resolve every non-standard header to an attribute KEY, by display name or
@@ -152,13 +164,15 @@ export function parseInstrumentCsv(text: string, attributeColumns: AttributeColu
   const fold = (s: string) => s.trim().toLowerCase();
   const standard = new Set<string>([...REQUIRED, ...OPTIONAL, ...Object.keys(IGNORED_COLUMNS)]);
   const attributeAt = new Map<number, string>();
+  const headings: Record<string, string> = {};
   const unknown: string[] = [];
   header.forEach((h, idx) => {
     if (standard.has(h)) return;
     const hit = attributeColumns.find((c) => fold(c.label) === fold(h) || fold(c.key) === fold(h));
-    if (hit) attributeAt.set(idx, hit.key);
+    if (hit) { attributeAt.set(idx, hit.key); headings[hit.key] = h.trim(); }
     else if (h.trim()) unknown.push(h.trim());
   });
+  const identityColumns = OPTIONAL.filter((c) => header.includes(c));
   if (unknown.length > 0) {
     warnings.push(
       `Column(s) ${unknown.map((u) => `"${u}"`).join(', ')} are not attributes of this profile and were ignored. Download the template again for the current headings.`,
@@ -204,6 +218,11 @@ export function parseInstrumentCsv(text: string, attributeColumns: AttributeColu
     }
 
     const cells = parseCSVLine(trimmed);
+    // A row of nothing but separators (`,,,`) is what Excel saves for a row
+    // whose cells were cleared rather than deleted. It answers nothing, like a
+    // blank line — reporting it as "Instrument ID is required" failed every
+    // upload of a file someone had tidied (2026-10-28).
+    if (cells.every((c) => c.trim() === '')) continue;
     const get = (col: string) => {
       const idx = header.indexOf(col);
       return idx === -1 ? '' : (cells[idx] ?? '').trim();
@@ -235,5 +254,5 @@ export function parseInstrumentCsv(text: string, attributeColumns: AttributeColu
     rowNumbers.push(rowNo);
   }
 
-  return { rows, rowNumbers, errors, warnings, codeHeading: codeHeadingInFile };
+  return { rows, rowNumbers, errors, warnings, codeHeading: codeHeadingInFile, headings, identityColumns };
 }

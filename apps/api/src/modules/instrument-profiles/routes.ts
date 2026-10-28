@@ -176,6 +176,7 @@ async function announceRemoval(
       : null;
     const log = (msg: string, meta?: Record<string, unknown>) => logger.warn(`[downlink:profile-cascade] ${msg}`, meta ?? {});
     await publishAttributeDownlink({
+      instrumentId: instrument.id, gatewayId: instrument.gatewayId,
       code: instrument.code, gatewayCode: gateway?.code ?? null,
       attributes: Object.fromEntries(rows.map((r) => [r.key, r.value])),
       changedKey: key, changedValue: null, ts: new Date(),

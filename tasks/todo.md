@@ -157,6 +157,22 @@ looks up its gateway by id; IOTGW01 has no location -> 404 toast for every scope
 - [x] Push to trh (`ac56a54`), deploy over SSM (`5e49636 -> ac56a54`, no migration, no npm ci), health 200; dist greps confirm the fix is live
 - [ ] Hand operator: place or delete CWH/RDU/001-01 and CWH/RDU/201-00 (no attributes saved)
 
+## 2026-10-28 — Device attributes on every protocol
+
+- [x] HTTP/HTTPS POST + GET `/api/ingest/v1/attributes`; WS/TCP report + subscribe/push; panel tabs; e2e 10 + unit; 9 mutations killed; affected ingest e2e green.
+- [ ] Not seen on a real device or in the operator's browser; not pushed, not deployed (AWS also needs the panel + routes; no broker change).
+- [ ] Full API suite not re-run (the last run was killed for low memory) — on request.
+- Out of scope, stated: roster + `children/attributes` stay MQTT-only; no HTTP long-poll; a rename does not re-send the set to a WS/TCP subscriber (MQTT's republish goes straight to the broker).
+
+## 2026-10-28 — Bulk upload updates an Instrument ID that already exists
+
+- [x] Reproduced "Instrument ID error every upload": the template's sample row `CWH/RDU/001-00` exists (local DB + the operator's saved template). Template = heading only. Also fixed, same symptom, reproduced on a test file only: Excel's cleared rows `,,,` → "Instrument ID is required"; the parser skips separator-only rows.
+- [x] `bulk-plan.ts` (one plan) + `POST /bulk/preview` + `/bulk` updates with one remark; review dialog on the page. e2e 15, unit 20 + 3, page 5 new; 16 API + 6 page mutations killed.
+- [ ] Not seen in the operator's browser (no session of my own) — operator to try an upload with a changed value.
+- [ ] Not pushed, not deployed.
+- Follow-up (pre-existing): `writeInitialAttributes` locks each key inside its loop, after the audit-chain lock (deadlock-shaped; a brand-new instrument makes it unlikely).
+- Follow-up (pre-existing): bulk attribute VALUES are not HTML-stripped, while the single attribute POST strips them (`sanitizeStrings`). Left alone: stripping would blank a value like `<5`, and React escapes on render.
+
 ## 2026-10-28 — Widget data keys: any key an instrument sends, in any widget
 
 Spec `docs/superpowers/specs/2026-10-28-widget-data-keys-design.md`; phase 1 plan `docs/superpowers/plans/2026-10-28-widget-data-keys-phase1.md`.

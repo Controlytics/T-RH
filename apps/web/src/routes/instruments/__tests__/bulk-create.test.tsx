@@ -29,7 +29,21 @@ vi.mock('swr', () => ({
   },
 }));
 const post = vi.fn();
-vi.mock('@/lib/api-client', () => ({ apiClient: { post: (...a: unknown[]) => post(...a), get: vi.fn(), put: vi.fn(), delete: vi.fn() } }));
+vi.mock('@/lib/api-client', () => ({
+  apiClient: {
+    post: (...a: unknown[]) => post(...a),
+    postWithReauth: (url: string, body: unknown) => post(url, body),
+    get: vi.fn(), put: vi.fn(), delete: vi.fn(),
+  },
+}));
+
+/** A preview with nothing to update — every older case's file only creates. */
+const NOTHING_TO_UPDATE = { create: [], update: [], unchanged: [], errors: [], warnings: [], remarkRequired: false };
+/** Answer the preview with `preview` and the upload with `result`. */
+function respond(result: unknown, preview: unknown = NOTHING_TO_UPDATE) {
+  post.mockImplementation(async (url: string) => (url === '/api/instruments/bulk/preview' ? preview : result));
+}
+const uploads = () => post.mock.calls.filter(([url]) => url === '/api/instruments/bulk');
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: { success: vi.fn(), error: vi.fn() } }) }));
 /** Every action the upload signed under (SEC-7). Pass-through otherwise: the
  *  callback runs with no password, the path for a role whose policy is off. */
@@ -88,12 +102,12 @@ const choose = (id: string) =>
   fireEvent.change(screen.getByRole('combobox', { name: /profile/i }), { target: { value: id } });
 const downloadTemplate = () => fireEvent.click(screen.getByRole('button', { name: /download template/i }));
 
-/** Pick a CSV file and press Create. jsdom's FileReader reads a File. */
+/** Pick a CSV file and press Upload. jsdom's FileReader reads a File. */
 async function uploadCsv(text: string) {
   const input = document.querySelector('input[type="file"]') as HTMLInputElement;
   const file = new File([text], 'instruments.csv', { type: 'text/csv' });
   fireEvent.change(input, { target: { files: [file] } });
-  const button = screen.getByRole('button', { name: /create instruments/i });
+  const button = screen.getByRole('button', { name: /^upload$/i });
   await waitFor(() => expect(button).toBeEnabled());
   fireEvent.click(button);
 }
@@ -106,7 +120,7 @@ async function uploadCsv(text: string) {
  */
 describe('InstrumentBulkCreatePage — upload problems', () => {
   it('opens a dialog listing each rejected row with its cell and reason', async () => {
-    post.mockResolvedValue({
+    respond({
       created: [{ id: 'i-1', code: 'PA-1', name: 'PA-1', token: 'T' }],
       errors: [
         { row: 3, column: 'Instrument ID', message: 'Instrument ID is required' },
@@ -133,13 +147,15 @@ describe('InstrumentBulkCreatePage — upload problems', () => {
   });
 
   it('signs the upload under the CREATE_INSTRUMENT re-auth action, once (SEC-7)', async () => {
-    post.mockResolvedValue({ created: [{ id: 'i-1', code: 'PA-1', name: 'PA-1', token: 'T' }], errors: [], warnings: [] });
+    respond({ created: [{ id: 'i-1', code: 'PA-1', name: 'PA-1', token: 'T' }], errors: [], warnings: [] });
     renderPage();
     choose('p-1');
     await uploadCsv('Instrument ID\nPA-1');
-    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(uploads()).toHaveLength(1));
+    // The preview writes nothing, so it is NOT signed; the upload is, once.
     expect(reauthActions).toEqual(['CREATE_INSTRUMENT']);
-    expect(post).toHaveBeenCalledWith('/api/instruments/bulk', { csv: 'Instrument ID\nPA-1', profileId: 'p-1' });
+    expect(post).toHaveBeenNthCalledWith(1, '/api/instruments/bulk/preview', { csv: 'Instrument ID\nPA-1', profileId: 'p-1' });
+    expect(post).toHaveBeenNthCalledWith(2, '/api/instruments/bulk', { csv: 'Instrument ID\nPA-1', profileId: 'p-1' });
   });
 
   it('opens the same dialog when the request itself fails, with the reason', async () => {
@@ -154,11 +170,11 @@ describe('InstrumentBulkCreatePage — upload problems', () => {
   });
 
   it('opens no dialog when every row was accepted', async () => {
-    post.mockResolvedValue({ created: [{ id: 'i-1', code: 'PA-1', name: 'PA-1', token: 'T' }], errors: [], warnings: [] });
+    respond({ created: [{ id: 'i-1', code: 'PA-1', name: 'PA-1', token: 'T' }], errors: [], warnings: [] });
     renderPage();
     choose('p-1');
     await uploadCsv('Instrument ID\nPA-1');
-    await waitFor(() => expect(post).toHaveBeenCalled());
+    await waitFor(() => expect(uploads()).toHaveLength(1));
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
@@ -171,9 +187,12 @@ describe('InstrumentBulkCreatePage — the template', () => {
     downloadTemplate();
     await waitFor(() => expect(saved).toHaveLength(1));
     const text = await saved[0].text;
-    const [header, sample] = text.split('\n');
-    expect(header).toBe('Instrument ID,Building,High temperature alarm enabled,Cleanroom number');
-    expect(sample.startsWith('CWH/RDU/001-00,')).toBe(true);
+    // The heading row ONLY (2026-10-28, operator: "every time when uploading its
+    // showing instrument id error was coming, only heading"). The sample row
+    // named CWH/RDU/001-00 — a REAL instrument — so an untouched template
+    // failed every upload with "already exists", and since existing IDs are
+    // updated it would now write to that instrument instead.
+    expect(text).toBe('Instrument ID,Building,High temperature alarm enabled,Cleanroom number\n');
     expect(saved[0].name).toBe('instrument-template.csv');
   });
 
@@ -228,13 +247,13 @@ describe('InstrumentBulkCreatePage — the template', () => {
 describe('InstrumentBulkCreatePage — the functional location every row is born in', () => {
   it('holds Create until a location is chosen, then sends it with the file', async () => {
     TREE.current = { placementRequired: true, data: [{ id: 'b-1', name: 'CWH', placeable: true, children: [] }] };
-    post.mockResolvedValue({ created: [{ id: 'i-1', code: 'PA-1', name: 'PA-1', token: 'T' }], errors: [], warnings: [] });
+    respond({ created: [{ id: 'i-1', code: 'PA-1', name: 'PA-1', token: 'T' }], errors: [], warnings: [] });
     renderPage();
     choose('p-1');
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     fireEvent.change(input, { target: { files: [new File(['Instrument ID\nPA-1'], 'i.csv', { type: 'text/csv' })] } });
     const block = screen.getByRole('combobox', { name: 'Functional location block' });
-    const button = screen.getByRole('button', { name: /create instruments/i });
+    const button = screen.getByRole('button', { name: /^upload$/i });
     fireEvent.change(block, { target: { value: 'b-1' } });
     await waitFor(() => expect(button).toBeEnabled());
     // The file is loaded now, so only the location can be what disables it.
@@ -245,5 +264,110 @@ describe('InstrumentBulkCreatePage — the functional location every row is born
     await waitFor(() => expect(post).toHaveBeenCalledWith(
       '/api/instruments/bulk', { csv: 'Instrument ID\nPA-1', profileId: 'p-1', functionalLocationId: 'b-1' },
     ));
+  });
+});
+
+/**
+ * An existing Instrument ID is UPDATED (2026-10-28, operator: "when user doing
+ * bulk upload with already exiting instrument ids and like attributes values
+ * changed and uploaded then already existed error was coming, there i need like
+ * what values are changed those data should update"). The page previews the
+ * file, and when it would change an instrument it shows every change — from its
+ * current value to the new one — before anything is written. Whether a remark is
+ * needed is the SERVER's answer (`remarkRequired`), never re-derived here.
+ */
+describe('InstrumentBulkCreatePage — updating instruments that already exist', () => {
+  const PLAN = {
+    create: [{ row: 3, code: 'NEW-1' }],
+    update: [{
+      id: 'i-9', code: 'CWH/RDU/001-00', row: 2,
+      changes: [
+        { key: 'Room', column: 'Cleanroom number', from: '101', to: '102' },
+        { key: 'Building', column: 'Building', from: null, to: 'CWH' },
+      ],
+    }],
+    unchanged: [{ row: 4, code: 'CWH/RDU/002-00' }],
+    errors: [],
+    warnings: [],
+    remarkRequired: true,
+  };
+  const RESULT = {
+    created: [{ id: 'i-1', code: 'NEW-1', name: 'NEW-1', token: 'T' }],
+    updated: [PLAN.update[0]],
+    unchanged: PLAN.unchanged,
+    errors: [], warnings: [],
+  };
+  const CSV = 'Instrument ID,Cleanroom number,Building\nCWH/RDU/001-00,102,CWH\nNEW-1,,\nCWH/RDU/002-00,,';
+
+  it('shows every change, from its current value to the new one, and writes nothing until confirmed', async () => {
+    respond(RESULT, PLAN);
+    renderPage();
+    choose('p-1');
+    await uploadCsv(CSV);
+    const dlg = await screen.findByRole('dialog');
+    expect(within(dlg).getByText(/review the upload/i)).toBeInTheDocument();
+    const rows = within(dlg).getAllByTestId('review-change');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent('CWH/RDU/001-00');
+    expect(rows[0]).toHaveTextContent('Cleanroom number');
+    expect(rows[0]).toHaveTextContent('101');
+    expect(rows[0]).toHaveTextContent('102');
+    // A first fill says the instrument had no value, never a blank cell.
+    expect(rows[1]).toHaveTextContent(/not set/i);
+    expect(within(dlg).getByTestId('review-summary')).toHaveTextContent('1 new · 1 to update · 1 unchanged');
+    expect(uploads()).toHaveLength(0);
+  });
+
+  it('sends the ONE remark with the upload, and refuses to send without it', async () => {
+    respond(RESULT, PLAN);
+    renderPage();
+    choose('p-1');
+    await uploadCsv(CSV);
+    const dlg = await screen.findByRole('dialog');
+    fireEvent.click(within(dlg).getByRole('button', { name: /^upload$/i }));
+    expect(uploads()).toHaveLength(0);
+    fireEvent.change(within(dlg).getByLabelText(/remarks/i), { target: { value: 'Rooms renumbered per drawing rev 4' } });
+    fireEvent.click(within(dlg).getByRole('button', { name: /^upload$/i }));
+    await waitFor(() => expect(uploads()).toHaveLength(1));
+    expect(uploads()[0][1]).toEqual({ csv: CSV, profileId: 'p-1', reason: 'Rooms renumbered per drawing rev 4' });
+    expect(reauthActions).toEqual(['CREATE_INSTRUMENT']);
+  });
+
+  it('asks no remark when the server says none is needed (every change a first fill)', async () => {
+    respond(RESULT, { ...PLAN, remarkRequired: false });
+    renderPage();
+    choose('p-1');
+    await uploadCsv(CSV);
+    const dlg = await screen.findByRole('dialog');
+    expect(within(dlg).queryByLabelText(/remarks/i)).toBeNull();
+    fireEvent.click(within(dlg).getByRole('button', { name: /^upload$/i }));
+    await waitFor(() => expect(uploads()).toHaveLength(1));
+    expect(uploads()[0][1]).toEqual({ csv: CSV, profileId: 'p-1' });
+  });
+
+  it('Cancel writes nothing', async () => {
+    respond(RESULT, PLAN);
+    renderPage();
+    choose('p-1');
+    await uploadCsv(CSV);
+    const dlg = await screen.findByRole('dialog');
+    fireEvent.click(within(dlg).getByRole('button', { name: /cancel/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(uploads()).toHaveLength(0);
+  });
+
+  it('lists what was updated after the upload, beside what was created', async () => {
+    respond(RESULT, { ...PLAN, remarkRequired: false });
+    renderPage();
+    choose('p-1');
+    await uploadCsv(CSV);
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: /^upload$/i }));
+    expect(await screen.findByText('Updated (1)')).toBeInTheDocument();
+    const updated = screen.getAllByTestId('updated-change');
+    expect(updated).toHaveLength(2);
+    expect(updated[0]).toHaveTextContent('CWH/RDU/001-00');
+    expect(updated[0]).toHaveTextContent('101');
+    expect(updated[0]).toHaveTextContent('102');
+    expect(screen.getByText('Created (1)')).toBeInTheDocument();
   });
 });

@@ -156,6 +156,32 @@ describe('parseInstrumentCsv', () => {
     });
   });
 
+  // 2026-10-28, operator: "every time when uploading its showing instrument id
+  // error". Excel writes a row whose cells were CLEARED (not deleted) as bare
+  // separators, `,,,`; each became "Instrument ID is required". A row with no
+  // filled cell says nothing, exactly like a blank line.
+  it('skips a row of nothing but separators — what Excel saves for a cleared row', () => {
+    const r = parseInstrumentCsv('Instrument ID,Building\r\nPA-1,x\r\n,\r\n , \r\n"",""\r\n', [{ key: 'Building', label: 'Building' }]);
+    expect(r.errors).toEqual([]);
+    expect(r.rows.map((x) => x.code)).toEqual(['PA-1']);
+  });
+
+  // An update can refuse ONE cell (2026-10-28); the popup must name it as the
+  // operator's own file does, not by the stored key.
+  it('maps each attribute key to its heading as the file spells it', () => {
+    const r = parseInstrumentCsv('Instrument ID,cleanroom NUMBER,Building\nPA-1,101,x', [
+      { key: 'Building', label: 'Building' }, { key: 'Room', label: 'Cleanroom number' },
+    ]);
+    expect(r.headings).toEqual({ Room: 'cleanroom NUMBER', Building: 'Building' });
+  });
+
+  // An update writes attributes only; the route warns when the file carries a
+  // column it will therefore not apply to an existing instrument.
+  it('names the identity columns the file carries', () => {
+    expect(parseInstrumentCsv('name,code,manufacturer\nA,A-1,Vaisala').identityColumns).toEqual(['name', 'manufacturer']);
+    expect(parseInstrumentCsv('Instrument ID\nA-1').identityColumns).toEqual([]);
+  });
+
   it('tolerates CRLF, blank lines and surrounding whitespace', () => {
     const r = parseInstrumentCsv(`${HEADER}\r\n Probe A , PA-1 \r\n\r\n`);
     expect(r.errors).toEqual([]);

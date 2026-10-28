@@ -1,6 +1,8 @@
-import { type FastifyInstance } from 'fastify';
+import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { resolveInstrumentByToken } from './ingest-auth.js';
 import { ingestPayload } from './ingest-core.js';
+import { ingestAttributeReport } from './attribute-report.js';
+import { attributeSnapshot } from './device-attributes.js';
 import {
   certificateVerified, issueIdFromTlsSocket, judgeConnection, recordCertificateRefusal, refusalReason,
 } from './device-certificate.js';
@@ -103,5 +105,85 @@ export default async function ingestRoutes(app: FastifyInstance) {
     return outcome.rejected === undefined
       ? reply.send({ accepted: outcome.accepted })
       : reply.send({ accepted: outcome.accepted, rejected: outcome.rejected });
+  });
+
+  // ── ATTRIBUTES over HTTP / HTTPS (2026-10-28, operator: "add for all
+  // protocals"). The MQTT report topic and retained slot, as two requests:
+  // the same token, the same certificate rule, the same body as
+  // `instruments/<code>/attributes/report`. HTTP cannot push, so a device sees
+  // an app-side change when it next GETs. See `device-attributes.ts`.
+  /** Token + certificate, exactly as `/telemetry` decides them. `null` = the reply is sent. */
+  async function deviceFor(req: FastifyRequest, reply: FastifyReply) {
+    const identity = await resolveInstrumentByToken(bearer(req.headers.authorization));
+    if (!identity) { reply.code(401).send({ error: 'INVALID_DEVICE_TOKEN' }); return null; }
+    const presented = issueIdFromTlsSocket(req.raw.socket);
+    const verdict = judgeConnection(identity, presented);
+    if (!verdict.ok) {
+      await recordCertificateRefusal(identity.id, 'http', verdict.code);
+      reply.code(403).send({ error: verdict.code, message: refusalReason(verdict.code, 'http') });
+      return null;
+    }
+    return { identity, verified: certificateVerified(identity, presented) };
+  }
+
+  const attributeSetProps = {
+    device: { type: 'string' },
+    // `additionalProperties` DECLARED: an object schema without it serialises to `{}`.
+    attributes: { type: 'object', additionalProperties: { type: 'string' } },
+  } as const;
+  const errorShape = { type: 'object', properties: { error: { type: 'string' }, message: { type: 'string' } } } as const;
+
+  app.post('/attributes', {
+    config: { rateLimit: { max: 600, timeWindow: '1 minute' } },
+    bodyLimit: BODY_LIMIT_BYTES,
+    schema: {
+      tags: ['Ingest'],
+      summary: 'Report attributes (device token auth)',
+      description: 'The body of the MQTT `instruments/<code>/attributes/report` topic: a flat object of keys, or a gateway\'s `devices` list naming each child under `devN`. Only device-writable keys are stored; an unchanged value is not written or audited.',
+      response: {
+        200: { type: 'object', properties: { written: { type: 'integer' }, unchanged: { type: 'integer' }, refused: { type: 'integer' } } },
+        202: { type: 'object', properties: { written: { type: 'integer' } } },
+        400: errorShape, 401: { type: 'object', properties: { error: { type: 'string' } } }, 403: errorShape,
+      },
+    },
+  }, async (req, reply) => {
+    const device = await deviceFor(req, reply);
+    if (!device) return;
+    const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body ?? ''));
+    const outcome = await ingestAttributeReport({ identity: device.identity, raw, transport: 'http', certificateVerified: device.verified });
+    if (!outcome.ok) {
+      // As telemetry: unparseable is recorded and not worth a retry storm.
+      if (outcome.code === 'UNPARSEABLE') return reply.code(202).send({ written: 0 });
+      return reply.code(400).send({ error: outcome.code, message: outcome.message });
+    }
+    return { written: outcome.written, unchanged: outcome.unchanged, refused: outcome.refused };
+  });
+
+  app.get('/attributes', {
+    config: { rateLimit: { max: 600, timeWindow: '1 minute' } },
+    schema: {
+      tags: ['Ingest'],
+      summary: 'Read this device\'s attributes (device token auth)',
+      description: 'What the MQTT retained slot carries: the complete set, sensor offsets left out; for a gateway, each linked child under its code.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            ...attributeSetProps,
+            ts: { type: 'string' },
+            children: { type: 'array', items: { type: 'object', properties: attributeSetProps } },
+          },
+        },
+        401: { type: 'object', properties: { error: { type: 'string' } } }, 403: errorShape,
+      },
+    },
+  }, async (req, reply) => {
+    const device = await deviceFor(req, reply);
+    if (!device) return;
+    const [own, ...children] = await attributeSnapshot(device.identity, device.verified);
+    return {
+      device: own.device, attributes: own.attributes, ts: own.ts,
+      children: children.map((c) => ({ device: c.device, attributes: c.attributes })),
+    };
   });
 }

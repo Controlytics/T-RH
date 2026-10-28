@@ -171,6 +171,8 @@ export function ConnectionInstructions({
   // command at all. Always resolve to something absolute.
   const base = getApiBase() || window.location.origin;
   const httpUrl = `${base}/api/ingest/v1/telemetry`;
+  // A device's ATTRIBUTES over HTTP / HTTPS (2026-10-28): POST reports, GET reads.
+  const attributesUrl = `${base}/api/ingest/v1/attributes`;
   const topic = `instruments/${code}/telemetry`;
   const wsUrl = `${base.replace(/^http/, 'ws')}/api/ingest/v1/ws`;
   const notLive = !isTransportLive(selected);
@@ -240,6 +242,17 @@ export function ConnectionInstructions({
   // listener, and HTTP/TCP have no subscribe at all — showing a topic on any of
   // them would be a lie a technician could act on.
   const canSubscribe = selected === 'mqtt' || selected === 'mqtts';
+  // Every OTHER transport carries attributes too since 2026-10-28 (operator:
+  // "add for all protocals") — in its own terms, never as an MQTT topic: HTTP
+  // reads by GET (it cannot push), WS / TCP send {"subscribe":"attributes"} on
+  // the connection they already hold and get the set, then every change.
+  const isHttp = selected === 'http' || selected === 'https';
+  const sampleDevice = isGateway ? bundleChildren[0] : code;
+  const socketFrame = JSON.stringify({ device: sampleDevice, attributes: sampleAttributes, changed: { 'High Temperature Limit': '27' }, ts: sampleTs }, null, 2);
+  const httpAnswer = JSON.stringify({
+    device: code, attributes: sampleAttributes, ts: sampleTs,
+    children: isGateway ? bundleChildren.map((c) => ({ device: c, attributes: sampleAttributes })) : [],
+  }, null, 2);
   // Shared head of both one-line commands. `--cafile` stays on MQTTS: without
   // it the client cannot validate the broker and simply refuses to connect.
   const brokerPort = selected === 'mqtts' ? '8883' : '1883';
@@ -421,6 +434,35 @@ export function ConnectionInstructions({
           show yet), but it still has its own attribute slot and an empty
           roster, and it is exactly the instrument someone is configuring when
           they most need this. */}
+      {!canSubscribe && (
+        <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3" data-testid="attributes-non-mqtt">
+          <p className="text-sm font-medium text-slate-700">Attribute updates (platform → device)</p>
+          {isHttp ? (
+            <>
+              <Row label="Read" value={`GET ${attributesUrl}`} />
+              <CodeBlock text={`curl -k ${attributesUrl} \\\n  -H "Authorization: Bearer ${tok}"`} />
+              <Row label="Delivery" value="on request — HTTP cannot push; GET again to see a change" />
+              <CodeBlock text={httpAnswer} />
+            </>
+          ) : (
+            <>
+              <Row label="Subscribe" value={`send {"subscribe":"attributes"} after the token`} />
+              <CodeBlock text={selected === 'tcp' ? '{"subscribe":"attributes"}' : 'ws.send(JSON.stringify({ subscribe: "attributes" }));'} />
+              <Row label="Delivery" value={isGateway ? 'the current set now — one message per instrument, its own and each child\'s — then every change' : 'the current set now, then every change'} />
+              <CodeBlock text={socketFrame} />
+            </>
+          )}
+          <p className="pt-2 text-sm font-medium text-slate-700">Attribute report (device → platform)</p>
+          {isHttp ? (
+            <>
+              <Row label="Endpoint" value={`POST ${attributesUrl}`} />
+              <CodeBlock text={`curl -k -X POST ${attributesUrl} \\\n  -H "Authorization: Bearer ${tok}" \\\n  -H "Content-Type: application/json" \\\n  -d '${reportPayload}'`} />
+            </>
+          ) : (
+            <CodeBlock text={selected === 'tcp' ? JSON.stringify({ attributes: JSON.parse(reportPayload) }) : `ws.send(JSON.stringify(${JSON.stringify({ attributes: JSON.parse(reportPayload) })}));`} />
+          )}
+        </div>
+      )}
       {canSubscribe && (
         <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
           <p className="text-sm font-medium text-slate-700">Attribute updates (platform → device)</p>

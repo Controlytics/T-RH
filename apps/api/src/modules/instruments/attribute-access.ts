@@ -69,23 +69,10 @@ export function refuseAttributeWrite(input: {
   isNewKey: boolean;
   remark?: string | null;
 }): AttributeWriteRefusal | null {
-  const { access, hasUpdatePermission, key, isNewKey, remark } = input;
+  const { isNewKey, remark } = input;
 
-  const permitted = isNewKey
-    ? canAddAttribute(access, hasUpdatePermission)
-    : canEditAttributeKey(access, key, hasUpdatePermission);
-
-  if (!permitted) {
-    return {
-      status: 403,
-      body: {
-        error: 'ATTRIBUTE_NOT_EDITABLE',
-        message: isNewKey
-          ? 'You may view instrument attributes but not add them.'
-          : `You may view "${key}" but not change it.`,
-      },
-    };
-  }
+  const refused = attributeAccessRefusal(input);
+  if (refused) return { status: 403, body: { error: 'ATTRIBUTE_NOT_EDITABLE', message: refused } };
 
   // Remarks are required to CHANGE a recorded value, not to record one for the
   // first time. Demanding a reason on every key of a newly registered instrument
@@ -96,6 +83,28 @@ export function refuseAttributeWrite(input: {
   }
 
   return null;
+}
+
+/**
+ * The ACCESS half of `refuseAttributeWrite` alone — its wording, or null when
+ * the role may write the key. The bulk upload (2026-10-28) asks it once per
+ * changed cell and takes the remark once for the whole file, so it needs the
+ * rule without the remark check; both callers word a refusal identically.
+ */
+export function attributeAccessRefusal(input: {
+  access: AttributeAccess | null;
+  hasUpdatePermission: boolean;
+  key: string;
+  isNewKey: boolean;
+}): string | null {
+  const { access, hasUpdatePermission, key, isNewKey } = input;
+  const permitted = isNewKey
+    ? canAddAttribute(access, hasUpdatePermission)
+    : canEditAttributeKey(access, key, hasUpdatePermission);
+  if (permitted) return null;
+  return isNewKey
+    ? 'You may view instrument attributes but not add them.'
+    : `You may view "${key}" but not change it.`;
 }
 
 /** Does this role have to confirm its password for an attribute write? */

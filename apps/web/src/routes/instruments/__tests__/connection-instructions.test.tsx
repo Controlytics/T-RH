@@ -22,7 +22,7 @@ vi.mock('../live-transports', async (importOriginal) => {
 describe('ConnectionInstructions', () => {
   it('shows a curl example for http', () => {
     render(<ConnectionInstructions transport="http" code="T-1" token="TOK" />);
-    expect(screen.getByText(/curl/)).toBeInTheDocument();
+    expect(screen.getByText((t) => t.startsWith('curl -k -X POST') && t.includes('/api/ingest/v1/telemetry'))).toBeInTheDocument();
     // getAllByText: the token appears both as the labelled auth header and
     // inside the paste-ready command. Both are wanted — one tells you what the
     // device must send, the other lets you prove it works without typing it.
@@ -182,14 +182,14 @@ describe('ConnectionInstructions — gateway', () => {
   it('tells a child it is reported via its gateway, without hiding its own credentials', () => {
     render(<ConnectionInstructions transport="http" code="SENSOR-A" token="TOK" gatewayCode="GW-1" />);
     expect(screen.getByText(/GW-1/)).toBeInTheDocument();
-    expect(screen.getByText(/curl/)).toBeInTheDocument();   // direct path still shown (spec D4)
+    expect(screen.getByText((t) => t.startsWith('curl -k -X POST') && t.includes('/api/ingest/v1/telemetry'))).toBeInTheDocument();   // direct path still shown (spec D4)
   });
 });
 
 describe('ConnectionInstructions — protocol switcher', () => {
   it('defaults to HTTP when no transport is supplied', () => {
     render(<ConnectionInstructions code="T-1" token="TOK" />);
-    expect(screen.getByText(/curl/)).toBeInTheDocument();
+    expect(screen.getByText((t) => t.startsWith('curl -k -X POST') && t.includes('/api/ingest/v1/telemetry'))).toBeInTheDocument();
     expect(screen.queryByText(/mosquitto_pub/)).not.toBeInTheDocument();
     expect(screen.queryByText(/not accepting connections yet/i)).not.toBeInTheDocument();
   });
@@ -212,7 +212,7 @@ describe('ConnectionInstructions — protocol switcher', () => {
       expect(screen.getByText(/not accepting connections yet/i)).toBeInTheDocument();
       fireEvent.click(screen.getByRole('tab', { name: /^HTTP$/ }));
       expect(screen.queryByText(/not accepting connections yet/i)).not.toBeInTheDocument();
-      expect(screen.getByText(/curl/)).toBeInTheDocument();
+      expect(screen.getByText((t) => t.startsWith('curl -k -X POST') && t.includes('/api/ingest/v1/telemetry'))).toBeInTheDocument();
     } finally {
       forceNotLive.transport = null;
     }
@@ -388,9 +388,47 @@ describe('ConnectionInstructions — attribute payloads', () => {
     expect(screen.queryByText(/rtc-request/)).not.toBeInTheDocument();
   });
 
-  it('shows no payloads on a transport that cannot subscribe', () => {
+  // HTTP's GET answer is the SET — no change delta, no MQTT change topic.
+  it('shows no change payload and no change topic on HTTP', () => {
     render(<ConnectionInstructions transport="http" code="GW-1" token="TOK" isGateway childCodes={['SENSOR-A']} />);
     expect(screen.queryByText(/"changed"/)).not.toBeInTheDocument();
     expect(screen.queryByText(/children\/attributes/)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Attributes on EVERY protocol (2026-10-28, operator: "why attributes topic
+ * was not there for http and https" → "add for all protocals"). Each tab shows
+ * its own way, never an MQTT topic: HTTP a GET and a POST, WS / TCP the
+ * subscribe frame and the report envelope.
+ */
+describe('ConnectionInstructions — attributes on HTTP, WebSocket and TCP', () => {
+  it.each(['http', 'https'])('%s: GET reads the set, POST reports', (t) => {
+    render(<ConnectionInstructions transport={t} code="T-1" token="TOK" />);
+    const box = screen.getByTestId('attributes-non-mqtt');
+    expect(box).toHaveTextContent('GET ');
+    expect(box).toHaveTextContent('/api/ingest/v1/attributes');
+    expect(box).toHaveTextContent('POST ');
+    expect(box).toHaveTextContent('"Location":"LCMS Room-II"');
+  });
+
+  it.each(['websocket', 'wss', 'tcp'])('%s: subscribe frame and the attributes envelope', (t) => {
+    render(<ConnectionInstructions transport={t} code="T-1" token="TOK" />);
+    const box = screen.getByTestId('attributes-non-mqtt');
+    expect(box).toHaveTextContent('{"subscribe":"attributes"}');
+    expect(box).toHaveTextContent('"device": "T-1"');
+    expect(box).toHaveTextContent('{"attributes":{"Location":"LCMS Room-II"}}');
+  });
+
+  it('a gateway on TCP is told it receives one message per instrument, its children named', () => {
+    render(<ConnectionInstructions transport="tcp" code="GW-1" token="TOK" isGateway childCodes={['SENSOR-A']} />);
+    const box = screen.getByTestId('attributes-non-mqtt');
+    expect(box).toHaveTextContent(/one message per instrument/);
+    expect(box).toHaveTextContent('"device": "SENSOR-A"');
+  });
+
+  it('MQTT keeps its topics and shows no copy of these', () => {
+    render(<ConnectionInstructions transport="mqtt" code="T-1" token="TOK" />);
+    expect(screen.queryByTestId('attributes-non-mqtt')).toBeNull();
   });
 });

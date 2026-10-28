@@ -19,6 +19,7 @@ describe('auth plugin public paths', () => {
       '/api/auth/forgot-password',
       '/api/auth/login',
       '/api/health',
+      '/api/ingest/v1/attributes',
       '/api/ingest/v1/mqtt-auth',
       '/api/ingest/v1/telemetry',
       '/api/ingest/v1/ws',
@@ -71,13 +72,16 @@ describe('auth plugin public paths', () => {
     }
   });
 
-  it('exposes exactly the three device-token ingest paths', () => {
-    // All three turn on a per-instrument token instead of a user JWT: the HTTP
-    // POST, the WebSocket upgrade, and the hook EMQX calls at MQTT CONNECT
-    // (where the token arrives as the MQTT username and the caller is the
-    // broker, which has no JWT to present). Any FOURTH entry under /api/ingest/
-    // is a new unauthenticated surface and belongs in a review, not a diff.
+  it('exposes exactly the four device-token ingest paths', () => {
+    // All four turn on a per-instrument token instead of a user JWT: the HTTP
+    // POST, the device's attributes over HTTP (2026-10-28, operator: "add for
+    // all protocals" — reviewed then), the WebSocket upgrade, and the hook
+    // EMQX calls at MQTT CONNECT (where the token arrives as the MQTT username
+    // and the caller is the broker, which has no JWT to present). Any FIFTH
+    // entry under /api/ingest/ is a new unauthenticated surface and belongs in
+    // a review, not a diff.
     expect(paths.filter((p) => p.startsWith('/api/ingest/'))).toEqual([
+      '/api/ingest/v1/attributes',
       '/api/ingest/v1/mqtt-auth',
       '/api/ingest/v1/telemetry',
       '/api/ingest/v1/ws',

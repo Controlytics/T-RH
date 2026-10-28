@@ -182,6 +182,9 @@ const PUBLIC_PATHS = [
   // ingest-routes.ts, NOT by a user JWT — so it must bypass this hook.
   // Guarded by plugins/__tests__/public-paths.test.ts.
   '/api/ingest/v1/telemetry',
+  // The same device token, for a device's ATTRIBUTES over HTTP/HTTPS (2026-10-28,
+  // operator: "add for all protocals") — POST reports, GET reads the set.
+  '/api/ingest/v1/attributes',
   // Same device-token authentication, on the WebSocket upgrade request instead
   // of a POST. The upgrade goes through this hook like any GET, so without the
   // exemption the handshake fails with a 401 before ws-listener.ts ever sees

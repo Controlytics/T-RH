@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { subscribeAttributes, attributeSubscriberCount } from '../attribute-sessions.js';
 import {
   attributeDownlinkTopic,
   buildAttributeDownlinkPayload,
@@ -19,6 +20,8 @@ const TS = new Date('2026-08-06T11:40:00.000Z');
 
 function downlink(over: Partial<AttributeDownlink> = {}): AttributeDownlink {
   return {
+    instrumentId: 'i-temp-01',
+    gatewayId: null,
     code: 'TEMP-01',
     gatewayCode: null,
     attributes: { assetTag: 'AT-99412' },
@@ -127,6 +130,23 @@ describe('publishAttributeDownlink', () => {
       if (impl) await impl();
     });
   }
+
+  // 2026-10-28: WebSocket / TCP subscribers are told too — with NO broker
+  // configured (the publisher is null in this case), keyed by the GATEWAY for a
+  // child, exactly as the MQTT slot is.
+  it('pushes to WS/TCP subscribers without a broker, a child to its gateway connection', async () => {
+    const got: { frame: unknown; about: string }[] = [];
+    const stopGw = subscribeAttributes('gw-id', (frame, about) => { got.push({ frame, about }); });
+    const stopChild = subscribeAttributes('child-id', () => { throw new Error('a child has no connection of its own'); });
+    try {
+      await publishAttributeDownlink(downlink({ instrumentId: 'child-id', gatewayId: 'gw-id', code: 'CHA-1', gatewayCode: 'GWV-1' }));
+      expect(got).toEqual([{
+        about: 'child-id',
+        frame: { device: 'CHA-1', attributes: { assetTag: 'AT-99412' }, changed: { assetTag: 'AT-99412' }, ts: '2026-08-06T11:40:00.000Z' },
+      }]);
+    } finally { stopGw(); stopChild(); }
+    expect(attributeSubscriberCount('gw-id')).toBe(0);
+  });
 
   it('publishes QoS 1 and RETAINED', async () => {
     capture();

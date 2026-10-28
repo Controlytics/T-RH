@@ -476,6 +476,25 @@ node apps/api/dist/app.js
   gained a STRANDED pass. **A test must own its fixture profile** — three
   worker tests took `instrumentProfile.findFirst()` and failed once profiles
   differed. Feature note: `docs/feature-notes.md` PROFILE MEASUREMENTS.
+- **2026-10-28 — DEVICE ATTRIBUTES ON EVERY PROTOCOL.** HTTP `POST`/`GET
+  /api/ingest/v1/attributes` (new PUBLIC path — `public-paths.test.ts` updated
+  deliberately), WS/TCP `{"attributes":…}` / `{"subscribe":"attributes"}`
+  (`device-attributes.ts`, `attribute-sessions.ts`). `ingestAttributeReport` takes
+  `transport` / `certificateVerified`; `publishAttributeDownlink` pushes to
+  subscribers (keyed by instrument ID, `AttributeDownlink.instrumentId`/`gatewayId`
+  REQUIRED) before the broker. Every push re-runs re-auth + the certificate rule.
+  No count moved. `e2e/device-attributes.e2e.test.ts` (10), mutation-checked 9 ways.
+- **2026-10-28 — BULK UPLOAD UPDATES an existing Instrument ID.** `POST /bulk`
+  and the new `POST /bulk/preview` (INSTRUMENT_CREATE, writes nothing) share ONE
+  plan, `bulk-plan.ts` `planBulkUpload()` (pure), fed by `planBulkFile()` in
+  `routes.ts`; the upload re-plans the file and never trusts the preview. An
+  existing ID gets the attribute cells that DIFFER (blank keeps; identity columns
+  not applied); another profile / out of view / no Instrument Update / a refused
+  key = a row error; one remark when a recorded value is overwritten (400
+  `REMARK_REQUIRED` writes nothing). `applyBulkChanges` locks every key before the
+  first `auditLog`. `updated` / `unchanged` / `changes[].from` (nullable) are
+  DECLARED — mutation-checked. **No count moved, no migration.** Pinned by
+  `e2e/bulk-update.e2e.test.ts` (15) and `__tests__/bulk-plan.test.ts` (20).
 - **2026-10-28 — WIDGET DATA KEYS, phase 1 (server).** Two routes in a child
   plugin of the instruments routes (`data-keys-routes.ts`, so no `app.ts` /
   `test-helper.ts` registration): `GET /api/instruments/data-keys` and
