@@ -266,5 +266,134 @@ describe('GET /api/instruments/data-keys', () => {
   });
 });
 
-// Used by the latest-values block (Task 3).
-void highKey; void lowKey;
+describe('POST /api/instruments/latest-values', () => {
+  let a: string;
+  let b: string;
+  let c: string;
+  let d: string;
+  let e: string;
+  let f: string;
+  /** The overview's own precision for C's temperature — the number the route must echo. */
+  let cDecimals: number;
+
+  beforeAll(async () => {
+    a = await createInstrument(`LV-A-${s}`);
+    b = await createInstrument(`LV-B-${s}`);
+    c = await createInstrument(`LV-C-${s}`);
+    d = await createInstrument(`LV-D-${s}`);
+    e = await createInstrument(`LV-E-${s}`);
+    f = await createInstrument(`LV-F-${s}`);
+    await reading(a, 'p', 101.333, at(0));
+    await reading(b, 'p', 5, at(0));
+    await reading(c, 't', 21.5, at(1));
+    await reading(d, 't', 'NA', at(1));
+    await reading(e, 'T', 20, at(1));
+    await reading(f, 't', 1, at(1));
+    await reading(f, 'temperature', 2, at(1));
+    await prisma.instrumentAttribute.createMany({
+      data: [
+        { instrumentId: a, key: 'Firmware', value: '1.2' },
+        { instrumentId: a, key: offsetKey, value: '0.5' },
+        { instrumentId: c, key: highKey, value: '27' },
+        { instrumentId: c, key: lowKey, value: '18' },
+      ],
+    });
+    const ov = await app.inject({ method: 'GET', url: '/api/instruments/telemetry-overview', headers: auth });
+    const row = (ov.json().data as { instrumentId: string; decimals: { temperature: number } }[])
+      .find((r) => r.instrumentId === c)!;
+    cDecimals = row.decimals.temperature;
+  });
+
+  async function latest(body: unknown, headers = auth) {
+    return app.inject({ method: 'POST', url: '/api/instruments/latest-values', headers, payload: body as object });
+  }
+  const tel = (key: string) => ({ source: 'telemetry' as const, key });
+  const attr = (key: string) => ({ source: 'attribute' as const, key });
+  const valueOf = (body: { data: any[] }, id: string, key: string) =>
+    body.data.find((r) => r.instrumentId === id)!.values.find((v: any) => v.key === key);
+
+  it('a raw key returns its value as stored and is not judged', async () => {
+    const res = await latest({ instrumentIds: [a], keys: [tel('p')] });
+    expect(res.statusCode).toBe(200);
+    const row = res.json().data[0];
+    expect(row).toMatchObject({
+      instrumentId: a, code: `LV-A-${s}`, name: `LV-A-${s}`,
+      functionalLocationName: null, locationAttribute: null, reporting: expect.any(Boolean),
+    });
+    expect(row.values).toEqual([{
+      source: 'telemetry', key: 'p', value: 101.333, ts: at(0).toISOString(),
+      unit: null, decimals: null, display: null, judged: null,
+    }]);
+  });
+
+  it('a measured key returns the server\'s precision, unit and bounds', async () => {
+    const v = valueOf((await latest({ instrumentIds: [c], keys: [tel('t')] })).json(), c, 't');
+    expect(v).toEqual({
+      source: 'telemetry', key: 't', value: 21.5, ts: at(1).toISOString(),
+      unit: temperatureType.unit, decimals: cDecimals, display: null,
+      judged: { limitMin: 18, limitMax: 27, limitMinText: null, limitMaxText: null, sensorError: false, rangeError: false },
+    });
+  });
+
+  it('a sensor fault is flagged, not hidden', async () => {
+    const v = valueOf((await latest({ instrumentIds: [d], keys: [tel('t')] })).json(), d, 't');
+    expect(v.value).toBe('NA');
+    expect(v.judged.sensorError).toBe(true);
+  });
+
+  it('alias match folds case', async () => {
+    const v = valueOf((await latest({ instrumentIds: [e], keys: [tel('T')] })).json(), e, 'T');
+    expect(v.value).toBe(20);
+    expect(v.judged).not.toBeNull();
+  });
+
+  it('only the resolved alias is judged', async () => {
+    // Default alias order is `temperature, temp, t` — `temperature` wins.
+    const body = (await latest({ instrumentIds: [f], keys: [tel('t'), tel('temperature')] })).json();
+    expect(valueOf(body, f, 'temperature').judged).not.toBeNull();
+    expect(valueOf(body, f, 't').judged).toBeNull();
+    expect(valueOf(body, f, 't').decimals).toBeNull();
+  });
+
+  it('a key never sent returns null, and values keep the requested order', async () => {
+    const values = (await latest({ instrumentIds: [a], keys: [tel('nope'), tel('p')] })).json().data[0].values;
+    expect(values.map((v: any) => v.key)).toEqual(['nope', 'p']);
+    expect(values[0]).toMatchObject({ value: null, ts: null, judged: null });
+  });
+
+  it('attributes return their value and the server\'s display', async () => {
+    const body = (await latest({ instrumentIds: [a, c], keys: [attr('firmware'), attr(highKey)] })).json();
+    expect(valueOf(body, a, 'firmware')).toMatchObject({
+      source: 'attribute', value: '1.2', display: null, judged: null, unit: null, decimals: null,
+    });
+    expect(valueOf(body, a, 'firmware').ts).toEqual(expect.any(String));
+    // A limit is shown at the precision of the reading it bounds.
+    expect(valueOf(body, c, highKey).display).toBe((27).toFixed(cDecimals));
+  });
+
+  it('offset keys are absent for a non-super-admin', async () => {
+    expect(valueOf((await latest({ instrumentIds: [a], keys: [attr(offsetKey)] })).json(), a, offsetKey).value).toBe('0.5');
+    await asScopedOperator([a], async (operator) => {
+      const v = valueOf((await latest({ instrumentIds: [a], keys: [attr(offsetKey)] }, operator)).json(), a, offsetKey);
+      expect(v).toMatchObject({ value: null, ts: null });
+    });
+  });
+
+  it('an out-of-scope instrument is absent, never 403', async () => {
+    await asScopedOperator([a], async (operator) => {
+      const both = await latest({ instrumentIds: [a, b], keys: [tel('p')] }, operator);
+      expect(both.statusCode).toBe(200);
+      expect(both.json().data.map((r: any) => r.instrumentId)).toEqual([a]);
+      const hidden = await latest({ instrumentIds: [b], keys: [tel('p')] }, operator);
+      expect(hidden.statusCode).toBe(200);
+      expect(hidden.json()).toEqual({ data: [] });
+    });
+    expect((await latest({ instrumentIds: [a, b], keys: [tel('p')] })).json().data).toHaveLength(2);
+  });
+
+  it('the body is validated', async () => {
+    expect((await latest({ instrumentIds: [], keys: [tel('p')] })).statusCode).toBe(400);
+    expect((await latest({ instrumentIds: [a], keys: Array(21).fill(tel('p')) })).statusCode).toBe(400);
+    expect((await latest({ instrumentIds: [a], keys: [{ source: 'other', key: 'p' }] })).statusCode).toBe(400);
+  });
+});

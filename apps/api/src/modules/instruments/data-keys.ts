@@ -13,12 +13,15 @@
  */
 import {
   attributeLabel, coerceAttributeLabels, ATTRIBUTE_LABELS_CONFIG_KEY,
-  type DataKeyInfo, type DataKeyMeasurement, type InstrumentSlotConfig, type MeasurementType, type TelemetrySlot,
+  type DataKeyInfo, type DataKeyJudged, type DataKeyMeasurement, type DataKeyRef, type InstrumentSlotConfig,
+  type LatestKeyValue, type LatestValuesRow, type MeasurementType, type TelemetrySlot,
 } from '@digilog/shared';
 import { prisma } from '../../lib/prisma.js';
-import { getAttributeKeyCatalogue, getKeyCatalogue } from './telemetry.repository.js';
+import { getAttributeKeyCatalogue, getKeyCatalogue, getLatestFor } from './telemetry.repository.js';
 import { loadMeasurementTypes, slotConfigLookup } from './profile-measurements.js';
 import { offsetKeyTest } from './load-offsets.js';
+import { buildTelemetryOverview, type OverviewRow } from './telemetry-overview.js';
+import { annotateAttribute } from './decimals.js';
 
 /** The measurement-type code each phase-1 slot carries (`measurement_types.code`). */
 const SLOT_MEASUREMENT: Record<TelemetrySlot, string> = { temperature: 'TEMPERATURE', humidity: 'HUMIDITY' };
@@ -100,4 +103,121 @@ export async function buildKeyCatalogue(opts: {
     .sort((x, y) => x.label.localeCompare(y.label));
 
   return [...fromTelemetry, ...fromAttributes];
+}
+
+/** A measured key's bounds and fault flags, read off the overview row for its slot. */
+function judgedFor(row: OverviewRow, slot: TelemetrySlot): DataKeyJudged {
+  const t = slot === 'temperature';
+  return {
+    limitMin: (t ? row.limits?.tempMin : row.limits?.rhMin) ?? null,
+    limitMax: (t ? row.limits?.tempMax : row.limits?.rhMax) ?? null,
+    limitMinText: t ? row.limitText.tempMin : row.limitText.rhMin,
+    limitMaxText: t ? row.limitText.tempMax : row.limitText.rhMax,
+    sensorError: row.sensorError[slot],
+    rangeError: row.rangeError[slot],
+  };
+}
+
+const fold = (k: string) => k.trim().toLowerCase();
+
+/**
+ * What each named key currently reads on each instrument, for
+ * `POST /api/instruments/latest-values` — rows in the overview's order, values in
+ * the REQUESTED key order.
+ *
+ * The rows ARE `buildTelemetryOverview()`'s, narrowed to these instruments and
+ * ANDed with the caller's visibility, so a measured key's precision, bounds and
+ * fault flags are the overview's own answer — the one the dashboard table and
+ * the alarm evaluator use — and nothing here resolves a limit a second time.
+ *
+ * A telemetry key is MEASURED on an instrument when its profile maps it to a
+ * slot AND it is the key that slot resolved to (or the slot has no reading
+ * yet). An instrument sending two device keys of one slot has ONE temperature,
+ * the first in the profile's order; the other key is shown raw, not judged
+ * twice. A raw key carries no unit, no precision (print as received) and no
+ * judgement. Offset attributes are SUPER_ADMIN-only: absent otherwise.
+ */
+export async function buildLatestValues(opts: {
+  instrumentIds: string[];
+  keys: DataKeyRef[];
+  isSuperAdmin: boolean;
+  visibilityWhere?: object;
+}): Promise<LatestValuesRow[]> {
+  const rows = await buildTelemetryOverview({ instrumentIds: opts.instrumentIds, visibilityWhere: opts.visibilityWhere });
+  if (rows.length === 0) return [];
+  const ids = rows.map((r) => r.instrumentId);
+  const telemetryKeys = [...new Set(opts.keys.filter((k) => k.source === 'telemetry').map((k) => k.key))];
+  const wantsAttributes = opts.keys.some((k) => k.source === 'attribute');
+
+  const [slotOf, types, readings, attributes, seen, isOffset] = await Promise.all([
+    slotConfigLookup(),
+    loadMeasurementTypes(),
+    getLatestFor(ids, telemetryKeys),
+    wantsAttributes
+      ? prisma.instrumentAttribute.findMany({
+          where: { instrumentId: { in: ids } },
+          select: { instrumentId: true, key: true, value: true, updatedAt: true },
+          // Ordered, so an instrument carrying both `Room` and `room` answers the
+          // same one on every request.
+          orderBy: { key: 'asc' },
+        })
+      : Promise.resolve([] as { instrumentId: string; key: string; value: string; updatedAt: Date }[]),
+    prisma.instrument.findMany({ where: { id: { in: ids } }, select: { id: true, lastSeenAt: true } }),
+    offsetKeyTest(),
+  ]);
+
+  const readingOf = new Map(readings.map((r) => [`${r.instrumentId}|${r.key}`, r]));
+  const attributesOf = new Map<string, typeof attributes>();
+  for (const a of attributes) {
+    const list = attributesOf.get(a.instrumentId);
+    if (list) list.push(a);
+    else attributesOf.set(a.instrumentId, [a]);
+  }
+  const lastSeenOf = new Map(seen.map((i) => [i.id, i.lastSeenAt]));
+
+  return rows.map((row) => {
+    const cfg = slotOf(row.profileId);
+    const values = opts.keys.map((ref): LatestKeyValue => {
+      if (ref.source === 'telemetry') {
+        const r = readingOf.get(`${row.instrumentId}|${ref.key}`);
+        const slot = measuredSlotFor(cfg, ref.key);
+        const resolved = slot ? row.rawSlots[slot]?.key ?? null : null;
+        const measured = slot !== null && (resolved === null || resolved === ref.key);
+        return {
+          source: 'telemetry',
+          key: ref.key,
+          value: r?.value ?? null,
+          ts: r ? r.ts.toISOString() : null,
+          unit: measured ? measurementFor(slot, types).unit : null,
+          decimals: measured ? row.decimals[slot] : null,
+          display: null,
+          judged: measured ? judgedFor(row, slot) : null,
+        };
+      }
+      const hit = (attributesOf.get(row.instrumentId) ?? [])
+        .find((a) => fold(a.key) === fold(ref.key) && a.value.trim() !== '');
+      const hidden = !opts.isSuperAdmin && (isOffset(ref.key) || (hit !== undefined && isOffset(hit.key)));
+      const attr = hidden ? undefined : hit;
+      return {
+        source: 'attribute',
+        key: ref.key,
+        value: attr?.value ?? null,
+        ts: attr ? attr.updatedAt.toISOString() : null,
+        unit: null,
+        decimals: null,
+        display: attr ? annotateAttribute(cfg.decimals, row.decimals, attr).display : null,
+        judged: null,
+      };
+    });
+    return {
+      instrumentId: row.instrumentId,
+      code: row.code,
+      name: row.name,
+      functionalLocationName: row.functionalLocationName,
+      locationAttribute: row.locationAttribute,
+      reporting: row.reporting,
+      lastSeenAt: lastSeenOf.get(row.instrumentId)?.toISOString() ?? null,
+      values,
+    };
+  });
 }

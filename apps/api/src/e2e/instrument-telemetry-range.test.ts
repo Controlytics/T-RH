@@ -689,6 +689,23 @@ describe('every server resolver agrees about a disabled bound', () => {
     ).toEqual({ min: row.limits!.tempMin, max: row.limits!.tempMax });
   });
 
+  it('latest-values reports the SAME bounds as the overview', async () => {
+    const ov = await app.inject({ method: 'GET', url: '/api/instruments/telemetry-overview', headers: auth });
+    const row = (ov.json().data as {
+      instrumentId: string; limits: { tempMin: number | null; tempMax: number | null } | null;
+    }[]).find((r) => r.instrumentId === agreeId)!;
+    const res = await app.inject({
+      method: 'POST', url: '/api/instruments/latest-values', headers: auth,
+      payload: { instrumentIds: [agreeId], keys: [{ source: 'telemetry', key: 'temperature' }] },
+    });
+    expect(res.statusCode).toBe(200);
+    const judged = res.json().data[0].values[0].judged as { limitMin: number | null; limitMax: number | null };
+    expect(
+      { min: judged.limitMin, max: judged.limitMax },
+      'latest-values and the overview disagree about this instrument\'s bounds',
+    ).toEqual({ min: row.limits!.tempMin, max: row.limits!.tempMax });
+  });
+
   it('and both say the disabled bound is absent, not merely unbreached', async () => {
     const res = await telemetry(agreeId, `?from=${FROM}&to=${TO}&points=100`);
     const sum = (res.json() as ChartBody).summaries!.temperature;

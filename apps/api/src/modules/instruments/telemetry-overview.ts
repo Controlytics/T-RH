@@ -368,11 +368,15 @@ export async function buildTelemetryOverview(
     floorplanId?: string;
     functionalLocationId?: string;
     functionalLocationDirect?: boolean;
+    /** Only these instruments (widget latest-values, 2026-10-28). ANDed with every
+     *  other filter; an empty list selects nothing. */
+    instrumentIds?: string[];
     /** Role/user visibility filter. ANDed with any selection filter — a caller must
      *  never widen their own scope by selecting a location outside it. */
     visibilityWhere?: object;
   } = {},
 ): Promise<OverviewRow[]> {
+  if (opts.instrumentIds && opts.instrumentIds.length === 0) return [];
   const [activeWindowMinutes, slotOf, rangeCfg] = await Promise.all([
     loadActiveWindowMinutes(),
     // Every key mapping — device keys, decimals, limit / enable / range keys and
@@ -389,9 +393,12 @@ export async function buildTelemetryOverview(
   // role/user scope permits), combined with AND — never merged by spread. Selecting a
   // location outside your scope must return nothing rather than override the scope.
   const selection = await selectionWhere(opts);
-  const effectiveWhere = opts.visibilityWhere
-    ? (selection ? { AND: [selection, opts.visibilityWhere] } : opts.visibilityWhere)
-    : selection;
+  const parts = [
+    selection,
+    opts.instrumentIds ? { id: { in: opts.instrumentIds } } : undefined,
+    opts.visibilityWhere,
+  ].filter((w): w is object => w !== undefined);
+  const effectiveWhere = parts.length === 0 ? undefined : parts.length === 1 ? parts[0] : { AND: parts };
 
   const instruments = await prisma.instrument.findMany({
     where: effectiveWhere,

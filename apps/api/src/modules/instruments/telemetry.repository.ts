@@ -378,6 +378,21 @@ export async function getKeyCatalogue(instrumentIds: string[]): Promise<KeyCatal
     ORDER BY max(ts) DESC, key`;
 }
 
+/**
+ * The latest stored reading of each named key on each named instrument — exact
+ * key match, as stored. Nothing for an empty list of either.
+ */
+export async function getLatestFor(
+  instrumentIds: string[],
+  keys: string[],
+): Promise<{ instrumentId: string; key: string; value: unknown; ts: Date }[]> {
+  if (instrumentIds.length === 0 || keys.length === 0) return [];
+  return prisma.$queryRaw<{ instrumentId: string; key: string; value: unknown; ts: Date }[]>`
+    SELECT instrument_id AS "instrumentId", key, value, ts
+    FROM instrument_telemetry_latest
+    WHERE instrument_id IN (${Prisma.join(instrumentIds)}) AND key IN (${Prisma.join(keys)})`;
+}
+
 /** One attribute key across a set of instruments — see {@link getAttributeKeyCatalogue}. */
 export interface AttributeKeyCatalogueRow {
   /** The spelling to show: the lowest of the case variants, so it is stable. */
