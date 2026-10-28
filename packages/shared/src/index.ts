@@ -132,6 +132,14 @@ export {
   coerceProfileMeasurements, slotConfigFromMeasurements, measurementsEquivalent,
 } from './types/profile-measurements.js';
 export type { MeasurementType, ProfileMeasurement, InstrumentSlotConfig } from './types/profile-measurements.js';
+export {
+  DATA_KEY_SOURCES, DATA_KEY_MAX, DATA_KEYS_INSTRUMENTS_MAX, DATA_KEYS_PER_REQUEST_MAX,
+  dataKeyRefSchema, latestValuesRequestSchema,
+} from './types/data-keys.js';
+export type {
+  DataKeySource, DataKeyRef, LatestValuesRequest, DataKeyMeasurement, DataKeyInfo,
+  DataKeyJudged, LatestKeyValue, LatestValuesRow,
+} from './types/data-keys.js';
 export type { LimitBound } from './types/alarm-limits.js';
 
 export {
