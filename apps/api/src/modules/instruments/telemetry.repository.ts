@@ -329,6 +329,11 @@ export async function getMultiInstrumentHistory(opts: {
  * The trend page's "add a key" picker offers these and nothing else: ingest
  * stores whatever key a device sends, so a free-text field would invite a key
  * that has never existed and a widget that can never draw.
+ *
+ * Still read from HISTORY, on purpose (2026-10-28): its one remaining caller is
+ * the chart path's "every key" branch, whose question is "which keys have
+ * READINGS", and history is the table that holds them. The pickers moved to
+ * `getKeyCatalogue`, which reads the latest table — one row per key.
  */
 export async function getDistinctKeys(instrumentId: string): Promise<{ key: string; lastSeen: Date }[]> {
   return prisma.$queryRaw<{ key: string; lastSeen: Date }[]>`
@@ -337,6 +342,66 @@ export async function getDistinctKeys(instrumentId: string): Promise<{ key: stri
     WHERE instrument_id = ${instrumentId}
     GROUP BY key
     ORDER BY max(ts) DESC`;
+}
+
+/** One telemetry key across a set of instruments — see {@link getKeyCatalogue}. */
+export interface KeyCatalogueRow {
+  key: string;
+  /** How many of the instruments carry it. */
+  instruments: number;
+  lastSeen: Date;
+  /** The latest reading of at least one of them is a number (a QUOTED number counts). */
+  numeric: boolean;
+}
+
+/**
+ * Every telemetry key a set of instruments has sent (widget data keys,
+ * 2026-10-28), one row per key EXACTLY as stored — `T` and `t` are two keys,
+ * as they are on the wire.
+ *
+ * From the latest table: one row per (instrument, key), so this is bounded by
+ * the fleet's key count, never by how much history is retained. `numeric` is
+ * judged by `NUMERIC_READING`, the one SQL definition of a reading — the
+ * gateways quote every value, so `value_type` would call their numbers text.
+ *
+ * The caller has ALREADY reduced the ids to the ones the user may see; an empty
+ * list returns nothing rather than everything.
+ */
+export async function getKeyCatalogue(instrumentIds: string[]): Promise<KeyCatalogueRow[]> {
+  if (instrumentIds.length === 0) return [];
+  return prisma.$queryRaw<KeyCatalogueRow[]>`
+    SELECT key, count(*)::int AS instruments, max(ts) AS "lastSeen",
+           bool_or((${NUMERIC_READING}) IS NOT NULL) AS numeric
+    FROM instrument_telemetry_latest
+    WHERE instrument_id IN (${Prisma.join(instrumentIds)})
+    GROUP BY key
+    ORDER BY max(ts) DESC, key`;
+}
+
+/** One attribute key across a set of instruments — see {@link getAttributeKeyCatalogue}. */
+export interface AttributeKeyCatalogueRow {
+  /** The spelling to show: the lowest of the case variants, so it is stable. */
+  key: string;
+  instruments: number;
+  lastSeen: Date;
+}
+
+/**
+ * Every attribute key a set of instruments carries, folded by case — `Room` and
+ * `room` are ONE attribute everywhere else in this system (the attribute-labels
+ * rule), so they are one key here too. A blank value says nothing and is left
+ * out, as the overview treats it.
+ *
+ * The caller has ALREADY reduced the ids to the ones the user may see.
+ */
+export async function getAttributeKeyCatalogue(instrumentIds: string[]): Promise<AttributeKeyCatalogueRow[]> {
+  if (instrumentIds.length === 0) return [];
+  return prisma.$queryRaw<AttributeKeyCatalogueRow[]>`
+    SELECT min(key) AS key, count(DISTINCT instrument_id)::int AS instruments, max(updated_at) AS "lastSeen"
+    FROM instrument_attributes
+    WHERE instrument_id IN (${Prisma.join(instrumentIds)}) AND btrim(value) <> ''
+    GROUP BY lower(key)
+    ORDER BY lower(key)`;
 }
 
 export async function writeDeadLetters(

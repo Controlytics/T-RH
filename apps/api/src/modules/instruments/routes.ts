@@ -29,7 +29,7 @@ import { parseInstrumentCsv, type InstrumentDraft, type AttributeColumn } from '
 import { buildTelemetryOverview, instrumentLimitsWithText, NO_LIMIT_TEXT, loadActiveWindowMinutes } from './telemetry-overview.js';
 import { enabledBoundsFor } from '../alarms/load-limits.js';
 import { decimalsFor, annotateAttribute } from './decimals.js';
-import { slotConfigForProfile, allOffsetKeys, measurementsForProfile } from './profile-measurements.js';
+import { slotConfigForProfile, allOffsetKeys, measurementsForProfile, loadMeasurementTypes } from './profile-measurements.js';
 import { loadAttributeAccess, refuseAttributeWrite, needsReauth } from './attribute-access.js';
 import {
   ATTRIBUTE_REMARK_MAX, lttb, isInstrumentReporting,
@@ -41,12 +41,14 @@ import { kickMqttClient } from './broker-kick.js';
 import { invalidateChildMapCache } from './gateway-children.js';
 import { codeLabel } from './code-label.js';
 import deviceCertificateRoutes from './device-certificate-routes.js';
+import dataKeysRoutes from './data-keys-routes.js';
+import { measuredSlotFor, measurementFor } from './data-keys.js';
 import {
   gatewayInvariantError, lockedGatewayRecheck, lockInstrumentRows, isDeadlock,
   GatewayInvariantViolation,
 } from './gateway-invariants.js';
 import {
-  getLatest, getHistory, getDistinctKeys, getRangeRows, getRangeSummary, chartRangeTotal,
+  getLatest, getHistory, getDistinctKeys, getKeyCatalogue, getRangeRows, getRangeSummary, chartRangeTotal,
   getMultiInstrumentHistory,
   type TelemetryRow, type RangeSummary,
 } from './telemetry.repository.js';
@@ -536,6 +538,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
   // GET/POST/DELETE /api/instruments/:id/device-certificate (2026-10-27) — a
   // child plugin, so it inherits this prefix and the RBAC decorators.
   await app.register(deviceCertificateRoutes);
+  // GET /api/instruments/data-keys (2026-10-28) — every key a set of instruments
+  // has, for the widget key picker. A child plugin, the same arrangement.
+  await app.register(dataKeysRoutes);
 
   // GET /api/instruments — paginated list
   app.get('/', {
@@ -1486,6 +1491,12 @@ export default async function instrumentRoutes(app: FastifyInstance) {
                   key: { type: 'string' },
                   slot: { type: ['string', 'null'], enum: ['temperature', 'humidity', null] },
                   lastSeen: { type: 'string' },
+                  // 2026-10-28 (widget data keys). Declared, or Fastify strips them.
+                  numeric: { type: 'boolean' },
+                  measurement: {
+                    type: 'object', nullable: true,
+                    properties: { code: { type: 'string' }, name: { type: 'string' }, unit: { type: 'string' } },
+                  },
                 },
               },
             },
@@ -1510,7 +1521,11 @@ export default async function instrumentRoutes(app: FastifyInstance) {
 
     // Same per-profile resolution the telemetry route uses, so the picker and
     // the charts agree about which key is "temperature".
-    const [slotCfg, keys] = await Promise.all([slotConfigForProfile(exists.profileId), getDistinctKeys(id)]);
+    // The latest table, one row per key — the same catalogue the widget picker
+    // reads (`getKeyCatalogue`), so `numeric` means the same thing on both.
+    const [slotCfg, keys, types] = await Promise.all([
+      slotConfigForProfile(exists.profileId), getKeyCatalogue([id]), loadMeasurementTypes(),
+    ]);
     const { aliases } = slotCfg;
     const annotateKey = (k: string) => {
       const lower = k.toLowerCase();
@@ -1522,7 +1537,14 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     };
 
     return {
-      data: keys.map((k) => ({ key: k.key, slot: annotateKey(k.key), lastSeen: k.lastSeen })),
+      data: keys.map((k) => {
+        const measured = measuredSlotFor(slotCfg, k.key);
+        return {
+          key: k.key, slot: annotateKey(k.key), lastSeen: k.lastSeen,
+          numeric: k.numeric,
+          measurement: measured ? measurementFor(measured, types) : null,
+        };
+      }),
     };
   });
 
