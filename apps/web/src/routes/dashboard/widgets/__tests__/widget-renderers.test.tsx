@@ -223,3 +223,43 @@ describe('time series table', () => {
     expect(within(r).getByText('T:2026-10-28T10:00:00.000Z')).toBeTruthy();
   });
 });
+
+/**
+ * The three widget tables wear the app's table (ruling R5, 2026-10-29): they
+ * were raw `<table class="tbl tbl-grid">` with no cell padding and a pale
+ * header under white borders. Each now has the shared band header, lined cells
+ * and padded cells — the Table primitive's look.
+ */
+describe('widget tables wear the shared table look', () => {
+  const looksShared = (table: HTMLElement) => {
+    const thead = table.querySelector('thead')!;
+    expect(thead.getAttribute('data-band')).toBe('gradient');
+    expect(thead.getAttribute('style')).toContain('var(--band-gradient)');
+    expect(table.className).toMatch(/(^|\s)tbl-grid(\s|$)/);
+    const cell = table.querySelector('tbody td')!;
+    expect(cell.className).toMatch(/(^|\s)px-4(\s|$)/);
+  };
+
+  it('latest values table: band header, lined and padded cells', () => {
+    setRows([row('a', [measuredT(20)])]);
+    render(<WidgetBody widget={widget({ type: 'latest_table' })} selection={SEL} />);
+    looksShared(screen.getByTestId('latest-table'));
+  });
+
+  it('time series table: band header, lined and padded cells', () => {
+    setRows([row('a', [measuredT(20)])]);
+    state.series = { rows: [{ instrumentId: 'a', ts: '2026-10-28T10:00:00.000Z', values: { t: 20 } }], total: 1, loading: false };
+    render(<WidgetBody widget={widget({ type: 'timeseries_table' })} selection={SEL} />);
+    looksShared(screen.getByTestId('timeseries-table'));
+  });
+
+  it('trend chart series strip: band header, lined and padded cells', () => {
+    setRows([row('a', [measuredT(20)])]);
+    state.history = {
+      byInstrument: new Map([['a', { history: [{ key: 't', value: 20, ts: '2026-10-28T10:00:00.000Z' }], summaries: {}, historySampled: false, historyTotal: 1 }]]),
+      loading: false,
+    };
+    render(<WidgetBody widget={widget({ type: 'trend_chart' })} selection={SEL} />);
+    looksShared(screen.getByTestId('trend-widget-strip'));
+  });
+});

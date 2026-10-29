@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { CustomWidget } from '@digilog/shared';
 import { Pagination } from '@/components/ui/pagination';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useSensorWords } from '@/hooks/use-failure-text';
 import { keyCell } from './key-value';
 import type { WidgetSelection } from './use-widget-data';
@@ -52,40 +53,41 @@ export function LatestTableWidget({ widget, selection }: { widget: CustomWidget;
         aria-label="Search this widget"
         className="ctl ctl-sm w-full max-w-sm"
       />
-      <div className="overflow-x-auto">
-        <table className="tbl tbl-grid w-full text-sm" data-testid="latest-table">
-          <thead>
-            <tr>
-              <th scope="col" className="text-left">Instrument ID</th>
-              <th scope="col" className="text-left">Area</th>
-              <th scope="col" className="text-left">Location</th>
-              {widget.keys.map((k) => (
-                <th key={`${k.source}:${k.key}`} scope="col" className="text-left">{k.label ?? k.key}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {pageRows.length === 0 ? (
-              <tr><td colSpan={3 + widget.keys.length} className="py-4 text-center text-slate-500">No rows match the search.</td></tr>
-            ) : pageRows.map(({ row, cells }) => (
-              <tr key={row.instrumentId} data-testid="latest-table-row">
-                <td className="font-semibold text-slate-800">{row.code}</td>
-                <td>{row.functionalLocationName ?? '—'}</td>
-                <td>{row.locationAttribute ?? '—'}</td>
-                {cells.map((c, n) => (
-                  <td key={n} data-judged={c.judged ? 'true' : 'false'}>
-                    <span className="font-bold tabular-nums text-slate-900">{c.text}</span>
-                    {c.unit && <span className="ml-1 text-xs text-slate-500">{c.unit}</span>}
-                    <span className={`ml-2 inline-flex rounded-md border px-1.5 py-0.5 text-[0.6875rem] font-semibold ${c.classes.bg} ${c.classes.text} ${c.classes.border}`}>
-                      {c.label}
-                    </span>
-                  </td>
-                ))}
-              </tr>
+      {/* The app's table (ruling R5, 2026-10-29): the band header, lined and
+          padded cells. It was a raw <table class="tbl tbl-grid"> with no cell
+          padding and a pale header under white borders. Presentation only. */}
+      <Table data-testid="latest-table">
+        <TableHeader>
+          <tr>
+            <TableHead scope="col">Instrument ID</TableHead>
+            <TableHead scope="col">Area</TableHead>
+            <TableHead scope="col">Location</TableHead>
+            {widget.keys.map((k) => (
+              <TableHead key={`${k.source}:${k.key}`} scope="col">{k.label ?? k.key}</TableHead>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </tr>
+        </TableHeader>
+        <TableBody>
+          {pageRows.length === 0 ? (
+            <tr><td colSpan={3 + widget.keys.length} className="px-4 py-4 text-center text-slate-500">No rows match the search.</td></tr>
+          ) : pageRows.map(({ row, cells }) => (
+            <TableRow key={row.instrumentId} data-testid="latest-table-row">
+              <TableCell className="whitespace-nowrap font-semibold text-slate-800">{row.code}</TableCell>
+              <TableCell>{row.functionalLocationName ?? '—'}</TableCell>
+              <TableCell>{row.locationAttribute ?? '—'}</TableCell>
+              {cells.map((c, n) => (
+                <TableCell key={n} className="whitespace-nowrap" data-judged={c.judged ? 'true' : 'false'}>
+                  <span className="font-bold tabular-nums text-slate-900">{c.text}</span>
+                  {c.unit && <span className="ml-1 text-xs text-slate-500">{c.unit}</span>}
+                  <span className={`ml-2 inline-flex rounded-md border px-1.5 py-0.5 text-[0.6875rem] font-semibold ${c.classes.bg} ${c.classes.text} ${c.classes.border}`}>
+                    {c.label}
+                  </span>
+                </TableCell>
+              ))}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
       {filtered.length > 0 && (
         <Pagination
           page={page}

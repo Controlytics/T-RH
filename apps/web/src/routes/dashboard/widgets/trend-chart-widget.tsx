@@ -15,6 +15,7 @@
  *   the sampled series; Min / Max / Average are the server's, over every reading.
  */
 import { coerceReading, TREND_SERIES_MAX, type CustomWidget, type LatestKeyValue } from '@digilog/shared';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useSensorWords } from '@/hooks/use-failure-text';
 import { SampledNote } from '@/routes/instruments/sampled-note';
 import { TimeSeriesChart, seriesColor, type ChartSeries } from '../time-series-chart';
@@ -149,37 +150,38 @@ export function TrendChartWidget({ widget, selection }: { widget: CustomWidget; 
         </p>
       )}
       {sampled && <SampledNote shown={shownReadings} total={totalReadings} />}
-      <div className="overflow-x-auto">
-        <table className="tbl tbl-grid w-full text-xs" data-testid="trend-widget-strip">
-          <thead>
-            <tr>
-              <th scope="col" className="text-left">Series</th>
-              <th scope="col" className="text-right">Current</th>
-              <th scope="col" className="text-right">Min</th>
-              <th scope="col" className="text-right">Max</th>
-              <th scope="col" className="text-right">Average</th>
-            </tr>
-          </thead>
-          <tbody>
-            {plotted.map((p) => {
-              const s = byInstrument.get(p.instrumentId)!.summaries[p.key];
-              const d = p.series.decimals;
-              return (
-                <tr key={p.series.id}>
-                  <td>
-                    <span aria-hidden className="mr-2 inline-block h-2 w-2 rounded-full" style={{ background: p.series.color }} />
-                    {p.series.label}
-                  </td>
-                  <td className="text-right tabular-nums font-semibold">{p.current}{p.currentUnit ? ` ${p.currentUnit}` : ''}</td>
-                  <td className="text-right tabular-nums">{fmt(s?.min, d)}</td>
-                  <td className="text-right tabular-nums">{fmt(s?.max, d)}</td>
-                  <td className="text-right tabular-nums">{fmt(s?.avg, d)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      {/* The app's table (ruling R5, 2026-10-29) — see latest-table-widget.
+          Compact (`size="default"`, shorter rows): it is a summary under the
+          chart, not the widget's subject. */}
+      <Table size="default" data-testid="trend-widget-strip">
+        <TableHeader>
+          <tr>
+            <TableHead scope="col" className="h-9">Series</TableHead>
+            <TableHead scope="col" className="h-9 text-right">Current</TableHead>
+            <TableHead scope="col" className="h-9 text-right">Min</TableHead>
+            <TableHead scope="col" className="h-9 text-right">Max</TableHead>
+            <TableHead scope="col" className="h-9 text-right">Average</TableHead>
+          </tr>
+        </TableHeader>
+        <TableBody>
+          {plotted.map((p) => {
+            const s = byInstrument.get(p.instrumentId)!.summaries[p.key];
+            const d = p.series.decimals;
+            return (
+              <TableRow key={p.series.id}>
+                <TableCell className="py-2">
+                  <span aria-hidden className="mr-2 inline-block h-2 w-2 rounded-full" style={{ background: p.series.color }} />
+                  {p.series.label}
+                </TableCell>
+                <TableCell className="py-2 text-right tabular-nums font-semibold">{p.current}{p.currentUnit ? ` ${p.currentUnit}` : ''}</TableCell>
+                <TableCell className="py-2 text-right tabular-nums">{fmt(s?.min, d)}</TableCell>
+                <TableCell className="py-2 text-right tabular-nums">{fmt(s?.max, d)}</TableCell>
+                <TableCell className="py-2 text-right tabular-nums">{fmt(s?.avg, d)}</TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
     </div>
   );
 }

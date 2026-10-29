@@ -59,7 +59,12 @@ export function TableHeader({
     <thead
       data-band={band}
       className={cn(
-        'sticky top-0 z-10',
+        // A header row never takes the BODY rows' hover tint (2026-10-29).
+        // Most callers put a <TableRow> in here, whose `hover:bg-…` paints the
+        // ROW over this row group's band (CSS table layers: a row's background
+        // sits above its group's), so hovering the header turned the band
+        // near-white under white type. Higher specificity than TableRow's hover.
+        'sticky top-0 z-10 [&>tr:hover]:bg-transparent',
         band === 'gradient' ? 'text-white' : 'border-b border-slate-200 bg-slate-50 text-slate-600',
         className,
       )}

@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { WIDGET_INSTRUMENTS_MAX, type CustomWidget, type LatestKeyValue } from '@digilog/shared';
 import { Pagination } from '@/components/ui/pagination';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { formatKeyValue } from './key-value';
 import { useWidgetTimeseries, type WidgetSelection } from './use-widget-data';
@@ -55,34 +56,33 @@ export function TimeseriesTableWidget({ widget, selection }: { widget: CustomWid
         <PeriodSelect name={`widget-period-${widget.id}`} value={preset} onChange={setPreset} withDashboard={selection.window !== undefined} />
         <CapNote shown={queried.length} total={carriers.length} noun="instruments" />
       </div>
-      <div className="overflow-x-auto">
-        <table className="tbl tbl-grid w-full text-sm" data-testid="timeseries-table">
-          <thead>
+      {/* The app's table (ruling R5, 2026-10-29) — see latest-table-widget. */}
+      <Table data-testid="timeseries-table">
+        <TableHeader>
+          <tr>
+            <TableHead scope="col">Time</TableHead>
+            <TableHead scope="col">Instrument ID</TableHead>
+            {keys.map((k) => <TableHead key={k.key} scope="col">{k.label ?? k.key}</TableHead>)}
+          </tr>
+        </TableHeader>
+        <TableBody>
+          {history.rows.length === 0 ? (
             <tr>
-              <th scope="col" className="text-left">Time</th>
-              <th scope="col" className="text-left">Instrument ID</th>
-              {keys.map((k) => <th key={k.key} scope="col" className="text-left">{k.label ?? k.key}</th>)}
+              <td colSpan={2 + keys.length} className="px-4 py-4 text-center text-slate-500">
+                {history.loading ? 'Loading…' : 'No readings in this period.'}
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {history.rows.length === 0 ? (
-              <tr>
-                <td colSpan={2 + keys.length} className="py-4 text-center text-slate-500">
-                  {history.loading ? 'Loading…' : 'No readings in this period.'}
-                </td>
-              </tr>
-            ) : history.rows.map((r) => (
-              <tr key={`${r.instrumentId}:${r.ts}`} data-testid="timeseries-row">
-                <td className="whitespace-nowrap">{formatDateTime(r.ts)}</td>
-                <td className="font-semibold text-slate-800">{byId.get(r.instrumentId)?.code ?? '—'}</td>
-                {keys.map((k) => (
-                  <td key={k.key} className="tabular-nums">{cellText(r.instrumentId, k, r.values[k.key])}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          ) : history.rows.map((r) => (
+            <TableRow key={`${r.instrumentId}:${r.ts}`} data-testid="timeseries-row">
+              <TableCell className="whitespace-nowrap">{formatDateTime(r.ts)}</TableCell>
+              <TableCell className="whitespace-nowrap font-semibold text-slate-800">{byId.get(r.instrumentId)?.code ?? '—'}</TableCell>
+              {keys.map((k) => (
+                <TableCell key={k.key} className="tabular-nums">{cellText(r.instrumentId, k, r.values[k.key])}</TableCell>
+              ))}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
       {history.total > 0 && (
         <Pagination
           page={page}

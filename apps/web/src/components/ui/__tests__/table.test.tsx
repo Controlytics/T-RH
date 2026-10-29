@@ -64,6 +64,19 @@ describe('DataTable', () => {
   });
 });
 
+describe('the header band survives a hover (2026-10-29)', () => {
+  it('the header cancels the hover tint TableRow puts on its rows', () => {
+    // TableRow's hover background paints over the thead's band; the header
+    // must override it for its own rows.
+    const { container } = render(
+      <Table><TableHeader><TableRow><TableHead>Title</TableHead></TableRow></TableHeader></Table>,
+    );
+    const thead = container.querySelector('thead')!;
+    expect(thead.className.split(/\s+/)).toContain('[&>tr:hover]:bg-transparent');
+    expect(container.querySelector('thead tr')!.className).toContain('hover:bg-[var(--surface-tint-1)]');
+  });
+});
+
 describe('every table is the Audit Trail table by default (2026-10-01)', () => {
   it('a plain <Table> carries the grid and the 15px size; a caller can still opt out', () => {
     const { container, rerender } = render(<Table><tbody><tr><td>x</td></tr></tbody></Table>);
