@@ -18,6 +18,7 @@ import {
   type DashboardDetail, type StoredDashboardDocument,
 } from '@digilog/shared';
 import { prisma } from '../../lib/prisma.js';
+import { clampSignatureMeaning } from '../../lib/audit.js';
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -25,12 +26,16 @@ export const DASHBOARDS_SUPER_ADMIN_ONLY = 'Only a super admin can create, chang
 export const DASHBOARD_CHANGED_MESSAGE = 'This dashboard was changed by someone else. Reload it and make your change again.';
 export const DASHBOARD_NOT_FOUND_MESSAGE = 'Dashboard not found.';
 
-/** `audit_trail.signature_meaning` is VARCHAR(255) and the insert is raw SQL: a longer one is a 500. */
-export const SIGNATURE_MEANING_MAX = 255;
-
-/** Every signature meaning this module writes goes through here. */
+/**
+ * Every signature meaning this module writes goes through here.
+ * `audit_trail.signature_meaning` is VARCHAR(255); `auditLog` clamps to it
+ * with an ellipsis (`clampSignatureMeaning`, lib/audit.ts) rather than failing.
+ * This is that same rule, applied where the meaning is composed, so the
+ * dashboard's and widget's titles (up to 200 and 80 characters) are cut here
+ * by the one definition and never by a second one.
+ */
 export function meaning(text: string): string {
-  return text.length <= SIGNATURE_MEANING_MAX ? text : `${text.slice(0, SIGNATURE_MEANING_MAX - 1)}…`;
+  return clampSignatureMeaning(text) ?? '';
 }
 
 // ─── visibility ──────────────────────────────────────────────────────────────
@@ -93,7 +98,7 @@ export async function summariseSources(sources: readonly (DashboardSource | null
         return { mode: 'location', label: name === undefined ? 'Location no longer exists' : `${name}${s.directOnly ? ' (direct only)' : ''}` };
       }
       case 'instruments':
-        return { mode: 'instruments', label: `${s.ids.length} instruments` };
+        return { mode: 'instruments', label: `${s.ids.length} instrument${s.ids.length === 1 ? '' : 's'}` };
     }
   });
 }

@@ -293,6 +293,25 @@ describe('/api/dashboards', () => {
     expect(await prisma.dashboard.count({ where: { title: { startsWith: `Hijack ${S}` } } })).toBe(0);
     expect(await prisma.dashboard.count({ where: { title: `Guarded ${S} (copy)` } })).toBe(0);
     expect((await detail(d.id)).assignments).toEqual({ roles: [MGR], users: [] });
+
+    // The role check is FIRST: before the 404 on a dashboard m1 cannot see, and
+    // before the body and the path are validated.
+    const hidden = await create(`Guarded hidden ${S}`);
+    const first = [
+      await put(hidden.id, { title: `Hijack ${S}`, expectedUpdatedAt: hidden.updatedAt }, m1),
+      await duplicate(hidden.id, m1),
+      await remove(hidden.id, m1),
+      await assign(hidden.id, [MGR], [], m1),
+      await put(hidden.id, { title: `Hijack ${S}` }, m1), // no expectedUpdatedAt
+      await app.inject({ method: 'PUT', url: '/api/dashboards/not-a-uuid', headers: m1, payload: { title: 'x', expectedUpdatedAt: hidden.updatedAt } }),
+      await assign(hidden.id, [MGR], ['not-a-uuid'], m1),
+      await app.inject({ method: 'POST', url: '/api/dashboards', headers: m1, payload: { title: '' } }),
+    ];
+    for (const res of first) {
+      expect(res.statusCode, res.body).toBe(403);
+      expect(res.json().error).toBe('DASHBOARDS_SUPER_ADMIN_ONLY');
+    }
+    expect((await detail(hidden.id)).updatedAt).toBe(hidden.updatedAt);
   });
 
   it('the document round-trips', async () => {
@@ -362,6 +381,14 @@ describe('/api/dashboards', () => {
 
     // The current one is accepted.
     expect((await put(d.id, { title: `Stale C ${S}`, expectedUpdatedAt: now.updatedAt })).statusCode).toBe(200);
+
+    // A stamp with microseconds (any writer but Prisma) still matches the
+    // millisecond the GET served: the column is TIMESTAMPTZ(6), the wire is ms.
+    await prisma.$executeRaw`UPDATE dashboards SET updated_at = date_trunc('milliseconds', now()) + interval '437 microseconds' WHERE id = ${d.id}::uuid`;
+    const micro = await detail(d.id);
+    const ok = await put(d.id, { title: `Stale D ${S}`, expectedUpdatedAt: micro.updatedAt });
+    expect(ok.statusCode, ok.body).toBe(200);
+    expect(ok.json().title).toBe(`Stale D ${S}`);
   });
 
   it('every write is audited with a name', async () => {
@@ -457,6 +484,23 @@ describe('/api/dashboards', () => {
       expect(r.targetType).toBe('dashboard');
       expect(r.signatureMeaning!.length).toBeLessThanOrEqual(255);
     }
+  });
+
+  it('a save that only reorders the widget list writes nothing', async () => {
+    // The order of `widgets` means nothing (the items place them) and nothing
+    // audits it, so a save that changes only that order must not write: a
+    // committed change with no audit row, and a second editor's honest save
+    // turned into a 409.
+    const w = widgetSet();
+    const sent = doc([w.cards, w.chart, w.alarms]);
+    const d = await create(`Reordered ${S}`, sent);
+    const rowBefore = await prisma.dashboard.findUniqueOrThrow({ where: { id: d.id }, select: { layout: true, updatedAt: true } });
+    const before = await rowsFor(d.id);
+    const res = await put(d.id, { document: { ...sent, widgets: [...sent.widgets].reverse() }, expectedUpdatedAt: d.updatedAt });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().updatedAt).toBe(d.updatedAt);
+    expect(await newRows(d.id, before)).toEqual([]);
+    expect(await prisma.dashboard.findUniqueOrThrow({ where: { id: d.id }, select: { layout: true, updatedAt: true } })).toEqual(rowBefore);
   });
 
   it('a deleted dashboard is gone', async () => {
@@ -569,8 +613,19 @@ describe('/api/dashboards', () => {
       expect(refused.statusCode, refused.body).toBe(401);
       expect(refused.json()).toMatchObject({ error: 'REAUTH_REQUIRED', action: 'UPDATE_DASHBOARD' });
       expect((await detail(d.id)).title).toBe(`Reauth ${S}`);
-      const create401 = await app.inject({ method: 'POST', url: '/api/dashboards', headers: sa, payload: { title: `Reauth new ${S}` } });
-      expect(create401.statusCode).toBe(401);
+      // Every other write route is behind the same action.
+      const unsigned = [
+        await app.inject({ method: 'POST', url: '/api/dashboards', headers: sa, payload: { title: `Reauth new ${S}` } }),
+        await duplicate(d.id),
+        await assign(d.id, [VIEW], []),
+        await remove(d.id),
+      ];
+      for (const res of unsigned) {
+        expect(res.statusCode, res.body).toBe(401);
+        expect(res.json()).toMatchObject({ error: 'REAUTH_REQUIRED', action: 'UPDATE_DASHBOARD' });
+      }
+      expect(await prisma.dashboard.count({ where: { title: { in: [`Reauth new ${S}`, `Reauth ${S} (copy)`] } } })).toBe(0);
+      expect((await detail(d.id)).assignments).toEqual({ roles: [], users: [] });
 
       const signed = await put(d.id, { title: `Reauth B ${S}`, expectedUpdatedAt: d.updatedAt }, { ...sa, 'x-reauth-password': PW });
       expect(signed.statusCode, signed.body).toBe(200);
@@ -593,6 +648,7 @@ describe('/api/dashboards', () => {
       [{ mode: 'location', functionalLocationId: block.id, directOnly: true }, { mode: 'location', label: `DBM Block ${S} (direct only)` }],
       [{ mode: 'location', functionalLocationId: gone.id }, { mode: 'location', label: 'Location no longer exists' }],
       [{ mode: 'instruments', ids: [INSTRUMENT, randomUUID()] }, { mode: 'instruments', label: '2 instruments' }],
+      [{ mode: 'instruments', ids: [INSTRUMENT] }, { mode: 'instruments', label: '1 instrument' }],
     ];
     const ids: string[] = [];
     for (const [n, [source]] of cases.entries()) ids.push((await create(`Source ${n} ${S}`, doc([], { source }))).id);

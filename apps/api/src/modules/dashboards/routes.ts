@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Prisma } from '@prisma/client';
 import {
-  parseDashboardDocument, readDashboardDocument, emptyDashboardDocument, diffWidgets, widgetsEqual,
+  parseDashboardDocument, readDashboardDocument, emptyDashboardDocument, diffWidgets,
   widgetItemId, widgetIdOf,
   type DashboardDocument, type StoredDashboardDocument, type CustomWidget,
 } from '@digilog/shared';
@@ -12,7 +12,7 @@ import { enforceReauth } from '../../lib/reauth-check.js';
 import { stripHtml } from '../../lib/sanitize.js';
 import {
   idParams, listResponse, detailResponse, createdResponse, assignmentsResponse, deleteResponse,
-  createDashboardBody, updateDashboardBody, assignmentsBody, DASHBOARD_TITLE_MAX,
+  createDashboardBody, updateDashboardBody, assignmentsBody, DASHBOARD_TITLE_MAX, DASHBOARD_DESCRIPTION_MAX,
 } from './schemas.js';
 import {
   DASHBOARDS_SUPER_ADMIN_ONLY, DASHBOARD_CHANGED_MESSAGE, DASHBOARD_NOT_FOUND_MESSAGE,
@@ -59,11 +59,14 @@ const notFound = (reply: FastifyReply) =>
 const invalid = (reply: FastifyReply, message: string) =>
   reply.code(400).send({ error: 'VALIDATION_ERROR', message });
 
-/** Step 1 of every write: true when the caller was refused (the reply is sent). */
-function refusedNotSuperAdmin(req: FastifyRequest, reply: FastifyReply): boolean {
-  if (req.user.role === 'SUPER_ADMIN') return false;
-  reply.code(403).send({ error: 'DASHBOARDS_SUPER_ADMIN_ONLY', message: DASHBOARDS_SUPER_ADMIN_ONLY });
-  return true;
+/**
+ * Step 1 of every write, as a `preValidation` hook so it runs BEFORE the path
+ * and the body are validated: a non-SUPER_ADMIN is a 403 whatever they sent,
+ * never a 400 or a 404. `req.user` is set by the global `onRequest` auth hook.
+ */
+async function superAdminOnly(req: FastifyRequest, reply: FastifyReply) {
+  if (req.user?.role === 'SUPER_ADMIN') return;
+  return reply.code(403).send({ error: 'DASHBOARDS_SUPER_ADMIN_ONLY', message: DASHBOARDS_SUPER_ADMIN_ONLY });
 }
 
 /** HTML stripped and trimmed, as on every text field; null when nothing is left. */
@@ -73,7 +76,9 @@ function cleanTitle(v: string): string | null {
 }
 function cleanDescription(v: string | null | undefined): string | null | undefined {
   if (v === undefined || v === null) return v;
-  const t = stripHtml(v).trim();
+  // Cut AFTER stripping: stripHtml's fail-safe escapes, which can lengthen the
+  // text past the VARCHAR(500) column (a P2000, i.e. a 500).
+  const t = stripHtml(v).slice(0, DASHBOARD_DESCRIPTION_MAX).trim();
   return t.length > 0 ? t : null;
 }
 
@@ -84,15 +89,17 @@ function copyTitle(title: string): string {
 }
 
 /**
- * Whether two documents are the same dashboard. Both sides come out of the same
- * zod / `readItem` path (the strict parse, and the forgiving read of the stored
- * row), so their keys are in the same order and JSON comparison is exact.
+ * Whether two documents have the same source, window and placement. Both sides
+ * come out of the same zod / `readItem` path (the strict parse, and the
+ * forgiving read of the stored row), so their keys are in the same order and
+ * JSON comparison is exact. The WIDGETS are compared separately, by id
+ * (`diffWidgets`): the order of the widget list means nothing — the items
+ * place the widgets — and nothing audits it.
  */
-function sameDocument(a: StoredDashboardDocument, b: StoredDashboardDocument): boolean {
+function sameLayout(a: StoredDashboardDocument, b: StoredDashboardDocument): boolean {
   return JSON.stringify(a.source) === JSON.stringify(b.source)
     && JSON.stringify(a.timeWindow) === JSON.stringify(b.timeWindow)
-    && JSON.stringify(a.items) === JSON.stringify(b.items)
-    && widgetsEqual(a.widgets, b.widgets);
+    && JSON.stringify(a.items) === JSON.stringify(b.items);
 }
 
 const asJson = (d: StoredDashboardDocument) => d as unknown as Prisma.InputJsonValue;
@@ -147,6 +154,7 @@ export default async function dashboardRoutes(app: FastifyInstance) {
 
   // ─── CREATE ────────────────────────────────────────────
   app.post('/', {
+    preValidation: [superAdminOnly],
     schema: {
       tags: ['Dashboards'],
       summary: 'Create a dashboard (SUPER_ADMIN)',
@@ -155,7 +163,6 @@ export default async function dashboardRoutes(app: FastifyInstance) {
       response: createdResponse,
     },
   }, async (req, reply) => {
-    if (refusedNotSuperAdmin(req, reply)) return;
     const { ok } = await enforceReauth(REAUTH_ACTION, req, reply);
     if (!ok) return;
     const body = req.body as { title: string; description?: string | null; document?: unknown };
@@ -186,6 +193,7 @@ export default async function dashboardRoutes(app: FastifyInstance) {
 
   // ─── DUPLICATE ─────────────────────────────────────────
   app.post('/:id/duplicate', {
+    preValidation: [superAdminOnly],
     schema: {
       tags: ['Dashboards'],
       summary: 'Copy a dashboard (SUPER_ADMIN)',
@@ -194,7 +202,6 @@ export default async function dashboardRoutes(app: FastifyInstance) {
       response: createdResponse,
     },
   }, async (req, reply) => {
-    if (refusedNotSuperAdmin(req, reply)) return;
     const { id } = req.params as { id: string };
     if (!(await findVisibleDashboard(req.user, id))) return notFound(reply);
     const { ok } = await enforceReauth(REAUTH_ACTION, req, reply);
@@ -231,6 +238,7 @@ export default async function dashboardRoutes(app: FastifyInstance) {
 
   // ─── SAVE ──────────────────────────────────────────────
   app.put('/:id', {
+    preValidation: [superAdminOnly],
     schema: {
       tags: ['Dashboards'],
       summary: 'Save a dashboard (SUPER_ADMIN)',
@@ -240,7 +248,6 @@ export default async function dashboardRoutes(app: FastifyInstance) {
       response: detailResponse,
     },
   }, async (req, reply) => {
-    if (refusedNotSuperAdmin(req, reply)) return;
     const { id } = req.params as { id: string };
     if (!(await findVisibleDashboard(req.user, id))) return notFound(reply);
     const { ok } = await enforceReauth(REAUTH_ACTION, req, reply);
@@ -264,69 +271,79 @@ export default async function dashboardRoutes(app: FastifyInstance) {
 
     const outcome = await prisma.$transaction(async (tx) => {
       const cur = await findVisibleDashboard(req.user, id, tx);
-      if (!cur) return 'gone' as const;
+      if (!cur) return { kind: 'gone' } as const;
       const was = readDashboardDocument(cur.layout);
       const nextTitle = title ?? cur.title;
       const nextDescription = description === undefined ? cur.description : description;
-      const docChanged = document !== undefined && !sameDocument(was, document);
-      if (nextTitle === cur.title && nextDescription === cur.description && !docChanged) return 'unchanged' as const;
-      const next: StoredDashboardDocument = docChanged ? document! : was;
+      const next: StoredDashboardDocument = document ?? was;
+
+      // "Changed" is decided by what gets AUDITED, computed before anything is
+      // written: a save that would write no audit row writes nothing (a
+      // committed change with no record is the failure; so is an honest second
+      // save turned into a 409 by a write that changed nothing). The widgets are
+      // diffed by id, so a reordered widget list is no change.
+      const before = dashboardStateValue(cur.title, cur.description, was);
+      const after = dashboardStateValue(nextTitle, nextDescription, next);
+      const stateChanged = JSON.stringify(before) !== JSON.stringify(after);
+      const diff = document ? diffWidgets(was.widgets, document.widgets) : { created: [], updated: [], deleted: [] };
+      const widgetsChanged = diff.created.length + diff.updated.length + diff.deleted.length > 0;
+      if (!stateChanged && !widgetsChanged) return { kind: 'unchanged', detail: await presentDetail(cur, true, tx) } as const;
+      const layoutChanged = document !== undefined && (widgetsChanged || !sameLayout(was, document));
 
       // Conditional on the version the editor loaded: a row another save moved
-      // on matches nothing, and nothing below runs. The new stamp is always
-      // later than the expected one, so two saves inside one millisecond still
-      // leave the second editor stale.
+      // on matches nothing, and nothing below runs. The window is the editor's
+      // millisecond (GET serialises milliseconds; the column holds
+      // microseconds), so a stamp written by anything other than Prisma still
+      // matches its own reading. The new stamp is always past that window, so
+      // two saves inside one millisecond still leave the second editor stale.
       const { count } = await tx.dashboard.updateMany({
-        where: { id, isActive: true, updatedAt: expected },
+        where: { id, isActive: true, updatedAt: { gte: expected, lt: new Date(expected.getTime() + 1) } },
         data: {
           title: nextTitle,
           description: nextDescription,
-          ...(docChanged ? { layout: asJson(next) } : {}),
+          ...(layoutChanged ? { layout: asJson(next) } : {}),
           updatedAt: new Date(Math.max(Date.now(), expected.getTime() + 1)),
         },
       });
-      if (count === 0) return 'conflict' as const;
+      if (count === 0) return { kind: 'conflict' } as const;
 
       const ctx = who(req);
-      const before = dashboardStateValue(cur.title, cur.description, was);
-      const after = dashboardStateValue(nextTitle, nextDescription, next);
-      if (JSON.stringify(before) !== JSON.stringify(after)) {
+      if (stateChanged) {
         await auditLog({
           ...ctx, action: 'DASHBOARD_UPDATED', targetType: 'dashboard', targetId: id,
           beforeValue: before, afterValue: after,
           signatureMeaning: meaning(`Dashboard "${nextTitle}" updated`),
         }, tx);
       }
-      if (docChanged) {
-        const diff = diffWidgets(was.widgets, next.widgets);
-        await auditWidgetsCreated(tx, req, id, nextTitle, diff.created);
-        for (const u of diff.updated) {
-          await auditLog({
-            ...ctx, action: 'DASHBOARD_WIDGET_UPDATED', targetType: 'dashboard', targetId: id,
-            beforeValue: widgetValue(u.before, cur.title), afterValue: widgetValue(u.after, nextTitle),
-            signatureMeaning: meaning(`Widget "${u.after.title}" updated on dashboard "${nextTitle}"`),
-          }, tx);
-        }
-        for (const w of diff.deleted) {
-          await auditLog({
-            ...ctx, action: 'DASHBOARD_WIDGET_DELETED', targetType: 'dashboard', targetId: id,
-            beforeValue: widgetValue(w, cur.title),
-            signatureMeaning: meaning(`Widget "${w.title}" removed from dashboard "${nextTitle}"`),
-          }, tx);
-        }
+      await auditWidgetsCreated(tx, req, id, nextTitle, diff.created);
+      for (const u of diff.updated) {
+        await auditLog({
+          ...ctx, action: 'DASHBOARD_WIDGET_UPDATED', targetType: 'dashboard', targetId: id,
+          beforeValue: widgetValue(u.before, cur.title), afterValue: widgetValue(u.after, nextTitle),
+          signatureMeaning: meaning(`Widget "${u.after.title}" updated on dashboard "${nextTitle}"`),
+        }, tx);
       }
-      return 'saved' as const;
+      for (const w of diff.deleted) {
+        await auditLog({
+          ...ctx, action: 'DASHBOARD_WIDGET_DELETED', targetType: 'dashboard', targetId: id,
+          beforeValue: widgetValue(w, cur.title),
+          signatureMeaning: meaning(`Widget "${w.title}" removed from dashboard "${nextTitle}"`),
+        }, tx);
+      }
+      // The response is the version THIS save wrote, read inside its own
+      // transaction: a save landing after the commit must not be handed back as ours.
+      const saved = await tx.dashboard.findUniqueOrThrow({ where: { id } });
+      return { kind: 'saved', detail: await presentDetail(saved, true, tx) } as const;
     }, WRITE_TX);
 
-    if (outcome === 'gone') return notFound(reply);
-    if (outcome === 'conflict') return reply.code(409).send({ error: 'DASHBOARD_CHANGED', message: DASHBOARD_CHANGED_MESSAGE });
-    const row = await findVisibleDashboard(req.user, id);
-    if (!row) return notFound(reply);
-    return presentDetail(row, true);
+    if (outcome.kind === 'gone') return notFound(reply);
+    if (outcome.kind === 'conflict') return reply.code(409).send({ error: 'DASHBOARD_CHANGED', message: DASHBOARD_CHANGED_MESSAGE });
+    return outcome.detail;
   });
 
   // ─── DELETE ────────────────────────────────────────────
   app.delete('/:id', {
+    preValidation: [superAdminOnly],
     schema: {
       tags: ['Dashboards'],
       summary: 'Delete a dashboard (SUPER_ADMIN)',
@@ -335,7 +352,6 @@ export default async function dashboardRoutes(app: FastifyInstance) {
       response: deleteResponse,
     },
   }, async (req, reply) => {
-    if (refusedNotSuperAdmin(req, reply)) return;
     const { id } = req.params as { id: string };
     if (!(await findVisibleDashboard(req.user, id))) return notFound(reply);
     const { ok } = await enforceReauth(REAUTH_ACTION, req, reply);
@@ -360,6 +376,7 @@ export default async function dashboardRoutes(app: FastifyInstance) {
 
   // ─── ASSIGNMENTS ───────────────────────────────────────
   app.put('/:id/assignments', {
+    preValidation: [superAdminOnly],
     schema: {
       tags: ['Dashboards'],
       summary: 'Replace who a dashboard is assigned to (SUPER_ADMIN)',
@@ -369,7 +386,6 @@ export default async function dashboardRoutes(app: FastifyInstance) {
       response: assignmentsResponse,
     },
   }, async (req, reply) => {
-    if (refusedNotSuperAdmin(req, reply)) return;
     const { id } = req.params as { id: string };
     if (!(await findVisibleDashboard(req.user, id))) return notFound(reply);
     const { ok } = await enforceReauth(REAUTH_ACTION, req, reply);
