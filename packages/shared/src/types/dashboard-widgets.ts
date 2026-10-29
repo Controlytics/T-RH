@@ -93,6 +93,10 @@ export const customWidgetSchema = z.object({
     if (w.type === 'trend_chart' && k.source === 'attribute') {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['keys', n], message: 'Attributes have no history to plot' });
     }
+    // The same for the time series table: its column would always be empty.
+    if (w.type === 'timeseries_table' && k.source === 'attribute') {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['keys', n], message: 'Attributes have no history to list' });
+    }
   });
 });
 export type CustomWidget = z.infer<typeof customWidgetSchema>;

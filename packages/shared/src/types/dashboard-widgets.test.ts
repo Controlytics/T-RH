@@ -62,6 +62,10 @@ describe('customWidgetSchema', () => {
       .toContain('Attributes have no history to plot');
     expect(issues(widget({ type: 'value_cards', keys: [{ source: 'attribute', key: 'Location' }] })))
       .toHaveLength(0);
+    expect(issues(widget({ type: 'timeseries_table', keys: [{ source: 'attribute', key: 'Location' }] })))
+      .toContain('Attributes have no history to list');
+    expect(issues(widget({ type: 'latest_table', keys: [{ source: 'attribute', key: 'Location' }] })))
+      .toHaveLength(0);
   });
 });
 

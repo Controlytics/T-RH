@@ -1,0 +1,94 @@
+/**
+ * Time series table — the stored readings of the widget's instruments, merged
+ * and paged on the SERVER (`telemetry-history`, newest first), a column per key.
+ *
+ * A measured cell prints at the server's decimals for that instrument and key; a
+ * raw cell as received, or at the widget's decimals. The query names at most the
+ * first 50 instruments (it is a GET; the id list rides in the URL) and the widget
+ * says so when the selection is larger.
+ */
+import { useEffect, useMemo, useState } from 'react';
+import { WIDGET_INSTRUMENTS_MAX, type CustomWidget, type LatestKeyValue } from '@digilog/shared';
+import { Pagination } from '@/components/ui/pagination';
+import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { formatKeyValue } from './key-value';
+import { useWidgetTimeseries, type WidgetSelection } from './use-widget-data';
+import {
+  CapNote, LOAD_FAILED, NO_INSTRUMENTS, PeriodSelect, WidgetMessage, useWidgetRange, useWidgetRows, valueOf,
+} from './widget-common';
+
+export function TimeseriesTableWidget({ widget, selection }: { widget: CustomWidget; selection: WidgetSelection }) {
+  const { rows, loading, error, empty } = useWidgetRows(widget, selection);
+  const { preset, setPreset, range } = useWidgetRange(widget.options.period);
+  const { formatDateTime } = useDatetimeFormat();
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(widget.options.pageSize ?? 25);
+
+  const queried = rows.slice(0, WIDGET_INSTRUMENTS_MAX);
+  const ids = queried.map((r) => r.instrumentId);
+  const keys = widget.keys.filter((k) => k.source === 'telemetry');
+  const history = useWidgetTimeseries(ids, keys.map((k) => k.key), range, page, pageSize);
+  const byId = useMemo(() => new Map(rows.map((r) => [r.instrumentId, r])), [rows]);
+
+  useEffect(() => { setPage(1); }, [preset, pageSize]);
+
+  if (loading) return <WidgetMessage>Loading…</WidgetMessage>;
+  if (error) return <WidgetMessage tone="error">{LOAD_FAILED}</WidgetMessage>;
+  if (empty) return <WidgetMessage>{NO_INSTRUMENTS}</WidgetMessage>;
+
+  /** One stored reading, printed by the same rule as the instrument's latest value. */
+  const cellText = (instrumentId: string, key: (typeof keys)[number], value: unknown): string => {
+    const row = byId.get(instrumentId);
+    const latest = row ? valueOf(row, key) : undefined;
+    const v: LatestKeyValue = latest
+      ? { ...latest, value: value ?? null }
+      : { source: 'telemetry', key: key.key, value: value ?? null, ts: null, unit: null, decimals: null, display: null, judged: null };
+    return formatKeyValue(v, key);
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <PeriodSelect name={`widget-period-${widget.id}`} value={preset} onChange={setPreset} />
+        <CapNote shown={queried.length} total={rows.length} noun="instruments" />
+      </div>
+      <div className="overflow-x-auto">
+        <table className="tbl tbl-grid w-full text-sm" data-testid="timeseries-table">
+          <thead>
+            <tr>
+              <th scope="col" className="text-left">Time</th>
+              <th scope="col" className="text-left">Instrument ID</th>
+              {keys.map((k) => <th key={k.key} scope="col" className="text-left">{k.label ?? k.key}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {history.rows.length === 0 ? (
+              <tr>
+                <td colSpan={2 + keys.length} className="py-4 text-center text-slate-500">
+                  {history.loading ? 'Loading…' : 'No readings in this period.'}
+                </td>
+              </tr>
+            ) : history.rows.map((r) => (
+              <tr key={`${r.instrumentId}:${r.ts}`} data-testid="timeseries-row">
+                <td className="whitespace-nowrap">{formatDateTime(r.ts)}</td>
+                <td className="font-semibold text-slate-800">{byId.get(r.instrumentId)?.code ?? '—'}</td>
+                {keys.map((k) => (
+                  <td key={k.key} className="tabular-nums">{cellText(r.instrumentId, k, r.values[k.key])}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {history.total > 0 && (
+        <Pagination
+          page={page}
+          pageSize={pageSize}
+          totalItems={history.total}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+        />
+      )}
+    </div>
+  );
+}

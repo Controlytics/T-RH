@@ -14,7 +14,8 @@ import { PanelCard } from './panel-card';
 import { AUTO_HEIGHT_PANELS, applyAutoHeights, autoHeightIds, carryStoredFields, nextRows } from './panel-auto-height';
 import { EntryCards } from './entry-cards';
 import { useDashboardLayout } from '@/hooks/use-dashboard-layout';
-import type { LayoutItem } from '@digilog/shared';
+import { CUSTOM_WIDGETS_PANEL, widgetIdOf, type CustomWidget, type LayoutItem } from '@digilog/shared';
+import { WidgetPanel } from './widgets/widget-panel';
 import { Button } from '@/components/ui/button';
 
 /** A CSS gradient STRING for `backgroundImage`. Not lib/theme-styles' themeGradient,
@@ -152,6 +153,10 @@ export function DashboardPage() {
   // The auto-height set for THIS layout: the fixed panels plus every built table
   // widget, which also ends at its pagination bar.
   const autoIds = useMemo(() => autoHeightIds(layout.widgets), [layout.widgets]);
+  // The Add / Edit widget dialog (null = closed); `initial` = the widget being edited.
+  const [widgetDialog, setWidgetDialog] = useState<{ initial?: CustomWidget } | null>(null);
+  const widgetSelection = { functionalLocationId: nav.functionalLocationId, directOnly: nav.directOnly };
+
   const placedItems = hiddenPanels.size ? layout.items.filter((it) => !hiddenPanels.has(it.i)) : layout.items;
   const visibleItems = applyAutoHeights(placedItems, autoRows, autoIds);
 
@@ -374,6 +379,31 @@ export function DashboardPage() {
           ) : undefined}
         >
           {visibleItems.map((it) => {
+            // A BUILT WIDGET (2026-10-28): placed by `w:<id>`, defined in
+            // `layout.widgets`, shown only with the `custom_widgets` panel — the
+            // server already strips it otherwise; this guard is the same single
+            // decision on this side. Shown in BOTH views (not in hiddenPanelsFor).
+            const widgetId = widgetIdOf(it.i);
+            if (widgetId !== null) {
+              const w = showPanel(CUSTOM_WIDGETS_PANEL) ? layout.widgets.find((x) => x.id === widgetId) : undefined;
+              if (!w) return <div key={it.i} />;
+              return (
+                <div key={it.i}>
+                  <WidgetPanel
+                    widget={w}
+                    item={it}
+                    selection={widgetSelection}
+                    editing={layout.editing}
+                    onEdit={() => setWidgetDialog({ initial: w })}
+                    onRemove={() => layout.removeWidget(w.id)}
+                    onStyleChange={(next) => layout.setStyle(it.i, next)}
+                    onSizeChange={(width, height) => layout.setSize(it.i, width, height)}
+                    autoHeight={autoIds.has(it.i)}
+                    onNaturalHeight={reportHeight(it.i)}
+                  />
+                </div>
+              );
+            }
             // A layout item for a panel this viewer may not see never reaches the
             // browser — the server strips it — but the guard stays as the single
             // place that decides, so assignment and rendering cannot disagree.
