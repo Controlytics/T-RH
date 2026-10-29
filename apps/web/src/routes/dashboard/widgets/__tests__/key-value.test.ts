@@ -54,7 +54,16 @@ describe('a raw key is shown, never judged', () => {
 
   it('a raw key carries the widget unit; NA carries none', () => {
     expect(keyCell(raw(3), true, { ...RAW_KEY, unit: 'kPa' }, WORDS).unit).toBe('kPa');
+    expect(keyCell(raw('3.5'), true, { ...RAW_KEY, unit: 'kPa' }, WORDS).unit).toBe('kPa');
     expect(keyCell(raw(null), true, { ...RAW_KEY, unit: 'kPa' }, WORDS).unit).toBeNull();
+  });
+
+  it('a unit never sits beside text or true/false — it belongs to a number', () => {
+    // Seen in the 2026-10-28 render check: "true kPa".
+    expect(keyCell(raw(true), true, { ...RAW_KEY, unit: 'kPa' }, WORDS).unit).toBeNull();
+    expect(keyCell(raw('NA'), true, { ...RAW_KEY, unit: 'kPa' }, WORDS).unit).toBeNull();
+    expect(keyCell(raw('RUN'), true, { ...RAW_KEY, unit: 'kPa' }, WORDS).unit).toBeNull();
+    expect(keyCell(measured('NA'), true, { source: 'telemetry', key: 't' }, WORDS).unit).toBeNull();
   });
 });
 

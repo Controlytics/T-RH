@@ -68,6 +68,8 @@ export function keyCell(
   words: SensorWords,
 ): KeyCell {
   const text = formatKeyValue(v, key);
+  // A unit belongs to a NUMBER: never beside NA, a fault word, text or true/false.
+  const isNumber = v !== undefined && coerceReading(v.value) !== null;
   if (v && v.source === 'telemetry' && v.judged) {
     const verdict = quantityVerdict({
       value: coerceReading(v.value),
@@ -81,7 +83,7 @@ export function keyCell(
     const shown = verdict.fault ?? text;
     return {
       text: shown,
-      unit: verdict.fault === null && shown !== NOT_AVAILABLE ? v.unit : null,
+      unit: verdict.fault === null && isNumber ? v.unit : null,
       judged: true,
       label: verdict.assessed ? classes.label : 'Not assessed',
       classes,
@@ -89,7 +91,7 @@ export function keyCell(
   }
   return {
     text,
-    unit: text !== NOT_AVAILABLE ? key.unit ?? null : null,
+    unit: isNumber ? key.unit ?? null : null,
     judged: false,
     label: reporting ? UNJUDGED_CLASSES.label : statusClasses('STALE').label,
     classes: reporting ? UNJUDGED_CLASSES : statusClasses('STALE'),
