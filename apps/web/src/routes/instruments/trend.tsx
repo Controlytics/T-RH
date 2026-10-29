@@ -459,10 +459,19 @@ export function InstrumentTrend() {
   const humidRawCount = humidKey ? rawCountForKey(trend.chartRows, humidKey) : 0;
 
   const tableKeys = [tempKey, humidKey].filter((k): k is string => k !== null);
-  // The profile's extra keys join the pivot, so an instant holding ONLY an extra
-  // key still gets a row; their cells print the RAW stored value (`extraRaw`),
-  // never the slot rules' failure word.
-  const extraKeyNames = displayKeys.map((k) => k.key).filter((k) => !tableKeys.includes(k));
+  /**
+   * The profile's extra keys THIS page draws: never the key it already draws as
+   * temperature or humidity. The Keys dialog refuses those per instrument, but
+   * the list is the PROFILE's — a key raw on the instrument it was chosen from
+   * can be another instrument's resolved temperature (review 2026-10-29).
+   * `tempKey` / `humidKey` come from the server's own `slot` annotation, so
+   * nothing is re-derived here. ONE list for the cards, charts and columns.
+   */
+  const shownKeys = displayKeys.filter((k) => k.key !== tempKey && k.key !== humidKey);
+  // The extra keys join the pivot, so an instant holding ONLY an extra key still
+  // gets a row; their cells print the RAW stored value (`extraRaw`), never the
+  // slot rules' failure word.
+  const extraKeyNames = shownKeys.map((k) => k.key);
   const extraRawByTsKey = new Map(trend.tableRows.map((r) => [`${r.ts}|${r.key}`, r.value]));
   // RAW rows, NOT `numericRows`. This table says it lists every reading in the
   // range, and filtering here silently dropped exactly the broken ones an
@@ -992,7 +1001,7 @@ export function InstrumentTrend() {
             <GaugeSkeleton title={widgets.labels.humidCardTitle} />
           </>
         )}
-        {displayKeys.map((k) => (
+        {shownKeys.map((k) => (
           <ExtraKeyCard
             key={`extra-${k.key}`}
             widgetKey={k}
@@ -1142,7 +1151,7 @@ export function InstrumentTrend() {
                 way those four do not cover. */}
           </ChartPanel>
         </TrendChartCard>
-        {displayKeys.map((k, n) => {
+        {shownKeys.map((k, n) => {
           // One chart card per extra key (phase 3). Numbers only — a word cannot
           // be plotted, and the card says how many it left out. Limit lines only
           // for a MEASURED key (the server sent bounds); a raw key gets none.
@@ -1239,7 +1248,7 @@ export function InstrumentTrend() {
             },
           ]}
           failureWord={failureWord}
-          extraColumns={displayKeys.map((k) => {
+          extraColumns={shownKeys.map((k) => {
             const latest = extraValue(k);
             const unit = latest && isMeasured(latest) ? latest.unit : k.unit ?? null;
             const label = k.label ?? k.key;

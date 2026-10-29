@@ -26,8 +26,14 @@ Operator: "go ahead with phase 3 trend page" (spec §7; plan
 - **Rulings:** telemetry only (P3-1); keys ride on the profile GET (P3-2); the two drawn keys refused
   (P3-3); reason optional (P3-4); an extra column never prints the failure word (P3-5).
 - **Tests:** shared `profile-display-keys.test.ts` (5); API `e2e/profile-display-keys.e2e.test.ts` (6,
-  mutation-checked three ways); web `extra-keys`, `trend-extra-keys` (7), `display-keys-dialog` (4).
+  mutation-checked three ways); web `extra-keys`, `trend-extra-keys` (9), `display-keys-dialog` (5).
   Rendered with the built stylesheet in headless Chrome. **Not seen in the operator's browser.**
+- **Review fix pass (same day), each RED → GREEN:** the audit row names the profile (`name` rides on
+  before / after; the Audit Trail printed "Instrument profile updated" naming none); a display key that
+  IS the page's temperature or humidity key is never drawn a second time (a key a sibling instrument
+  uses as its slot); every key row in the Keys dialog — and in the dashboard's Add widget dialog, which
+  shares it — has a **Remove** button, because a chosen key the current instrument never sent is not in
+  the picker and had no way out.
 - **Also in this batch — the phase 2 review fix pass** (`0abb5e5`): a measured key with no bound in
   force is neutral, never green; the trend chart / time series widgets spend their caps only on
   instruments that SENT a key; trend series capped at 6 (the palette); Reset asks before deleting

@@ -80,6 +80,17 @@ export function KeyDisplayRows({
                 />
               ))}
             </span>
+            {/* The picker lists only the keys the chosen instruments sent; a chosen key
+                nobody sends any more is still here, and this is its only way out. */}
+            <button
+              type="button"
+              aria-label={`Remove ${k.key}`}
+              title="Remove"
+              onClick={() => onChange(keys.filter((_, i) => i !== n))}
+              className="ml-auto self-center rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-red-600"
+            >
+              Remove
+            </button>
           </div>
         );
       })}

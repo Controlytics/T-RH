@@ -19,8 +19,10 @@ const overviewRow = {
 const HISTORY = {
   latest: [],
   history: [
-    { key: 'temperature', value: 22.5, ts: '2026-08-24T00:20:00.000Z' },
-    { key: 'humidity', value: 45.3, ts: '2026-08-24T00:20:00.000Z' },
+    // `slot` is how the page learns which key IS temperature / humidity (the
+    // server's annotation on the chart rows).
+    { key: 'temperature', value: 22.5, ts: '2026-08-24T00:20:00.000Z', slot: 'temperature' },
+    { key: 'humidity', value: 45.3, ts: '2026-08-24T00:20:00.000Z', slot: 'humidity' },
     { key: 'p', value: '101.3', ts: '2026-08-24T00:20:00.000Z' },
     { key: 'p', value: 'NA', ts: '2026-08-24T00:21:00.000Z' },
   ],
@@ -39,6 +41,11 @@ const WITH_KEYS = { id: 'prof-1', name: 'T&RH Sensors', instrumentCount: 105, di
   { source: 'telemetry', key: 'dp', label: 'Diff pressure' },
 ] };
 const NO_KEYS = { id: 'prof-1', name: 'T&RH Sensors', instrumentCount: 105, displayKeys: [] };
+/** A profile key that IS this instrument's resolved temperature (chosen on a sibling where it was raw). */
+const WITH_DRAWN_KEY = { id: 'prof-1', name: 'T&RH Sensors', instrumentCount: 105, displayKeys: [
+  { source: 'telemetry', key: 'temperature', label: 'Temp again' },
+  { source: 'telemetry', key: 'p', label: 'Pressure', unit: 'kPa' },
+] };
 const TEXTS = resolveTrendWidgetTexts({});
 const OVERVIEW = { data: [overviewRow] };
 const EMPTY_LIST = { data: [] };
@@ -137,6 +144,19 @@ describe("the trend page draws its profile's extra keys", () => {
     renderPage();
     expect(screen.queryByTestId('extra-chart-p')).toBeNull();
     expect(screen.getAllByTestId('extra-key-card')).toHaveLength(2);
+  });
+
+  it('never repeats a key the page already draws as a gauge and chart', () => {
+    // Review 2026-10-29: the picker refuses it per instrument, but the list is per
+    // PROFILE — a key raw on the instrument it was chosen from can be this
+    // instrument's resolved temperature.
+    profile = WITH_DRAWN_KEY;
+    renderPage();
+    expect(screen.getAllByTestId('extra-key-card')).toHaveLength(1);
+    expect(screen.queryByText('Temp again')).toBeNull();
+    expect(screen.queryByTestId('extra-chart-temperature')).toBeNull();
+    expect(screen.queryAllByTestId('ts-extra-temperature')).toHaveLength(0);
+    expect(screen.getByTestId('extra-chart-p')).toBeTruthy();
   });
 
   it('the page no longer asks for telemetry-keys', () => {

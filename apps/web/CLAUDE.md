@@ -309,7 +309,10 @@ now — absent = no download, phase 4) and `extraColumns` on `TimeseriesTableCar
 stored value; `extraColumnCell` judges only a measured key and never prints the failure word). A
 SUPER_ADMIN gets a **Keys** button in the hero → `display-keys-dialog.tsx` (`KeyPicker` with a `refuse`
 for the two keys the page draws, `KeyDisplayRows` shared with the widget dialog). The dead
-`telemetry-keys` request is gone. Tests: `extra-keys.test.tsx`, `trend-extra-keys.test.tsx`,
+`telemetry-keys` request is gone. The keys are the PROFILE's and the page is ONE instrument's: the page
+draws `shownKeys` (the list minus its own resolved temperature / humidity keys, so a sibling's slot key is
+never drawn twice), and every `KeyDisplayRows` row has **Remove** — a stored key this instrument never
+sent is not in the picker, and Remove is its only way out (review fix pass 2026-10-29). Tests: `extra-keys.test.tsx`, `trend-extra-keys.test.tsx`,
 `display-keys-dialog.test.tsx`.
 
 ## Instrument detail — the Details card (trimmed 2026-09-16)

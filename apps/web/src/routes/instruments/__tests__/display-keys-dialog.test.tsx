@@ -79,6 +79,17 @@ describe('DisplayKeysDialog', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('a chosen key this instrument never sent can still be removed', async () => {
+    // Review 2026-10-29: the picker lists only this instrument's keys, so a key
+    // only a sibling sends (or nobody sends any more) had no control to drop it.
+    render(<DisplayKeysDialog open instrumentId="i-1" profile={{ ...PROFILE, displayKeys: [{ source: 'telemetry', key: 'gone', label: 'Gone' }] }} onClose={() => {}} onSaved={() => {}} />);
+    expect(screen.queryByRole('checkbox', { name: /gone/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove gone' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save keys' }));
+    await waitFor(() => expect(putWithReauth).toHaveBeenCalledTimes(1));
+    expect(putWithReauth).toHaveBeenCalledWith('/api/instrument-profiles/prof-1/display-keys', { displayKeys: [] }, 'Secret1!');
+  });
+
   it('starts from the profile\'s current keys', () => {
     render(<DisplayKeysDialog open instrumentId="i-1" profile={{ ...PROFILE, displayKeys: [{ source: 'telemetry', key: 'p', label: 'Pressure' }] }} onClose={() => {}} onSaved={() => {}} />);
     expect(screen.getByRole('checkbox', { name: 'p (p)' })).toHaveProperty('checked', true);

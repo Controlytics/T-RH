@@ -947,8 +947,11 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
         userId: ctx.userId, userRole: ctx.userRole,
         action: 'INSTRUMENT_PROFILE_UPDATED',
         targetType: 'instrument_profile', targetId: id,
-        beforeValue: { displayKeys: stored },
-        afterValue: { displayKeys: parsed.data },
+        // `name` on both: the INSTRUMENT_PROFILE_UPDATED template renders
+        // {targetName} from it (review 2026-10-29) — the sibling PUT /:id
+        // always writes it too.
+        beforeValue: { name: before.name, displayKeys: stored },
+        afterValue: { name: before.name, displayKeys: parsed.data },
         reason,
         signatureMeaning: `Profile "${before.name.slice(0, 60)}" trend-page keys set: ${parsed.data.length} key(s)`,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,

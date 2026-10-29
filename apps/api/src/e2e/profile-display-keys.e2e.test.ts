@@ -113,8 +113,13 @@ describe('PUT /api/instrument-profiles/:id/display-keys', () => {
     const row = await prisma.auditTrail.findFirstOrThrow({
       where: { action: 'INSTRUMENT_PROFILE_UPDATED', targetId: profileId }, orderBy: { timestamp: 'desc' },
     });
-    expect(row.beforeValue).toEqual({ displayKeys: KEYS });
-    expect(row.afterValue).toEqual({ displayKeys: next });
+    // The profile's NAME rides on both values: the INSTRUMENT_PROFILE_UPDATED
+    // template renders `{targetName}` from `name`, and without it the Audit
+    // Trail printed "Instrument profile updated by …" naming no profile (review
+    // 2026-10-29).
+    const { name } = await prisma.instrumentProfile.findUniqueOrThrow({ where: { id: profileId }, select: { name: true } });
+    expect(row.beforeValue).toEqual({ name, displayKeys: KEYS });
+    expect(row.afterValue).toEqual({ name, displayKeys: next });
     expect(row.reason).toBe('Trend page shows run state');
   });
 
