@@ -122,7 +122,14 @@ export default async function alarmRoutes(app: FastifyInstance) {
           // it: a location filter that widened visibility would be the exact
           // inversion of what both filters are for.
           functionalLocationId: { type: 'string' },
+          // With `true`, only alarms on instruments pinned to that location itself,
+          // without its Areas (a dashboard's "- direct" source).
+          functionalLocationDirect: { type: 'string', enum: ['true', 'false'] },
           instrumentId: { type: 'string' },
+          // Dashboard sources: a comma list of instrument ids (at most 200; present
+          // but empty selects nothing) and a profile. ANDed with visibility.
+          instrumentIds: { type: 'string' },
+          profileId: { type: 'string', format: 'uuid' },
           // The Alarms page's own filters.
           search: { type: 'string' },
           from: { type: 'string' },
@@ -173,7 +180,12 @@ export default async function alarmRoutes(app: FastifyInstance) {
 
     let locationIds: string[] | undefined;
     const askedLocation = (req.query as { functionalLocationId?: string }).functionalLocationId;
-    if (askedLocation) {
+    const direct = (req.query as { functionalLocationDirect?: string }).functionalLocationDirect === 'true';
+    if (askedLocation && direct) {
+      // Pinned to this location itself: no Area expansion. Still ANDed with
+      // visibility below, so a location the caller cannot see matches nothing.
+      locationIds = [askedLocation];
+    } else if (askedLocation) {
       // resolveLocationIds, never a bare equality: an alarm on an instrument in a
       // Block's AREA must appear when the Block is selected. Querying the id
       // directly returns only what is pinned to the Block itself, which on this

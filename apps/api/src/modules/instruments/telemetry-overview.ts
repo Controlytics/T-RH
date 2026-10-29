@@ -371,6 +371,8 @@ export async function buildTelemetryOverview(
     /** Only these instruments (widget latest-values, 2026-10-28). ANDed with every
      *  other filter; an empty list selects nothing. */
     instrumentIds?: string[];
+    /** Only instruments of this profile. ANDed like every other selection part. */
+    profileId?: string;
     /** Role/user visibility filter. ANDed with any selection filter — a caller must
      *  never widen their own scope by selecting a location outside it. */
     visibilityWhere?: object;
@@ -396,6 +398,7 @@ export async function buildTelemetryOverview(
   const parts = [
     selection,
     opts.instrumentIds ? { id: { in: opts.instrumentIds } } : undefined,
+    opts.profileId ? { profileId: opts.profileId } : undefined,
     opts.visibilityWhere,
   ].filter((w): w is object => w !== undefined);
   const effectiveWhere = parts.length === 0 ? undefined : parts.length === 1 ? parts[0] : { AND: parts };

@@ -20,6 +20,9 @@
  */
 
 import { resolvePageSize } from '../../lib/page-size.js';
+import { parseUuidList } from '../../lib/uuid-list.js';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The type vocabulary, derived from the enum pairs that actually define a type. */
 export const ALARM_TYPE_TOKENS = ['TEMP_HIGH', 'TEMP_LOW', 'RH_HIGH', 'RH_LOW', 'OFFLINE', 'RS485', 'RANGE'] as const;
@@ -57,6 +60,10 @@ export interface AlarmListQuery {
   type?: AlarmTypeToken;
   status?: AlarmStatusToken;
   instrumentId?: string;
+  /** Only these instruments (dashboard widgets). Present-but-empty selects NOTHING. */
+  instrumentIds?: string[];
+  /** Only instruments of this profile. */
+  profileId?: string;
   /** Legacy, still used by the dashboard panel: filters the CONDITION axis alone. */
   state?: 'ACTIVE' | 'CLEARED';
   /** Legacy: filters the SIGNATURE axis alone. */
@@ -99,6 +106,12 @@ export function parseAlarmListQuery(raw: Record<string, unknown>): AlarmListQuer
   if (!error && raw.status !== undefined && raw.status !== '' && !ALARM_STATUS_TOKENS.includes(raw.status as AlarmStatusToken)) {
     error = { field: 'status', message: `Unknown status. Expected one of: ${ALARM_STATUS_TOKENS.join(', ')}.` };
   }
+  const list = parseUuidList(typeof raw.instrumentIds === 'string' ? raw.instrumentIds : undefined, 200);
+  if (!error && list.error) error = { field: 'instrumentIds', message: list.error };
+  const profileRaw = typeof raw.profileId === 'string' && raw.profileId ? raw.profileId : undefined;
+  if (!error && profileRaw && !UUID_RE.test(profileRaw)) {
+    error = { field: 'profileId', message: 'profileId must be a profile id' };
+  }
   // `severity` is deliberately NOT validated and NOT read. Severity stopped being
   // an administered concept on 2026-09-01 and the filter went with it, but a stale
   // bookmark or a browser still running the previous bundle can send `?severity=`.
@@ -124,6 +137,8 @@ export function parseAlarmListQuery(raw: Record<string, unknown>): AlarmListQuer
     type: raw.type ? (raw.type as AlarmTypeToken) : undefined,
     status: raw.status ? (raw.status as AlarmStatusToken) : undefined,
     instrumentId: typeof raw.instrumentId === 'string' && raw.instrumentId ? raw.instrumentId : undefined,
+    instrumentIds: list.ids,
+    profileId: profileRaw,
     state: raw.state === 'ACTIVE' || raw.state === 'CLEARED' ? raw.state : undefined,
     acknowledged: raw.acknowledged === 'true' ? true : raw.acknowledged === 'false' ? false : undefined,
     page: Math.max(1, int(raw.page, 1)),
@@ -227,6 +242,11 @@ export function buildAlarmWhere(q: AlarmListQuery, opts: WhereOptions = {}): { A
   }
 
   if (q.instrumentId) AND.push({ instrumentId: q.instrumentId });
+  // Dashboard selection. Each is its own ANDed fragment (never merged into the
+  // `instrument` key above, which a spread would replace). An EMPTY list is
+  // `{ in: [] }` and matches nothing, which is the point.
+  if (q.instrumentIds) AND.push({ instrumentId: { in: q.instrumentIds } });
+  if (q.profileId) AND.push({ instrument: { profileId: q.profileId } });
   if (q.type) AND.push({ ...TYPE_WHERE[q.type] });
 
   // The legacy single-axis filters. They stay in the BASE where — not behind

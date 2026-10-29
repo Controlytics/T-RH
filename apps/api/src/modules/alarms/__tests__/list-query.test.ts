@@ -259,3 +259,26 @@ describe('pageBounds', () => {
     expect(pageBounds(3, 10)).toEqual({ skip: 20, take: 10 });
   });
 });
+
+describe('instrumentIds and profileId', () => {
+  const A = '11111111-1111-4111-8111-111111111111';
+  const P = '33333333-3333-4333-8333-333333333333';
+
+  it('a parsed list and profile land in the where, ANDed', () => {
+    const q = parseAlarmListQuery({ instrumentIds: A, profileId: P });
+    expect(q.error).toBeNull();
+    const { AND } = buildAlarmWhere(q);
+    expect(AND).toContainEqual({ instrumentId: { in: [A] } });
+    expect(AND).toContainEqual({ instrument: { profileId: P } });
+  });
+
+  it('an empty list selects nothing, absent adds no clause', () => {
+    expect(buildAlarmWhere(parseAlarmListQuery({ instrumentIds: '' })).AND).toContainEqual({ instrumentId: { in: [] } });
+    expect(buildAlarmWhere(parseAlarmListQuery({})).AND).toEqual([]);
+  });
+
+  it('a bad id is an error on instrumentIds; a bad profile on profileId', () => {
+    expect(parseAlarmListQuery({ instrumentIds: 'nope' }).error?.field).toBe('instrumentIds');
+    expect(parseAlarmListQuery({ profileId: 'nope' }).error?.field).toBe('profileId');
+  });
+});

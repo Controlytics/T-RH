@@ -44,6 +44,7 @@ import { codeLabel } from './code-label.js';
 import deviceCertificateRoutes from './device-certificate-routes.js';
 import dataKeysRoutes from './data-keys-routes.js';
 import { parseKeysParam } from './keys-param.js';
+import { parseUuidList } from '../../lib/uuid-list.js';
 import { resolvedSlotFor, measurementFor } from './data-keys.js';
 import {
   gatewayInvariantError, lockedGatewayRecheck, lockInstrumentRows, isDeadlock,
@@ -824,6 +825,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           floorplanId: { type: 'string', format: 'uuid' },
           functionalLocationId: { type: 'string' },
           functionalLocationDirect: { type: 'string', enum: ['true', 'false'] },
+          // Dashboard sources, ANDed with every filter above and with visibility.
+          profileId: { type: 'string', format: 'uuid' },
+          instrumentIds: { type: 'string' },
         },
       },
       response: {
@@ -969,10 +973,17 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async (req) => {
-    const q = req.query as { floorplanId?: string; functionalLocationId?: string; functionalLocationDirect?: string };
+  }, async (req, reply) => {
+    const q = req.query as {
+      floorplanId?: string; functionalLocationId?: string; functionalLocationDirect?: string;
+      profileId?: string; instrumentIds?: string;
+    };
+    const list = parseUuidList(q.instrumentIds, 200);
+    if (list.error) return reply.code(400).send({ error: 'VALIDATION_ERROR', message: list.error });
     const { where: visibility } = await resolveVisibility(buildContext(req));
     return { data: await buildTelemetryOverview({
+      profileId: q.profileId,
+      instrumentIds: list.ids,
       floorplanId: q.floorplanId,
       functionalLocationId: q.functionalLocationId,
       functionalLocationDirect: q.functionalLocationDirect === 'true',
