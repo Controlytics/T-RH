@@ -1,7 +1,7 @@
 import type { ReactElement, ReactNode } from 'react';
 import { Check, Clock, Minus, TriangleAlert } from 'lucide-react';
 import { formatDecimals, type InstrumentStatus } from '@digilog/shared';
-import { formatSetPoint, outOfSpec, faultWord } from '@/routes/dashboard/set-point';
+import { formatSetPoint, quantityVerdict } from '@/routes/dashboard/set-point';
 import { statusClasses } from '@/routes/dashboard/status';
 
 /**
@@ -239,50 +239,30 @@ export function BandGauge({
 }: BandGaugeProps) {
   const state = bandGaugeState(reading?.value, min, max, decimals);
 
-  // "Not assessed" belongs to exactly one case: a reading arrived and NOTHING
-  // is checking it. An absent reading is a fact about the record and keeps its
-  // own status word ("No data") — calling that "not assessed" would blame the
-  // administration for a silence the instrument is responsible for.
-  const assessed = !(state.kind === 'no-track' && !state.assessed);
-
-  // The breach decision comes from `outOfSpec` — the ONE implementation, shared
-  // with the dashboard table and the floor plan. A second copy here is how two
-  // views of one instrument come to disagree about the same reading.
-  const breachesLimits = outOfSpec(reading?.value, min, max);
-  const status: InstrumentStatus = state.kind === 'no-reading'
-    ? 'NO_DATA'
-    // A breach is a breach: the stored numbers decide that, and they are the
-    // one thing this card is authoritative about.
-    : breachesLimits ? 'OUT_OF_SPEC'
-      /**
-       * Otherwise STALE — and ONLY stale — wins over a local "In limit".
-       * Asserting compliance over a reading the server has already called
-       * stale is exactly the contradiction this page must not print, and
-       * staleness is a fact about the instrument that applies to every slot
-       * on it.
-       *
-       * The other two are NOT inherited, and that is a fix, not an oversight
-       * (2026-08-31). `computeInstrumentStatus` judges BOTH slots together:
-       * `OUT_OF_SPEC` means one of them breached, `PARTIAL` means one of them
-       * is missing a promised reading. Neither is a statement about THIS slot,
-       * which `breachesLimits` above has already answered from the same
-       * numbers the alarm evaluator uses.
-       *
-       * The live case: CWH/RDU/001-00 read 24.5 °C inside 18–27 while its
-       * humidity breached, and this card printed "Out of limit" over a
-       * temperature that was fine.
-       *
-       * **The header WILL now disagree with this card, and that is correct.**
-       * the page's hero band (`PageHero` in trend.tsx, which replaced
-       * `trend-header.tsx` on 2026-09-21) prints the same instrument-level status a few rows
-       * above, so a humidity breach reads "Out of limit" there and "In limit"
-       * here. They have different SUBJECTS — the instrument, and one slot of
-       * it — which is exactly why this fall-through had to narrow rather than
-       * the header change.
-       */
-      : instrumentStatus === 'STALE'
-        ? instrumentStatus
-        : 'OK';
+  /**
+   * The verdict is `quantityVerdict` (`routes/dashboard/set-point.ts`) — lifted
+   * out of this card on 2026-10-28 so the dashboard's built widgets judge a
+   * measured key by the SAME rule. Its precedence and the reasons for each step
+   * live there; in short:
+   *
+   * - "Not assessed" belongs to exactly one case: a reading arrived and NOTHING
+   *   is checking it. An absent reading keeps its own word ("No data").
+   * - The breach decision is `outOfSpec`, the ONE implementation shared with the
+   *   dashboard table and the floor plan.
+   * - Only STALE is inherited from the instrument. `computeInstrumentStatus`
+   *   judges BOTH slots together, so its OUT_OF_SPEC / PARTIAL say nothing about
+   *   THIS slot — the live case was CWH/RDU/001-00 printing "Out of limit" over a
+   *   24.5 °C inside 18–27 while its humidity breached.
+   *
+   * **The header WILL disagree with this card, and that is correct.** The page's
+   * hero band (`PageHero` in trend.tsx) prints the instrument-level status; this
+   * card judges one slot of it. Different subjects.
+   */
+  const verdict = quantityVerdict(
+    { value: reading?.value, min, max, instrumentStatus, sensorError, rangeError },
+    sensorWords,
+  );
+  const { status, assessed, fault } = verdict;
   const sc = statusClasses(status);
 
   const sourceText = limitSource === 'INSTRUMENT'
@@ -291,10 +271,10 @@ export function BandGauge({
       ? `from room ${roomCode ?? '—'}`
       : 'no limits set';
 
-  // A failed or saturated probe leaves the numeric slot null, so without this
-  // the card would print "No readings in this instrument's history" over an
-  // instrument that is talking — a false statement about a §11 record.
-  const fault = faultWord({ failed: sensorError, outOfRange: rangeError }, sensorWords);
+  // A failed or saturated probe leaves the numeric slot null, so without the
+  // fault word (from the verdict above) the card would print "No readings in
+  // this instrument's history" over an instrument that is talking — a false
+  // statement about a §11 record.
   const valueText = fault ?? (reading ? formatDecimals(reading.value, decimals) ?? '—' : '—');
   // The unit belongs to a number. "Error °C" is not a measurement.
   const showUnit = fault === null && reading !== null;

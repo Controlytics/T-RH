@@ -16,7 +16,9 @@
  * only be checked by looking at it, and nobody can open the authenticated UI in
  * a browser from this dev environment.
  */
-import { clampDecimals, RS485_FAILURE_TEXT_DEFAULT, SENSOR_RANGE_TEXT_DEFAULT } from '@digilog/shared';
+import {
+  clampDecimals, RS485_FAILURE_TEXT_DEFAULT, SENSOR_RANGE_TEXT_DEFAULT, type InstrumentStatus,
+} from '@digilog/shared';
 
 export const NOT_AVAILABLE = 'NA';
 
@@ -118,4 +120,51 @@ export function faultWord(
   if (fault?.outOfRange) return words?.outOfRange ?? SENSOR_RANGE_TEXT_DEFAULT;
   if (fault?.failed) return words?.failure ?? RS485_FAILURE_TEXT_DEFAULT;
   return null;
+}
+
+export interface QuantityVerdict {
+  status: InstrumentStatus;
+  /** False when a reading exists and NO bound is in force: nothing is judging it. */
+  assessed: boolean;
+  /** The administered word that stands in for the number, or null. */
+  fault: string | null;
+}
+
+/**
+ * ONE quantity's verdict — lifted out of `band-gauge.tsx` (2026-10-28) so the
+ * trend page's latest-value cards and every built dashboard widget judge a
+ * measured key the same way. A second copy is how two cards for one reading come
+ * to disagree.
+ *
+ * Precedence:
+ *   1. a FAULT (range, then failure) — a faulted reading is NOT a reading: the
+ *      server withholds it from the limit checks (`telemetry-overview.ts`), so it
+ *      must never print "Out of limit" here either;
+ *   2. no reading → No data;
+ *   3. a breach of a bound in force → Out of limit (`outOfSpec`, the one test);
+ *   4. the instrument's STALE, and ONLY that, is inherited → Offline. Its
+ *      OUT_OF_SPEC / PARTIAL judge BOTH quantities together and say nothing about
+ *      this one (the CWH/RDU/001-00 "Out of limit over 24.5 °C" fix, 2026-08-31);
+ *   5. otherwise In limit.
+ */
+export function quantityVerdict(
+  o: {
+    value: number | null | undefined;
+    min: number | null | undefined;
+    max: number | null | undefined;
+    instrumentStatus?: InstrumentStatus | null;
+    sensorError?: boolean;
+    rangeError?: boolean;
+  },
+  words?: { failure: string; outOfRange: string },
+): QuantityVerdict {
+  const fault = faultWord({ failed: o.sensorError, outOfRange: o.rangeError }, words);
+  const value = fault === null && typeof o.value === 'number' && Number.isFinite(o.value) ? o.value : null;
+  const assessed = !(value !== null && !boundInForce(o.min) && !boundInForce(o.max));
+  const status: InstrumentStatus = value === null
+    ? 'NO_DATA'
+    : outOfSpec(value, o.min, o.max)
+      ? 'OUT_OF_SPEC'
+      : o.instrumentStatus === 'STALE' ? 'STALE' : 'OK';
+  return { status, assessed, fault };
 }

@@ -1,5 +1,34 @@
 import { describe, it, expect } from 'vitest';
-import { formatSetPoint, outOfSpec, NOT_AVAILABLE } from '../set-point';
+import { formatSetPoint, outOfSpec, NOT_AVAILABLE, quantityVerdict } from '../set-point';
+
+const WORDS = { failure: 'Error', outOfRange: 'OL' };
+
+describe('quantityVerdict — the ONE per-quantity verdict (band gauge + widgets)', () => {
+  it('no reading is No data', () => {
+    expect(quantityVerdict({ value: null, min: 18, max: 27 }, WORDS)).toEqual({ status: 'NO_DATA', assessed: true, fault: null });
+  });
+
+  it('a breach is Out of limit, whatever the instrument says', () => {
+    expect(quantityVerdict({ value: 30, min: 18, max: 27, instrumentStatus: 'STALE' }, WORDS).status).toBe('OUT_OF_SPEC');
+  });
+
+  it('only STALE is inherited from the instrument', () => {
+    expect(quantityVerdict({ value: 21, min: 18, max: 27, instrumentStatus: 'STALE' }, WORDS).status).toBe('STALE');
+    expect(quantityVerdict({ value: 21, min: 18, max: 27, instrumentStatus: 'OUT_OF_SPEC' }, WORDS).status).toBe('OK');
+    expect(quantityVerdict({ value: 21, min: 18, max: 27, instrumentStatus: 'PARTIAL' }, WORDS).status).toBe('OK');
+  });
+
+  it('a reading with no bound at all is not assessed', () => {
+    expect(quantityVerdict({ value: 21, min: null, max: null }, WORDS)).toEqual({ status: 'OK', assessed: false, fault: null });
+    expect(quantityVerdict({ value: 21, min: null, max: 27 }, WORDS).assessed).toBe(true);
+  });
+
+  it('a faulted reading is not a reading: the fault word, never Out of limit', () => {
+    expect(quantityVerdict({ value: 60, min: 18, max: 27, rangeError: true }, WORDS))
+      .toEqual({ status: 'NO_DATA', assessed: true, fault: 'OL' });
+    expect(quantityVerdict({ value: 60, min: 18, max: 27, sensorError: true }, WORDS).fault).toBe('Error');
+  });
+});
 
 describe('formatSetPoint', () => {
   it('renders a range when both bounds exist', () => {
