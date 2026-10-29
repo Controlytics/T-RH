@@ -26,9 +26,9 @@ Legend: ☐ to verify, ✅ verified, ❌ blocked.
 - ☐ Password reset self-requests appear in `/users/reset-requests`
 - ☐ Roles: create, edit, delete, clone-from-template; `creatable` matrix gates who can create whom
 - ☐ `/api/roles/active` is public (contact-admin page must render without auth)
-- ☐ Permission catalog has **102 permissions** (verify against `PERMISSIONS` in `@digilog/shared`)
-- ☐ **83 feature privileges** + `FEATURE_TO_PERMISSION_MAP` (each maps to BOTH frontend visibility perm AND backend route perm)
-- ☐ **26 sidebar items** + `SIDEBAR_PRIVILEGE_MAP` filters by current role
+- ☐ Permission catalog has **45 permissions** (verify against `PERMISSIONS` in `@digilog/shared`; re-derived 2026-10-29 — the 102 here was upstream DigiLog's)
+- ☐ **39 feature privileges** (re-derived 2026-10-29; was 83, upstream DigiLog's) + `FEATURE_TO_PERMISSION_MAP` (each maps to BOTH frontend visibility perm AND backend route perm)
+- ☐ **15 sidebar items** (re-derived 2026-10-29, `dashboards` the 15th; was 26, upstream DigiLog's) + `SIDEBAR_PRIVILEGE_MAP` filters by current role
 - ☐ Role scope (`ORGANIZATION`, `TENANT`, etc.) respected on every listing endpoint
 
 **Where:** `/users`, `/config/roles`, `/config/access-matrix`.
@@ -161,12 +161,16 @@ Legend: ☐ to verify, ✅ verified, ❌ blocked.
 
 ## 12. Dashboards
 
-- ☐ Dashboard CRUD + layout edit
-- ☐ Widget CRUD + `GET /widget-types` catalog
-- ☐ Dashboard assignment to users / groups
-- ☐ Data adapter endpoint serves widget data
+*Rewritten 2026-10-29 (dashboard builder phase 1; feature note DASHBOARDS in `docs/feature-notes.md`).*
 
-**Where:** `/` (default dashboard) and dashboard admin pages.
+- ☐ A SUPER_ADMIN creates, renames, duplicates (no assignments copied), deletes and assigns dashboards; any other role gets 403 `DASHBOARDS_SUPER_ADMIN_ONLY` on every write, whatever `DASHBOARD_*` grants it holds
+- ☐ A viewer sees only dashboards assigned to them or their role; an unassigned one is a 404 by URL
+- ☐ A dashboard's source (all / profile / location / list) shows only instruments the viewer can already see; a deleted profile shows nothing
+- ☐ Five widget types (value cards, latest table, trend chart, time-series table, alarm table); history widgets follow the header window
+- ☐ Two super admins editing one dashboard: the second Save is a 409 with Reload
+- ☐ Every write is audited (`DASHBOARD_*`) and re-auth `UPDATE_DASHBOARD` applies when switched on
+
+**Where:** Sidebar → Dashboards (`/dashboards`, `/dashboards/:id`). The home `/` is separate and unchanged (its Add widget dialog offers the alarm table).
 
 ## 13. Admin requests + block-change + approvals
 

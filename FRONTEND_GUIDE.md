@@ -7,7 +7,8 @@
 > `docs/archive/OFFLINE_SYNC_ARCHITECTURE.md`. Rewritten below from `apps/web/src/main.tsx`,
 > `routes/`, `hooks/`, and `lib/` directly. Root `CLAUDE.md` System Stats is
 > the live inventory and is re-derived whenever a count moves; as of
-> 2026-10-05 it reads **26** hooks, **22** lib modules and **53** routes
+> 2026-10-29 it reads **26** hooks, **22** lib modules and **56** routes (routes 53 → 54 on
+> 2026-10-24, 54 → 56 on 2026-10-29 with `/dashboards` and `/dashboards/:id`)
 > (`ls apps/web/src/hooks/ | wc -l`, `ls apps/web/src/lib/ | wc -l`,
 > `grep -cE "<Route" apps/web/src/main.tsx`). The paragraph that stood here
 > until then quoted three earlier generations of those numbers as "stale" and
@@ -21,7 +22,7 @@ React 19 SPA built with Vite 6, styled with Tailwind CSS 4. The built `apps/web/
 **Dev server:** `npx vite --host` (port 5175/5176)
 **Build:** `npx vite build` → `apps/web/dist/`
 
-## All Routes (53 — verified `grep -cE "<Route" apps/web/src/main.tsx` 2026-09-08; 52 → 53 that day: `/settings`; 50 → 52 on 2026-09-07: `/data-report`, `/reports`)
+## All Routes (56 — verified `grep -cE "<Route" apps/web/src/main.tsx` 2026-10-29; 54 → 56 that day: `/dashboards`, `/dashboards/:id`; 53 → 54 on 2026-10-24: `/config/attribute-access`; 52 → 53 on 2026-09-08: `/settings`; 50 → 52 on 2026-09-07: `/data-report`, `/reports`)
 
 The previous "85+ pages" figure and every table below it described `/assets`,
 `/filters`, `/filter-cleaning-profiles`, `/checklists`, `/cleaning-cycles`,
@@ -44,6 +45,8 @@ them, exist in `main.tsx` or `routes/` today.
 | Path | Page | Notes |
 |---|---|---|
 | `/` | DashboardPage | Instrument dashboard — floorplan view, telemetry table, room detail |
+| `/dashboards` | DashboardsPage | Built dashboards a SUPER_ADMIN creates and assigns (`DASHBOARD_VIEW`; the list shows only what is assigned to the viewer) — 2026-10-29 |
+| `/dashboards/:id` | DashboardPage (`routes/dashboards/dashboard-page.tsx`) | One built dashboard: header window + widgets; Edit / Settings / Assign for a SUPER_ADMIN; 404 = "not available to you" — 2026-10-29 |
 | `/profile` | ProfilePage | Any authenticated user |
 
 ### User Management
@@ -167,7 +170,7 @@ inventory:
 | Component | File | Purpose |
 |---|---|---|
 | `AppLayout` | `layout/app-layout.tsx` | Main wrapper: sidebar + header + page outlet |
-| `Sidebar` | `layout/sidebar.tsx` | Navigation, driven by `PERMISSION_TREE` via `sidebar-visibility.ts`, collapsible (13 sidebar items per root `CLAUDE.md` — 12 → 13 on 2026-09-07 with `data-report`; not the "26-item" figure previously here) |
+| `Sidebar` | `layout/sidebar.tsx` | Navigation, driven by `PERMISSION_TREE` via `sidebar-visibility.ts`, collapsible (15 sidebar items per root `CLAUDE.md` — 14 → 15 on 2026-10-29 with `dashboards`; 13 → 14 → 15 → 14 between 2026-09-07 and 2026-09-19 (`reports`, `settings`, `home` removed); 12 → 13 on 2026-09-07 with `data-report`; not the "26-item" figure previously here) |
 | `Header` | `layout/header.tsx` | Top bar: menu toggle, profile, logout |
 
 ### Auth & Guard Components

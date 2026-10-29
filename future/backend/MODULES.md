@@ -53,7 +53,7 @@ Endpoint counts below come from `grep 'app.(get|post|put|patch|delete)'` on 2026
 | `notifications` | 9 | Inbox list, counts, mark-read (single + bulk), delete |
 | `notification-delivery` | 18 | Email + SMS channel config, OAuth2 flows, templates, logs, send endpoint |
 | `notification-rules` | 8 | Event-driven rules with toggle + test |
-| `dashboards` | 13 | Dashboard CRUD + widget CRUD + layout + assignment + data adapter + widget catalog |
+| `dashboards` | 7 | Rewritten 2026-10-29 (was 13): list, read, create, duplicate, whole-document save, soft delete, replace assignments — SUPER_ADMIN writes, assignment-only reads |
 | `uploads` | 4 | `POST /photo` (self-service) · `POST /floorplan` · `POST /branding-background` · `POST /branding-favicon` (the last three CONFIG_UPDATE) |
 | `help` | 6 | Help articles with key lookup, versioning |
 

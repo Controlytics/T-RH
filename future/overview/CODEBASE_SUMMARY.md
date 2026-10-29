@@ -111,7 +111,7 @@
 - ~~**Queries** (`apps/api/src/modules/queries/`)~~ *(removed 2026-06-17)*
 - ~~**UNS tree:** Unified namespace~~ *(removed 2026-06-17)*
 - ~~**Alarms:** severity, acknowledge, clear, configurable columns~~ *(removed 2026-05-17 with the alarm tear-out)*
-- **Dashboards:** widget-based layouts with data adapters *(survives; the `timeseries_chart` widget returns `[]` cleanly post-TimescaleDB removal)*
+- **Dashboards:** *rewritten 2026-10-29 (dashboard builder phase 1)* — one document per dashboard in `dashboards.layout`, SUPER_ADMIN-built, assignment-only reads, the home widget library; the data adapter route and `dashboard_widgets` usage are gone (see root `CLAUDE.md` Topics → DASHBOARDS)
 
 ### Digital Filter Management System (Phase 3 / 4)
 - **Asset templates + instances:** dynamic attribute schemas with validation; `assets/` is the largest module (sub-folders: `routes/`, `services/`, `repositories/`, `helpers/`)

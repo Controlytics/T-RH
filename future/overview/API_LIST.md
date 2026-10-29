@@ -168,12 +168,10 @@ This file is an **index** — for handler-level detail (request/response shapes,
 
 ## Dashboards — `/api/dashboards`
 
-- `GET /` · `GET /:id` · `POST /` · `PUT /:id` · `DELETE /:id`
-- Widgets: `POST /:id/widgets`, `PUT /:id/widgets/:widgetId`, `DELETE /:id/widgets/:widgetId`
-- Layout: `PUT /:id/layout`
-- Assign: `POST /:id/assign`, `DELETE /:dashboardId/assign/:assignmentId`
-- Data: `GET /:id/data/:widgetId`
-- Widget catalog: `GET /widget-types`
+*Rewritten 2026-10-29 (dashboard builder phase 1) — 7 routes; detail in `docs/recreation/06-api/endpoints.md`.*
+
+- `GET /` · `GET /:id` · `POST /` · `POST /:id/duplicate` · `PUT /:id` · `DELETE /:id` · `PUT /:id/assignments`
+- *Retired 2026-10-29:* the widget routes (`POST /:id/widgets`, `PUT` / `DELETE /:id/widgets/:widgetId`), `PUT /:id/layout`, `POST /:id/assign`, `DELETE /:dashboardId/assign/:assignmentId`, `GET /:id/data/:widgetId`, `GET /widget-types`
 
 ## Cleaning profiles — `/api/filter-cleaning-profiles`
 

@@ -52,8 +52,8 @@ plan `docs/superpowers/plans/2026-10-29-dashboard-builder-phase1.md`; feature no
   38, enums 13, permissions 45, audit actions 100 / templates 113, modules 25, config defs 36, config
   pages 23, tree nodes 56, feature privileges 39. No migration.
 - **Gates (2026-10-29, by exit code):** shared 39 files / 570 tests; API full suite single fork 253 files /
-  3285 tests; the 19 web test files this phase created or touched plus the four named guards, one per
-  process, 240 tests; `npm run lint` in shared, api and web; `npm run check:migrations` (49 scanned).
+  3285 tests; web: the 15 test files this phase created or touched plus the four named guards (19
+  files), one per process, 240 tests; `npm run lint` in shared, api and web; `npm run check:migrations` (49 scanned).
 - **Rendered** with the built stylesheet in headless Chrome at 1240 px wide:
   `docs/superpowers/concepts/2026-10-29-dashboards/built-*.png`. **Not seen in the operator's browser.**
 - **Owed:** an AWS read-only count of `dashboards` / `dashboard_assignments` rows before the deploy

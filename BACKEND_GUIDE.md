@@ -125,7 +125,7 @@ DigiLog is single-tenant, single-site (`Organization` model + `org-admin`/`tenan
 | `audit` | `/api/audit` | Audit trail query, hash-chain verification |
 | `backup` | `/api/backup` | Database export/restore |
 | `system-health` | `/api/system-health` | System metrics |
-| `dashboards` | `/api/dashboards` | Dashboard CRUD, widget management |
+| `dashboards` | `/api/dashboards` | Built dashboards (2026-10-29 rewrite, 7 routes): one document per dashboard, SUPER_ADMIN-only writes checked by role, assignment-only reads, `expectedUpdatedAt` 409, audited; see `docs/recreation/06-api/endpoints.md` |
 | `debug-traces` | `/api/debug/traces` | Audited-action traces for the Debug UI |
 
 ## Shared Libraries (apps/api/src/lib/)
