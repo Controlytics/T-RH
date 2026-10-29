@@ -67,7 +67,9 @@ function dataFor(key: unknown): unknown {
 
 vi.mock('@/hooks/use-can', () => ({ useCan: () => () => true }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: { success: vi.fn(), error: vi.fn() } }) }));
-vi.mock('@/hooks/use-auth', () => ({ useAuth: () => ({ user: { role: 'OPERATOR' } }) }));
+const AUTH = { user: { role: 'OPERATOR' } };
+vi.mock('@/hooks/use-auth', () => ({ useAuth: () => AUTH }));
+vi.mock('../display-keys-dialog', () => ({ DisplayKeysDialog: () => <div data-testid="display-keys-dialog" /> }));
 const results = new Map<string, unknown>();
 vi.mock('swr', () => ({
   default: (key: unknown) => {
@@ -96,6 +98,7 @@ beforeEach(() => {
   swrKeys.length = 0;
   profile = WITH_KEYS;
   myConfig = EMPTY;
+  AUTH.user.role = 'OPERATOR';
 });
 
 describe("the trend page draws its profile's extra keys", () => {
@@ -140,5 +143,18 @@ describe("the trend page draws its profile's extra keys", () => {
     renderPage();
     expect(swrKeys.some((k) => k.includes('telemetry-keys'))).toBe(false);
     expect(swrKeys).toContain('/api/instrument-profiles/prof-1');
+  });
+
+  it('the Keys pencil is shown to a SUPER_ADMIN only', () => {
+    renderPage();
+    expect(screen.queryByRole('button', { name: 'Keys' })).toBeNull();
+  });
+
+  it('a SUPER_ADMIN opens the Keys dialog from the pencil', async () => {
+    AUTH.user.role = 'SUPER_ADMIN';
+    renderPage();
+    const { fireEvent } = await import('@testing-library/react');
+    fireEvent.click(screen.getByRole('button', { name: 'Keys' }));
+    expect(screen.getByTestId('display-keys-dialog')).toBeTruthy();
   });
 });

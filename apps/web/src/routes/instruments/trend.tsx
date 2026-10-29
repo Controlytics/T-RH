@@ -7,6 +7,8 @@ import { useLatestValues } from '@/routes/dashboard/widgets/use-widget-data';
 import { valueOf } from '@/routes/dashboard/widgets/widget-common';
 import { decimalsSeen, isMeasured } from '@/routes/dashboard/widgets/key-value';
 import { ExtraKeyCard, extraColumnCell } from './extra-key-card';
+import { DisplayKeysDialog } from './display-keys-dialog';
+import { useAuth } from '@/hooks/use-auth';
 import {
   INTERVALS, MAX_SERIES_POINTS, TELEMETRY_DECIMALS_FALLBACK,
   PERIOD_PRESETS, DEFAULT_PERIOD, coerceReading,
@@ -350,7 +352,11 @@ export function InstrumentTrend() {
    * which carry every key. This replaced a `telemetry-keys` request that had
    * been fetched and never rendered since 2026-09-01.
    */
-  const { data: profile } = useSWR<ProfileDisplay>(inst?.profileId ? `/api/instrument-profiles/${inst.profileId}` : null);
+  const { data: profile, mutate: mutateProfile } = useSWR<ProfileDisplay>(inst?.profileId ? `/api/instrument-profiles/${inst.profileId}` : null);
+  // The Keys pencil is SUPER_ADMIN only, as the PUT it opens is; the server's 403
+  // is the control, this is presentation (the WidgetSettingsButton rule).
+  const { user } = useAuth();
+  const [keysOpen, setKeysOpen] = useState(false);
   const displayKeys = profile?.displayKeys ?? NO_DISPLAY_KEYS;
   const { rows: extraLatestRows } = useLatestValues(id && displayKeys.length > 0 ? [id] : NO_IDS, displayKeys);
   const extraLatest = extraLatestRows[0];
@@ -821,7 +827,16 @@ export function InstrumentTrend() {
         // below. It was the combined-charts document until 2026-09-07
         // (operator: "in that report trends also coming remove those and add
         // interval feature"); the per-chart downloads stay on their own cards.
-        actions={<ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport({ kind: 'timeseries', header: true })} />}
+        actions={(
+          <div className="flex items-center gap-2">
+            {user?.role === 'SUPER_ADMIN' && profile && (
+              <Button variant="outline" size="sm" onClick={() => setKeysOpen(true)} title="Extra keys on the trend page">
+                Keys
+              </Button>
+            )}
+            <ExportMenu surface="instrument-trend" onExportPdf={() => setPendingReport({ kind: 'timeseries', header: true })} />
+          </div>
+        )}
         meta={
           <>
             <span className="text-[0.8125rem] text-white/80">
@@ -1261,6 +1276,16 @@ export function InstrumentTrend() {
         />
       )}
       </div>
+
+      {keysOpen && profile && id && (
+        <DisplayKeysDialog
+          open
+          instrumentId={id}
+          profile={profile}
+          onClose={() => setKeysOpen(false)}
+          onSaved={() => { void mutateProfile(); }}
+        />
+      )}
 
       <ReportDownloadDialog
         open={pendingReport !== null}

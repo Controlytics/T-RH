@@ -22,12 +22,14 @@ const sameKey = (a: { source: string; key: string }, b: { source: string; key: s
   a.source === b.source && a.key === b.key;
 
 export function KeyPicker({
-  catalogue, chosen, onChange, type,
+  catalogue, chosen, onChange, type, refuse,
 }: {
   catalogue: DataKeyInfo[];
   chosen: WidgetKey[];
   onChange: (keys: WidgetKey[]) => void;
   type: WidgetType;
+  /** A caller's own reason to refuse an entry (the trend page: a key it already draws). */
+  refuse?: (e: DataKeyInfo) => string | undefined;
 }) {
   const [search, setSearch] = useState('');
   const { formatDateTime } = useDatetimeFormat();
@@ -52,7 +54,7 @@ export function KeyPicker({
         {entries.length === 0 && <p className="text-xs text-slate-400">None</p>}
         {entries.map((e) => {
           const checked = chosen.some((k) => sameKey(k, e));
-          const refusal = source === 'attribute' ? NO_HISTORY[type] : undefined;
+          const refusal = (source === 'attribute' ? NO_HISTORY[type] : undefined) ?? refuse?.(e);
           const hint = source === 'telemetry' && !e.numeric && type === 'trend_chart' ? 'No numeric reading lately' : undefined;
           const disabled = (refusal !== undefined && !checked) || (full && !checked);
           return (

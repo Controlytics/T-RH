@@ -15,7 +15,7 @@ import {
 import { Dialog, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useHistoryScope } from '@/routes/data-report/use-history-scope';
-import { SERIES_COLORS } from '../time-series-chart';
+import { KeyDisplayRows } from './key-display-rows';
 import { KeyPicker } from './key-picker';
 import { useKeyCatalogue, type CatalogueSelector, type WidgetSelection } from './use-widget-data';
 import { WidgetBody } from './widget-panel';
@@ -75,17 +75,6 @@ export function WidgetDialog({
     },
   };
   const parsed = customWidgetSchema.safeParse(draft);
-
-  const setKey = (index: number, patch: Partial<WidgetKey>) => {
-    setKeys(keys.map((k, n) => {
-      if (n !== index) return k;
-      const next = { ...k, ...patch };
-      for (const f of ['label', 'unit', 'decimals', 'color'] as const) {
-        if (next[f] === undefined || next[f] === '') delete next[f];
-      }
-      return next;
-    }));
-  };
 
   const submit = () => {
     if (!parsed.success) {
@@ -205,62 +194,7 @@ export function WidgetDialog({
               </label>
             )}
           </div>
-          {keys.length > 0 && (
-            <div className="space-y-2">
-              {keys.map((k, n) => {
-                const raw = !measured(k);
-                return (
-                  <div key={`${k.source}:${k.key}`} className="flex flex-wrap items-end gap-3 rounded-md border border-slate-200 p-2 text-sm">
-                    <code className="self-center text-xs text-slate-500">{k.key}</code>
-                    <input
-                      aria-label={`Label for ${k.key}`}
-                      className="ctl ctl-sm"
-                      value={k.label ?? ''}
-                      maxLength={60}
-                      placeholder="Label"
-                      onChange={(e) => setKey(n, { label: e.target.value })}
-                    />
-                    {raw && (
-                      <input
-                        aria-label={`Unit for ${k.key}`}
-                        className="ctl ctl-sm w-24"
-                        value={k.unit ?? ''}
-                        maxLength={16}
-                        placeholder="Unit"
-                        onChange={(e) => setKey(n, { unit: e.target.value })}
-                      />
-                    )}
-                    {raw && k.source === 'telemetry' && (
-                      <input
-                        aria-label={`Decimals for ${k.key}`}
-                        type="number"
-                        min={0}
-                        max={6}
-                        className="ctl ctl-sm w-24"
-                        value={k.decimals ?? ''}
-                        placeholder="As sent"
-                        onChange={(e) => setKey(n, { decimals: e.target.value === '' ? undefined : Number(e.target.value) })}
-                      />
-                    )}
-                    {!raw && <span className="self-center text-xs text-slate-500">Unit and decimals are the instrument&apos;s</span>}
-                    <span className="flex items-center gap-1" role="group" aria-label={`Colour for ${k.key}`}>
-                      {SERIES_COLORS.map((c, ci) => (
-                        <button
-                          key={c}
-                          type="button"
-                          aria-label={`Colour ${ci + 1} for ${k.key}`}
-                          aria-pressed={k.color === ci}
-                          onClick={() => setKey(n, { color: k.color === ci ? undefined : ci })}
-                          className={`h-5 w-5 rounded-full border ${k.color === ci ? 'ring-2 ring-slate-700 ring-offset-1' : 'border-slate-300'}`}
-                          style={{ background: c }}
-                        />
-                      ))}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <KeyDisplayRows keys={keys} measured={measured} onChange={setKeys} />
         </section>
 
         <section aria-label="Preview" className="space-y-2">
