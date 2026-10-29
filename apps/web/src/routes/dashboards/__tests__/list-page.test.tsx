@@ -120,6 +120,19 @@ describe('DashboardsPage', () => {
     expect(screen.getByTestId('page-hero').contains(screen.getByRole('button', { name: /New dashboard/ }))).toBe(true);
   });
 
+  it('each row action is a square icon button, never a text button squeezed to 32px', () => {
+    // The default size's horizontal padding beside a 32px width left the icon a
+    // 0px box: every action drew as an empty square in the built-CSS render.
+    mount();
+    const first = screen.getAllByTestId('dashboard-row')[0];
+    for (const name of ['Assign', 'Duplicate', 'Rename', 'Delete']) {
+      const b = within(first).getByRole('button', { name });
+      expect(b.className).toMatch(/(^|\s)w-8(\s|$)/);
+      expect(b.className).not.toMatch(/(^|\s)px-\d/);
+      expect(b.querySelector('svg')).not.toBeNull();
+    }
+  });
+
   it('anyone else sees no New, no row actions and no Assigned-to column', () => {
     state.role = 'QA'; state.list = USER_LIST;
     mount();

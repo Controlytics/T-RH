@@ -86,13 +86,19 @@ function SourceChip({ source }: { source: DashboardSourceSummary }) {
   );
 }
 
+/**
+ * A row's icon-only action. `size="icon-sm"` is what makes it square: the
+ * default size's `px-4` beside a `w-8` left the icon a 0px content box, and
+ * every row action drew as an empty 32px square (seen in the built-CSS render,
+ * 2026-10-29 — the tests found the buttons by name and could not see it).
+ */
 function IconAction({ label, d, danger, disabled, onClick }: {
   label: string; d: string; danger?: boolean; disabled?: boolean; onClick: () => void;
 }) {
   return (
     <Button
-      type="button" variant="ghost" title={label} aria-label={label} onClick={onClick} disabled={disabled}
-      className={danger ? 'h-8 w-8 text-rose-600 hover:bg-rose-50 hover:text-rose-700' : 'h-8 w-8'}
+      type="button" variant="ghost" size="icon-sm" title={label} aria-label={label} onClick={onClick} disabled={disabled}
+      className={danger ? 'text-rose-600 hover:bg-rose-50 hover:text-rose-700' : undefined}
     >
       <Svg d={d} className="h-4 w-4" />
     </Button>
