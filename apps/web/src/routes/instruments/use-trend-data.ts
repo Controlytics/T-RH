@@ -119,6 +119,9 @@ export const TABLE_PAGE_SIZE = 50;
  *  over just the (possibly sampled) rows returned. Chart path only. */
 export interface TelemetrySummary {
   count: number;
+  /** Readings that are numbers (a quoted number is one); `count - numericCount`
+   *  is how many a chart could not plot. On the wire since phase 1. */
+  numericCount?: number;
   min: number;
   max: number;
   avg: number;

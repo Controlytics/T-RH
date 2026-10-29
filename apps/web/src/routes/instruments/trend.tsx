@@ -1,7 +1,12 @@
 import { useState } from 'react';
 import { useParams, useLocation } from 'react-router-dom';
 import useSWR from 'swr';
-import { Droplet, Thermometer } from 'lucide-react';
+import { Activity, Droplet, Thermometer } from 'lucide-react';
+import type { WidgetKey } from '@digilog/shared';
+import { useLatestValues } from '@/routes/dashboard/widgets/use-widget-data';
+import { valueOf } from '@/routes/dashboard/widgets/widget-common';
+import { decimalsSeen, isMeasured } from '@/routes/dashboard/widgets/key-value';
+import { ExtraKeyCard, extraColumnCell } from './extra-key-card';
 import {
   INTERVALS, MAX_SERIES_POINTS, TELEMETRY_DECIMALS_FALLBACK,
   PERIOD_PRESETS, DEFAULT_PERIOD, coerceReading,
@@ -22,7 +27,7 @@ import { isoToZonedInput, zonedInputToIso } from '@/lib/zoned-input';
 import { useTrendWidgets } from '@/hooks/use-trend-widgets';
 import { WidgetSettingsButton } from './widget-settings-button';
 import { formatSetPoint } from '@/routes/dashboard/set-point';
-import { TimeSeriesChart, SERIES_COLORS, CHART_HEIGHTS } from '@/routes/dashboard/time-series-chart';
+import { TimeSeriesChart, SERIES_COLORS, CHART_HEIGHTS, seriesColor } from '@/routes/dashboard/time-series-chart';
 import {
   triggeredText, statusText, alarmTypeText, limitText, clearedText,
   mapStatusTextsResponse, mapInactivityTextsResponse,
@@ -156,7 +161,20 @@ interface InstrumentSummary {
   /** The authoritative Block > Area placement; resolved to names through the
    *  functional-location tree for the Data Report's parameter block. */
   functionalLocationId?: string | null;
+  /** The instrument's profile — whose display keys this page also draws (phase 3). */
+  profileId?: string;
 }
+
+/** The profile's extra keys as the profile GET returns them (widget data keys phase 3). */
+interface ProfileDisplay {
+  id: string;
+  name: string;
+  instrumentCount: number;
+  displayKeys?: WidgetKey[];
+}
+
+const NO_DISPLAY_KEYS: WidgetKey[] = [];
+const NO_IDS: string[] = [];
 
 /** The latest-value card's own footprint, so the page does not jump when the
  *  overview lands. Same padding, same ring, same footer band. */
@@ -247,11 +265,6 @@ function ChartPanel({
   return <>{children}</>;
 }
 
-interface TelemetryKeyOption {
-  key: string;
-  slot: 'temperature' | 'humidity' | null;
-  lastSeen: string;
-}
 
 
 // The alarms widget moved to ./alarms-widget on 2026-09-01, when it was
@@ -328,7 +341,21 @@ export function InstrumentTrend() {
    */
   const trendError = trend.error;
   const retryTrend = trend.retry;
-  const { data: keyOptions } = useSWR<{ data: TelemetryKeyOption[] }>(id ? `/api/instruments/${id}/telemetry-keys` : null);
+  /**
+   * The profile's EXTRA keys (widget data keys phase 3, 2026-10-29): chosen by a
+   * super admin for every instrument of the profile, read from the profile this
+   * instrument belongs to. Their CURRENT values come from `latest-values` (the
+   * server's unit, decimals and verdict for a measured key, nothing for a raw
+   * one); their history is already in the chart and table responses below,
+   * which carry every key. This replaced a `telemetry-keys` request that had
+   * been fetched and never rendered since 2026-09-01.
+   */
+  const { data: profile } = useSWR<ProfileDisplay>(inst?.profileId ? `/api/instrument-profiles/${inst.profileId}` : null);
+  const displayKeys = profile?.displayKeys ?? NO_DISPLAY_KEYS;
+  const { rows: extraLatestRows } = useLatestValues(id && displayKeys.length > 0 ? [id] : NO_IDS, displayKeys);
+  const extraLatest = extraLatestRows[0];
+  const extraValue = (k: WidgetKey) => (extraLatest ? valueOf(extraLatest, k) : undefined);
+  const extraReporting = extraLatest?.reporting ?? true;
   const { formatDateTime, formatDate, formatTime, config: datetimeConfig } = useDatetimeFormat();
   // Blocks and their Areas, for the Data Report's Block / Area lines. The same
   // key the alarm filters use, so SWR dedupes it.
@@ -425,15 +452,17 @@ export function InstrumentTrend() {
   const tempRawCount = tempKey ? rawCountForKey(trend.chartRows, tempKey) : 0;
   const humidRawCount = humidKey ? rawCountForKey(trend.chartRows, humidKey) : 0;
 
-  // Extra keys carry no administered decimals/limits — there is nothing
-  // resolved server-side for a key nobody has declared as a slot, so they
-  // render at the shared fallback precision and with no in-spec band.
   const tableKeys = [tempKey, humidKey].filter((k): k is string => k !== null);
+  // The profile's extra keys join the pivot, so an instant holding ONLY an extra
+  // key still gets a row; their cells print the RAW stored value (`extraRaw`),
+  // never the slot rules' failure word.
+  const extraKeyNames = displayKeys.map((k) => k.key).filter((k) => !tableKeys.includes(k));
+  const extraRawByTsKey = new Map(trend.tableRows.map((r) => [`${r.ts}|${r.key}`, r.value]));
   // RAW rows, NOT `numericRows`. This table says it lists every reading in the
   // range, and filtering here silently dropped exactly the broken ones an
   // engineer opens it to find. The CHART above still filters — you cannot plot a
   // word — which is why the two build their rows differently on purpose.
-  const tableRows = toTableRowsWithErrors(trend.tableRows, tableKeys);
+  const tableRows = toTableRowsWithErrors(trend.tableRows, [...tableKeys, ...extraKeyNames]);
 
   // ── Governed downloads (Task 8) ──────────────────────────────────────────
   // One dialog instance, reused for whichever of the three widgets the
@@ -948,6 +977,16 @@ export function InstrumentTrend() {
             <GaugeSkeleton title={widgets.labels.humidCardTitle} />
           </>
         )}
+        {displayKeys.map((k) => (
+          <ExtraKeyCard
+            key={`extra-${k.key}`}
+            widgetKey={k}
+            value={extraValue(k)}
+            reporting={extraReporting}
+            words={sensorWords}
+            formatTs={formatDateTime}
+          />
+        ))}
       </div>
       )}
 
@@ -1088,6 +1127,61 @@ export function InstrumentTrend() {
                 way those four do not cover. */}
           </ChartPanel>
         </TrendChartCard>
+        {displayKeys.map((k, n) => {
+          // One chart card per extra key (phase 3). Numbers only — a word cannot
+          // be plotted, and the card says how many it left out. Limit lines only
+          // for a MEASURED key (the server sent bounds); a raw key gets none.
+          const latest = extraValue(k);
+          const judged = latest !== undefined && isMeasured(latest) ? latest.judged : null;
+          const values = chartRows.filter((r) => r.key === k.key).map((r) => r.value);
+          const decimals = judged && latest?.decimals != null ? latest.decimals : k.decimals ?? decimalsSeen(values);
+          const label = k.label ?? k.key;
+          const color = seriesColor(k.color ?? n + 2);
+          const series = toChartSeries(chartRows, k.key, decimals, label, period.intervalMs);
+          const summary = trend.summaries[k.key];
+          const notPlotted = summary && typeof summary.numericCount === 'number'
+            ? Math.max(0, summary.count - summary.numericCount) : 0;
+          return (
+            <TrendChartCard
+              key={`extra-chart-${k.key}`}
+              title={label}
+              icon={<Activity className="h-6 w-6" strokeWidth={2} aria-hidden="true" />}
+              accent={color}
+              status={null}
+              locationParts={chartCardLocationParts}
+              code={inst?.code ?? '—'}
+            >
+              <div data-testid={`extra-chart-${k.key}`}>
+                <ChartPanel
+                  title={label}
+                  isLoading={trend.chartsLoading}
+                  error={trendError}
+                  hasData={series.points.length > 0}
+                  onRetry={retryTrend}
+                >
+                  <TimeSeriesChart
+                    variant="trend"
+                    title={label}
+                    unit={judged ? latest?.unit ?? '' : k.unit ?? ''}
+                    spanMs={spanMs}
+                    min={judged?.limitMin ?? null}
+                    max={judged?.limitMax ?? null}
+                    minText={judged?.limitMinText ?? null}
+                    maxText={judged?.limitMaxText ?? null}
+                    series={[{ ...series, color }]}
+                    onZoom={onZoom}
+                    onResetZoom={onResetZoom}
+                  />
+                </ChartPanel>
+                {notPlotted > 0 && (
+                  <p className="mt-2 text-xs font-medium text-slate-600">
+                    {notPlotted.toLocaleString()} text readings not plotted
+                  </p>
+                )}
+              </div>
+            </TrendChartCard>
+          );
+        })}
       </div>
 
       </>
@@ -1130,6 +1224,13 @@ export function InstrumentTrend() {
             },
           ]}
           failureWord={failureWord}
+          extraColumns={displayKeys.map((k) => {
+            const latest = extraValue(k);
+            const unit = latest && isMeasured(latest) ? latest.unit : k.unit ?? null;
+            const label = k.label ?? k.key;
+            return { key: k.key, heading: unit ? `${label} (${unit})` : label, cell: extraColumnCell(latest, k) };
+          })}
+          extraRaw={(ts, key) => extraRawByTsKey.get(`${ts}|${key}`)}
           title={widgets.labels.timeseriesTitle}
           subtitle={widgets.labels.timeseriesSubtitle}
           timestampHeading={widgets.labels.timeseriesTimestampHeading}
