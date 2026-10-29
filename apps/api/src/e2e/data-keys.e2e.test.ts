@@ -291,6 +291,42 @@ describe('GET /api/instruments/data-keys', () => {
     await prisma.instrument.update({ where: { id: b }, data: { functionalLocationId: null } });
   });
 
+  it('functionalLocationDirect=true leaves out the Areas\' instruments', async () => {
+    // The dashboard's "— direct only" selection (phase 2 widgets follow it).
+    const block = await prisma.functionalLocation.create({ data: { name: `DK DBlock ${s}`, type: 'BLOCK' } });
+    createdLocations.push(block.id);
+    const area = await prisma.functionalLocation.create({ data: { name: `DK DArea ${s}`, type: 'AREA', parentId: block.id } });
+    createdLocations.push(area.id);
+    await prisma.instrument.update({ where: { id: a }, data: { functionalLocationId: block.id } });
+    await prisma.instrument.update({ where: { id: b }, data: { functionalLocationId: area.id } });
+    try {
+      const direct = await keys(`functionalLocationId=${block.id}&functionalLocationDirect=true`);
+      expect(direct.statusCode).toBe(200);
+      expect(entry(direct.json(), 'telemetry', 'state')).toBeDefined();
+      expect(entry(direct.json(), 'telemetry', 'onlyB')).toBeUndefined();
+      // Without the flag the Block still includes its Areas.
+      expect(entry((await keys(`functionalLocationId=${block.id}`)).json(), 'telemetry', 'onlyB')).toBeDefined();
+    } finally {
+      await prisma.instrument.updateMany({ where: { id: { in: [a, b] } }, data: { functionalLocationId: null } });
+    }
+  });
+
+  it('all=true lists every visible instrument\'s keys and nothing outside the caller\'s scope', async () => {
+    const every = await keys('all=true');
+    expect(every.statusCode).toBe(200);
+    expect(entry(every.json(), 'telemetry', 'onlyB')).toBeDefined();
+    expect(entry(every.json(), 'telemetry', 'state')).toBeDefined();
+    await asScopedOperator([a], async (operator) => {
+      const scoped = await keys('all=true', operator);
+      expect(scoped.statusCode).toBe(200);
+      expect(entry(scoped.json(), 'telemetry', 'state')).toBeDefined();
+      expect(entry(scoped.json(), 'telemetry', 'onlyB')).toBeUndefined();
+    });
+    const two = await keys(`all=true&profileId=${profileId}`);
+    expect(two.statusCode).toBe(400);
+    expect(two.json().message).toMatch(/exactly one of/i);
+  });
+
   it('GET /:id/telemetry-keys gains numeric and measurement', async () => {
     const res = await app.inject({ method: 'GET', url: `/api/instruments/${a}/telemetry-keys`, headers: auth });
     expect(res.statusCode).toBe(200);

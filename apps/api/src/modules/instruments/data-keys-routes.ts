@@ -85,13 +85,20 @@ export default async function dataKeysRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Instruments'],
       summary: 'Every telemetry and attribute key a set of instruments has',
-      description: 'Exactly one selector: `instrumentIds` (comma list, at most 200), `functionalLocationId` (a Block includes its Areas) or `profileId`. Out-of-scope instruments are absent.',
+      description: 'Exactly one selector: `instrumentIds` (comma list, at most 200), `functionalLocationId` (a Block includes its Areas, unless `functionalLocationDirect=true`), `profileId`, or `all=true` (every instrument in view). Out-of-scope instruments are absent.',
       querystring: {
         type: 'object',
         properties: {
           instrumentIds: { type: 'string' },
           functionalLocationId: { type: 'string', format: 'uuid' },
+          // The dashboard's "— direct only" selection: the instruments pinned to
+          // the location itself, without the Area expansion — the same name and
+          // meaning as telemetry-overview's (2026-10-28, widget phase 2).
+          functionalLocationDirect: { type: 'string', enum: ['true', 'false'] },
           profileId: { type: 'string', format: 'uuid' },
+          // The dashboard's All Instruments selection (2026-10-28). A selector,
+          // not a default: asking for nothing is still a 400.
+          all: { type: 'string', enum: ['true'] },
         },
       },
       response: {
@@ -103,14 +110,17 @@ export default async function dataKeysRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const q = req.query as { instrumentIds?: string; functionalLocationId?: string; profileId?: string };
+    const q = req.query as {
+      instrumentIds?: string; functionalLocationId?: string; functionalLocationDirect?: string;
+      profileId?: string; all?: string;
+    };
     // `instrumentIds=` (present, empty) IS a selector — of nothing — and is
     // answered with an empty list, as an empty selection always is.
-    const given = [q.instrumentIds, q.functionalLocationId, q.profileId].filter((v) => v !== undefined);
+    const given = [q.instrumentIds, q.functionalLocationId, q.profileId, q.all].filter((v) => v !== undefined);
     if (given.length !== 1) {
       return reply.code(400).send({
         error: 'VALIDATION_ERROR',
-        message: 'Give exactly one of instrumentIds, functionalLocationId or profileId.',
+        message: 'Give exactly one of instrumentIds, functionalLocationId, profileId or all=true.',
       });
     }
 
@@ -128,6 +138,9 @@ export default async function dataKeysRoutes(app: FastifyInstance) {
       }
       if (asked.length === 0) return { data: [] };
       selector = { id: { in: asked } };
+    } else if (q.functionalLocationId && q.functionalLocationDirect === 'true') {
+      // Pinned to the location itself — the one case where equality is right.
+      selector = { functionalLocationId: q.functionalLocationId };
     } else if (q.functionalLocationId) {
       // `resolveLocationIds`, never a bare equality: a Block's instruments are
       // its own plus every Area beneath it — the server's expansion, which the
@@ -136,6 +149,10 @@ export default async function dataKeysRoutes(app: FastifyInstance) {
         select: { id: true, name: true, type: true, parentId: true },
       });
       selector = { functionalLocationId: { in: resolveLocationIds(q.functionalLocationId, nodes as FlNode[]) } };
+    } else if (q.all === 'true') {
+      // Every instrument — narrowed to the caller's view just below, like every
+      // other selector.
+      selector = {};
     } else {
       selector = { profileId: q.profileId };
     }
