@@ -336,6 +336,18 @@ describe('DashboardPage', () => {
     expect(await screen.findByText('21.5')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'QC Block — Room Conditions' })).toBeInTheDocument();
     expect(screen.getByText('Could not load this widget.')).toBeInTheDocument();
+
+    // While editing, the broken card can still be removed — else it could never be cleared.
+    fireEvent.click(screen.getByRole('button', { name: /Edit/ }));
+    const broken = screen.getByTestId('widget-failed');
+    expect(within(broken).getByRole('button', { name: 'Edit widget' })).toBeInTheDocument();
+    fireEvent.click(within(broken).getByRole('button', { name: 'Remove' }));
+    expect(screen.queryByTestId('widget-failed')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Save layout' }));
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    const body = put.mock.calls[0][1] as { document: DashboardDetail['document'] };
+    expect(body.document.widgets.map((w) => w.id)).toEqual([W_CARDS]);
+    expect(body.document.items.map((it) => it.i)).toEqual([`w:${W_CARDS}`]);
     quiet.mockRestore();
   });
 

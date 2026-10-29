@@ -305,7 +305,13 @@ function DashboardView({ dashboard, mutate }: { dashboard: DashboardDetail; muta
                     changed default (status, page size, period) shows at once
                     rather than after a reload; and a widget that failed to draw
                     gets another try. */}
-                <WidgetBoundary key={JSON.stringify(w)} title={w.title}>
+                <WidgetBoundary
+                  key={JSON.stringify(w)}
+                  title={w.title}
+                  editing={editing}
+                  onEdit={() => setWidgetDialog({ initial: w })}
+                  onRemove={() => session.removeWidget(w.id)}
+                >
                   <WidgetPanel
                     widget={w}
                     item={it}
@@ -376,8 +382,18 @@ function DashboardView({ dashboard, mutate }: { dashboard: DashboardDetail; muta
  * already its own message (`LOAD_FAILED`); this catches a widget that throws
  * while drawing, which would otherwise take the whole page down to the route's
  * error screen. The error is still reported to the console, not hidden.
+ *
+ * While editing, the broken card keeps Edit widget and Remove: the fallback
+ * replaces the panel and with it those two buttons, and a widget nobody can
+ * open or remove could never be cleared from the dashboard.
  */
-class WidgetBoundary extends Component<{ title: string; children: ReactNode }, { failed: boolean }> {
+class WidgetBoundary extends Component<{
+  title: string;
+  editing: boolean;
+  onEdit: () => void;
+  onRemove: () => void;
+  children: ReactNode;
+}, { failed: boolean }> {
   state = { failed: false };
 
   static getDerivedStateFromError() {
@@ -391,9 +407,27 @@ class WidgetBoundary extends Component<{ title: string; children: ReactNode }, {
   render() {
     if (!this.state.failed) return this.props.children;
     return (
-      <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white">
-        <div className="border-b border-slate-200 px-4 py-2.5 text-white" style={{ background: 'var(--band-gradient)' }}>
-          <h2 className="truncate text-[0.9375rem] font-bold leading-tight">{this.props.title}</h2>
+      <div data-testid="widget-failed" className="flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-2.5 text-white" style={{ background: 'var(--band-gradient)' }}>
+          <h2 className="min-w-0 flex-1 truncate text-[0.9375rem] font-bold leading-tight">{this.props.title}</h2>
+          {this.props.editing && (
+            <>
+              <button
+                type="button"
+                onClick={this.props.onEdit}
+                className="shrink-0 rounded-md border border-slate-300 bg-white/90 px-2 py-0.5 text-[0.6875rem] font-semibold text-slate-700 hover:bg-white"
+              >
+                Edit widget
+              </button>
+              <button
+                type="button"
+                onClick={this.props.onRemove}
+                className="shrink-0 rounded-md border border-red-300 bg-white/90 px-2 py-0.5 text-[0.6875rem] font-semibold text-red-700 hover:bg-red-50"
+              >
+                Remove
+              </button>
+            </>
+          )}
         </div>
         <p role="alert" className="flex flex-1 items-center justify-center p-4 text-sm text-red-700">{LOAD_FAILED}</p>
       </div>
