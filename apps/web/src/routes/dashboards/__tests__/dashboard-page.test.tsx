@@ -61,13 +61,19 @@ const NEW_WIDGET: CustomWidget = {
   id: NEW_ID, type: 'value_cards', title: 'Freshly added', source: { mode: 'selection' },
   keys: [{ source: 'telemetry', key: 't' }], options: {},
 };
-vi.mock('@/routes/dashboard/widgets/widget-dialog', () => ({
-  WidgetDialog: (p: { followLabel?: string; onSubmit: (w: CustomWidget) => void; onCancel: () => void }) => (
-    <div data-testid="widget-dialog" data-follow={p.followLabel}>
-      <button type="button" onClick={() => p.onSubmit(NEW_WIDGET)}>Submit widget</button>
-    </div>
-  ),
-}));
+// `DIALOG.real` swaps in the REAL dialog for the case whose subject is its
+// live preview (fix round 1, #2).
+const DIALOG = { real: false };
+vi.mock('@/routes/dashboard/widgets/widget-dialog', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/routes/dashboard/widgets/widget-dialog')>();
+  return {
+    WidgetDialog: (p: Parameters<typeof actual.WidgetDialog>[0]) => (DIALOG.real ? <actual.WidgetDialog {...p} /> : (
+      <div data-testid="widget-dialog" data-follow={p.followLabel}>
+        <button type="button" onClick={() => p.onSubmit(NEW_WIDGET)}>Submit widget</button>
+      </div>
+    )),
+  };
+});
 // Settings and Assign have their own tests; here they are buttons that hand the
 // page a saved value, and record what the page gave them.
 const SAVED_SETTINGS: DashboardDetail = {
@@ -151,6 +157,7 @@ const detail = (
   };
 };
 const DETAIL = detail();
+const SAVED_AT = '2026-10-29T10:05:00.000Z';
 const DETAIL_V2 = detail({ updatedAt: '2026-10-29T11:30:00.000Z' });
 const DETAIL_NULL_SOURCE = detail({
   sourceSummary: { mode: 'unreadable', label: 'Unreadable' },
@@ -238,7 +245,10 @@ beforeEach(() => {
     if (body.keys.some((k) => k.key === 'denied')) return Promise.reject(failure(403, 'FORBIDDEN'));
     return Promise.resolve(LATEST);
   });
-  put.mockReset().mockResolvedValue(DETAIL);
+  DIALOG.real = false;
+  // What the server answers: the saved document under a NEW updatedAt.
+  put.mockReset().mockImplementation((_url: string, body: { document: DashboardDetail['document'] }) =>
+    Promise.resolve({ ...DETAIL, updatedAt: SAVED_AT, document: body.document }));
 });
 afterEach(() => {
   delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
@@ -302,10 +312,33 @@ describe('DashboardPage', () => {
     expect(body.document.timeWindow).toEqual({ mode: 'relative', period: '24h' });
     expect(body.document.source).toEqual({ mode: 'profile', profileId: PROFILE });
     expect(reauthActions).toEqual(['UPDATE_DASHBOARD']);
-    // Saved: edit mode ends and the dashboard is read again.
+    // Saved: edit mode ends, and the page holds the PUT's own answer — it does
+    // not read the dashboard again (fix round 1, #1).
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).toBeNull());
-    expect(urls().filter((u) => u === `/api/dashboards/${ID}`).length).toBeGreaterThanOrEqual(2);
+    expect(urls().filter((u) => u === `/api/dashboards/${ID}`)).toHaveLength(1);
     expect(TOAST.toast.success).toHaveBeenCalled();
+  });
+
+  it('a save is ADOPTED from its response: it stays drawn when a re-read would be stale, and the next Save sends the new updatedAt', async () => {
+    // Fix round 1, #1. GET keeps answering the OLD dashboard (a failed or late
+    // re-read); only the PUT response knows the save happened.
+    mount();
+    await screen.findByRole('heading', { name: 'Room cards' });
+    fireEvent.click(screen.getByRole('button', { name: /Edit/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit widget' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).toBeNull());
+    expect(screen.getByRole('heading', { name: 'Freshly added' })).toBeInTheDocument();
+
+    // Edit again (remove the trend) and save: based on the SAVED version.
+    fireEvent.click(screen.getByRole('button', { name: /Edit/ }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Remove' })[1]);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(2));
+    const second = put.mock.calls[1][1] as { document: DashboardDetail['document']; expectedUpdatedAt: string };
+    expect(second.expectedUpdatedAt).toBe(SAVED_AT);
+    expect(second.document.widgets.map((w) => w.id)).toEqual([W_CARDS, NEW_ID]);
   });
 
   it('Save sends the updatedAt loaded when editing BEGAN, not one fetched since', async () => {
@@ -377,6 +410,51 @@ describe('DashboardPage', () => {
     const body = put.mock.calls[0][1] as { document: DashboardDetail['document'] };
     expect(body.document.widgets.map((w) => w.id)).toEqual([W_CARDS]);
     expect(body.document.items.map((it) => it.i)).toEqual([`w:${W_CARDS}`]);
+    quiet.mockRestore();
+  });
+
+  it('Edit widget on a card that cannot draw keeps the page and the draft; the preview failure is said in place', async () => {
+    // Fix round 1, #2. The REAL dialog draws a live preview with the same
+    // renderer — outside the card's boundary — so it throws too.
+    DIALOG.real = true;
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+    state.detail = DETAIL_BOOM;
+    mount();
+    expect(await screen.findByText('21.5')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Edit/ }));
+    // A draft change first: remove the healthy card.
+    const healthy = screen.getByRole('heading', { name: 'Room cards' }).closest('.react-grid-item') as HTMLElement;
+    fireEvent.click(within(healthy).getByRole('button', { name: 'Remove' }));
+    expect(screen.queryByRole('heading', { name: 'Room cards' })).toBeNull();
+
+    fireEvent.click(within(screen.getByTestId('widget-failed')).getByRole('button', { name: 'Edit widget' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText("This widget's preview could not be drawn.")).toBeInTheDocument();
+    // The page is still here, still editing, with the draft as it was.
+    expect(screen.getByRole('heading', { name: 'QC Block — Room Conditions' })).toBeInTheDocument();
+    expect(screen.getByTestId('widget-failed')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Room cards' })).toBeNull();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    expect((put.mock.calls[0][1] as { document: DashboardDetail['document'] }).document.widgets.map((w) => w.id)).toEqual([W_BOOM]);
+    quiet.mockRestore();
+  });
+
+  it('from the preview failure, Remove widget takes the broken widget off the draft', async () => {
+    DIALOG.real = true;
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+    state.detail = DETAIL_BOOM;
+    mount();
+    expect(await screen.findByText('21.5')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Edit/ }));
+    fireEvent.click(within(screen.getByTestId('widget-failed')).getByRole('button', { name: 'Edit widget' }));
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Remove widget' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByTestId('widget-failed')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Room cards' })).toBeInTheDocument();
     quiet.mockRestore();
   });
 

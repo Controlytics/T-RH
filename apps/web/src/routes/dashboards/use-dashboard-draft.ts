@@ -40,8 +40,13 @@ export function useDashboardDraft(stored: StoredDashboardDocument) {
   const start = () => setDraft(stored);
   const cancel = () => setDraft(null);
 
+  /**
+   * Change the draft — and ONLY a draft. Outside edit mode this is a no-op, as
+   * `onGridChange` is: a draft that began without `start()` would have no edit
+   * base for the page's Save to send (fix round 1, 2026-10-29).
+   */
   const edit = (change: (d: StoredDashboardDocument) => StoredDashboardDocument) =>
-    setDraft((d) => change(d ?? stored));
+    setDraft((d) => (d === null ? null : change(d)));
 
   const addWidget = (w: CustomWidget) => edit((d) => {
     const bottom = d.items.reduce((max, it) => Math.max(max, it.y + it.h), 0);

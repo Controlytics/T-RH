@@ -148,4 +148,18 @@ describe('useDashboardDraft', () => {
     rerender({ s: STORED });
     expect(result.current.draft).toBe(editing);
   });
+
+  it('outside edit mode every mutator is a no-op: none of them starts a draft (fix round 1, #4)', () => {
+    // A draft begun without start() would have no edit base, so the page's Save
+    // could not say which version it was based on.
+    const { result } = renderHook(() => useDashboardDraft(STORED));
+    act(() => result.current.addWidget(widget(W3, 'value_cards')));
+    act(() => result.current.updateWidget({ ...widget(W1, 'value_cards'), title: 'Renamed' }));
+    act(() => result.current.removeWidget(W2));
+    act(() => result.current.setStyle(widgetItemId(W1), undefined));
+    act(() => result.current.setSize(widgetItemId(W2), 3, 3));
+    expect(result.current.editing).toBe(false);
+    expect(result.current.dirty).toBe(false);
+    expect(result.current.draft).toBe(STORED);
+  });
 });
