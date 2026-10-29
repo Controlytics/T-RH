@@ -504,6 +504,41 @@ node apps/api/dist/app.js
   a change = `INSTRUMENT_PROFILE_UPDATED` before / after in the transaction). `profileProps.displayKeys`
   declares every inner key (deleting it fails 5 of 6 e2e). `present()` reads through
   `coerceProfileDisplayKeys`. Routes +1, no model / enum moved.
+- **2026-10-29 — DASHBOARDS (dashboard builder phase 1): `/api/dashboards` rewritten.** **No
+  migration; models 38 / enums 13 / permissions 45 / audit 100 / 113 / modules 25 unchanged; reauth
+  56 → 57 (`UPDATE_DASHBOARD`).** Seven routes (`routes.ts`, `service.ts`, `schemas.ts`): `GET /`,
+  `GET /:id` (`DASHBOARD_VIEW` + visible, else 404), `POST /`, `POST /:id/duplicate`, `PUT /:id`,
+  `DELETE /:id` (soft), `PUT /:id/assignments` — 13 → 7; the eight retired are the per-widget trio,
+  `PUT /:id/layout`, `POST /:id/assign`, the assignment DELETE, `GET /:id/data/:widgetId` and
+  `GET /widget-types`. Rules (detail in `docs/feature-notes.md` DASHBOARDS):
+  - **Visibility is ONE where** (`visibleDashboardWhere`): active + assigned to the caller or their
+    role; SUPER_ADMIN every active one; ADMIN not special; no assignment = none; 404 never 403.
+  - **Writes: SUPER_ADMIN by ROLE in a `preValidation` hook** (403 `DASHBOARDS_SUPER_ADMIN_ONLY` before
+    path / body validation), then active row (404) → `enforceReauth('UPDATE_DASHBOARD')` → 400 → ONE
+    transaction with every audit row. No route reads `DASHBOARD_CREATE` / `MANAGE` / `ASSIGN`
+    (`roles/unused-permissions.ts` says so) — AWS still owes the 2026-10-24 strip.
+  - **ONE document** in `dashboards.layout`: strict `parseDashboardDocument` on write, forgiving
+    `readDashboardDocument` on read (`@digilog/shared` `dashboard-document.ts`); `dashboard_widgets`
+    unused, not dropped. `document` is declared `{type:'object', additionalProperties:true}`; every
+    other response field and inner key is declared (deleting the `document` line fails 5 of 14 e2e).
+  - **"Changed" = what gets audited**: an equal save writes and audits nothing (a widget-list reorder
+    included); item moves = `DASHBOARD_UPDATED`; widgets diffed by id into `DASHBOARD_WIDGET_*`; one
+    `DASHBOARD_ASSIGNED` / `UNASSIGNED` per role or user; every value carries `name`.
+    `signatureMeaning` delegates to `clampSignatureMeaning` (R7).
+  - **`PUT /:id` is conditional on `expectedUpdatedAt`** — a 1 ms window (`gte expected, lt expected + 1`),
+    new stamp `max(now, expected + 1 ms)`; a miss is 409 `DASHBOARD_CHANGED`, nothing written. The
+    unchanged check runs FIRST: a stale PUT equal to the stored row is a 200 no-op, not a 409.
+    Assignment replaces lock the row (`FOR UPDATE`) and write only the difference; write transactions
+    take `{ timeout: 30_000 }` (up to 550 chained audit rows).
+  - **Two data routes gained filters** (`lib/uuid-list.ts` `parseUuidList`: absent = no filter,
+    present-but-empty = NOTHING, ≤ 200, uuid-checked): `GET /api/instruments/telemetry-overview`
+    `profileId` + `instrumentIds`; `GET /api/alarms` `instrumentIds`, `profileId` and
+    `functionalLocationDirect=true` (no Block → Areas expansion). Both ANDed inside visibility; the
+    alarm `counts` follow the same filters.
+  - Tests: `e2e/dashboards-module.e2e.test.ts` (rewritten to the new rules on purpose),
+    `e2e/dashboard-source-filters.e2e.test.ts`, `modules/dashboards/__tests__/mass-assignment.test.ts`
+    (also rewritten), `lib/__tests__/uuid-list.test.ts`, `alarms/__tests__/list-query.test.ts`.
+    **Before the deploy:** read AWS's `dashboards` / `dashboard_assignments` row counts (read-only).
 - **2026-10-28 — WIDGET DATA KEYS, phase 2 (dashboard widgets).** Both layout PUTs
   (`/api/config/my-dashboard-layout`, `/api/roles/dashboard-layout/role/:name`) go through ONE
   `checkLayoutWrite` (`modules/config/dashboard-layout.ts`): the strict shared writer

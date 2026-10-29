@@ -20,7 +20,7 @@ re-derive any count from live code before repeating it.
 ```
 apps/api/         — Fastify backend (TypeScript, port 3001)
 apps/web/         — React SPA (Vite, port 5176 dev)
-packages/shared/  — Permissions (45), reauth actions (56), sidebar items (14),
+packages/shared/  — Permissions (45), reauth actions (57), sidebar items (15),
                     permission tree, zod schemas
 packages/queue/   — graphile-worker job queue (Postgres-backed)
 docs/             — Project docs; `docs/recreation/` is a 2026-07-25 snapshot (see above)
@@ -171,9 +171,16 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   Only `compliance_core_db` + `compliance_core_db_test` exist — **no TimescaleDB,
   no `digilog_tsdb`**. The test database is migrated **separately**; a migration
   applied to only one of them makes every instrument-touching e2e 500.
-- **Permissions:** **45** constants, **56** reauth actions in **8** categories,
-  **14** sidebar items (`grep -cE` against `permissions.ts` / `reauth-actions.ts`
-  / `sidebar-items.ts`). 44 → 45 permissions (2026-10-26): `REPORT_REVIEW_REJECT`
+- **Permissions:** **45** constants, **57** reauth actions in **8** categories,
+  **15** sidebar items (`grep -cE` against `permissions.ts` / `reauth-actions.ts`
+  / `sidebar-items.ts`), **15** permission-tree groups / **56** nodes / **39** feature
+  privileges, **38** shared type files (`ls packages/shared/src/types/*.ts | grep -v test | wc -l`).
+  2026-10-29 (dashboard builder phase 1): 56 → 57 reauth actions (`UPDATE_DASHBOARD`
+  under the EXISTING `Configuration` category, ships OFF), 14 → 15 sidebar items and
+  tree groups (`dashboards`, appended LAST; its group's visibility is the EXISTING
+  `dashboard.view` node, so nodes stay 56 and feature privileges 39 — ONE "View
+  Dashboards" toggle covers both menus), 37 → 38 type files (`dashboard-document.ts`).
+  No permission moved. 44 → 45 permissions (2026-10-26): `REPORT_REVIEW_REJECT`
   — Approve Reports and Reject Reports are two permissions and two Permissions-tab
   toggles (`reports.approve`, `reports.reject`); only Approve makes a role a valid
   report approver. No reauth action moved (`APPROVE_REPORT` / `REJECT_REPORT` were
@@ -273,7 +280,7 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   `alarm-webhooks.tsx`. **The def count did NOT move** — alarm webhooks are a
   real CRUD module with their own tables, not a `system_config` row, so there
   is no `*.def.ts` for them.
-- **Frontend:** **54** `<Route`s in `main.tsx` (53 → 54, 2026-10-24: `/config/attribute-access`; 52 → 53, 2026-10-01: `/config/report-settings`; 53 → 52, 2026-09-19: `/home`, the
+- **Frontend:** **56** `<Route`s in `main.tsx` (54 → 56, 2026-10-29: `/dashboards` and `/dashboards/:id`, the dashboard builder; 53 → 54, 2026-10-24: `/config/attribute-access`; 52 → 53, 2026-10-01: `/config/report-settings`; 53 → 52, 2026-09-19: `/home`, the
   Module Guide, removed with the `home` sidebar item; a `/config/attribute-labels` route existed for a few hours on 2026-09-16 and was removed the same day — unchanged; 52 → 53, 2026-09-08: `/settings`; 51 → 52, 2026-09-07: `/reports`; 50 → 51 the same day: `/data-report`) (51 → 50, 2026-08-31: `/config/alarm-rules` removed with the rule feature) (50 → 51, 2026-08-29: `/config/export-options`, a page that had a config def and a dashboard card but no route, so it was unreachable. Earlier 49 → 50, 2026-08-27:
   `/config/alarm-webhooks`).
 - **Queue backend:** graphile-worker (Postgres-backed), **7** tasks (6 → 7 on 2026-10-12: `notification_retry`, the durable email/SMS retry, event-driven, no crontab line).
@@ -293,7 +300,7 @@ this file exceeded the 150k-char load limit. **Before changing any of the areas 
 note there** — most record an operator decision or a trap that is not visible in the code.
 Add NEW feature notes there, not here; keep this file to project-wide rules and live counts.
 
-Topics: DEVICE ATTRIBUTES ON EVERY PROTOCOL · BULK UPLOAD UPDATES an Instrument ID that already exists · WIDGET DATA KEYS — any key an instrument sends, in any widget (phase 1: server; phase 2: dashboard widgets; phase 3: trend page keys per profile) · DEVICE CERTIFICATES — a profile can require each device's own client certificate · PROFILE MEASUREMENTS — every key mapping is the instrument PROFILE's · Roles & Access → PERMISSIONS shows what the role HOLDS · Instrument VISIBILITY · LAYOUT DESIGNER · The MQTT client id and topic segment are the instrument CODE · A SUPER_ADMIN can DELETE a functional location WITH everything in it · Instrument grouping — THREE concepts, one job each · Config · Display precision · Instrument ATTRIBUTE ACCESS · Themes · Frontend · Queue backend · Tenancy · Inactivity alarms — a THIRD alarm source · RS485 sensor-failure alarms — a FOURTH alarm source · Alarm RULES were REMOVED · A QUOTED number is a reading · Alarm type NAMES are administered in one place · Instrument-limit bounds honour a per-bound ENABLE attribute · Sensor RANGE alarms — a FIFTH alarm source · Trend page widget wording is ADMINISTERED, and editable in place · The browser TAB is named and iconned from config · Boolean config settings render as an on/off TOGGLE, not a checkbox · Alarms page: the counts were window-limited, and are not any more · Dashboard: the readings table shows Area and Location — there is NO Ro · REPORT REVIEW WORKFLOW · Which roles may APPROVE a report is ADMINISTERED · REPORT DOWNLOADS ARE CONFIGURED PER TYPE, APPROVERS ARE CONFIGURED, AN · SENSOR OFFSETS · ATTRIBUTE DISPLAY NAMES · The New Instrument form's Instrument ID field carries NO pattern, hint · The HOME sidebar item and the Module Guide page are GONE · SETTINGS: one instrument picker, one square widget of its identity, · The Instrument ID · The Instrument History widget is the DATA REPORT PAGE, not a dashboard · The dashboard's selection alarms panel is the SHARED alarm table · On `PUT /api/floorplans/:id/rooms/:roomId`, an omitted `doors` key lea · Room doors · Per-instrument tiles · Cleanroom grade · The QC floor is TRACED, not generated · MEAN KINETIC TEMPERATURE on the Data Report, per instrument · The Time Series widget's download is the DATA REPORT · Instrument trend page · Governed report downloads · Fixed a pre-existing security gap · Alarm webhook annunciator · Trend page: wide ranges are SAMPLED, and the range figures are true
+Topics: DASHBOARDS — many named dashboards a SUPER_ADMIN builds and assigns (phase 1) · DEVICE ATTRIBUTES ON EVERY PROTOCOL · BULK UPLOAD UPDATES an Instrument ID that already exists · WIDGET DATA KEYS — any key an instrument sends, in any widget (phase 1: server; phase 2: dashboard widgets; phase 3: trend page keys per profile) · DEVICE CERTIFICATES — a profile can require each device's own client certificate · PROFILE MEASUREMENTS — every key mapping is the instrument PROFILE's · Roles & Access → PERMISSIONS shows what the role HOLDS · Instrument VISIBILITY · LAYOUT DESIGNER · The MQTT client id and topic segment are the instrument CODE · A SUPER_ADMIN can DELETE a functional location WITH everything in it · Instrument grouping — THREE concepts, one job each · Config · Display precision · Instrument ATTRIBUTE ACCESS · Themes · Frontend · Queue backend · Tenancy · Inactivity alarms — a THIRD alarm source · RS485 sensor-failure alarms — a FOURTH alarm source · Alarm RULES were REMOVED · A QUOTED number is a reading · Alarm type NAMES are administered in one place · Instrument-limit bounds honour a per-bound ENABLE attribute · Sensor RANGE alarms — a FIFTH alarm source · Trend page widget wording is ADMINISTERED, and editable in place · The browser TAB is named and iconned from config · Boolean config settings render as an on/off TOGGLE, not a checkbox · Alarms page: the counts were window-limited, and are not any more · Dashboard: the readings table shows Area and Location — there is NO Ro · REPORT REVIEW WORKFLOW · Which roles may APPROVE a report is ADMINISTERED · REPORT DOWNLOADS ARE CONFIGURED PER TYPE, APPROVERS ARE CONFIGURED, AN · SENSOR OFFSETS · ATTRIBUTE DISPLAY NAMES · The New Instrument form's Instrument ID field carries NO pattern, hint · The HOME sidebar item and the Module Guide page are GONE · SETTINGS: one instrument picker, one square widget of its identity, · The Instrument ID · The Instrument History widget is the DATA REPORT PAGE, not a dashboard · The dashboard's selection alarms panel is the SHARED alarm table · On `PUT /api/floorplans/:id/rooms/:roomId`, an omitted `doors` key lea · Room doors · Per-instrument tiles · Cleanroom grade · The QC floor is TRACED, not generated · MEAN KINETIC TEMPERATURE on the Data Report, per instrument · The Time Series widget's download is the DATA REPORT · Instrument trend page · Governed report downloads · Fixed a pre-existing security gap · Alarm webhook annunciator · Trend page: wide ranges are SAMPLED, and the range figures are true
 
 
 ## Important Notes

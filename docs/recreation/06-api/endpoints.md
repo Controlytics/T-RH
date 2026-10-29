@@ -6,7 +6,7 @@
 curl -sk https://localhost:3001/docs/json
 ```
 
-**139 paths across 19 groups.** Method list per path is taken verbatim from the spec.
+**139 paths across 19 groups.** Method list per path is taken verbatim from the spec. (`/dashboards` 9 → 4 paths on 2026-10-29, re-derived from `routes.ts`, not from `/docs/json`.)
 (`GET /api/roles/access-matrix` removed 2026-09-19 with the Module Guide page; re-derive the count from `/docs/json` before quoting it.)
 
 ## /config  — 35 paths
@@ -20,7 +20,7 @@ curl -sk https://localhost:3001/docs/json
 | GET | `/api/config/action-reauth/my-actions` | Get re-auth actions for current user |
 | GET | `/api/instruments/telemetry-aggregate` | Min/mean/max across the instruments in a selection, bucketed. ALL VALUES DERIVED; limit bounds returned only when every instrument in the selection agrees |
 | GET | `/api/instruments/telemetry-history?instrumentIds=a,b&keys=&from=&to=&limit=&offset=` | (2026-09-05; `keys` 2026-10-28 — comma list ≤ 20, only those keys, `total` = instants carrying one of them) The merged, paged readings of SEVERAL instruments, newest first — the Instruments page's history widget. One row per (instrument, instant) with every key reported at it, pivoted in SQL so a page cannot split an instant; values RAW (the slot keys, limits and precision come from `telemetry-overview`). Visibility is applied to the id set: an out-of-scope id is absent, never 403. `total` counts instants. 400 on a malformed id or a reversed range. |
-| GET | `/api/alarms?search=&from=&to=&type=&status=&severity=&functionalLocationId=&page=&pageSize=&sort=&dir=` | Alarm list. Filters, counts, sorts and pages SERVER-side (2026-08-31); returns `data`, `total` and `counts` (the four state counts, from one `groupBy`). `total` is DERIVED by summing `counts`, and `status` is excluded from the count query alone so choosing a state box does not zero the others. Every filter, the counts included, is ANDed INSIDE the caller's visibility scope — a location filter narrows within it and cannot escape it. A bad date or reversed range is a 400 by field; an unknown `sort` falls back. Legacy `state`/`acknowledged`/`instrumentId`/`limit` still accepted, `limit` being an alias for `pageSize` (ceiling 500). Rows carry `locationName` (the functional location); `roomLabel` was dropped 2026-08-31, though the room code remains searchable. Filter algebra: `modules/alarms/list-query.ts` |
+| GET | `/api/alarms?search=&from=&to=&type=&status=&severity=&functionalLocationId=&functionalLocationDirect=&instrumentIds=&profileId=&page=&pageSize=&sort=&dir=` | Alarm list. (2026-10-29, dashboard builder) `instrumentIds` = a comma list of ≤ 200 uuids (present-but-EMPTY selects NOTHING; absent = no filter; a malformed or longer list is a 400 by field), `profileId` = one profile's instruments (uuid), `functionalLocationDirect=true` = the location itself without the Block → Areas expansion; all ANDed with the other filters inside visibility, the `counts` included. Filters, counts, sorts and pages SERVER-side (2026-08-31); returns `data`, `total` and `counts` (the four state counts, from one `groupBy`). `total` is DERIVED by summing `counts`, and `status` is excluded from the count query alone so choosing a state box does not zero the others. Every filter, the counts included, is ANDed INSIDE the caller's visibility scope — a location filter narrows within it and cannot escape it. A bad date or reversed range is a 400 by field; an unknown `sort` falls back. Legacy `state`/`acknowledged`/`instrumentId`/`limit` still accepted, `limit` being an alias for `pageSize` (ceiling 500). Rows carry `locationName` (the functional location); `roomLabel` was dropped 2026-08-31, though the room code remains searchable. Filter algebra: `modules/alarms/list-query.ts` |
 | PUT · DELETE | `/api/config/my-dashboard-layout` | The caller's own dashboard arrangement. Authenticated only, NOT audited — a preference, not governance. (2026-10-28) `layout.widgets` = built widgets, strict (400); OMITTED keeps the stored; a change by a non-SUPER_ADMIN is 403 `WIDGETS_SUPER_ADMIN_ONLY` |
 | PUT | `/api/roles/dashboard-layout/role/:name` | A role's DEFAULT arrangement (ROLE_MANAGE + reauth, audited). (2026-10-28) carries `widgets` by the same rule as the caller's own layout — ROLE_MANAGE alone cannot change them (403) |
 | GET · PUT | `/api/config/audit-templates` | Get audit text templates |
@@ -105,19 +105,34 @@ curl -sk https://localhost:3001/docs/json
 | POST | `/api/auth/refresh` | Refresh JWT token |
 | ~~POST~~ | ~~`/api/auth/verify`~~ | Removed 2026-10-05 (audit SEC-5): re-auth is proven inline per gated request (`_currentPassword` / `x-reauth-password`) |
 
-## /dashboards  — 9 paths
+## /dashboards  — 4 paths, 7 routes (rewritten 2026-10-29, dashboard builder phase 1; was 9 paths / 13 routes)
+
+Re-derived `grep -nE "app\.(get|post|put|delete)\(" apps/api/src/modules/dashboards/routes.ts` (7; 13 at `6ec4de5`).
+A dashboard is ONE document `{version, source, timeWindow, items, widgets}` in `dashboards.layout`.
+**Reads** need `DASHBOARD_VIEW` and an assignment to the caller or their role (a SUPER_ADMIN sees every
+active one; ADMIN is not special; no assignment = none); anything not visible is a **404, never a 403**.
+**Writes** are SUPER_ADMIN by ROLE — a `preValidation` hook, 403 `DASHBOARDS_SUPER_ADMIN_ONLY` before
+the path or body is validated, whatever `DASHBOARD_*` grants the caller holds — then the active row
+(404 `DASHBOARD_NOT_FOUND`), re-auth `UPDATE_DASHBOARD`, validation (400 `VALIDATION_ERROR`, the strict
+`parseDashboardDocument` naming the widget), and ONE transaction with the audit rows (the eight
+`DASHBOARD_*` actions, each value carrying `name`; an unchanged save writes and audits nothing).
 
 | Method(s) | Path | Summary |
 |---|---|---|
-| GET · POST | `/api/dashboards/` | List dashboards visible to current user |
-| GET | `/api/dashboards/widget-types` | List available widget types |
-| DELETE | `/api/dashboards/{dashboardId}/assign/{assignmentId}` | Remove dashboard assignment |
-| GET · PUT · DELETE | `/api/dashboards/{id}` | Get dashboard with all widgets |
-| POST | `/api/dashboards/{id}/assign` | Assign dashboard to user/org/role |
-| GET | `/api/dashboards/{id}/data/{widgetId}` | Fetch data for a specific widget |
-| PUT | `/api/dashboards/{id}/layout` | Batch update widget positions after drag-and-drop |
-| POST | `/api/dashboards/{id}/widgets` | Add widget to dashboard |
-| PUT · DELETE | `/api/dashboards/{id}/widgets/{widgetId}` | Update widget |
+| GET | `/api/dashboards/` | `{data: DashboardSummary[]}` — `id, title, description, sourceSummary {mode, label}, widgetCount, updatedAt`, plus `assignments {roles, users[{id, username, fullName}]}` for a SUPER_ADMIN ONLY (absent otherwise). Ordered by title ignoring case; no paging (D5). `sourceSummary.mode` is `all` / `profile` / `location` / `instruments` / `unreadable`; a deleted profile or location reads "Profile no longer exists" / "Location no longer exists" |
+| POST | `/api/dashboards/` | SUPER_ADMIN. `{title (1..200), description? (≤ 500), document?}` → 201 detail. No document = `emptyDashboardDocument()` (no widgets, `{mode:'all'}`, 24h) |
+| GET | `/api/dashboards/{id}` | `DashboardDetail` = the summary + `document` (the FORGIVING read: a bad widget is dropped with its item; an unreadable source is `null` = no instruments, never all). 404 when not visible |
+| PUT | `/api/dashboards/{id}` | SUPER_ADMIN. `{title?, description?, document?, expectedUpdatedAt}` (`additionalProperties: false`) → 200 detail. Conditional on `expectedUpdatedAt` (a 1 ms window; the new stamp is at least `expected + 1 ms`): a dashboard changed since is **409 `DASHBOARD_CHANGED`** and nothing is written; an unchanged body is a 200 no-op (checked first). A document save audits `DASHBOARD_UPDATED` (source / window / items) and one `DASHBOARD_WIDGET_CREATED` / `UPDATED` / `DELETED` per widget, diffed by id |
+| DELETE | `/api/dashboards/{id}` | SUPER_ADMIN. Soft delete (`isActive: false`) → `{success: true}`; `DASHBOARD_DELETED` |
+| POST | `/api/dashboards/{id}/duplicate` | SUPER_ADMIN. A copy titled "<title> (copy)" (cut to fit 200, suffix kept), every widget a fresh id, **no assignments** → 201 detail |
+| PUT | `/api/dashboards/{id}/assignments` | SUPER_ADMIN. The WHOLE set `{roles: string[], userIds: string[]}` → `{roles, users}`. An unknown role or user is a 400 naming the first; only the difference is written (row locked), one `DASHBOARD_ASSIGNED` / `UNASSIGNED` per role or user |
+
+**Retired 2026-10-29 (8 routes):** `GET /widget-types`, `POST /{id}/widgets`, `PUT /{id}/widgets/{widgetId}`,
+`DELETE /{id}/widgets/{widgetId}`, `PUT /{id}/layout`, `GET /{id}/data/{widgetId}` (the six per-widget /
+layout / data routes the spec retires — a save sends the whole document, and widget data comes from
+the instrument and alarm routes under the viewer's own scope), plus `POST /{id}/assign` and
+`DELETE /{dashboardId}/assign/{assignmentId}`, superseded by `PUT /{id}/assignments`. The
+`dashboard_widgets` table is left in place, unused.
 
 ## /notifications  — 9 paths
 
@@ -314,6 +329,7 @@ number here should be re-derived and never carried forward.
 | GET | `/api/instruments/{id}/telemetry` | Latest value per key + recent history for one instrument. `keys` (2026-10-28): comma list ≤ 20, on both the paged and the chart (`points`) path; not with `key` (400). A raw key's summary has null bounds and breach counts; `count - numericCount` = its text readings. Since 2026-10-28 a reading's `slot` (and its bounds) is the instrument's RESOLVED key only — a second device key of the same measurement is raw |
 | GET | `/api/instruments/{id}/telemetry-keys` | The keys this instrument has sent (from the latest table), newest first: `key`, `slot`, `lastSeen`, and since 2026-10-28 `numeric` (its latest reading is a number — a quoted number counts) and `measurement` (`{code, name, unit}` when the key is the instrument's RESOLVED key for a measurement, else null; `slot` follows the same rule). Visibility-scoped (404) |
 | GET | `/api/instruments/data-keys?instrumentIds=a,b` \| `functionalLocationId=` [`&functionalLocationDirect=true`] \| `profileId=` \| `all=true` | (2026-10-28, widget data keys) Every TELEMETRY key the instruments have sent and every ATTRIBUTE key they carry — a key appears with its first stored reading, nothing to configure. Exactly one selector (400 otherwise); an id list is capped at 200, and an EMPTY one (`instrumentIds=`) is answered `[]`; a Block includes its Areas unless `functionalLocationDirect=true` (the dashboard's direct-only view); `all=true` = every instrument in the caller's view (phase 2, the dashboard's All Instruments). A telemetry key is `measurement`-labelled when it is the RESOLVED key of its slot on at least one instrument (`resolvedSlotFor`). Each entry: `source`, `key`, `label` (measurement name / administered attribute display name / the key), `numeric` (a hint, never a gate), `instruments`, `lastSeen`, `measurement`. Attribute keys fold case; blank values are left out; offset keys are SUPER_ADMIN-only (absent otherwise). Visibility applied to the id set: out-of-scope instruments are absent, never 403. `INSTRUMENT_READ` |
+| GET | `/api/instruments/telemetry-overview?floorplanId=&functionalLocationId=&functionalLocationDirect=&profileId=&instrumentIds=` | Every visible instrument's latest slot readings, limits, status and placement (the dashboard readings table, the widgets' instrument list). (2026-10-29, dashboard builder) gained `profileId` (one profile's instruments) and `instrumentIds` (a comma list of ≤ 200 uuids; present-but-EMPTY = `[]`; absent = every visible instrument as before; malformed or longer = 400 `VALIDATION_ERROR`), both declared in the schema, applied after visibility and ANDed with the location / floorplan filters. `INSTRUMENT_READ` |
 | POST | `/api/instruments/latest-values` | (2026-10-28, widget data keys) Body `{instrumentIds: uuid[] (0..200; empty = `[]`), keys: [{source: 'telemetry'\|'attribute', key}] (1..20)}`, validated by the shared `latestValuesRequestSchema`. One row per visible instrument (overview order: code, name, `functionalLocationName`, `locationAttribute`, `reporting`, `lastSeenAt`) with `values` in the REQUESTED order: `value` (stored JSON as received, null when never sent), `ts`, `unit`, `decimals`, `display`, `judged`. A MEASURED key (its profile maps it, and it is the key that slot resolved to) carries the overview's own precision, unit and `judged` = `{limitMin, limitMax, limitMinText, limitMaxText, sensorError, rangeError}`; a RAW key carries `unit`/`decimals`/`judged` = null. Attribute keys fold case; `display` is the server's formatting (a limit at its reading's precision); offset keys are SUPER_ADMIN-only (null otherwise). Read-only, no audit row. Out-of-scope instruments are absent. `INSTRUMENT_READ` |
 | PUT | `/api/instrument-profiles/:id/display-keys` | (2026-10-29, widget data keys phase 3) The trend page's EXTRA keys for every instrument of the profile: body `{displayKeys: [{source:'telemetry', key, label?, unit?, decimals?, color?}] (≤ 12, no duplicate), reason?}`. SUPER_ADMIN (403 `SUPER_ADMIN_ONLY`, behind `INSTRUMENT_UPDATE`), re-auth `UPDATE_INSTRUMENT_PROFILE`, 400 on an attribute / 13th key; unchanged = no write, no audit; a change audits `INSTRUMENT_PROFILE_UPDATED` with before / after. `GET /api/instrument-profiles[/:id]` return `displayKeys` (corrupt stored value = `[]`) |
 | GET | `/api/instruments/{id}/dead-letters` | Rejected payloads for one instrument |

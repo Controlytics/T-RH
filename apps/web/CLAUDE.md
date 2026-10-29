@@ -53,7 +53,7 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
 ## Key Paths
 - Source: `apps/web/src/`
 - Entry: `apps/web/src/main.tsx`
-- Routes: `apps/web/src/routes/` (**54 `<Route>` definitions** in `main.tsx`, 53 → 54, 2026-10-24: `/config/attribute-access`; re-derived `grep -cE "<Route"` 2026-09-16 — unchanged that day (a `/config/attribute-labels` route lived for a few hours and was folded into the Instrument Attributes page); 52 → 53 on 2026-09-08 with `/settings`; 51 → 52 on 2026-09-07 with `/reports` (the report review workflow) after 50 → 51 with `/data-report`; it had gone 51 → 50 on 2026-08-31 with `/config/alarm-rules` and THIS line was never re-synced, so the number here was right by coincidence for a week. Earlier: 50 -> 51 on 2026-08-29: `/config/export-options`, which had a config def declaring customPagePath and a card on the Configuration dashboard but NO registered route — the card fell through to the dashboard, so the page had never been reachable. Earlier, verified 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page (target form with a placeholder picker rendered from `ALARM_WEBHOOK_VARIABLES`, a scope picker reusing the functional-location tree widget, Send test, and a status-filterable delivery log). Earlier, 2026-08-24, 48 → 49: new `/instruments/:id/trend` page (gradient identity strip, one period/interval row, two BAND GAUGES, full-width limit-lined charts, raw paged time-series + alarms side by side). The latest-value cards it launched with were replaced by `band-gauge.tsx` on 2026-08-24 — a bare number cannot answer "how close to the limit is it?", which is the page's whole question. **Restyled 2026-08-31 to an operator reference image, and the number leads again — but the band did NOT go away: the horizontal track became the ARC around the quantity icon (swept to the reading's place between its bounds, red on a breach) and the two bounds are named in a three-cell panel under it. See "The trend latest-value card" below.** `/config/role-assignments` removed 2026-08-19 as dead code (its 7 config defs went in the Phase 0 strip and `system_config` held 0 rows for them), 49 → 48; the previous "23 folders / ~84 pages / 77 Routes" was stale before 2026-08-11 and the shortfall has NOT been reconciled. 2026-08-13 added `/functional-locations`; 2026-08-14 added `/alarms` and `/config/alarm-rules`; 2026-08-16 added `/functional-locations/:id`)
+- Routes: `apps/web/src/routes/` (**56 `<Route>` definitions** in `main.tsx`, 54 → 56, 2026-10-29: `/dashboards`, `/dashboards/:id`; 53 → 54, 2026-10-24: `/config/attribute-access`; re-derived `grep -cE "<Route"` 2026-09-16 — unchanged that day (a `/config/attribute-labels` route lived for a few hours and was folded into the Instrument Attributes page); 52 → 53 on 2026-09-08 with `/settings`; 51 → 52 on 2026-09-07 with `/reports` (the report review workflow) after 50 → 51 with `/data-report`; it had gone 51 → 50 on 2026-08-31 with `/config/alarm-rules` and THIS line was never re-synced, so the number here was right by coincidence for a week. Earlier: 50 -> 51 on 2026-08-29: `/config/export-options`, which had a config def declaring customPagePath and a card on the Configuration dashboard but NO registered route — the card fell through to the dashboard, so the page had never been reachable. Earlier, verified 2026-08-27 — 49 → 50: new `/config/alarm-webhooks` page (target form with a placeholder picker rendered from `ALARM_WEBHOOK_VARIABLES`, a scope picker reusing the functional-location tree widget, Send test, and a status-filterable delivery log). Earlier, 2026-08-24, 48 → 49: new `/instruments/:id/trend` page (gradient identity strip, one period/interval row, two BAND GAUGES, full-width limit-lined charts, raw paged time-series + alarms side by side). The latest-value cards it launched with were replaced by `band-gauge.tsx` on 2026-08-24 — a bare number cannot answer "how close to the limit is it?", which is the page's whole question. **Restyled 2026-08-31 to an operator reference image, and the number leads again — but the band did NOT go away: the horizontal track became the ARC around the quantity icon (swept to the reading's place between its bounds, red on a breach) and the two bounds are named in a three-cell panel under it. See "The trend latest-value card" below.** `/config/role-assignments` removed 2026-08-19 as dead code (its 7 config defs went in the Phase 0 strip and `system_config` held 0 rows for them), 49 → 48; the previous "23 folders / ~84 pages / 77 Routes" was stale before 2026-08-11 and the shortfall has NOT been reconciled. 2026-08-13 added `/functional-locations`; 2026-08-14 added `/alarms` and `/config/alarm-rules`; 2026-08-16 added `/functional-locations/:id`)
 - Hooks: `apps/web/src/hooks/` (**26** entries incl. `__tests__`, `ls apps/web/src/hooks/ | wc -l` 2026-10-05 — 25 → 26 that day with `use-row-keys.ts`, stable React keys for editable rows with no id of their own (audit WEB-14); 23 → 25 on 2026-10-01 with `use-report-downloads.ts` (the ONE reader of the per-type report download policy) and `use-offset-keys.ts` (which keys get the + / - offset input); this line was not re-synced that day. Earlier 22 → 23 on 2026-09-16 with `use-attribute-labels.ts`, the ONE browser reader of Configuration → Attribute Display Names: `labelFor(key)` returns the administered name or the KEY, never a literal; consumed by the New Instrument form, the Attributes panel, the Settings widget and the Attribute Access picker; since 2026-09-21 it also returns `settingsHidden` / `isHiddenInSettings(key)` — the Settings page's hidden set, from the SAME response, nothing hidden until it arrives. Earlier list: auth, branding, datetime, pagination, reauth, session, single-tab, toast, field-labels)
 - Components: `apps/web/src/components/` (layout, UI primitives, dialogs)
 - API Client: `apps/web/src/lib/api-client.ts`
@@ -314,6 +314,36 @@ draws `shownKeys` (the list minus its own resolved temperature / humidity keys, 
 never drawn twice), and every `KeyDisplayRows` row has **Remove** — a stored key this instrument never
 sent is not in the picker, and Remove is its only way out (review fix pass 2026-10-29). Tests: `extra-keys.test.tsx`, `trend-extra-keys.test.tsx`,
 `display-keys-dialog.test.tsx`.
+
+## Built dashboards — `routes/dashboards/` (2026-10-29, dashboard builder phase 1)
+
+`/dashboards` (`index.tsx`, the list — concept A) and `/dashboards/:id` (`dashboard-page.tsx` — header
+concept C), both `RequireRole DASHBOARD_VIEW`; sidebar item `dashboards`, appended LAST. Rules and
+rulings: `docs/feature-notes.md` DASHBOARDS. What a page must not get wrong:
+- **Everything shown is the server's.** The list is `GET /api/dashboards` as returned (`assignments`
+  only for a SUPER_ADMIN); a 404 is "This dashboard is not available to you."; `source: null` is NO
+  instruments plus a banner, never all. `selectionForSource()` (`widgets/selection.ts`) is the ONE
+  mapping from a dashboard source to the widgets' `WidgetSelection`; an empty id list makes no request.
+- **Edit / Settings / Assign are SUPER_ADMIN presentation; the route's 403 is the control.** Every
+  write is `reauth.execute('UPDATE_DASHBOARD', …)` with all three outcomes. Save sends the WHOLE
+  document with `expectedUpdatedAt` = the `updatedAt` captured when editing BEGAN (R10), adopts the
+  whole PUT response, and a 409 keeps the draft until Reload. `use-dashboard-draft.ts` holds the draft
+  (placement = the home `addWidget`'s rule — it is a second copy; keep them in step).
+- **One widget's failure stays in its card**: a failed request prints `LOAD_FAILED`; a renderer that
+  THROWS is caught by `RenderBoundary` (per card, and around `WidgetDialog`, whose live preview runs the
+  renderer) and keeps Edit widget / Remove while editing.
+- The header window is session state (`time-window-picker.tsx`); Settings (`settings-dialog.tsx`) owns
+  the stored default and the source; Assign (`assign-dialog.tsx`: `/api/roles/active` minus
+  SUPER_ADMIN, `/api/users?…&status=ENABLED`) replaces the whole set.
+- **Widget tables wear the shared `Table` (R5), on `/` too, and `TableHeader` keeps its band on hover**
+  (a header `TableRow`'s hover tint covered the band on every banded table).
+- **PanelGrid drags / resizes ONLY at `lg` (container > 1200 px, R9)** — see the react-grid-layout
+  note below. The list's row actions are `Button size="icon-sm"`: with the default size's `px-4` a
+  `w-8` button left the icon a 0 px box (found in the built render, `50441b9`).
+- Seen with the built stylesheet at 1240 px: `docs/superpowers/concepts/2026-10-29-dashboards/built-*.png`.
+  The alarm table's 11 columns scroll sideways in a full-width card (as the home panel's do).
+  Tests: `routes/dashboards/__tests__/*`, `widgets/__tests__/{alarm-table-widget,selection,use-widget-data-source,widget-range}.test.*`,
+  `panel-grid-breakpoint.test.tsx` — one file per process.
 
 ## Instrument detail — the Details card (trimmed 2026-09-16)
 
@@ -1816,6 +1846,15 @@ resizes it with no drag. `routes/dashboard/panel-auto-height.ts` holds the maths
   and requires an explicit `width`. A `legacy` entry point keeps the v1 shape;
   `routes/dashboard/panel-grid.tsx` does NOT use it. Both its CSS and
   `react-resizable`'s must be imported or the resize corner is invisible.
+  **Only the `lg` arrangement is stored, so dragging and resizing are enabled ONLY at `lg`**
+  (ruling R9, 2026-10-29 — `interactive = canArrange && editing && breakpoint === 'lg'`, the
+  breakpoint being the library's own `getBreakpointFromWidth(BREAKPOINTS, width)`; `lg` is a
+  container WIDER than 1200 px). Below it edit mode shows "Widen the window (or collapse the
+  sidebar) to move and resize cards — the arrangement is saved in the 12-column layout." Until
+  then a drag at `md` (a 1240 px window with the sidebar open) moved the card and was silently
+  discarded, and the breakpoint was `onBreakpointChange` state that never left `lg` for a grid
+  mounted at `md`. Pinned by `__tests__/panel-grid-breakpoint.test.tsx`. Optional `resetLabel` /
+  `saveLabel` name the edit row's buttons (a built dashboard: "Discard changes" / "Save").
 - Cleaning-profile pipeline editor uses a custom hand-rolled canvas (the
   `reactflow` + `@monaco-editor/react` deps were removed 2026-05-30 — 0 imports
   remained after the 2026-05-17 rule-chain tear-out)

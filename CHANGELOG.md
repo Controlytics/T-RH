@@ -1,5 +1,64 @@
 # Changelog
 
+## [Unreleased] - Dashboard builder, phase 1: many named dashboards a super admin builds and assigns (2026-10-29)
+
+Operator: "… like in thingsboard i need same feature like different dashboards creation and different
+types of widgtes, like charts, graphs, trends, time series, alarms and more", then "yes proceed" to the
+playback and "do best one" for the look. Spec `docs/superpowers/specs/2026-10-29-dashboard-builder-design.md`;
+plan `docs/superpowers/plans/2026-10-29-dashboard-builder-phase1.md`; feature note DASHBOARDS in
+`docs/feature-notes.md`. **Built, not pushed, not deployed.**
+
+- **A new sidebar item, Dashboards** (`/dashboards`), beside Dashboard (`/`, untouched). A super admin
+  creates, renames, duplicates (no assignments copied), deletes and assigns dashboards to roles and
+  users; everyone else sees only the dashboards assigned to them or their role, read-only. The list
+  (concept A) shows Title + description, Instruments, Widgets, Assigned to (super admin only), Updated.
+- **A dashboard covers a set of instruments** — all, one profile, a functional location (direct only or
+  with its Areas), or a fixed list of up to 200 — resolved on the server on every read inside the
+  viewer's own scope. An unreadable or vanished source shows NO instruments, never all of them.
+- **`/dashboards/:id`** (header concept C): title, description, "<source> · N in your view", period
+  chips 15m … 30d + Custom, Refresh; for a super admin Edit (the home grid: Add widget with "Follow the
+  dashboard", Edit / Remove per widget, Discard changes / Cancel / Save), Settings (title, description,
+  instruments, default time window) and Assign (roles + users). Trend chart and time-series widgets
+  follow the dashboard window unless they set their own period; value cards, the latest table and the
+  alarm table take none. One widget's failure — a refused request or a renderer that throws — stays in
+  its own card.
+- **A fifth widget type, the alarm table** — the "Alarms in this selection" panel (`SelectionAlarms`
+  through a `scope` prop) over the widget's instruments, with its filters, paging and acknowledge flow.
+  Offered on `/` too, where it draws only for a viewer who also has the `dashboard_alarms` panel.
+- **Server:** `/api/dashboards` rewritten, 13 → 7 routes (`GET /`, `GET /:id`, `POST /`,
+  `POST /:id/duplicate`, `PUT /:id`, `DELETE /:id`, `PUT /:id/assignments`; the per-widget, layout,
+  data, widget-types and old assign routes retired). Writes are SUPER_ADMIN by ROLE (a `preValidation`
+  hook — a stale `DASHBOARD_*` grant opens nothing), re-auth `UPDATE_DASHBOARD`, ONE transaction with
+  the eight existing `DASHBOARD_*` audit actions (each value names its target; an unchanged save
+  writes nothing; widgets diffed by id; one row per role / user assigned or unassigned). `PUT /:id` is
+  conditional on `expectedUpdatedAt` (the `updatedAt` captured when editing began): a dashboard changed
+  since is a 409 that writes nothing, and the page keeps the draft until Reload. The document lives in
+  the existing `dashboards.layout` (strict shared writer, forgiving shared reader); no migration;
+  `dashboard_widgets` left in place, unused. `telemetry-overview` gained `profileId` + `instrumentIds`;
+  `/api/alarms` gained `instrumentIds`, `profileId` and `functionalLocationDirect=true` (present-but-empty
+  `instrumentIds` selects nothing).
+- **Changed on `/` as well (rulings in the ledger):** the latest-values, time-series and trend-strip
+  widget tables wear the shared table (R5); the shared `TableHeader` keeps its band on hover (a header
+  row's hover tint covered the band on every banded table); cards are dragged and resized only at the
+  `lg` breakpoint, with a "Widen the window (or collapse the sidebar)…" hint below it (R9 — a drag at
+  `md`, which a 1240 px window with the sidebar open is, was silently thrown away); PanelGrid takes
+  optional `resetLabel` / `saveLabel`; each built widget on `/` is keyed on its definition, so an
+  edited widget's new defaults show without a reload.
+- **Fixed in the Task 9 render (`50441b9`):** the Dashboards list's row actions drew as empty squares —
+  the default Button size's padding beside a 32 px width left each icon a 0 px box. They use
+  `size="icon-sm"` now (one case pins it, mutation-checked).
+- **Counts:** reauth actions 56 → 57, sidebar items 14 → 15, permission-tree groups 14 → 15,
+  `<Route`s 54 → 56, shared type files 37 → 38, `/api/dashboards` routes 13 → 7. Unchanged: models
+  38, enums 13, permissions 45, audit actions 100 / templates 113, modules 25, config defs 36, config
+  pages 23, tree nodes 56, feature privileges 39. No migration.
+- **Gates (2026-10-29, by exit code):** shared 39 files / 570 tests; API full suite single fork 253 files /
+  3285 tests; the 19 web test files this phase created or touched plus the four named guards, one per
+  process, 240 tests; `npm run lint` in shared, api and web; `npm run check:migrations` (49 scanned).
+- **Rendered** with the built stylesheet in headless Chrome at 1240 px wide:
+  `docs/superpowers/concepts/2026-10-29-dashboards/built-*.png`. **Not seen in the operator's browser.**
+- **Owed:** an AWS read-only count of `dashboards` / `dashboard_assignments` rows before the deploy
+  (an unassigned dashboard becomes SUPER_ADMIN-only); the 2026-10-24 permission strip on AWS.
+
 ## [Unreleased] - Widget data keys, phase 3: the trend page shows each profile's extra keys (2026-10-29)
 
 Operator: "go ahead with phase 3 trend page" (spec §7; plan

@@ -21,7 +21,7 @@ rebuild actually needs — the path list is mechanical.
 | `notification-settings` | 14 | `debug` | 5 |
 | `users` | 12 | `user-groups` | 4 |
 | `notifications` | 9 | `help` | 4 |
-| `dashboards` | 9 | `admin-requests` | 4 |
+| `dashboards` | 4 (9 until 2026-10-29) | `admin-requests` | 4 |
 | `auth` | 9 | `ldap` | 3 |
 | `super-admin` | 7 | `backup` | 3 |
 | `audit` | 7 | `uploads` | 1 |
@@ -87,12 +87,12 @@ Observed usage frequency (`grep -rho ... | sort | uniq -c`):
 | `CONFIG_UPDATE` | 31 |
 | `CONFIG_READ` | 27 |
 | `ROLE_MANAGE` | 9 |
-| `DASHBOARD_MANAGE` | 6 |
+| `DASHBOARD_MANAGE` | 0 (6 until 2026-10-29 — dashboard writes are SUPER_ADMIN by role now) |
 | `USER_RESET_PASSWORD` | 4 |
 | `USER_CREATE` | 4 |
 | `READ_DEBUG_TRACE` | 4 |
 | `USER_READ` | 3 |
-| `DASHBOARD_VIEW` | 3 |
+| `DASHBOARD_VIEW` | 2 (3 until 2026-10-29; plus one `requireAnyPermission('CONFIG_READ', 'DASHBOARD_VIEW')` on `GET /api/floorplans`) |
 | `requireAnyPermission(...)` | 3 |
 
 **SUPER_ADMIN bypasses** these checks — but its actions are still audited

@@ -1,5 +1,37 @@
 # tasks/todo.md
 
+## 2026-10-29 — Dashboard builder, phase 1 (many named dashboards, alarm table)
+
+Operator: "… like in thingsboard i need same feature like different dashboards creation and different
+types of widgtes …" → "yes proceed" to the playback → "do best one" (look). Spec
+`docs/superpowers/specs/2026-10-29-dashboard-builder-design.md`, plan
+`docs/superpowers/plans/2026-10-29-dashboard-builder-phase1.md`, ledger
+`.superpowers/sdd/2026-10-29-dashboard-builder-phase1/progress.md` (rulings R1–R10, D1–D6), feature
+note DASHBOARDS in `docs/feature-notes.md`. Commits `6a4ddf1..` on `data-layer` (base `6ec4de5`).
+
+- [x] T1 shared — `dashboard-document.ts` (strict / forgiving readers, source, window, diff), `alarm_table` type, re-auth `UPDATE_DASHBOARD` (`6a4ddf1`)
+- [x] T2 API — `telemetry-overview` `profileId` / `instrumentIds`; `/api/alarms` `instrumentIds` / `profileId` / `functionalLocationDirect` (`52c474f`)
+- [x] T3 API — `/api/dashboards` rewritten, 13 → 7 routes; fix round 1 (`ee7e1f2`, `cec2304`, `5d9a98d`)
+- [x] T4 concept images (3 × list + page); operator: "do best one" → list A, page header C (R6)
+- [x] T5 web — widgets follow a dashboard source / window; alarm table widget (`ce3e21f`)
+- [x] T6 web — Dashboards sidebar page: list, new, rename, duplicate, delete (`7e06f14`)
+- [x] T7 web — dashboard page: view, edit, save; R5 tables; TableHeader hover; R9 grid; fix round 1 (`10b7973`, `4678938`, `0ff333d`, `65d1ff2`, `4438003`)
+- [x] T8 web — Settings and Assign dialogs (`f47db71`)
+- [x] T9 — built render at 1240 (`built-*.png`), list row-action icons fixed (`50441b9`), docs, gates
+- [ ] **NOT pushed, NOT deployed.** Push to `trh` + deploy only when the operator asks.
+- [ ] **AWS, read-only, BEFORE the deploy:** `SELECT count(*) FROM dashboards; SELECT count(*) FROM dashboard_assignments;` — under the new rule an unassigned dashboard there becomes SUPER_ADMIN-only (zero expected: no screen ever existed).
+- [ ] **AWS, still owed from 2026-10-24:** `scripts/strip-unused-permissions.ts --apply` (operator) — the dashboard write routes no longer read `DASHBOARD_*` grants, so this is no longer a dashboard risk, but it is still owed.
+- [ ] Operator questions (spec §12): drop the unused `dashboard_widgets` table? (AWS row count first); ECharts or hand-built SVG for phase 2?
+- [ ] Operator decision (seen in the built render): the alarm table's 11 columns at the large type scroll sideways in a full-width card at 1240 and the sticky Acknowledge column covers "Acknowledged by" (same as the home panel) — trim columns / Compact size?
+- [ ] Phase 2 — the rest of the widget library: gauge, bar chart over time (`GET /api/instruments/telemetry-buckets`), comparison bars, pie (server-decided distributions only), alarm counts (`GET /api/alarms/counts`), status grid, instrument list, text card, floor plan; chart library settled in that plan
+- [ ] Phase 3 — instrument dashboards: `kind` `INSTRUMENT` bound to a profile (migration), instrument picker, drill-down from fleet widgets, "Start from this profile"; the trend page stays the governed record view
+- [ ] Phase 4 (separate approval) — JSON export / import; governed widget downloads via a `REPORT_KINDS` entry
+- [ ] Deferred minors (from the ledger; none blocks phase 1):
+  - [ ] shared: `UPDATE_DASHBOARD` sits between the 2026-10-12 comment and `UPDATE_AUDIT_HARD_DELETE` (the comment now heads the wrong entry); `WIDGET_ALARM_STATUSES` sits between `WIDGET_TYPES` and `type WidgetType`; `readDashboardDocument` stamps version 1 on anything (no forward-version signal); a fixed window accepts only Z-suffixed datetimes; tests: no alarm gate on `resolveLayout`'s fromRole branch, no "appears twice" refusal case, the `diffWidgets` reorder test shuffles top-level keys only
+  - [ ] API: `list-query.ts` duplicates `UUID_RE` from `lib/uuid-list.ts`; `/api/alarms` `profileId` validated twice (a schema 400 body, not `VALIDATION_ERROR`; `?profileId=` empty is a schema 400); the overview 400 body has no `field`; e2e gaps — `profileId` and `functionalLocationDirect` with the scoped OPERATOR, the 201-id cap on `/api/alarms`, an unknown `profileId` on alarms; `afterAll` `.catch(() => {})` (repo pattern); widgets the forgiving reader drops vanish unaudited on the next save (legacy / hand-edited rows only); case 9's `dashboardAssignment.count === 0` tests nothing; the mass-assignment RED was an import failure
+  - [ ] web: the widget dialog's section numbers read 1, 2, 4 for an alarm table; `window` parameters shadow the global; `import type { WIDGET_ALARM_STATUSES }` mid-block in `selection-alarms.tsx`; stale "four renderers / four sections" comments; `autoHeightIds` `||` chain; loose `/of\s*7/` match; nested-ternary selector precedence untested; `use-dashboard-draft` duplicates the home placement rule (can drift), `autoRows` / `reportHeight` and the fallback band header copied; "· 0 in your view" on a failed overview; `Svg` / `PATHS` imported from the list route module; latest-values value cells `whitespace-nowrap` on `/` too; widget key `JSON.stringify(w)` is key-order sensitive; a failed preview discards in-dialog edits; an un-Applied custom window editor is dropped on Save / Enter; a stored location id no longer in the tree shows "Choose a block" while Save re-sends it; a Settings save resets the session window even when the window was not edited; users fetched `status=ENABLED` (a disabled-but-assigned user is kept); test gaps — list onError / onCancel / a rejected write / LoadError, page reauth onCancel / non-409 toast / Keep editing / `?edit=1` removal
+  - [ ] seen in T9 (pre-existing, app-wide, not fixed): five surfaces seed their page size with `useState(defaultLimit)` (`selection-alarms`, `alarms`, `audit`, `alarms-widget`, `reports`), so on a cold load before `/api/config/pagination/current` arrives they open at the hook's fallback 20 and never take the administered limit; in edit mode a card header shows "Edit widget" beside "Edit" (card style) — the phase 2 wording; the trend axis prints the time only over 24 h ("19:08 … 19:08")
+
 ## 2026-10-26 — Profile measurements (each profile defines what it measures and its keys)
 
 Operator: "temperature and humidity keys … limits keys … should be updated instrument
