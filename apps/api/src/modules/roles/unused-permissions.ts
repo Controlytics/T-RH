@@ -4,8 +4,8 @@
  * behind. Pure — `scripts/strip-unused-permissions.ts` applies it to every
  * role with one ROLE_UPDATED row each; read that script's header for the why.
  *
- * - DASHBOARD_CREATE / _MANAGE / _ASSIGN gate only the parked
- *   `/api/dashboards` module, which no screen calls.
+ * - DASHBOARD_CREATE / _MANAGE / _ASSIGN gate nothing: since 2026-10-29 the
+ *   `/api/dashboards` write routes check for the SUPER_ADMIN role instead.
  * - USER_DELETE: deleting a user is SUPER_ADMIN only (route + button).
  * - FIELD_ID_UPDATE: its screen (Display Settings → Field IDs) is SUPER_ADMIN only.
  * - NOTIFICATION_CREATE / _UPDATE / _MANAGE and BACKUP_MANAGE: no toggle ever

@@ -1,573 +1,456 @@
-import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
+import { randomUUID } from 'node:crypto';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { Prisma } from '@prisma/client';
+import {
+  parseDashboardDocument, readDashboardDocument, emptyDashboardDocument, diffWidgets, widgetsEqual,
+  widgetItemId, widgetIdOf,
+  type DashboardDocument, type StoredDashboardDocument, type CustomWidget,
+} from '@digilog/shared';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
-// getTsdbPool removed with data-ingestion removal.
+import { enforceReauth } from '../../lib/reauth-check.js';
+import { stripHtml } from '../../lib/sanitize.js';
+import {
+  idParams, listResponse, detailResponse, createdResponse, assignmentsResponse, deleteResponse,
+  createDashboardBody, updateDashboardBody, assignmentsBody, DASHBOARD_TITLE_MAX,
+} from './schemas.js';
+import {
+  DASHBOARDS_SUPER_ADMIN_ONLY, DASHBOARD_CHANGED_MESSAGE, DASHBOARD_NOT_FOUND_MESSAGE,
+  visibleDashboardWhere, findVisibleDashboard, presentDashboards, presentDetail, readAssignments, byTitle,
+  who, meaning, dashboardCreatedValue, dashboardStateValue, widgetValue, assigneeValue, assigneeText,
+  type Assignee,
+} from './service.js';
 
 /**
- * Dashboard routes — widget-based dashboards with assignment
- * Prefix: /api/dashboards
+ * `/api/dashboards` — the server behind the dashboard builder (phase 1,
+ * 2026-10-29; spec docs/superpowers/specs/2026-10-29-dashboard-builder-design.md
+ * §5, §6.1). Rewritten from the parked DigiLog widget-dashboard module.
  *
- * STATUS: Future-development scope (parked 2026-04-30).
- * Backend is feature-complete (CRUD, widgets, layout, role/user/org assignment,
- * widget data fetcher) and tied to the Dashboard / DashboardWidget /
- * DashboardAssignment Prisma models. No frontend page consumes it today —
- * the live "Dashboard" route at `/` uses standalone endpoints
- * (/api/users/stats, /api/audit?limit=1, /api/filters/dashboard-stats, etc).
- *
- * To activate: build the `/dashboards` page (drag-drop widget canvas + the
- * widget-types catalog) and replace the hardcoded landing page. Tracked in
- * future/feature-dashboards.md.
+ * - **A dashboard is ONE document** in `dashboards.layout`:
+ *   `{ version, source, timeWindow, items, widgets }`. A save sends the whole
+ *   document, strictly parsed (`parseDashboardDocument`); a read is forgiving
+ *   (`readDashboardDocument`), so one bad widget never blanks a dashboard. The
+ *   per-widget routes, `PUT /:id/layout`, `POST /:id/assign`, the assignment
+ *   DELETE, `GET /:id/data/:widgetId` and `GET /widget-types` are GONE, and the
+ *   `dashboard_widgets` table is left in place, unused (spec §12 question 1).
+ * - **Seeing** a dashboard needs DASHBOARD_VIEW + an active row + an assignment
+ *   to the caller or their role (`visibleDashboardWhere`, the ONE rule). A
+ *   SUPER_ADMIN sees every active one; ADMIN is not special; no assignment means
+ *   none. Anything not visible is a 404, never a 403. A dashboard grants
+ *   nothing: its widgets read the instrument routes under the viewer's own scope.
+ * - **Writing** is SUPER_ADMIN only, checked by ROLE before anything else, so a
+ *   stale DASHBOARD_CREATE / MANAGE / ASSIGN grant (still possible on AWS) opens
+ *   nothing. Those permission constants stay defined; no route reads them.
+ * - **Every write, in this order:** the role (403) → the row exists and is
+ *   active (404) → `enforceReauth('UPDATE_DASHBOARD')` → validation (400) → ONE
+ *   transaction holding the write and all its audit rows.
+ * - **Two editors:** `PUT /:id` carries the `updatedAt` the editor loaded and
+ *   the update is conditional on it; a stale save is a 409 that writes nothing.
+ * - `isDefault`, `isActive` and `createdBy` keep their columns; `isDefault` is
+ *   neither exposed nor writable.
  */
+const REAUTH_ACTION = 'UPDATE_DASHBOARD';
+const COPY_SUFFIX = ' (copy)';
+/** Up to 550 hash-chained audit inserts (an assignment replace) must not hit Prisma's 5 s default. */
+const WRITE_TX = { timeout: 30_000 } as const;
+
+const notFound = (reply: FastifyReply) =>
+  reply.code(404).send({ error: 'DASHBOARD_NOT_FOUND', message: DASHBOARD_NOT_FOUND_MESSAGE });
+const invalid = (reply: FastifyReply, message: string) =>
+  reply.code(400).send({ error: 'VALIDATION_ERROR', message });
+
+/** Step 1 of every write: true when the caller was refused (the reply is sent). */
+function refusedNotSuperAdmin(req: FastifyRequest, reply: FastifyReply): boolean {
+  if (req.user.role === 'SUPER_ADMIN') return false;
+  reply.code(403).send({ error: 'DASHBOARDS_SUPER_ADMIN_ONLY', message: DASHBOARDS_SUPER_ADMIN_ONLY });
+  return true;
+}
+
+/** HTML stripped and trimmed, as on every text field; null when nothing is left. */
+function cleanTitle(v: string): string | null {
+  const t = stripHtml(v).slice(0, DASHBOARD_TITLE_MAX).trim();
+  return t.length > 0 ? t : null;
+}
+function cleanDescription(v: string | null | undefined): string | null | undefined {
+  if (v === undefined || v === null) return v;
+  const t = stripHtml(v).trim();
+  return t.length > 0 ? t : null;
+}
+
+/** `<title> (copy)`, within the column, the suffix always kept. */
+function copyTitle(title: string): string {
+  if (title.length + COPY_SUFFIX.length <= DASHBOARD_TITLE_MAX) return `${title}${COPY_SUFFIX}`;
+  return `${title.slice(0, DASHBOARD_TITLE_MAX - COPY_SUFFIX.length).trimEnd()}${COPY_SUFFIX}`;
+}
+
+/**
+ * Whether two documents are the same dashboard. Both sides come out of the same
+ * zod / `readItem` path (the strict parse, and the forgiving read of the stored
+ * row), so their keys are in the same order and JSON comparison is exact.
+ */
+function sameDocument(a: StoredDashboardDocument, b: StoredDashboardDocument): boolean {
+  return JSON.stringify(a.source) === JSON.stringify(b.source)
+    && JSON.stringify(a.timeWindow) === JSON.stringify(b.timeWindow)
+    && JSON.stringify(a.items) === JSON.stringify(b.items)
+    && widgetsEqual(a.widgets, b.widgets);
+}
+
+const asJson = (d: StoredDashboardDocument) => d as unknown as Prisma.InputJsonValue;
+
 export default async function dashboardRoutes(app: FastifyInstance) {
-  /** Who, on every audit row this module writes (the create's existing shape). */
-  const who = (req: FastifyRequest) => ({
-    userId: req.user.username, userRole: req.user.role,
-    ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
-  });
-  /** A dashboard / widget on an audit row; `name` is what the trail's {targetName} reads. */
-  const dashboardAudit = (d: { title: string; description: string | null; isDefault: boolean; isActive: boolean }) =>
-    ({ name: d.title, description: d.description, isDefault: d.isDefault, isActive: d.isActive });
-  const widgetAudit = (w: { title: string; widgetType: string; dashboardId: string; position: unknown; refreshInterval: number | null }, dashboardTitle?: string) =>
-    ({ name: w.title, widgetType: w.widgetType, dashboardId: w.dashboardId, ...(dashboardTitle ? { dashboard: dashboardTitle } : {}), position: w.position, refreshInterval: w.refreshInterval });
-
-
-  /**
-   * The ONE rule for which dashboards a caller may see, used by the list AND
-   * by every per-dashboard read (audit 2026-10-12 finding 10: the list showed a
-   * non-admin with no assignments every active dashboard while `GET /:id` 404'd
-   * each of them, and `GET /:id` served soft-deleted dashboards the list hid).
-   * Active only; SUPER_ADMIN / ADMIN see all of them; anyone else sees the ones
-   * assigned to them or their role — or, with no assignment at all, every
-   * active one (the list's long-standing documented behaviour).
-   */
-  async function visibleDashboardWhere(req: FastifyRequest): Promise<{ isActive: true; id?: { in: string[] } }> {
-    const role = req.user.role;
-    if (role === 'SUPER_ADMIN' || role === 'ADMIN') return { isActive: true };
-    const assignments = await prisma.dashboardAssignment.findMany({
-      where: {
-        OR: [
-          { assigneeType: 'USER', userId: req.user.sub },
-          { assigneeType: 'ROLE', roleValue: role },
-        ],
-      },
-      select: { dashboardId: true },
-    });
-    const ids = assignments.map((a) => a.dashboardId);
-    return ids.length > 0 ? { isActive: true, id: { in: ids } } : { isActive: true };
+  /** One WIDGET_* row per widget added; used by create, duplicate and save. */
+  async function auditWidgetsCreated(tx: Prisma.TransactionClient, req: FastifyRequest, dashboardId: string, title: string, widgets: readonly CustomWidget[]) {
+    for (const w of widgets) {
+      await auditLog({
+        ...who(req), action: 'DASHBOARD_WIDGET_CREATED', targetType: 'dashboard', targetId: dashboardId,
+        afterValue: widgetValue(w, title),
+        signatureMeaning: meaning(`Widget "${w.title}" added to dashboard "${title}"`),
+      }, tx);
+    }
   }
 
-  async function canAccessDashboard(req: FastifyRequest, dashboardId: string): Promise<boolean> {
-    const where = await visibleDashboardWhere(req);
-    return (await prisma.dashboard.count({ where: { AND: [where, { id: dashboardId }] } })) > 0;
-  }
-
-  // ─── LIST DASHBOARDS (user's visible dashboards) ───────
+  // ─── LIST ──────────────────────────────────────────────
   app.get('/', {
     preHandler: [app.requirePermission('DASHBOARD_VIEW')],
     schema: {
       tags: ['Dashboards'],
-      summary: 'List dashboards visible to current user',
-      querystring: {
-        type: 'object',
-        properties: {
-          page: { type: 'integer', default: 1 },
-          limit: { type: 'integer', default: 20 },
-        },
-      },
+      summary: 'The dashboards the caller may see',
+      description: 'Active dashboards assigned to the caller or their role (a SUPER_ADMIN sees every active one), ordered by title ignoring case. No paging. `assignments` is sent to a SUPER_ADMIN only.',
+      response: listResponse,
     },
   }, async (req) => {
-    const { page = 1, limit = 20 } = req.query as any;
-    const where = await visibleDashboardWhere(req);
-
-    const [data, total] = await Promise.all([
-      prisma.dashboard.findMany({
-        where,
-        skip: (page - 1) * limit,
-        take: limit,
-        orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
-        include: { _count: { select: { widgets: true, assignments: true } } },
-      }),
-      prisma.dashboard.count({ where }),
-    ]);
-
-    return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+    const rows = await prisma.dashboard.findMany({
+      where: visibleDashboardWhere(req.user),
+      select: { id: true, title: true, description: true, layout: true, updatedAt: true },
+    });
+    rows.sort(byTitle);
+    const presented = await presentDashboards(rows, req.user.role === 'SUPER_ADMIN');
+    return { data: presented.map((p) => p.summary) };
   });
 
-  // ─── GET DASHBOARD WITH WIDGETS ────────────────────────
+  // ─── ONE ───────────────────────────────────────────────
   app.get('/:id', {
     preHandler: [app.requirePermission('DASHBOARD_VIEW')],
     schema: {
       tags: ['Dashboards'],
-      summary: 'Get dashboard with all widgets',
-      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
+      summary: 'One dashboard with its document',
+      description: 'The stored document, read forgivingly: a bad widget is dropped with its item, a bad window reads as the default, a bad source reads as null. 404 when the caller may not see it.',
+      params: idParams,
+      response: detailResponse,
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    if (!(await canAccessDashboard(req, id))) {
-      return reply.code(404).send({ error: 'Dashboard not found' });
-    }
-
-    const dashboard = await prisma.dashboard.findUnique({
-      where: { id },
-      include: {
-        widgets: { orderBy: { createdAt: 'asc' } },
-        assignments: true,
-      },
-    });
-
-    return dashboard;
+    const row = await findVisibleDashboard(req.user, id);
+    if (!row) return notFound(reply);
+    return presentDetail(row, req.user.role === 'SUPER_ADMIN');
   });
 
-  // ─── CREATE DASHBOARD ──────────────────────────────────
+  // ─── CREATE ────────────────────────────────────────────
   app.post('/', {
     schema: {
       tags: ['Dashboards'],
-      summary: 'Create a new dashboard',
-      body: {
-        type: 'object',
-        required: ['title'],
-        properties: {
-          title: { type: 'string', minLength: 1, maxLength: 200 },
-          description: { type: 'string', maxLength: 500 },
-          layout: { type: 'object' },
-          isDefault: { type: 'boolean' },
-        },
-      },
+      summary: 'Create a dashboard (SUPER_ADMIN)',
+      description: 'Without a `document`: no widgets, every instrument, the last 24 hours. Re-auth action UPDATE_DASHBOARD.',
+      body: createDashboardBody,
+      response: createdResponse,
     },
-    preHandler: [app.requirePermission('DASHBOARD_CREATE')],
   }, async (req, reply) => {
-    const body = req.body as any;
-    // The change and its audit row in ONE transaction.
-    const dashboard = await prisma.$transaction(async (tx) => {
-      // If setting as default, unset other defaults
-      if (body.isDefault) {
-        await tx.dashboard.updateMany({ where: { isDefault: true }, data: { isDefault: false } });
-      }
-      const row = await tx.dashboard.create({
-        data: {
-          title: body.title,
-          description: body.description,
-          layout: body.layout || {},
-          isDefault: body.isDefault || false,
-          createdBy: req.user.sub,
-        },
+    if (refusedNotSuperAdmin(req, reply)) return;
+    const { ok } = await enforceReauth(REAUTH_ACTION, req, reply);
+    if (!ok) return;
+    const body = req.body as { title: string; description?: string | null; document?: unknown };
+    const title = cleanTitle(body.title);
+    if (!title) return invalid(reply, 'A dashboard needs a title.');
+    const description = cleanDescription(body.description) ?? null;
+    let document: DashboardDocument = emptyDashboardDocument();
+    if (body.document !== undefined) {
+      const parsed = parseDashboardDocument(body.document);
+      if (!parsed.ok) return invalid(reply, parsed.message);
+      document = parsed.document;
+    }
+
+    const row = await prisma.$transaction(async (tx) => {
+      const created = await tx.dashboard.create({
+        data: { title, description, layout: asJson(document), createdBy: req.user.sub },
       });
       await auditLog({
-        userId: req.user.username, userRole: req.user.role,
-        action: 'DASHBOARD_CREATED', targetType: 'dashboard', targetId: row.id,
-        afterValue: { title: row.title, isDefault: row.isDefault },
-        ipAddress: req.ip, userAgent: req.headers['user-agent'],
-        sessionId: req.user.sessionId,
+        ...who(req), action: 'DASHBOARD_CREATED', targetType: 'dashboard', targetId: created.id,
+        afterValue: dashboardCreatedValue(title, description, document),
+        signatureMeaning: meaning(`Dashboard "${title}" created`),
       }, tx);
-      return row;
-    });
-
-    return reply.code(201).send(dashboard);
+      await auditWidgetsCreated(tx, req, created.id, title, document.widgets);
+      return created;
+    }, WRITE_TX);
+    return reply.code(201).send(await presentDetail(row, true));
   });
 
-  // ─── UPDATE DASHBOARD ──────────────────────────────────
+  // ─── DUPLICATE ─────────────────────────────────────────
+  app.post('/:id/duplicate', {
+    schema: {
+      tags: ['Dashboards'],
+      summary: 'Copy a dashboard (SUPER_ADMIN)',
+      description: 'Titled "<title> (copy)". Every widget gets a new id and its item is re-pointed. Assignments are NOT copied. Re-auth action UPDATE_DASHBOARD.',
+      params: idParams,
+      response: createdResponse,
+    },
+  }, async (req, reply) => {
+    if (refusedNotSuperAdmin(req, reply)) return;
+    const { id } = req.params as { id: string };
+    if (!(await findVisibleDashboard(req.user, id))) return notFound(reply);
+    const { ok } = await enforceReauth(REAUTH_ACTION, req, reply);
+    if (!ok) return;
+
+    const row = await prisma.$transaction(async (tx) => {
+      const source = await findVisibleDashboard(req.user, id, tx);
+      if (!source) return null;
+      const was = readDashboardDocument(source.layout);
+      const newIds = new Map(was.widgets.map((w) => [w.id, randomUUID()]));
+      const copy: StoredDashboardDocument = {
+        ...was,
+        widgets: was.widgets.map((w) => ({ ...w, id: newIds.get(w.id)! })),
+        items: was.items.map((it) => {
+          const old = widgetIdOf(it.i);
+          return old && newIds.has(old) ? { ...it, i: widgetItemId(newIds.get(old)!) } : it;
+        }),
+      };
+      const title = copyTitle(source.title);
+      const created = await tx.dashboard.create({
+        data: { title, description: source.description, layout: asJson(copy), createdBy: req.user.sub },
+      });
+      await auditLog({
+        ...who(req), action: 'DASHBOARD_CREATED', targetType: 'dashboard', targetId: created.id,
+        afterValue: { ...dashboardCreatedValue(title, source.description, copy), duplicatedFrom: { id: source.id, name: source.title } },
+        signatureMeaning: meaning(`Dashboard "${title}" created as a copy of "${source.title}"`),
+      }, tx);
+      await auditWidgetsCreated(tx, req, created.id, title, copy.widgets);
+      return created;
+    }, WRITE_TX);
+    if (!row) return notFound(reply);
+    return reply.code(201).send(await presentDetail(row, true));
+  });
+
+  // ─── SAVE ──────────────────────────────────────────────
   app.put('/:id', {
     schema: {
       tags: ['Dashboards'],
-      summary: 'Update dashboard',
-      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
-      body: {
-        type: 'object',
-        properties: {
-          title: { type: 'string', minLength: 1, maxLength: 200 },
-          description: { type: 'string', maxLength: 500 },
-          layout: { type: 'object' },
-          isDefault: { type: 'boolean' },
-          isActive: { type: 'boolean' },
-        },
-        // The handler does `data: body`, so every key the client sends reaches
-        // Prisma. AJV's removeAdditional only strips unknown keys when the schema
-        // declares this — without it a DASHBOARD_MANAGE holder could PUT
-        // createdBy/createdAt and rewrite the row's provenance.
-        additionalProperties: false,
-      },
+      summary: 'Save a dashboard (SUPER_ADMIN)',
+      description: 'Any of title, description and the WHOLE document, plus the `updatedAt` the editor loaded. A save against a dashboard changed since is 409 DASHBOARD_CHANGED and writes nothing; a save that changes nothing writes nothing and audits nothing. Re-auth action UPDATE_DASHBOARD.',
+      params: idParams,
+      body: updateDashboardBody,
+      response: detailResponse,
     },
-    preHandler: [app.requirePermission('DASHBOARD_MANAGE')],
   }, async (req, reply) => {
+    if (refusedNotSuperAdmin(req, reply)) return;
     const { id } = req.params as { id: string };
-    const body = req.body as any;
-    const existing = await prisma.dashboard.findFirst({ where: { id } });
-    if (!existing) return reply.code(404).send({ error: 'Dashboard not found' });
+    if (!(await findVisibleDashboard(req.user, id))) return notFound(reply);
+    const { ok } = await enforceReauth(REAUTH_ACTION, req, reply);
+    if (!ok) return;
 
-    return prisma.$transaction(async (tx) => {
-      if (body.isDefault) {
-        await tx.dashboard.updateMany({ where: { isDefault: true, id: { not: id } }, data: { isDefault: false } });
+    const body = req.body as { title?: string; description?: string | null; document?: unknown; expectedUpdatedAt: string };
+    let title: string | undefined;
+    if (body.title !== undefined) {
+      const t = cleanTitle(body.title);
+      if (!t) return invalid(reply, 'A dashboard needs a title.');
+      title = t;
+    }
+    const description = cleanDescription(body.description);
+    let document: DashboardDocument | undefined;
+    if (body.document !== undefined) {
+      const parsed = parseDashboardDocument(body.document);
+      if (!parsed.ok) return invalid(reply, parsed.message);
+      document = parsed.document;
+    }
+    const expected = new Date(body.expectedUpdatedAt);
+
+    const outcome = await prisma.$transaction(async (tx) => {
+      const cur = await findVisibleDashboard(req.user, id, tx);
+      if (!cur) return 'gone' as const;
+      const was = readDashboardDocument(cur.layout);
+      const nextTitle = title ?? cur.title;
+      const nextDescription = description === undefined ? cur.description : description;
+      const docChanged = document !== undefined && !sameDocument(was, document);
+      if (nextTitle === cur.title && nextDescription === cur.description && !docChanged) return 'unchanged' as const;
+      const next: StoredDashboardDocument = docChanged ? document! : was;
+
+      // Conditional on the version the editor loaded: a row another save moved
+      // on matches nothing, and nothing below runs. The new stamp is always
+      // later than the expected one, so two saves inside one millisecond still
+      // leave the second editor stale.
+      const { count } = await tx.dashboard.updateMany({
+        where: { id, isActive: true, updatedAt: expected },
+        data: {
+          title: nextTitle,
+          description: nextDescription,
+          ...(docChanged ? { layout: asJson(next) } : {}),
+          updatedAt: new Date(Math.max(Date.now(), expected.getTime() + 1)),
+        },
+      });
+      if (count === 0) return 'conflict' as const;
+
+      const ctx = who(req);
+      const before = dashboardStateValue(cur.title, cur.description, was);
+      const after = dashboardStateValue(nextTitle, nextDescription, next);
+      if (JSON.stringify(before) !== JSON.stringify(after)) {
+        await auditLog({
+          ...ctx, action: 'DASHBOARD_UPDATED', targetType: 'dashboard', targetId: id,
+          beforeValue: before, afterValue: after,
+          signatureMeaning: meaning(`Dashboard "${nextTitle}" updated`),
+        }, tx);
       }
-      const dashboard = await tx.dashboard.update({ where: { id }, data: body });
-      await auditLog({
-        ...who(req), action: 'DASHBOARD_UPDATED', targetType: 'dashboard', targetId: id,
-        beforeValue: dashboardAudit(existing), afterValue: dashboardAudit(dashboard),
-        signatureMeaning: `Dashboard "${dashboard.title}" updated`,
-      }, tx);
-      return dashboard;
-    });
+      if (docChanged) {
+        const diff = diffWidgets(was.widgets, next.widgets);
+        await auditWidgetsCreated(tx, req, id, nextTitle, diff.created);
+        for (const u of diff.updated) {
+          await auditLog({
+            ...ctx, action: 'DASHBOARD_WIDGET_UPDATED', targetType: 'dashboard', targetId: id,
+            beforeValue: widgetValue(u.before, cur.title), afterValue: widgetValue(u.after, nextTitle),
+            signatureMeaning: meaning(`Widget "${u.after.title}" updated on dashboard "${nextTitle}"`),
+          }, tx);
+        }
+        for (const w of diff.deleted) {
+          await auditLog({
+            ...ctx, action: 'DASHBOARD_WIDGET_DELETED', targetType: 'dashboard', targetId: id,
+            beforeValue: widgetValue(w, cur.title),
+            signatureMeaning: meaning(`Widget "${w.title}" removed from dashboard "${nextTitle}"`),
+          }, tx);
+        }
+      }
+      return 'saved' as const;
+    }, WRITE_TX);
+
+    if (outcome === 'gone') return notFound(reply);
+    if (outcome === 'conflict') return reply.code(409).send({ error: 'DASHBOARD_CHANGED', message: DASHBOARD_CHANGED_MESSAGE });
+    const row = await findVisibleDashboard(req.user, id);
+    if (!row) return notFound(reply);
+    return presentDetail(row, true);
   });
 
-  // ─── DELETE DASHBOARD ──────────────────────────────────
+  // ─── DELETE ────────────────────────────────────────────
   app.delete('/:id', {
     schema: {
       tags: ['Dashboards'],
-      summary: 'Delete dashboard',
-      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
+      summary: 'Delete a dashboard (SUPER_ADMIN)',
+      description: 'A soft delete: the row stays, inactive, and is gone from every read. Re-auth action UPDATE_DASHBOARD.',
+      params: idParams,
+      response: deleteResponse,
     },
-    preHandler: [app.requirePermission('DASHBOARD_MANAGE')],
   }, async (req, reply) => {
+    if (refusedNotSuperAdmin(req, reply)) return;
     const { id } = req.params as { id: string };
-    const existing = await prisma.dashboard.findFirst({ where: { id } });
-    if (!existing) return reply.code(404).send({ error: 'Dashboard not found' });
+    if (!(await findVisibleDashboard(req.user, id))) return notFound(reply);
+    const { ok } = await enforceReauth(REAUTH_ACTION, req, reply);
+    if (!ok) return;
 
-    await prisma.$transaction(async (tx) => {
-      await tx.dashboard.update({ where: { id }, data: { isActive: false } });
+    const deleted = await prisma.$transaction(async (tx) => {
+      const cur = await findVisibleDashboard(req.user, id, tx);
+      if (!cur) return false;
+      // Conditional, so two deletes racing write ONE audit row between them.
+      const { count } = await tx.dashboard.updateMany({ where: { id, isActive: true }, data: { isActive: false } });
+      if (count === 0) return false;
       await auditLog({
         ...who(req), action: 'DASHBOARD_DELETED', targetType: 'dashboard', targetId: id,
-        beforeValue: dashboardAudit(existing),
-        signatureMeaning: `Dashboard "${existing.title}" deleted`,
-      }, tx);
-    });
-    return { success: true };
-  });
-
-  // ═══════════════════════════════════════════════════════
-  // WIDGETS
-  // ═══════════════════════════════════════════════════════
-
-  // ─── ADD WIDGET ────────────────────────────────────────
-  app.post('/:id/widgets', {
-    schema: {
-      tags: ['Dashboards'],
-      summary: 'Add widget to dashboard',
-      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
-      body: {
-        type: 'object',
-        required: ['widgetType', 'title'],
-        properties: {
-          widgetType: { type: 'string', enum: ['timeseries_chart', 'gauge', 'value_card', 'entity_table', 'status_indicator', 'scada_symbol', 'map', 'html_widget', 'image'] },
-          title: { type: 'string', maxLength: 200 },
-          config: { type: 'object' },
-          position: { type: 'object', properties: { x: { type: 'integer' }, y: { type: 'integer' }, w: { type: 'integer' }, h: { type: 'integer' } } },
-          dataSource: { type: 'object' },
-          refreshInterval: { type: 'integer', minimum: 0 },
-        },
-      },
-    },
-    preHandler: [app.requirePermission('DASHBOARD_MANAGE')],
-  }, async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const body = req.body as any;
-    const dashboard = await prisma.dashboard.findFirst({ where: { id } });
-    if (!dashboard) return reply.code(404).send({ error: 'Dashboard not found' });
-
-    const widget = await prisma.$transaction(async (tx) => {
-      const row = await tx.dashboardWidget.create({
-        data: {
-          dashboardId: id,
-          widgetType: body.widgetType,
-          title: body.title,
-          config: body.config || {},
-          position: body.position || { x: 0, y: 0, w: 4, h: 3 },
-          dataSource: body.dataSource || {},
-          refreshInterval: body.refreshInterval ?? 30,
-        },
-      });
-      await auditLog({
-        ...who(req), action: 'DASHBOARD_WIDGET_CREATED', targetType: 'dashboard_widget', targetId: row.id,
-        afterValue: widgetAudit(row, dashboard.title),
-        signatureMeaning: `Widget "${row.title}" added to dashboard "${dashboard.title}"`,
-      }, tx);
-      return row;
-    });
-
-    return reply.code(201).send(widget);
-  });
-
-  // ─── UPDATE WIDGET ─────────────────────────────────────
-  app.put('/:id/widgets/:widgetId', {
-    schema: {
-      tags: ['Dashboards'],
-      summary: 'Update widget',
-      params: {
-        type: 'object',
-        properties: { id: { type: 'string', format: 'uuid' }, widgetId: { type: 'string', format: 'uuid' } },
-        required: ['id', 'widgetId'],
-      },
-      body: {
-        type: 'object',
-        properties: {
-          title: { type: 'string', maxLength: 200 },
-          config: { type: 'object' },
-          position: { type: 'object' },
-          dataSource: { type: 'object' },
-          refreshInterval: { type: 'integer', minimum: 0 },
-        },
-        // Same as the dashboard PUT above. Worse here: dashboardId is writable, so
-        // an unfiltered `data: body` let a caller re-parent a widget onto another
-        // dashboard — straight past the ownership check this handler runs on the
-        // PARENT id. widgetType is writable too, bypassing the create-time enum.
-        additionalProperties: false,
-      },
-    },
-    preHandler: [app.requirePermission('DASHBOARD_MANAGE')],
-  }, async (req, reply) => {
-    const { id, widgetId } = req.params as { id: string; widgetId: string };
-    const body = req.body as any;
-
-    const widget = await prisma.dashboardWidget.findFirst({ where: { id: widgetId, dashboardId: id } });
-    if (!widget) return reply.code(404).send({ error: 'Widget not found' });
-
-    return prisma.$transaction(async (tx) => {
-      const updated = await tx.dashboardWidget.update({ where: { id: widgetId }, data: body });
-      await auditLog({
-        ...who(req), action: 'DASHBOARD_WIDGET_UPDATED', targetType: 'dashboard_widget', targetId: widgetId,
-        beforeValue: widgetAudit(widget), afterValue: widgetAudit(updated),
-        signatureMeaning: `Widget "${updated.title}" updated`,
-      }, tx);
-      return updated;
-    });
-  });
-
-  // ─── DELETE WIDGET ─────────────────────────────────────
-  app.delete('/:id/widgets/:widgetId', {
-    schema: {
-      tags: ['Dashboards'],
-      summary: 'Remove widget',
-      params: {
-        type: 'object',
-        properties: { id: { type: 'string', format: 'uuid' }, widgetId: { type: 'string', format: 'uuid' } },
-        required: ['id', 'widgetId'],
-      },
-    },
-    preHandler: [app.requirePermission('DASHBOARD_MANAGE')],
-  }, async (req, reply) => {
-    // The widget must be THIS dashboard's: the route used to delete any widget
-    // by id, through any dashboard's URL (audit 2026-10-12 finding 10).
-    const { id, widgetId } = req.params as { id: string; widgetId: string };
-    const removed = await prisma.$transaction(async (tx) => {
-      const widget = await tx.dashboardWidget.findFirst({ where: { id: widgetId, dashboardId: id } });
-      if (!widget) return false;
-      await tx.dashboardWidget.delete({ where: { id: widgetId } });
-      await auditLog({
-        ...who(req), action: 'DASHBOARD_WIDGET_DELETED', targetType: 'dashboard_widget', targetId: widgetId,
-        beforeValue: widgetAudit(widget),
-        signatureMeaning: `Widget "${widget.title}" removed`,
+        beforeValue: dashboardStateValue(cur.title, cur.description, readDashboardDocument(cur.layout)),
+        signatureMeaning: meaning(`Dashboard "${cur.title}" deleted`),
       }, tx);
       return true;
-    });
-    if (!removed) return reply.code(404).send({ error: 'Widget not found' });
+    }, WRITE_TX);
+    if (!deleted) return notFound(reply);
     return { success: true };
   });
 
-  // ─── BATCH UPDATE WIDGET POSITIONS (drag-and-drop) ─────
-  app.put('/:id/layout', {
+  // ─── ASSIGNMENTS ───────────────────────────────────────
+  app.put('/:id/assignments', {
     schema: {
       tags: ['Dashboards'],
-      summary: 'Batch update widget positions after drag-and-drop',
-      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
-      body: {
-        type: 'object',
-        required: ['positions'],
-        properties: {
-          positions: {
-            type: 'array',
-            items: {
-              type: 'object',
-              required: ['widgetId', 'x', 'y', 'w', 'h'],
-              properties: {
-                widgetId: { type: 'string', format: 'uuid' },
-                x: { type: 'integer' }, y: { type: 'integer' },
-                w: { type: 'integer' }, h: { type: 'integer' },
-              },
-            },
-          },
-        },
-      },
+      summary: 'Replace who a dashboard is assigned to (SUPER_ADMIN)',
+      description: 'The WHOLE set of roles and users. An unknown role or user is a 400 naming the first one. Only the difference is written, one DASHBOARD_ASSIGNED / UNASSIGNED row per role or user. Re-auth action UPDATE_DASHBOARD.',
+      params: idParams,
+      body: assignmentsBody,
+      response: assignmentsResponse,
     },
-    preHandler: [app.requirePermission('DASHBOARD_MANAGE')],
   }, async (req, reply) => {
+    if (refusedNotSuperAdmin(req, reply)) return;
     const { id } = req.params as { id: string };
-    const { positions } = req.body as { positions: Array<{ widgetId: string; x: number; y: number; w: number; h: number }> };
-    // Every widget named must be THIS dashboard's, or nothing moves (the route
-    // used to move any widget by id, and 500 on an unknown one).
-    const owned = await prisma.dashboardWidget.count({ where: { dashboardId: id, id: { in: [...new Set(positions.map((p) => p.widgetId))] } } });
-    if (owned !== new Set(positions.map((p) => p.widgetId)).size) {
-      return reply.code(404).send({ error: 'Widget not found on this dashboard' });
-    }
-    await prisma.$transaction(async (tx) => {
-      const dashboard = await tx.dashboard.findUniqueOrThrow({ where: { id }, select: { title: true } });
-      for (const p of positions) {
-        await tx.dashboardWidget.update({ where: { id: p.widgetId }, data: { position: { x: p.x, y: p.y, w: p.w, h: p.h } } });
-      }
-      // One row for the arrangement: a drag moves many widgets at once.
-      await auditLog({
-        ...who(req), action: 'DASHBOARD_UPDATED', targetType: 'dashboard', targetId: id,
-        afterValue: { name: dashboard.title, layout: positions },
-        signatureMeaning: `Dashboard "${dashboard.title}" layout changed (${positions.length} widget(s))`,
-      }, tx);
-    });
-    return { success: true, updated: positions.length };
-  });
+    if (!(await findVisibleDashboard(req.user, id))) return notFound(reply);
+    const { ok } = await enforceReauth(REAUTH_ACTION, req, reply);
+    if (!ok) return;
 
-  // ═══════════════════════════════════════════════════════
-  // ASSIGNMENTS
-  // ═══════════════════════════════════════════════════════
+    const { roles, userIds } = req.body as { roles: string[]; userIds: string[] };
+    const [knownRoles, knownUsers] = await Promise.all([
+      roles.length ? prisma.role.findMany({ where: { name: { in: roles } }, select: { name: true } }) : Promise.resolve([]),
+      userIds.length ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, username: true } }) : Promise.resolve([]),
+    ]);
+    const roleSet = new Set(knownRoles.map((r) => r.name));
+    const unknownRole = roles.find((r) => !roleSet.has(r));
+    if (unknownRole !== undefined) return invalid(reply, `Unknown role "${unknownRole}".`);
+    const usernames = new Map(knownUsers.map((u) => [u.id, u.username]));
+    const unknownUser = userIds.find((u) => !usernames.has(u));
+    if (unknownUser !== undefined) return invalid(reply, `Unknown user ${unknownUser}.`);
 
-  // ─── ASSIGN DASHBOARD ──────────────────────────────────
-  app.post('/:id/assign', {
-    schema: {
-      tags: ['Dashboards'],
-      summary: 'Assign dashboard to user/org/role',
-      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
-      body: {
-        type: 'object',
-        required: ['assigneeType'],
-        properties: {
-          assigneeType: { type: 'string', enum: ['USER', 'ROLE'] },
-          userId: { type: 'string', format: 'uuid' },
-          roleValue: { type: 'string' },
-        },
-      },
-    },
-    preHandler: [app.requirePermission('DASHBOARD_ASSIGN')],
-  }, async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const body = req.body as any;
-
-    // A dashboard that does not exist was a foreign-key error (500), and an
-    // assignment naming nobody was stored and matched no one.
-    const dashboard = await prisma.dashboard.findFirst({ where: { id }, select: { id: true, title: true } });
-    if (!dashboard) return reply.code(404).send({ error: 'Dashboard not found' });
-    if ((body.assigneeType === 'USER' && !body.userId) || (body.assigneeType === 'ROLE' && !body.roleValue)) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'A USER assignment needs userId; a ROLE assignment needs roleValue.' });
-    }
-
-    const assignment = await prisma.$transaction(async (tx) => {
-      const row = await tx.dashboardAssignment.create({
-        data: {
-          dashboardId: id,
-          assigneeType: body.assigneeType,
-          userId: body.userId || null,
-          roleValue: body.roleValue || null,
-        },
+    const done = await prisma.$transaction(async (tx) => {
+      // Row lock: two replaces of one set must not both insert the same
+      // assignment (the table has no unique key) or both audit it.
+      const locked = await tx.$queryRaw<{ title: string }[]>`
+        SELECT title FROM dashboards WHERE id = ${id}::uuid AND is_active FOR UPDATE`;
+      if (locked.length === 0) return false;
+      const title = locked[0].title;
+      const stored = await tx.dashboardAssignment.findMany({
+        where: { dashboardId: id },
+        select: { id: true, assigneeType: true, userId: true, roleValue: true },
       });
-      await auditLog({
-        ...who(req), action: 'DASHBOARD_ASSIGNED', targetType: 'dashboard', targetId: id,
-        afterValue: { name: dashboard.title, assignmentId: row.id, assigneeType: row.assigneeType, userId: row.userId, roleValue: row.roleValue },
-        signatureMeaning: `Dashboard "${dashboard.title}" assigned to ${row.assigneeType === 'ROLE' ? `role ${row.roleValue}` : `user ${row.userId}`}`,
-      }, tx);
-      return row;
-    });
+      const wantRoles = new Set(roles);
+      const wantUsers = new Set(userIds);
+      const haveRoles = new Set(stored.flatMap((a) => (a.assigneeType === 'ROLE' && a.roleValue ? [a.roleValue] : [])));
+      const haveUsers = new Set(stored.flatMap((a) => (a.assigneeType === 'USER' && a.userId ? [a.userId] : [])));
+      const dropped = stored.filter((a) => (a.assigneeType === 'ROLE'
+        ? !a.roleValue || !wantRoles.has(a.roleValue)
+        : !a.userId || !wantUsers.has(a.userId)));
+      const addRoles = roles.filter((r) => !haveRoles.has(r));
+      const addUsers = userIds.filter((u) => !haveUsers.has(u));
+      if (dropped.length === 0 && addRoles.length === 0 && addUsers.length === 0) return true;
 
-    return reply.code(201).send(assignment);
-  });
+      // A removed user may no longer exist (no foreign key): name it if we can.
+      const droppedUserIds = dropped.flatMap((a) => (a.assigneeType === 'USER' && a.userId ? [a.userId] : []));
+      const droppedNames = new Map((droppedUserIds.length
+        ? await tx.user.findMany({ where: { id: { in: droppedUserIds } }, select: { id: true, username: true } })
+        : []).map((u) => [u.id, u.username]));
 
-  // ─── REMOVE ASSIGNMENT ─────────────────────────────────
-  app.delete('/:dashboardId/assign/:assignmentId', {
-    schema: {
-      tags: ['Dashboards'],
-      summary: 'Remove dashboard assignment',
-      params: {
-        type: 'object',
-        properties: { dashboardId: { type: 'string' }, assignmentId: { type: 'string', format: 'uuid' } },
-        required: ['dashboardId', 'assignmentId'],
-      },
-    },
-    preHandler: [app.requirePermission('DASHBOARD_ASSIGN')],
-  }, async (req, reply) => {
-    // THIS dashboard's assignment only (the route deleted any by id).
-    const { dashboardId, assignmentId } = req.params as { dashboardId: string; assignmentId: string };
-    const removed = await prisma.$transaction(async (tx) => {
-      const row = await tx.dashboardAssignment.findFirst({ where: { id: assignmentId, dashboardId }, include: { dashboard: { select: { title: true } } } });
-      if (!row) return false;
-      await tx.dashboardAssignment.delete({ where: { id: assignmentId } });
-      await auditLog({
-        ...who(req), action: 'DASHBOARD_UNASSIGNED', targetType: 'dashboard', targetId: dashboardId,
-        beforeValue: { name: row.dashboard.title, assignmentId: row.id, assigneeType: row.assigneeType, userId: row.userId, roleValue: row.roleValue },
-        signatureMeaning: `Dashboard "${row.dashboard.title}" assignment removed`,
-      }, tx);
+      if (dropped.length) await tx.dashboardAssignment.deleteMany({ where: { id: { in: dropped.map((a) => a.id) } } });
+      if (addRoles.length || addUsers.length) {
+        await tx.dashboardAssignment.createMany({
+          data: [
+            ...addRoles.map((roleValue) => ({ dashboardId: id, assigneeType: 'ROLE' as const, roleValue })),
+            ...addUsers.map((userId) => ({ dashboardId: id, assigneeType: 'USER' as const, userId })),
+          ],
+        });
+      }
+
+      const ctx = who(req);
+      const added: Assignee[] = [
+        ...addRoles.map((role): Assignee => ({ type: 'ROLE', role })),
+        ...addUsers.map((userId): Assignee => ({ type: 'USER', userId, username: usernames.get(userId) ?? null })),
+      ];
+      // One row per role or user, even if the parked module stored one twice.
+      const removed = [...new Map(dropped.map((a): [string, Assignee] => (a.assigneeType === 'ROLE'
+        ? [`ROLE:${a.roleValue}`, { type: 'ROLE', role: a.roleValue ?? '' }]
+        : [`USER:${a.userId}`, { type: 'USER', userId: a.userId ?? '', username: (a.userId && droppedNames.get(a.userId)) || null }]))).values()];
+      for (const a of added) {
+        await auditLog({
+          ...ctx, action: 'DASHBOARD_ASSIGNED', targetType: 'dashboard', targetId: id,
+          afterValue: assigneeValue(title, a),
+          signatureMeaning: meaning(`Dashboard "${title}" assigned to ${assigneeText(a)}`),
+        }, tx);
+      }
+      for (const a of removed) {
+        await auditLog({
+          ...ctx, action: 'DASHBOARD_UNASSIGNED', targetType: 'dashboard', targetId: id,
+          beforeValue: assigneeValue(title, a),
+          signatureMeaning: meaning(`Dashboard "${title}" no longer assigned to ${assigneeText(a)}`),
+        }, tx);
+      }
       return true;
-    });
-    if (!removed) return reply.code(404).send({ error: 'Assignment not found' });
-    return { success: true };
-  });
-
-  // ═══════════════════════════════════════════════════════
-  // WIDGET DATA
-  // ═══════════════════════════════════════════════════════
-
-  // ─── GET WIDGET DATA ───────────────────────────────────
-  app.get('/:id/data/:widgetId', {
-    preHandler: [app.requirePermission('DASHBOARD_VIEW')],
-    schema: {
-      tags: ['Dashboards'],
-      summary: 'Fetch data for a specific widget',
-      params: {
-        type: 'object',
-        properties: { id: { type: 'string', format: 'uuid' }, widgetId: { type: 'string', format: 'uuid' } },
-        required: ['id', 'widgetId'],
-      },
-    },
-  }, async (req, reply) => {
-    const { id, widgetId } = req.params as { id: string; widgetId: string };
-
-    if (!(await canAccessDashboard(req, id))) {
-      return reply.code(404).send({ error: 'Dashboard not found' });
-    }
-
-    const widget = await prisma.dashboardWidget.findFirst({ where: { id: widgetId, dashboardId: id } });
-    if (!widget) return reply.code(404).send({ error: 'Widget not found' });
-
-    const dataSource = widget.dataSource as any;
-    const entityIds = dataSource?.entityIds || [];
-    const telemetryKeys = dataSource?.telemetryKeys || [];
-
-    if (entityIds.length === 0) {
-      return { widgetId, data: [], message: 'No entity IDs configured' };
-    }
-
-    switch (widget.widgetType) {
-      case 'value_card':
-      case 'gauge':
-      case 'status_indicator':
-      case 'timeseries_chart': {
-        // Telemetry source removed with data-ingestion removal (Phase 7); the
-        // latest_telemetry cache table was dropped 2026-07-01. These widgets now
-        // return empty.
-        return { widgetId, widgetType: widget.widgetType, data: [] };
-      }
-
-      case 'entity_table': {
-        // Entity source removed with the cleanroom domain strip (2026-07-18);
-        // the source table is gone. Returns empty like the telemetry
-        // widgets above.
-        return { widgetId, widgetType: 'entity_table', data: [] };
-      }
-
-      default:
-        return { widgetId, widgetType: widget.widgetType, data: [], message: 'Widget type data fetch not implemented' };
-    }
-  });
-
-  // ─── WIDGET TYPES ──────────────────────────────────────
-  app.get('/widget-types', {
-    schema: {
-      tags: ['Dashboards'],
-      summary: 'List available widget types',
-    },
-  }, async () => {
-    return [
-      { type: 'timeseries_chart', label: 'Time Series Chart', icon: 'line-chart', description: 'Line/bar/area chart for telemetry history', category: 'Charts' },
-      { type: 'gauge', label: 'Gauge', icon: 'gauge', description: 'Radial gauge for single telemetry value', category: 'Charts' },
-      { type: 'value_card', label: 'Value Card', icon: 'hash', description: 'Display latest telemetry value', category: 'Cards' },
-      { type: 'entity_table', label: 'Entity Table', icon: 'table', description: 'Entity list with attributes', category: 'Tables' },
-      { type: 'status_indicator', label: 'Status Indicator', icon: 'circle', description: 'Online/offline LED indicator', category: 'Indicators' },
-      { type: 'scada_symbol', label: 'SCADA Symbol', icon: 'cpu', description: 'SVG with telemetry data binding', category: 'SCADA' },
-      { type: 'map', label: 'Map', icon: 'map-pin', description: 'Device location map', category: 'Maps' },
-      { type: 'html_widget', label: 'Custom HTML', icon: 'code', description: 'Custom HTML/JS widget', category: 'Advanced' },
-      { type: 'image', label: 'Image', icon: 'image', description: 'Static or dynamic image', category: 'Media' },
-    ];
+    }, WRITE_TX);
+    if (!done) return notFound(reply);
+    return (await readAssignments([id])).get(id)!;
   });
 }
