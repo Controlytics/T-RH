@@ -303,13 +303,12 @@ permissions and scope.
     and every login lands there. A switcher would either bring that bar back or be found only
     after a drill-down.
   - **Governance:**
-    - a new permission-tree group `dashboards` with ONE node, `dashboards.view`, gated on the
-      EXISTING `DASHBOARD_VIEW` (no new permission) and configurable;
+    - a new permission-tree group `dashboards` whose visibility is the EXISTING node
+      `dashboard.view` (gated on `DASHBOARD_VIEW`), with no node of its own. There is no new
+      permission and no second toggle: the Permissions tab keeps ONE "View Dashboards" toggle,
+      covering both menus (plan ruling D1);
     - the Roles & Access Sidebar tab shows or hides "Dashboards" per role independently of
-      "Dashboard", so a project role can get its dashboards without the plant Overview;
-    - the two menus share one grant, so the Permissions tab moves them together. That is the
-      documented "toggles sharing one grant" behaviour, stated here so it is not mistaken for a
-      bug.
+      "Dashboard", so a project role can get its dashboards without the plant Overview.
 - **`/dashboards`** (the dashboard list):
   - a table with Title, Instruments (the source summary), Widgets, Assigned to, Updated;
   - for a SUPER_ADMIN, New, Duplicate, Rename, Delete and Assign;
@@ -355,7 +354,7 @@ permissions and scope.
 
 | Area | Files |
 |---|---|
-| Shared | new `types/dashboard-document.ts` (+ test); `types/dashboard-widgets.ts` (`alarm_table`, its options, the empty-keys rule); `types/reauth-actions.ts` (`UPDATE_DASHBOARD`); `types/sidebar-items.ts` (`dashboards`); `types/permission-tree.ts` (group + node + `CONFIGURABLE_PRIVILEGE_ORDER`) with `permission-tree.test.ts`, `legacy-maps-derived.test.ts` (39 → 40) and `__snapshots__/legacy-maps-snapshot.ts` (three arrays, appended); `index.ts` |
+| Shared | new `types/dashboard-document.ts` (+ test); `types/dashboard-widgets.ts` (`alarm_table`, its options, the empty-keys rule); `types/reauth-actions.ts` (`UPDATE_DASHBOARD`); `types/sidebar-items.ts` (`dashboards`); `types/permission-tree.ts` (a group reusing `dashboard.view`, no node) with `permission-tree.test.ts` and `__snapshots__/legacy-maps-snapshot.ts` (`SIDEBAR_PRIVILEGE_MAP_SNAPSHOT`, appended); `index.ts` |
 | API | `modules/dashboards/routes.ts` (rewrite) + a service/repository beside it; `modules/dashboards/__tests__/mass-assignment.test.ts`; `e2e/dashboards-module.e2e.test.ts`; `modules/instruments/routes.ts` + `telemetry-overview.ts` (overview filters); `modules/alarms/routes.ts` + `list-query.ts` (`instrumentIds`, `profileId`, `functionalLocationDirect`); `modules/config/config.service.ts` (sidebar auto-grant, checked) |
 | Web | `main.tsx` (+2 routes); `components/layout/sidebar.tsx` (`allNavItems` + icon; `sidebar-parity` / `sidebar-visibility` tests run); new `routes/dashboards/` (list page, dashboard page, settings dialog, assign dialog); `routes/dashboard/index.tsx` (ONLY the `alarm_table` + `dashboard_alarms` gate on a `w:` item); `widgets/use-widget-data.ts` (`selection` → a dashboard source); `widgets/widget-common.tsx` (the dashboard window in `useWidgetRange`); `widgets/widget-dialog.tsx` (wording, alarm type); `widgets/widget-panel.tsx`; new `widgets/alarm-table-widget.tsx` (built from the `alarm-table.tsx` pieces and the acknowledge flow, the filter set passed in) |
 | Docs | `CHANGELOG.md`; `docs/feature-notes.md` (new note); root, `apps/api` and `apps/web` `CLAUDE.md`; `packages/shared/CLAUDE.md` (type files 37 → 38); `docs/recreation/06-api/endpoints.md`; `tasks/todo.md` |
@@ -366,8 +365,7 @@ permissions and scope.
 - `<Route`s 54 → 56;
 - shared type files 37 → 38;
 - sidebar items 14 → 15;
-- permission-tree groups 14 → 15 and nodes 56 → 57;
-- feature privileges 39 → 40.
+- permission-tree groups 14 → 15 (nodes stay 56, feature privileges stay 39).
 
 No model, enum, permission, audit action, config def or config page moves, and there is no
 migration.
