@@ -237,6 +237,16 @@ describe('settings group (2026-09-08)', () => {
   });
 });
 
+describe('dashboards group (2026-10-29)', () => {
+  const group = PERMISSION_TREE.find((g) => g.sidebarId === 'dashboards');
+
+  it('the dashboards group reuses dashboard.view', () => {
+    expect(group).toBeTruthy();
+    expect(group!.visibilityPrivilegeIds).toEqual(['dashboard.view']);
+    expect(group!.nodes).toEqual([]);
+  });
+});
+
 describe('reports group (2026-09-07)', () => {
   // Every PDF download is a REQUEST; an approver signs it on the Reports page.
   // docs/superpowers/specs/2026-09-07-report-review-workflow-design.md

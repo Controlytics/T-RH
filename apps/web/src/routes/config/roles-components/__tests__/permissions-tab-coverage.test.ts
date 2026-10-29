@@ -9,7 +9,7 @@
  * Pure test — no React, no SWR, no DOM. Runs in vitest node/jsdom environment.
  */
 import { describe, it, expect } from 'vitest';
-import { FEATURE_PRIVILEGES } from '@digilog/shared';
+import { FEATURE_PRIVILEGES, PERMISSION_TREE } from '@digilog/shared';
 import { groupFeaturePrivilegesByTree } from '../permission-tree-grouping';
 
 describe('groupFeaturePrivilegesByTree — coverage invariant', () => {
@@ -80,6 +80,13 @@ describe('groupFeaturePrivilegesByTree — coverage invariant', () => {
       const nodeIdsFromPages = group.pageGroups.flatMap(pg => pg.nodes.map(n => n.id));
       expect(group.fpNodeIds.sort()).toEqual(nodeIdsFromPages.sort());
     }
+  });
+
+  it('a group with no nodes draws no section', () => {
+    // `dashboards` (2026-10-29) is a tree group with `nodes: []`: it only names
+    // the existing `dashboard.view` for sidebar visibility.
+    expect(PERMISSION_TREE.some((g) => g.sidebarId === 'dashboards' && g.nodes.length === 0)).toBe(true);
+    expect(groups.map((g) => g.sidebarId)).not.toContain('dashboards');
   });
 
   it('every node with reauthAction has a string reauthAction', () => {

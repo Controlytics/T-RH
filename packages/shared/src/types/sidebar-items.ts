@@ -35,4 +35,6 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
   // 2026-09-08: every instrument's details and attributes in one table, editable
   // in place. `/settings`; gated on INSTRUMENT_READ / INSTRUMENT_UPDATE through the tree.
   { id: 'settings', label: 'Settings', icon: '\u{1F6E0}\uFE0F', description: "Every instrument's details and attributes in one table, editable in place" },
+  // 2026-10-29: the dashboard builder's list. `/dashboards`; visibility reuses `dashboard.view`.
+  { id: 'dashboards', label: 'Dashboards', icon: '\u{1F5C2}\uFE0F', description: 'Dashboards a super admin builds and assigns' },
 ];

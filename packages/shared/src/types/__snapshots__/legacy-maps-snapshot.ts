@@ -543,5 +543,14 @@ export const SIDEBAR_PRIVILEGE_MAP_SNAPSHOT: SidebarSectionSnapshot[] = [
       "settings.view",
       "settings.edit"
     ]
+  },
+  {
+    "sidebarId": "dashboards",
+    "label": "Dashboards",
+    "icon": "🗂️",
+    "description": "Dashboards a super admin builds and assigns",
+    "privilegeIds": [
+      "dashboard.view"
+    ]
   }
 ];

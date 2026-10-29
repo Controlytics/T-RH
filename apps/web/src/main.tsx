@@ -70,6 +70,8 @@ const AlarmsPage = lazy(() => import('./routes/alarms'));
 const DataReportPage = lazy(() => import('./routes/data-report').then(m => ({ default: m.DataReportPage })));
 const ReportsPage = lazy(() => import('./routes/reports').then(m => ({ default: m.ReportsPage })));
 const SettingsPage = lazy(() => import('./routes/settings').then(m => ({ default: m.SettingsPage })));
+const DashboardsPage = lazy(() => import('./routes/dashboards').then(m => ({ default: m.DashboardsPage })));
+const DashboardPage = lazy(() => import('./routes/dashboards/dashboard-page').then(m => ({ default: m.DashboardPage })));
 const InstrumentProfileListPage = lazy(() => import('./routes/instruments/profile-list').then(m => ({ default: m.InstrumentProfileListPage })));
 const InstrumentListPage = lazy(() => import('./routes/instruments/list').then(m => ({ default: m.InstrumentListPage })));
 const InstrumentCreatePage = lazy(() => import('./routes/instruments/create').then(m => ({ default: m.InstrumentCreatePage })));
@@ -191,6 +193,9 @@ createRoot(document.getElementById('root')!).render(
             {/* Settings (2026-09-08): every instrument's details and attributes in
                 one table, editable in place by the roles granted Edit Settings. */}
             <Route path="/settings" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_READ]}><Suspense fallback={<LazyFallback />}><SettingsPage /></Suspense></RequireRole>} />
+            {/* 2026-10-29: the dashboard builder. The list and one dashboard; the server decides who sees which. */}
+            <Route path="/dashboards" element={<RequireRole permissions={[PERMISSIONS.DASHBOARD_VIEW]}><Suspense fallback={<LazyFallback />}><DashboardsPage /></Suspense></RequireRole>} />
+            <Route path="/dashboards/:id" element={<RequireRole permissions={[PERMISSIONS.DASHBOARD_VIEW]}><Suspense fallback={<LazyFallback />}><DashboardPage /></Suspense></RequireRole>} />
             <Route path="/instruments" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_READ]}><Suspense fallback={<LazyFallback />}><InstrumentProfileListPage /></Suspense></RequireRole>} />
             <Route path="/instruments/profiles/:profileId" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_READ]}><Suspense fallback={<LazyFallback />}><InstrumentListPage /></Suspense></RequireRole>} />
             <Route path="/instruments/new" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_CREATE]}><Suspense fallback={<LazyFallback />}><InstrumentCreatePage /></Suspense></RequireRole>} />

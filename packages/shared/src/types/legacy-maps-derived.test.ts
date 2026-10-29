@@ -80,7 +80,7 @@ describe('Phase 5E: derived maps === original snapshots', () => {
     expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(39);
   });
 
-  it('SIDEBAR_PRIVILEGE_MAP has exactly 14 sections', () => {
-    expect(SIDEBAR_PRIVILEGE_MAP).toHaveLength(14);
+  it('SIDEBAR_PRIVILEGE_MAP has exactly 15 sections', () => {
+    expect(SIDEBAR_PRIVILEGE_MAP).toHaveLength(15);
   });
 });

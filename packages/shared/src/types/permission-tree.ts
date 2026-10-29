@@ -469,6 +469,16 @@ export const PERMISSION_TREE: SidebarGroup[] = [
     ],
   },
 
+  // 2026-10-29 - Dashboards (the dashboard builder's list, `/dashboards`). It
+  // adds NO node and NO permission: who sees the item is who sees the existing
+  // dashboard (`dashboard.view`), and every write is SUPER_ADMIN-only on the
+  // server. A group with no nodes draws no section on the Permissions tab.
+  {
+    sidebarId: 'dashboards', label: 'Dashboards', icon: '🗂️',
+    description: 'Dashboards a super admin builds and assigns',
+    visibilityPrivilegeIds: ['dashboard.view'],
+    nodes: [],
+  },
 ];
 
 // ─── Phase 5E: Canonical ordering for derived maps ───────────────────────────
