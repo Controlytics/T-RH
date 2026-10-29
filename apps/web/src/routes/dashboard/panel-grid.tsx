@@ -44,15 +44,18 @@ const COLS = { lg: GRID_COLUMNS, md: 6, sm: 1 };
  * `AUTO_HEIGHT_PANELS`, so it keeps the corner and stays draggable in both axes —
  * it is the one panel here where a taller box genuinely shows more.
  */
-export function withResizeHandles(items: readonly LayoutItem[]) {
+export function withResizeHandles(
+  items: readonly LayoutItem[],
+  auto: ReadonlySet<string> = AUTO_HEIGHT_PANELS,
+) {
   return items.map((it) => (
-    AUTO_HEIGHT_PANELS.has(it.i) ? { ...it, resizeHandles: ['e' as const] } : it
+    auto.has(it.i) ? { ...it, resizeHandles: ['e' as const] } : it
   ));
 }
 
 export function PanelGrid({
   items, editing, saving, children, onStart, onCancel, onSave, onReset, onChange, toolbar,
-  canArrange = true,
+  canArrange = true, autoIds, editActions,
 }: {
   items: LayoutItem[];
   editing: boolean;
@@ -73,6 +76,10 @@ export function PanelGrid({
    * APPLIES to everyone — this governs who may change it, not who may see it.
    */
   canArrange?: boolean;
+  /** This layout's auto-height set (`autoHeightIds`), built widgets included. */
+  autoIds?: ReadonlySet<string>;
+  /** Extra controls in the edit row (Add widget, Save as role default) — SUPER_ADMIN only. */
+  editActions?: ReactNode;
 }) {
   const [breakpoint, setBreakpoint] = useState<keyof typeof COLS>('lg');
   // v2 requires an explicit width. `useContainerWidth` measures the element the
@@ -102,6 +109,7 @@ export function PanelGrid({
                 ? 'Rearranging is disabled on a narrow screen — open the dashboard wider to move cards.'
                 : 'Drag a card to move it, or drag its bottom-right corner to resize.'}
             </span>
+            {editActions}
             <Button variant="outline" disabled={saving} onClick={onReset}>Reset to default</Button>
             <Button variant="outline" disabled={saving} onClick={onCancel}>Cancel</Button>
             <Button disabled={saving} onClick={onSave}>{saving ? 'Saving…' : 'Save layout'}</Button>
@@ -124,7 +132,7 @@ export function PanelGrid({
         <ResponsiveGridLayout
           width={width}
           className="layout"
-          layouts={{ lg: withResizeHandles(items) as Layout }}
+          layouts={{ lg: withResizeHandles(items, autoIds) as Layout }}
           breakpoints={BREAKPOINTS}
           cols={COLS}
           rowHeight={ROW_HEIGHT}

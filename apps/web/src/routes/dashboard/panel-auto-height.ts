@@ -1,4 +1,4 @@
-import type { LayoutItem } from '@digilog/shared';
+import { widgetItemId, type CustomWidget, type LayoutItem } from '@digilog/shared';
 
 /**
  * Dashboard panels whose HEIGHT follows their content instead of being dragged.
@@ -115,9 +115,10 @@ export function nextRows(current: number | null, px: number): number {
 export function applyAutoHeights(
   items: readonly LayoutItem[],
   measured: Readonly<Record<string, number>>,
+  auto: ReadonlySet<string> = AUTO_HEIGHT_PANELS,
 ): LayoutItem[] {
   return items.map((it) => {
-    if (!AUTO_HEIGHT_PANELS.has(it.i)) return it;
+    if (!auto.has(it.i)) return it;
     const rows = measured[it.i];
     return typeof rows === 'number' && rows > 0 ? { ...it, h: rows } : it;
   });
@@ -135,11 +136,48 @@ export function applyAutoHeights(
 export function keepStoredHeights(
   next: readonly LayoutItem[],
   stored: readonly LayoutItem[],
+  auto: ReadonlySet<string> = AUTO_HEIGHT_PANELS,
 ): LayoutItem[] {
   const before = new Map(stored.map((it) => [it.i, it.h]));
   return next.map((it) => {
-    if (!AUTO_HEIGHT_PANELS.has(it.i)) return it;
+    if (!auto.has(it.i)) return it;
     const h = before.get(it.i);
     return typeof h === 'number' ? { ...it, h } : it;
   });
+}
+
+/**
+ * What a grid change may NOT change: a measured panel's stored height (above),
+ * and every card's STYLE.
+ *
+ * react-grid-layout hands back `{i, x, y, w, h}` and nothing else, so before this
+ * existed a tint or a renamed heading set on a card was dropped from the draft —
+ * and then from the saved layout — the moment any card was dragged (found
+ * 2026-10-28 while adding built widgets; nothing had pinned it). Widget
+ * DEFINITIONS never ride on the grid item for exactly this reason: they live in
+ * `layout.widgets`.
+ */
+export function carryStoredFields(
+  next: readonly LayoutItem[],
+  stored: readonly LayoutItem[],
+  auto: ReadonlySet<string> = AUTO_HEIGHT_PANELS,
+): LayoutItem[] {
+  const styles = new Map(stored.map((it) => [it.i, it.style]));
+  return keepStoredHeights(next, stored, auto).map((it) => {
+    const style = styles.get(it.i);
+    return style ? { ...it, style } : it;
+  });
+}
+
+/**
+ * The auto-height set for THIS layout: the fixed panels plus every built TABLE
+ * widget (`latest_table`, `timeseries_table`), which, like the readings table,
+ * end at their pagination bar. Value cards and trend charts keep a dragged height.
+ */
+export function autoHeightIds(widgets: readonly CustomWidget[]): ReadonlySet<string> {
+  const ids = new Set(AUTO_HEIGHT_PANELS);
+  for (const w of widgets) {
+    if (w.type === 'latest_table' || w.type === 'timeseries_table') ids.add(widgetItemId(w.id));
+  }
+  return ids;
 }

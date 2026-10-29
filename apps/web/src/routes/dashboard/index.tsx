@@ -11,7 +11,7 @@ import { SelectionAlarms } from './selection-alarms';
 import { READING_PANELS, hiddenPanelsFor } from './view-panels';
 import { PanelGrid } from './panel-grid';
 import { PanelCard } from './panel-card';
-import { AUTO_HEIGHT_PANELS, applyAutoHeights, keepStoredHeights, nextRows } from './panel-auto-height';
+import { AUTO_HEIGHT_PANELS, applyAutoHeights, autoHeightIds, carryStoredFields, nextRows } from './panel-auto-height';
 import { EntryCards } from './entry-cards';
 import { useDashboardLayout } from '@/hooks/use-dashboard-layout';
 import type { LayoutItem } from '@digilog/shared';
@@ -149,8 +149,11 @@ export function DashboardPage() {
     return fn;
   }, []);
 
+  // The auto-height set for THIS layout: the fixed panels plus every built table
+  // widget, which also ends at its pagination bar.
+  const autoIds = useMemo(() => autoHeightIds(layout.widgets), [layout.widgets]);
   const placedItems = hiddenPanels.size ? layout.items.filter((it) => !hiddenPanels.has(it.i)) : layout.items;
-  const visibleItems = applyAutoHeights(placedItems, autoRows);
+  const visibleItems = applyAutoHeights(placedItems, autoRows, autoIds);
 
   /**
    * Merge the hidden panels' stored positions back into the draft.
@@ -165,7 +168,9 @@ export function DashboardPage() {
     // whatever height each item currently has, which for an auto panel is a
     // measurement — saving it would pin every viewer to one page size's worth of
     // rows, and it would go stale the first time anyone changed that page size.
-    const kept = keepStoredHeights(next, layout.items);
+    // ...and carry each card's STYLE through: the grid hands back geometry only,
+    // so a tint or renamed heading was lost on the first drag (2026-10-28).
+    const kept = carryStoredFields(next, layout.items, autoIds);
 
     /**
      * BAIL WHEN NOTHING MOVED, or edit mode writes the draft on every layout pass.
@@ -344,6 +349,7 @@ export function DashboardPage() {
           onChange={onGridChange}
           // Arrange is SUPER_ADMIN only (operator, 2026-08-29).
           canArrange={user?.role === 'SUPER_ADMIN'}
+          autoIds={autoIds}
           toolbar={canToggleView ? (
             <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
               {([

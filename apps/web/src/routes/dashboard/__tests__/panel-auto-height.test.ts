@@ -1,9 +1,53 @@
 import { describe, it, expect } from 'vitest';
-import type { LayoutItem } from '@digilog/shared';
+import { widgetItemId, type CustomWidget, type LayoutItem } from '@digilog/shared';
 import {
   AUTO_HEIGHT_PANELS, ROW_HEIGHT, MARGIN_Y, MIN_AUTO_ROWS,
   capacityPx, rowsForHeight, nextRows, applyAutoHeights, keepStoredHeights,
+  carryStoredFields, autoHeightIds,
 } from '../panel-auto-height';
+
+describe('a drag hands back geometry only', () => {
+  it("a drag keeps the card's style", () => {
+    // react-grid-layout reports {i, x, y, w, h} and nothing else, so a tint or a
+    // renamed heading set before the drag was lost from the draft — and then
+    // from the saved layout — the moment the card moved.
+    const stored: LayoutItem[] = [{ i: 'telemetry_table', x: 0, y: 0, w: 12, h: 9, style: { tint: 'sky', title: 'Readings' } }];
+    const next = carryStoredFields([{ i: 'telemetry_table', x: 0, y: 3, w: 6, h: 9 }], stored);
+    expect(next[0]).toEqual({ i: 'telemetry_table', x: 0, y: 3, w: 6, h: 9, style: { tint: 'sky', title: 'Readings' } });
+  });
+
+  it('still strips a measured height and leaves an unstyled card unstyled', () => {
+    const stored: LayoutItem[] = [{ i: 'dashboard_alarms', x: 0, y: 0, w: 12, h: 6 }];
+    const next = carryStoredFields([{ i: 'dashboard_alarms', x: 0, y: 0, w: 12, h: 14 }], stored);
+    expect(next[0]).toEqual({ i: 'dashboard_alarms', x: 0, y: 0, w: 12, h: 6 });
+  });
+});
+
+describe('built widgets and auto height', () => {
+  const W = (id: string, type: CustomWidget['type']): CustomWidget => ({
+    id, type, title: type, source: { mode: 'selection' }, keys: [{ source: 'telemetry', key: 'p' }], options: {},
+  });
+  const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222',
+    '33333333-3333-4333-8333-333333333333', '44444444-4444-4444-8444-444444444444'];
+
+  it('table widgets follow their content; cards and charts keep a dragged height', () => {
+    const auto = autoHeightIds([W(ids[0], 'latest_table'), W(ids[1], 'timeseries_table'), W(ids[2], 'value_cards'), W(ids[3], 'trend_chart')]);
+    expect(auto.has(widgetItemId(ids[0]))).toBe(true);
+    expect(auto.has(widgetItemId(ids[1]))).toBe(true);
+    expect(auto.has(widgetItemId(ids[2]))).toBe(false);
+    expect(auto.has(widgetItemId(ids[3]))).toBe(false);
+    for (const k of AUTO_HEIGHT_PANELS) expect(auto.has(k)).toBe(true);
+  });
+
+  it('applyAutoHeights and keepStoredHeights honour the widget set', () => {
+    const auto = autoHeightIds([W(ids[0], 'latest_table')]);
+    const item = { i: widgetItemId(ids[0]), x: 0, y: 0, w: 12, h: 9 };
+    expect(applyAutoHeights([item], { [item.i]: 15 }, auto)[0].h).toBe(15);
+    expect(keepStoredHeights([{ ...item, h: 15 }], [item], auto)[0].h).toBe(9);
+    // Without the set the widget is an ordinary card.
+    expect(applyAutoHeights([item], { [item.i]: 15 })[0].h).toBe(9);
+  });
+});
 
 /**
  * Panel height follows content (operator, 2026-09-01): a card ends at its
