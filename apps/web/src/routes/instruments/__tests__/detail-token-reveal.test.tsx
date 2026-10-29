@@ -110,11 +110,17 @@ describe('instrument detail — token reveal', () => {
     await waitFor(() => expect(screen.getAllByText(/REVEALED-TOKEN-VALUE/).length).toBeGreaterThan(0));
     expect(apiGet).toHaveBeenCalledWith('/api/instruments/i-1/token');
 
-    // The curl command must carry the real value, not the placeholder — this is
-    // the assertion that a technician's paste actually works.
-    const curl = screen.getByText(/curl -k -X POST/);
-    expect(curl.textContent).toContain('Bearer REVEALED-TOKEN-VALUE');
-    expect(curl.textContent).not.toContain('<ACCESS_TOKEN>');
+    // Every curl command must carry the real value, not the placeholder — this is
+    // the assertion that a technician's paste actually works. Over HTTP there are
+    // three since 2026-10-28: the telemetry POST, the attribute read (GET) and the
+    // attribute report (POST). This read `getByText` of ONE POST until then and
+    // went red the day the second arrived.
+    const commands = screen.getAllByText(/^curl -k /);
+    expect(commands).toHaveLength(3);
+    for (const curl of commands) {
+      expect(curl.textContent).toContain('Bearer REVEALED-TOKEN-VALUE');
+      expect(curl.textContent).not.toContain('<ACCESS_TOKEN>');
+    }
     expect(screen.queryAllByText(/<ACCESS_TOKEN>/)).toHaveLength(0);
   });
 
