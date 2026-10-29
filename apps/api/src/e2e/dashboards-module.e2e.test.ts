@@ -38,15 +38,15 @@ const MGR = `DBM_MGR_${S}`;
 const ROLES = [VIEW, MGR];
 const PROFILE = `DBM_P_${S}`;
 const PW = 'Dashb0ard@Passw0rd';
-const NAME = { sa: `dbm_sa_${s}`, v1: `dbm_v1_${s}`, v2: `dbm_v2_${s}`, m1: `dbm_m1_${s}` };
+const NAME = { sa: `dbm_sa_${s}`, v1: `dbm_v1_${s}`, v2: `dbm_v2_${s}`, m1: `dbm_m1_${s}`, ad: `dbm_ad_${s}` };
 const SUPER_ADMIN_ONLY = 'Only a super admin can create, change, assign or delete dashboards.';
 const CHANGED = 'This dashboard was changed by someone else. Reload it and make your change again.';
 const INSTRUMENT = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 
 let app: FastifyInstance;
 type H = Record<string, string>;
-let sa: H, v1: H, v2: H, m1: H;
-const id: Record<keyof typeof NAME, string> = { sa: '', v1: '', v2: '', m1: '' };
+let sa: H, v1: H, v2: H, m1: H, ad: H;
+const id: Record<keyof typeof NAME, string> = { sa: '', v1: '', v2: '', m1: '', ad: '' };
 let profileId = '';
 const users: string[] = [];
 const made: string[] = [];
@@ -159,6 +159,9 @@ beforeAll(async () => {
   id.v1 = await makeUser(NAME.v1, VIEW);
   id.v2 = await makeUser(NAME.v2, VIEW);
   id.m1 = await makeUser(NAME.m1, MGR);
+  // The SEEDED ADMIN role, unedited: the parked module's defect was exactly
+  // `role === 'ADMIN'` seeing every dashboard. It holds DASHBOARD_VIEW there.
+  id.ad = await makeUser(NAME.ad, 'ADMIN');
   profileId = (await prisma.instrumentProfile.create({ data: { name: PROFILE } })).id;
   profiles.push(profileId);
 
@@ -166,6 +169,7 @@ beforeAll(async () => {
   v1 = { authorization: `Bearer ${await loginAs(app, NAME.v1, PW)}` };
   v2 = { authorization: `Bearer ${await loginAs(app, NAME.v2, PW)}` };
   m1 = { authorization: `Bearer ${await loginAs(app, NAME.m1, PW)}` };
+  ad = { authorization: `Bearer ${await loginAs(app, NAME.ad, PW)}` };
 });
 
 afterAll(async () => {
@@ -224,9 +228,11 @@ describe('/api/dashboards', () => {
     const res = await get(d.id, v1);
     expect(res.statusCode).toBe(404);
     expect(res.json().error).toBe('DASHBOARD_NOT_FOUND');
-    // Every DASHBOARD_* grant is not an exception, and neither would ADMIN be.
+    // Every DASHBOARD_* grant is not an exception, and neither is ADMIN.
     expect((await list(m1)).map((r) => r.id)).not.toContain(d.id);
     expect((await get(d.id, m1)).statusCode).toBe(404);
+    expect((await list(ad)).map((r) => r.id)).not.toContain(d.id);
+    expect((await get(d.id, ad)).statusCode).toBe(404);
     // Positive control: the super admin sees it.
     expect((await get(d.id, sa)).statusCode).toBe(200);
   });

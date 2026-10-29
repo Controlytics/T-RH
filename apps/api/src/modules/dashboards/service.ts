@@ -93,7 +93,7 @@ export async function summariseSources(sources: readonly (DashboardSource | null
         return { mode: 'location', label: name === undefined ? 'Location no longer exists' : `${name}${s.directOnly ? ' (direct only)' : ''}` };
       }
       case 'instruments':
-        return { mode: 'instruments', label: `${s.ids.length} instrument${s.ids.length === 1 ? '' : 's'}` };
+        return { mode: 'instruments', label: `${s.ids.length} instruments` };
     }
   });
 }
