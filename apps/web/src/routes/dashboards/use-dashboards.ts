@@ -12,11 +12,15 @@ export function useDashboards() {
   return { rows: data?.data ?? [], loading: isLoading, error: error as Error | undefined, mutate };
 }
 
-/** One dashboard; a 404 (also the answer for one that is not visible to the caller) is `notFound`. */
+/**
+ * One dashboard; a 404 (also the answer for one that is not visible to the
+ * caller) is `notFound`. Any OTHER failure is `error` — a 500 must not read as
+ * "not available to you", which is a claim about permission.
+ */
 export function useDashboard(id: string | undefined) {
   const { data, error, isLoading, mutate } = useSWR<DashboardDetail>(id ? `/api/dashboards/${id}` : null);
   const notFound = (error as { status?: number } | undefined)?.status === 404;
-  return { dashboard: data, notFound, loading: isLoading, mutate };
+  return { dashboard: data, notFound, error: notFound ? undefined : (error as Error | undefined), loading: isLoading, mutate };
 }
 
 /**
