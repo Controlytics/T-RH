@@ -91,6 +91,7 @@
   - export `readItem`, `readWidgets` and `pairWidgets` for reuse;
   - `resolveLayout` drops an `alarm_table` item without the `dashboard_alarms` panel.
 - Modify: `packages/shared/src/types/reauth-actions.ts`, `packages/shared/src/index.ts`
+- Moves on purpose: `packages/shared/src/types/reauth-actions.test.ts:32` pins `toHaveLength(56)`, which becomes 57. It is the ONLY expected red; any other red is yours to explain.
 
 **Interfaces:**
 - Produces (`dashboard-widgets.ts`):
@@ -442,7 +443,9 @@
   - `apps/web/src/routes/dashboards/index.tsx` (list page);
   - `apps/web/src/routes/dashboards/name-dialog.tsx` (New + Rename);
   - `apps/web/src/routes/dashboards/__tests__/list-page.test.tsx`.
-- Must stay green: `legacy-maps-derived.test.ts` (39 unchanged), `components/layout/__tests__/sidebar-parity.test.ts`, `sidebar-visibility.test.ts`, `routes/dashboard/__tests__/landing.test.ts`.
+- Must stay green: `legacy-maps-derived.test.ts` (FEATURE_PRIVILEGES 39 unchanged), `components/layout/__tests__/sidebar-parity.test.ts`, `sidebar-visibility.test.ts`, `routes/dashboard/__tests__/landing.test.ts`.
+- Moves on purpose: `legacy-maps-derived.test.ts:84` pins `SIDEBAR_PRIVILEGE_MAP` `toHaveLength(14)`, which becomes 15.
+- Verified, not assumed: the Roles & Access Permissions tab SKIPS a tree group with no feature-privilege nodes (`routes/config/roles-components/permission-tree-grouping.ts`, "skip sidebar groups with no FP nodes"). The node-less `dashboards` group therefore draws no empty section there. Add a case to `permission-tree-grouping`'s test: `a group with no nodes draws no section`.
 
 **Interfaces:**
 - Consumes (Task 3): the routes and `DashboardSummary`. Consumes (Task 1): `emptyDashboardDocument`.
