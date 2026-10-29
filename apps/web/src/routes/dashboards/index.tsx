@@ -16,6 +16,7 @@ import {
   useDashboards, createDashboard, duplicateDashboard, deleteDashboard, saveDashboard,
 } from './use-dashboards';
 import { NameDialog, type NameValues } from './name-dialog';
+import { AssignDialog } from './assign-dialog';
 
 /**
  * Dashboards (2026-10-29, the dashboard builder, design section 8). The list of
@@ -54,6 +55,7 @@ export const PATHS = {
   plus: 'M12 4v16m8-8H4',
   pencil: 'M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z',
   refresh: 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15',
+  settings: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z',
   grid: 'M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z',
 } as const;
 
@@ -84,10 +86,12 @@ function SourceChip({ source }: { source: DashboardSourceSummary }) {
   );
 }
 
-function IconAction({ label, d, danger, onClick }: { label: string; d: string; danger?: boolean; onClick: () => void }) {
+function IconAction({ label, d, danger, disabled, onClick }: {
+  label: string; d: string; danger?: boolean; disabled?: boolean; onClick: () => void;
+}) {
   return (
     <Button
-      type="button" variant="ghost" title={label} aria-label={label} onClick={onClick}
+      type="button" variant="ghost" title={label} aria-label={label} onClick={onClick} disabled={disabled}
       className={danger ? 'h-8 w-8 text-rose-600 hover:bg-rose-50 hover:text-rose-700' : 'h-8 w-8'}
     >
       <Svg d={d} className="h-4 w-4" />
@@ -99,6 +103,7 @@ type Dialogs =
   | { kind: 'new' }
   | { kind: 'rename'; row: DashboardSummary }
   | { kind: 'delete'; row: DashboardSummary }
+  | { kind: 'assign'; row: DashboardSummary }
   | null;
 
 export function DashboardsPage() {
@@ -138,8 +143,13 @@ export function DashboardsPage() {
       onSuccess: () => setBusy(false),
       onError: (e: unknown) => {
         setBusy(false);
-        if (inForm) setFormError(reason(e, 'Please try again.'));
-        else { setDialog(null); toast.error(failTitle, reason(e, 'Please try again.')); }
+        if (inForm) {
+          setFormError(reason(e, 'Please try again.'));
+          // A refusal (a 409 above all) usually means the row has moved on: read
+          // the list again, so the next attempt carries the CURRENT `updatedAt`
+          // instead of failing the same way forever.
+          void mutate();
+        } else { setDialog(null); toast.error(failTitle, reason(e, 'Please try again.')); }
       },
       onCancel: () => setBusy(false),
     });
@@ -169,7 +179,7 @@ export function DashboardsPage() {
     true,
   );
 
-  const duplicate = (row: DashboardSummary) => write(
+  const duplicate = (row: DashboardSummary) => !busy && write(
     (password) => duplicateDashboard(row.id, password),
     async (copy) => {
       await mutate();
@@ -214,7 +224,7 @@ export function DashboardsPage() {
               <TableHead className="text-center">Widgets</TableHead>
               {isSuperAdmin && <TableHead>Assigned to</TableHead>}
               <TableHead>Updated</TableHead>
-              {isSuperAdmin && <TableHead className="w-[10rem]"><span className="sr-only">Actions</span></TableHead>}
+              {isSuperAdmin && <TableHead className="w-[13rem]"><span className="sr-only">Actions</span></TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -253,9 +263,12 @@ export function DashboardsPage() {
                   {isSuperAdmin && (
                     <TableCell>
                       <div className="flex items-center justify-end gap-1">
-                        <IconAction label="Duplicate" d={PATHS.copy} onClick={() => duplicate(row)} />
-                        <IconAction label="Rename" d={PATHS.rename} onClick={() => setDialog({ kind: 'rename', row })} />
-                        <IconAction label="Delete" d={PATHS.trash} danger onClick={() => setDialog({ kind: 'delete', row })} />
+                        {/* One write at a time: a second click on Duplicate while the
+                            first is in flight would make a second copy. */}
+                        <IconAction label="Assign" d={PATHS.role} disabled={busy} onClick={() => setDialog({ kind: 'assign', row })} />
+                        <IconAction label="Duplicate" d={PATHS.copy} disabled={busy} onClick={() => duplicate(row)} />
+                        <IconAction label="Rename" d={PATHS.rename} disabled={busy} onClick={() => setDialog({ kind: 'rename', row })} />
+                        <IconAction label="Delete" d={PATHS.trash} danger disabled={busy} onClick={() => setDialog({ kind: 'delete', row })} />
                       </div>
                     </TableCell>
                   )}
@@ -273,7 +286,19 @@ export function DashboardsPage() {
         busy={busy}
         error={formError}
         onClose={closeDialog}
-        onSubmit={(v) => (dialog?.kind === 'rename' ? rename(dialog.row, v) : create(v))}
+        onSubmit={(v) => {
+          if (dialog?.kind !== 'rename') { create(v); return; }
+          // The row as the list holds it NOW: after a refused attempt the list
+          // was re-read, and the dialog's own copy is the stale one.
+          const id = dialog.row.id;
+          rename(rows.find((r) => r.id === id) ?? dialog.row, v);
+        }}
+      />
+      <AssignDialog
+        open={dialog?.kind === 'assign'}
+        dashboard={dialog?.kind === 'assign' ? dialog.row : { id: '', title: '' }}
+        onClose={closeDialog}
+        onSaved={() => { void mutate(); }}
       />
       <ConfirmDialog
         open={dialog?.kind === 'delete'}

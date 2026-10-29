@@ -26,6 +26,8 @@ import { LOAD_FAILED } from '@/routes/dashboard/widgets/widget-common';
 import { useDashboard, saveDashboard } from './use-dashboards';
 import { useDashboardDraft } from './use-dashboard-draft';
 import { TimeWindowPicker } from './time-window-picker';
+import { SettingsDialog } from './settings-dialog';
+import { AssignDialog } from './assign-dialog';
 import { PATHS, Svg } from './index';
 
 /**
@@ -77,7 +79,11 @@ export function DashboardPage() {
   return <DashboardView key={dashboard.id} dashboard={dashboard} mutate={mutate} />;
 }
 
-function DashboardView({ dashboard, mutate }: { dashboard: DashboardDetail; mutate: () => Promise<unknown> }) {
+function DashboardView({ dashboard, mutate }: {
+  dashboard: DashboardDetail;
+  /** SWR's bound mutate: no argument re-reads; a detail is adopted as it is. */
+  mutate: (data?: DashboardDetail, opts?: { revalidate: boolean }) => Promise<unknown>;
+}) {
   const { user } = useAuth();
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const { toast } = useToast();
@@ -109,6 +115,7 @@ function DashboardView({ dashboard, mutate }: { dashboard: DashboardDetail; muta
   const [conflict, setConflict] = useState(false);
   const [reloading, setReloading] = useState(false);
   const [widgetDialog, setWidgetDialog] = useState<{ initial?: CustomWidget } | null>(null);
+  const [adminDialog, setAdminDialog] = useState<'settings' | 'assign' | null>(null);
 
   const startEditing = () => {
     setEditBase(dashboard.updatedAt);
@@ -227,6 +234,12 @@ function DashboardView({ dashboard, mutate }: { dashboard: DashboardDetail; muta
                 <Button type="button" variant="outline" size="sm" className="font-semibold" onClick={startEditing}>
                   <Svg d={PATHS.pencil} className="h-4 w-4" />Edit
                 </Button>
+                <Button type="button" variant="outline" size="sm" className="font-semibold" onClick={() => setAdminDialog('settings')}>
+                  <Svg d={PATHS.settings} className="h-4 w-4" />Settings
+                </Button>
+                <Button type="button" variant="outline" size="sm" className="font-semibold" onClick={() => setAdminDialog('assign')}>
+                  <Svg d={PATHS.role} className="h-4 w-4" />Assign
+                </Button>
               </div>
             )}
             <div className="flex items-center gap-2">
@@ -280,6 +293,8 @@ function DashboardView({ dashboard, mutate }: { dashboard: DashboardDetail; muta
           onCancel={stopEditing}
           onSave={save}
           onReset={startEditing}
+          resetLabel="Discard changes"
+          saveLabel="Save"
           onChange={session.onGridChange}
           canArrange={isSuperAdmin && editing}
           autoIds={autoIds}
@@ -348,6 +363,30 @@ function DashboardView({ dashboard, mutate }: { dashboard: DashboardDetail; muta
             setWidgetDialog(null);
           }}
         />
+      )}
+
+      {/* Offered outside edit mode only, so the stored document IS the current one. */}
+      {isSuperAdmin && (
+        <>
+          <SettingsDialog
+            open={adminDialog === 'settings'}
+            dashboard={dashboard}
+            onClose={() => setAdminDialog(null)}
+            onReload={() => mutate()}
+            onSaved={(saved) => {
+              // The WHOLE response, not only `updatedAt`: title, description,
+              // source summary and document all changed.
+              void mutate(saved, { revalidate: false });
+              setActiveWindow(saved.document.timeWindow);
+            }}
+          />
+          <AssignDialog
+            open={adminDialog === 'assign'}
+            dashboard={dashboard}
+            onClose={() => setAdminDialog(null)}
+            onSaved={(assignments) => { void mutate({ ...dashboard, assignments }, { revalidate: false }); }}
+          />
+        </>
       )}
 
       <Dialog open={conflict} onClose={() => setConflict(false)}>

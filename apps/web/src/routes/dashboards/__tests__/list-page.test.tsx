@@ -31,9 +31,13 @@ const EMPTY_LIST = { data: [] as unknown[] };
 const state = { role: 'SUPER_ADMIN', list: SA_LIST as { data: unknown[] } };
 const mutate = vi.fn();
 
+const ROLE_LIST = { data: [{ id: 'r1', name: 'SUPER_ADMIN', displayName: 'Super Admin' }, { id: 'r2', name: 'QA Reviewer', displayName: 'QA Reviewer' }], error: undefined, isLoading: false };
+const USER_OPTIONS = { data: { data: [{ id: 'u-1', username: 'rsharma', fullName: 'R. Sharma' }] }, error: undefined, isLoading: false };
 vi.mock('swr', () => ({
   default: (key: string) => {
     if (key === '/api/dashboards') return { data: state.list, error: undefined, isLoading: false, mutate };
+    if (key === '/api/roles/active') return ROLE_LIST;
+    if (key && key.startsWith('/api/users?')) return USER_OPTIONS;
     return { data: undefined, error: undefined, isLoading: false, mutate: vi.fn() };
   },
 }));
@@ -111,7 +115,7 @@ describe('DashboardsPage', () => {
     expect(within(first).getByText('2026-10-29')).toBeInTheDocument();
     expect(within(first).getByText('17:04')).toBeInTheDocument();
     expect(within(second).getByText('Not assigned')).toBeInTheDocument();
-    for (const name of ['Duplicate', 'Rename', 'Delete']) expect(within(first).getByRole('button', { name })).toBeInTheDocument();
+    for (const name of ['Assign', 'Duplicate', 'Rename', 'Delete']) expect(within(first).getByRole('button', { name })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /New dashboard/ })).toBeInTheDocument();
     expect(screen.getByTestId('page-hero').contains(screen.getByRole('button', { name: /New dashboard/ }))).toBe(true);
   });
@@ -121,7 +125,7 @@ describe('DashboardsPage', () => {
     mount();
     expect(headers()).toEqual(['Title', 'Instruments', 'Widgets', 'Updated']);
     expect(screen.queryByRole('button', { name: /New dashboard/ })).toBeNull();
-    for (const name of ['Duplicate', 'Rename', 'Delete']) expect(screen.queryByRole('button', { name })).toBeNull();
+    for (const name of ['Assign', 'Duplicate', 'Rename', 'Delete']) expect(screen.queryByRole('button', { name })).toBeNull();
     expect(screen.getByRole('link', { name: 'QC Block' })).toBeInTheDocument();
   });
 
@@ -190,5 +194,55 @@ describe('DashboardsPage', () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/dashboards/d-1/duplicate', {}));
     expect(reauthActions).toEqual(['UPDATE_DASHBOARD']);
     await waitFor(() => expect(mutate).toHaveBeenCalled());
+  });
+  it('Assign opens the dialog on the row, saves under UPDATE_DASHBOARD and re-reads the list', async () => {
+    put.mockResolvedValue({ roles: ['QA'], users: [] });
+    mount();
+    fireEvent.click(within(screen.getAllByTestId('dashboard-row')[0]).getByRole('button', { name: 'Assign' }));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByText('QC Block')).toBeInTheDocument();
+    expect(within(dialog).getByRole('checkbox', { name: 'QA Reviewer' })).toBeChecked();
+    expect(within(dialog).queryByRole('checkbox', { name: /Super Admin/ })).toBeNull();
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /R\. Sharma/ }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(put).toHaveBeenCalledWith('/api/dashboards/d-1/assignments', { roles: ['QA Reviewer'], userIds: [] }));
+    expect(reauthActions).toEqual(['UPDATE_DASHBOARD']);
+    await waitFor(() => expect(mutate).toHaveBeenCalled());
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('a refused Rename (409) re-reads the list, and the next attempt carries the FRESH updatedAt', async () => {
+    const FRESH = '2026-10-29T18:30:00.000Z';
+    put.mockRejectedValueOnce(Object.assign(new Error('This dashboard was changed by someone else.'), { code: 'DASHBOARD_CHANGED' }));
+    put.mockResolvedValue({});
+    // The re-read the page asks for is what changes the list the next render sees.
+    mutate.mockImplementation(async () => { state.list = { data: [{ ...rowA, updatedAt: FRESH }, rowB] }; });
+    mount();
+    fireEvent.click(within(screen.getAllByTestId('dashboard-row')[0]).getByRole('button', { name: 'Rename' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /Title/ }), { target: { value: 'Renamed' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('changed by someone else');
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect((put.mock.calls[0][1] as { expectedUpdatedAt: string }).expectedUpdatedAt).toBe(rowA.updatedAt);
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(2));
+    expect((put.mock.calls[1][1] as { expectedUpdatedAt: string }).expectedUpdatedAt).toBe(FRESH);
+  });
+
+  it('Duplicate cannot be repeated while it is in flight: the row actions are disabled and one copy is made', async () => {
+    let finish: (v: unknown) => void = () => {};
+    post.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    mount();
+    const row = () => within(screen.getAllByTestId('dashboard-row')[0]);
+    fireEvent.click(row().getByRole('button', { name: 'Duplicate' }));
+    await waitFor(() => expect(row().getByRole('button', { name: 'Duplicate' })).toBeDisabled());
+    for (const name of ['Assign', 'Rename', 'Delete']) expect(row().getByRole('button', { name })).toBeDisabled();
+    fireEvent.click(row().getByRole('button', { name: 'Duplicate' }));
+    expect(post).toHaveBeenCalledTimes(1);
+    finish({ id: 'd-3', title: 'QC Block (copy)' });
+    await waitFor(() => expect(row().getByRole('button', { name: 'Duplicate' })).not.toBeDisabled());
+    expect(post).toHaveBeenCalledTimes(1);
   });
 });

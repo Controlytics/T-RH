@@ -414,7 +414,12 @@ export function DashboardPage() {
               if (!w) return <div key={it.i} />;
               return (
                 <div key={it.i}>
+                  {/* Keyed by the DEFINITION, as on a built dashboard: the panel
+                      seeds its alarm status, page size and period from the
+                      widget once, so an EDITED widget would otherwise keep the
+                      old defaults until a reload. */}
                   <WidgetPanel
+                    key={JSON.stringify(w)}
                     widget={w}
                     item={it}
                     selection={widgetSelection}

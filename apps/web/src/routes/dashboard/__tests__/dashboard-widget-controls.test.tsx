@@ -29,6 +29,23 @@ vi.mock('../selection-alarms', () => ({ SelectionAlarms: () => null }));
 vi.mock('../entry-cards', () => ({ EntryCards: () => null }));
 vi.mock('../widgets/widget-dialog', () => ({ WidgetDialog: () => null }));
 vi.mock('../widgets/role-default-dialog', () => ({ RoleDefaultDialog: () => null }));
+// jsdom measures nothing; the grid draws nothing at width 0.
+vi.mock('react-grid-layout', async (importActual) => ({
+  ...(await importActual<typeof import('react-grid-layout')>()),
+  useContainerWidth: () => ({ width: 1240, mounted: true, containerRef: { current: null } }),
+}));
+// Counts how many times a built widget's panel is MOUNTED (not rendered).
+const panelMounts = vi.fn();
+vi.mock('../widgets/widget-panel', async () => {
+  const React = await import('react');
+  return {
+    WidgetPanel: ({ widget }: { widget: { title: string } }) => {
+      React.useEffect(() => { panelMounts(widget.title); }, []);
+      return React.createElement('div', { 'data-testid': 'built-widget' }, widget.title);
+    },
+  };
+});
+class StubResizeObserver { observe() {} disconnect() {} unobserve() {} }
 
 import { DashboardPage } from '../index';
 
@@ -100,6 +117,41 @@ describe('Reset to default', () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }));
     expect(reset).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('a built widget on the home dashboard', () => {
+  const W = '11111111-1111-4111-8111-000000000001';
+  const widget = (title: string, status?: string) => ({
+    id: W, type: 'alarm_table', title, source: { mode: 'selection' }, keys: [], options: status ? { status } : {},
+  });
+
+  it('starts afresh when its definition is edited, so a changed default shows at once', () => {
+    // WidgetPanel seeds its alarm status / page size / period from the widget
+    // ONCE; without a key on the definition an edited widget kept the old ones
+    // until a reload.
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = StubResizeObserver;
+    AUTH.user.role = 'SUPER_ADMIN';
+    LAYOUT.editing = false;
+    LAYOUT.items = [{ i: 'telemetry_table', x: 0, y: 0, w: 12, h: 9 }, { i: `w:${W}`, x: 0, y: 9, w: 12, h: 5 }];
+    LAYOUT.widgets = [widget('Open alarms')];
+    panelMounts.mockClear();
+    const view = renderPage();
+    expect(screen.getByTestId('built-widget')).toHaveTextContent('Open alarms');
+    expect(panelMounts).toHaveBeenCalledTimes(1);
+
+    LAYOUT.widgets = [widget('Open alarms', 'ACTIVE')];
+    view.rerender(<MemoryRouter initialEntries={['/?fl=__all__']}><DashboardPage /></MemoryRouter>);
+    expect(panelMounts).toHaveBeenCalledTimes(2);
+
+    // The same definition again is NOT a remount.
+    LAYOUT.widgets = [widget('Open alarms', 'ACTIVE')];
+    view.rerender(<MemoryRouter initialEntries={['/?fl=__all__']}><DashboardPage /></MemoryRouter>);
+    expect(panelMounts).toHaveBeenCalledTimes(2);
+
+    LAYOUT.items = [{ i: 'telemetry_table', x: 0, y: 0, w: 12, h: 9 }];
+    LAYOUT.widgets = [];
+    delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
   });
 });
 

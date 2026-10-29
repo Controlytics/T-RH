@@ -20,21 +20,25 @@ import { cn } from '@/lib/cn';
  * applies, so an end before (or at) its start is refused here, in place, with
  * the schema's own words, and nothing is changed.
  */
-export function TimeWindowPicker({ value, onChange }: {
+export function TimeWindowPicker({ value, onChange, tone = 'band' }: {
   value: DashboardTimeWindow;
   onChange: (v: DashboardTimeWindow) => void;
+  /** `band` (default) is white ink on the theme band; `light` is for a white dialog body. */
+  tone?: 'band' | 'light';
 }) {
   const { formatDateTime, config } = useDatetimeFormat();
   const tz = config?.timezone;
   const [editor, setEditor] = useState<{ from: string; to: string; problem: string | null } | null>(null);
 
-  // Escape closes the custom editor, as it closes a dialog.
+  const light = tone === 'light';
+  // Escape closes the custom editor, as it closes a dialog. Not in a dialog's
+  // own body: there Escape belongs to the dialog.
   useEffect(() => {
-    if (!editor) return undefined;
+    if (!editor || light) return undefined;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setEditor(null); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [editor]);
+  }, [editor, light]);
 
   const openCustom = () => {
     if (editor) { setEditor(null); return; }
@@ -73,19 +77,28 @@ export function TimeWindowPicker({ value, onChange }: {
 
   const chip = (pressed: boolean) => cn(
     'rounded-[5px] px-2.5 py-1 text-[0.75rem] transition-colors duration-150',
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80',
-    pressed
-      ? 'bg-white font-bold text-[var(--theme-primary-dark,#1e3a5f)] shadow-[var(--elev-1)]'
-      : 'font-semibold text-white/85 hover:bg-white/15 hover:text-white',
+    light
+      ? 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-primary,#2a78d6)]'
+      : 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80',
+    light
+      ? (pressed
+        ? 'bg-[var(--theme-primary,#2a78d6)] font-bold text-white shadow-[var(--elev-1)]'
+        : 'font-semibold text-slate-700 hover:bg-white')
+      : (pressed
+        ? 'bg-white font-bold text-[var(--theme-primary-dark,#1e3a5f)] shadow-[var(--elev-1)]'
+        : 'font-semibold text-white/85 hover:bg-white/15 hover:text-white'),
   );
   const fixed = value.mode === 'fixed';
 
   return (
-    <div className="relative">
+    <div className={light ? undefined : 'relative'}>
       <div
         role="group"
         aria-label="Time window"
-        className="inline-flex flex-wrap items-center rounded-[var(--radius-control)] bg-white/12 p-0.5 ring-1 ring-inset ring-white/25"
+        className={cn(
+          'inline-flex flex-wrap items-center rounded-[var(--radius-control)] p-0.5 ring-1 ring-inset',
+          light ? 'bg-slate-100 ring-slate-200' : 'bg-white/12 ring-white/25',
+        )}
       >
         {PERIOD_PRESETS.map((p) => {
           const pressed = value.mode === 'relative' && value.period === p.value;
@@ -118,7 +131,12 @@ export function TimeWindowPicker({ value, onChange }: {
         <div
           role="group"
           aria-label="Custom range"
-          className="absolute right-0 top-full z-30 mt-2 w-[20rem] space-y-3 rounded-[var(--radius-card)] bg-white p-4 text-left text-slate-700 shadow-[var(--elev-3)] ring-1 ring-slate-200"
+          className={cn(
+            'mt-2 w-[20rem] max-w-full space-y-3 rounded-[var(--radius-card)] bg-white p-4 text-left text-slate-700 ring-1 ring-slate-200',
+            // On the band it is a popup; in a dialog body it is IN FLOW, because
+            // a form section clips whatever floats out of it.
+            light ? 'border border-slate-200' : 'absolute right-0 top-full z-30 shadow-[var(--elev-3)]',
+          )}
         >
           <label className="block text-[0.8125rem] font-semibold text-slate-700">
             From

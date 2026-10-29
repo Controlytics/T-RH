@@ -68,6 +68,35 @@ vi.mock('@/routes/dashboard/widgets/widget-dialog', () => ({
     </div>
   ),
 }));
+// Settings and Assign have their own tests; here they are buttons that hand the
+// page a saved value, and record what the page gave them.
+const SAVED_SETTINGS: DashboardDetail = {
+  id: '33333333-3333-4333-8333-000000000001', title: 'Renamed by Settings', description: null,
+  sourceSummary: { mode: 'all', label: 'All instruments' }, widgetCount: 0,
+  updatedAt: '2026-10-29T12:00:00.000Z',
+  document: { version: 1, source: { mode: 'all' }, timeWindow: { mode: 'relative', period: '7d' }, items: [], widgets: [] },
+};
+const SAVED_ASSIGNMENTS = { roles: ['QA'], users: [] as { id: string; username: string; fullName: string | null }[] };
+vi.mock('../settings-dialog', () => ({
+  SettingsDialog: (p: { open: boolean; onClose: () => void; onSaved: (d: DashboardDetail) => void; onReload?: () => Promise<unknown> }) => (
+    p.open ? (
+      <div data-testid="settings-dialog" data-has-reload={String(typeof p.onReload === 'function')}>
+        <button type="button" onClick={() => p.onSaved(SAVED_SETTINGS)}>Pretend saved</button>
+        <button type="button" onClick={p.onClose}>Close settings</button>
+      </div>
+    ) : null
+  ),
+}));
+vi.mock('../assign-dialog', () => ({
+  AssignDialog: (p: { open: boolean; dashboard: DashboardDetail; onClose: () => void; onSaved: (a: typeof SAVED_ASSIGNMENTS) => void }) => (
+    p.open ? (
+      <div data-testid="assign-dialog" data-roles={(p.dashboard.assignments?.roles ?? []).join(',')}>
+        <button type="button" onClick={() => p.onSaved(SAVED_ASSIGNMENTS)}>Pretend assigned</button>
+        <button type="button" onClick={p.onClose}>Close assign</button>
+      </div>
+    ) : null
+  ),
+}));
 vi.mock('@/routes/dashboard/time-series-chart', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/routes/dashboard/time-series-chart')>()),
   TimeSeriesChart: () => <div data-testid="chart" />,
@@ -242,13 +271,13 @@ describe('DashboardPage', () => {
     expect(await screen.findByRole('heading', { name: 'Room cards' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Edit/ })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Add widget' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Save layout' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
   });
 
   it('?edit=1 opens a super admin straight into edit mode', async () => {
     mount('?edit=1');
     expect(await screen.findByRole('button', { name: 'Add widget' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save layout' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Edit widget' })).toHaveLength(2);
   });
 
@@ -263,7 +292,7 @@ describe('DashboardPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Submit widget' }));
     expect(await screen.findByRole('heading', { name: 'Freshly added' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save layout' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
     const [url, body] = put.mock.calls[0] as [string, { document: DashboardDetail['document']; expectedUpdatedAt: string }];
     expect(url).toBe(`/api/dashboards/${ID}`);
@@ -274,7 +303,7 @@ describe('DashboardPage', () => {
     expect(body.document.source).toEqual({ mode: 'profile', profileId: PROFILE });
     expect(reauthActions).toEqual(['UPDATE_DASHBOARD']);
     // Saved: edit mode ends and the dashboard is read again.
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Save layout' })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).toBeNull());
     expect(urls().filter((u) => u === `/api/dashboards/${ID}`).length).toBeGreaterThanOrEqual(2);
     expect(TOAST.toast.success).toHaveBeenCalled();
   });
@@ -289,7 +318,7 @@ describe('DashboardPage', () => {
     await waitFor(() => expect(urls().filter((u) => u === `/api/dashboards/${ID}`).length).toBeGreaterThanOrEqual(2));
     fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
     fireEvent.click(screen.getByRole('button', { name: 'Submit widget' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Save layout' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
     expect((put.mock.calls[0][1] as { expectedUpdatedAt: string }).expectedUpdatedAt).toBe(DETAIL.updatedAt);
   });
@@ -301,7 +330,7 @@ describe('DashboardPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /Edit/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
     fireEvent.click(screen.getByRole('button', { name: 'Submit widget' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Save layout' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     const dialog = await screen.findByRole('dialog');
     const banner = within(dialog).getByTestId('dialog-banner');
@@ -309,7 +338,7 @@ describe('DashboardPage', () => {
     expect(banner).toHaveTextContent('This dashboard was changed by someone else.');
     // The draft is still on screen, still being edited.
     expect(screen.getByRole('heading', { name: 'Freshly added' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save layout' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
     expect(TOAST.toast.error).not.toHaveBeenCalled();
 
     const before = urls().filter((u) => u === `/api/dashboards/${ID}`).length;
@@ -317,7 +346,7 @@ describe('DashboardPage', () => {
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Freshly added' })).toBeNull());
     expect(urls().filter((u) => u === `/api/dashboards/${ID}`).length).toBeGreaterThan(before);
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Save layout' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
   });
 
   it("one widget's 403 leaves the rest drawn", async () => {
@@ -343,7 +372,7 @@ describe('DashboardPage', () => {
     expect(within(broken).getByRole('button', { name: 'Edit widget' })).toBeInTheDocument();
     fireEvent.click(within(broken).getByRole('button', { name: 'Remove' }));
     expect(screen.queryByTestId('widget-failed')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Save layout' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
     const body = put.mock.calls[0][1] as { document: DashboardDetail['document'] };
     expect(body.document.widgets.map((w) => w.id)).toEqual([W_CARDS]);
@@ -422,12 +451,68 @@ describe('DashboardPage', () => {
     const { unmount } = mount();
     fireEvent.click(await screen.findByRole('button', { name: 'Add the first widget' }));
     expect(screen.getByTestId('widget-dialog')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save layout' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
     unmount();
 
     AUTH.user.role = 'QA';
     mount();
     expect(await screen.findByText('Nothing on this dashboard yet.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add the first widget' })).toBeNull();
+  });
+  it('a SUPER_ADMIN has Settings and Assign beside Edit; they leave while editing; anyone else has neither', async () => {
+    const { unmount } = mount();
+    await screen.findByRole('heading', { name: 'Room cards' });
+    expect(screen.getByRole('button', { name: /Settings/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Assign/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Edit/ }));
+    expect(screen.queryByRole('button', { name: /Settings/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Assign/ })).toBeNull();
+    unmount();
+
+    AUTH.user.role = 'QA';
+    mount();
+    await screen.findByRole('heading', { name: 'Room cards' });
+    expect(screen.queryByRole('button', { name: /Settings/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Assign/ })).toBeNull();
+    expect(screen.queryByTestId('settings-dialog')).toBeNull();
+  });
+
+  it('after Settings saves, the page adopts the WHOLE response without asking the server again', async () => {
+    mount();
+    await screen.findByRole('heading', { name: 'QC Block — Room Conditions' });
+    fireEvent.click(screen.getByRole('button', { name: /Settings/ }));
+    expect(screen.getByTestId('settings-dialog')).toHaveAttribute('data-has-reload', 'true');
+    const reads = urls().filter((u) => u === `/api/dashboards/${ID}`).length;
+    fireEvent.click(screen.getByRole('button', { name: 'Pretend saved' }));
+    // title, description and source label all come from the response
+    expect(await screen.findByRole('heading', { name: 'Renamed by Settings' })).toBeInTheDocument();
+    expect(screen.queryByText('Dissolution rooms')).toBeNull();
+    expect(screen.getByTestId('dashboard-source')).toHaveTextContent('All instruments');
+    // the header window follows the new stored default
+    expect(within(screen.getByRole('group', { name: 'Time window' })).getByRole('button', { name: '7d' }))
+      .toHaveAttribute('aria-pressed', 'true');
+    expect(urls().filter((u) => u === `/api/dashboards/${ID}`).length).toBe(reads);
+  });
+
+  it('after Assign saves, the page holds the new assignments for the next open', async () => {
+    state.detail = detail({ assignments: { roles: ['OPERATOR'], users: [] } });
+    mount();
+    await screen.findByRole('heading', { name: 'QC Block — Room Conditions' });
+    fireEvent.click(screen.getByRole('button', { name: /Assign/ }));
+    expect(screen.getByTestId('assign-dialog')).toHaveAttribute('data-roles', 'OPERATOR');
+    fireEvent.click(screen.getByRole('button', { name: 'Pretend assigned' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close assign' }));
+    fireEvent.click(screen.getByRole('button', { name: /Assign/ }));
+    await waitFor(() => expect(screen.getByTestId('assign-dialog')).toHaveAttribute('data-roles', 'QA'));
+  });
+
+  it('the edit row says Discard changes and Save here (the home dashboard keeps its own words)', async () => {
+    mount();
+    await screen.findByRole('heading', { name: 'Room cards' });
+    fireEvent.click(screen.getByRole('button', { name: /Edit/ }));
+    expect(screen.getByRole('button', { name: 'Discard changes' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reset to default' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save layout' })).toBeNull();
   });
 });

@@ -55,7 +55,7 @@ export function withResizeHandles(
 
 export function PanelGrid({
   items, editing, saving, children, onStart, onCancel, onSave, onReset, onChange, toolbar,
-  canArrange = true, autoIds, editActions,
+  canArrange = true, autoIds, editActions, resetLabel = 'Reset to default', saveLabel = 'Save layout',
 }: {
   items: LayoutItem[];
   editing: boolean;
@@ -80,6 +80,13 @@ export function PanelGrid({
   autoIds?: ReadonlySet<string>;
   /** Extra controls in the edit row (Add widget, Save as role default) — SUPER_ADMIN only. */
   editActions?: ReactNode;
+  /**
+   * The edit row's words. The home dashboard keeps "Reset to default" and
+   * "Save layout"; a BUILT dashboard has no default to reset to and saves a
+   * dashboard, not a layout, so its page says "Discard changes" and "Save".
+   */
+  resetLabel?: string;
+  saveLabel?: string;
 }) {
   const [breakpoint, setBreakpoint] = useState<keyof typeof COLS>('lg');
   // v2 requires an explicit width. `useContainerWidth` measures the element the
@@ -110,9 +117,9 @@ export function PanelGrid({
                 : 'Drag a card to move it, or drag its bottom-right corner to resize.'}
             </span>
             {editActions}
-            <Button variant="outline" disabled={saving} onClick={onReset}>Reset to default</Button>
+            <Button variant="outline" disabled={saving} onClick={onReset}>{resetLabel}</Button>
             <Button variant="outline" disabled={saving} onClick={onCancel}>Cancel</Button>
-            <Button disabled={saving} onClick={onSave}>{saving ? 'Saving…' : 'Save layout'}</Button>
+            <Button disabled={saving} onClick={onSave}>{saving ? 'Saving…' : saveLabel}</Button>
           </>
         )}
       </div>
