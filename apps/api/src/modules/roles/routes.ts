@@ -13,7 +13,7 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { roleHasPermission } from '../../plugins/rbac.js';
 import { normalizeScope, resolveVisibility, type InstrumentScope, type ScopeNode, type ScopeSelection } from '../instruments/visibility.js';
-import { normalizeLayout } from '@digilog/shared';
+import { checkLayoutWrite, WIDGETS_JSON_SCHEMA } from '../config/dashboard-layout.js';
 import { buildCoveringIndex, type FlNode } from '../functional-locations/tree.js';
 import {
   ATTRIBUTE_ACCESS_MODES,
@@ -1302,6 +1302,8 @@ export default async function roleRoutes(app: FastifyInstance) {
                   },
                 },
               },
+              // Built widgets (2026-10-28) — see checkLayoutWrite.
+              widgets: WIDGETS_JSON_SCHEMA,
             },
           },
         },
@@ -1315,16 +1317,16 @@ export default async function roleRoutes(app: FastifyInstance) {
     const ctx = buildContext(req);
     if (!(await assertCanConfigureRole(ctx, name))) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Role not found.' });
 
-    // null clears the default; anything else must pass the SAME normalizer the
-    // reader uses, so an unreadable value cannot be stored.
-    const parsed = layout === null ? null : normalizeLayout(layout) ?? null;
-    if (layout !== null && parsed === null) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'Layout is not in a form this server can store.' });
-    }
-
     // The write and its audit row commit together (§11; auditLog(entry, tx)).
-    await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
     const before = await tx.roleConfig.findUnique({ where: { role: name }, select: { dashboardLayout: true } });
+    // null clears the default; anything else passes the STRICT writer. Built
+    // widgets may be changed by a SUPER_ADMIN only — ROLE_MANAGE is not enough —
+    // judged against the row this overwrites; an omitted `widgets` keeps it.
+    // ONE rule, shared with /api/config/my-dashboard-layout.
+    const checked = checkLayoutWrite(layout, before?.dashboardLayout, req.user.role);
+    if (!checked.ok) return checked;
+    const parsed = checked.layout;
     await tx.roleConfig.upsert({
       where: { role: name },
       create: { role: name, dashboardLayout: (parsed as Prisma.InputJsonObject | null) ?? Prisma.DbNull, updatedBy: ctx.userId },
@@ -1338,11 +1340,14 @@ export default async function roleRoutes(app: FastifyInstance) {
       afterValue: { dashboardLayout: parsed },
       signatureMeaning: parsed === null
         ? `Role "${name.slice(0, 60)}" default dashboard layout cleared`
-        : `Role "${name.slice(0, 60)}" default dashboard layout set, ${parsed.items.length} panel(s) placed`,
+        : `Role "${name.slice(0, 60)}" default dashboard layout set, ${parsed.items.length} panel(s) placed`
+          + (parsed.widgets?.length ? `, ${parsed.widgets.length} widget(s)` : ''),
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     }, tx);
+    return checked;
     });
-    return { role: name, layout: parsed };
+    if (!result.ok) return reply.code(result.status).send({ error: result.error, message: result.message });
+    return { role: name, layout: result.layout };
   });
 
 }

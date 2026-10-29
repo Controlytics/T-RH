@@ -3,8 +3,7 @@ import { enforceReauth } from '../../../lib/reauth-check.js';
 import { buildContext } from '../../../lib/build-context.js';
 import { configService } from '../config.service.js';
 import { resolvePanelsFor } from '../panel-access.js';
-import { resolveLayoutFor } from '../dashboard-layout.js';
-import { normalizeLayout } from '@digilog/shared';
+import { resolveLayoutFor, checkLayoutWrite, WIDGETS_JSON_SCHEMA } from '../dashboard-layout.js';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../../lib/prisma.js';
 import { errorResponses } from '../../../lib/error-schemas.js';
@@ -234,6 +233,9 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
                     },
                   },
                 },
+                // Built widgets (2026-10-28). Without this line Fastify drops
+                // them between the handler and the wire, with no error.
+                widgets: WIDGETS_JSON_SCHEMA,
               },
             },
           },
@@ -300,6 +302,9 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
               },
             },
           },
+          // Built widgets (2026-10-28); zod validates the inner shape. OMITTED
+          // keeps what is stored — see checkLayoutWrite.
+          widgets: WIDGETS_JSON_SCHEMA,
         },
       },
     },
@@ -315,15 +320,17 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { layout } = req.body as { layout: unknown };
-    // Validated through the SAME normalizer the reader uses, so a value that
-    // would be rejected on read can never be stored in the first place.
-    const parsed = normalizeLayout(layout);
-    if (!parsed) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'Layout is not in a form this server can store.' });
-    }
 
     const user = await prisma.user.findUnique({ where: { username: req.user.username }, select: { id: true } });
     if (!user) return reply.code(404).send({ error: 'NOT_FOUND', message: 'User not found.' });
+
+    // The STRICT writer (a value the reader would drop can never be stored), and
+    // the super-admin-only rule for widgets, judged against the row this
+    // overwrites. ONE rule, shared with the role-default route.
+    const stored = await prisma.userConfig.findUnique({ where: { userId: user.id }, select: { dashboardLayout: true } });
+    const checked = checkLayoutWrite(layout, stored?.dashboardLayout, req.user.role);
+    if (!checked.ok) return reply.code(checked.status).send({ error: checked.error, message: checked.message });
+    const parsed = checked.layout;
 
     await prisma.userConfig.upsert({
       where: { userId: user.id },
