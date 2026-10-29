@@ -16,6 +16,8 @@ import { EntryCards } from './entry-cards';
 import { useDashboardLayout } from '@/hooks/use-dashboard-layout';
 import { CUSTOM_WIDGETS_PANEL, widgetIdOf, type CustomWidget, type LayoutItem } from '@digilog/shared';
 import { WidgetPanel } from './widgets/widget-panel';
+import { WidgetDialog } from './widgets/widget-dialog';
+import { RoleDefaultDialog } from './widgets/role-default-dialog';
 import { Button } from '@/components/ui/button';
 
 /** A CSS gradient STRING for `backgroundImage`. Not lib/theme-styles' themeGradient,
@@ -155,6 +157,11 @@ export function DashboardPage() {
   const autoIds = useMemo(() => autoHeightIds(layout.widgets), [layout.widgets]);
   // The Add / Edit widget dialog (null = closed); `initial` = the widget being edited.
   const [widgetDialog, setWidgetDialog] = useState<{ initial?: CustomWidget } | null>(null);
+  const [roleDefaultOpen, setRoleDefaultOpen] = useState(false);
+  // Arrange — and with it every widget control — is SUPER_ADMIN only (operator,
+  // 2026-08-29 and 2026-10-28: "super admin only"). The layout routes' 403 is the
+  // control; this is presentation.
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const widgetSelection = { functionalLocationId: nav.functionalLocationId, directOnly: nav.directOnly };
 
   const placedItems = hiddenPanels.size ? layout.items.filter((it) => !hiddenPanels.has(it.i)) : layout.items;
@@ -353,8 +360,14 @@ export function DashboardPage() {
           onReset={layout.reset}
           onChange={onGridChange}
           // Arrange is SUPER_ADMIN only (operator, 2026-08-29).
-          canArrange={user?.role === 'SUPER_ADMIN'}
+          canArrange={isSuperAdmin}
           autoIds={autoIds}
+          editActions={isSuperAdmin ? (
+            <>
+              <Button variant="outline" disabled={layout.saving} onClick={() => setWidgetDialog({})}>Add widget</Button>
+              <Button variant="outline" disabled={layout.saving} onClick={() => setRoleDefaultOpen(true)}>Save as role default</Button>
+            </>
+          ) : undefined}
           toolbar={canToggleView ? (
             <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
               {([
@@ -463,6 +476,26 @@ export function DashboardPage() {
             );
           })}
         </PanelGrid>
+      )}
+
+      {widgetDialog && (
+        <WidgetDialog
+          open
+          initial={widgetDialog.initial}
+          selection={widgetSelection}
+          onCancel={() => setWidgetDialog(null)}
+          onSubmit={(w) => {
+            if (widgetDialog.initial) layout.updateWidget(w); else layout.addWidget(w);
+            setWidgetDialog(null);
+          }}
+        />
+      )}
+      {isSuperAdmin && (
+        <RoleDefaultDialog
+          open={roleDefaultOpen}
+          onClose={() => setRoleDefaultOpen(false)}
+          onSave={layout.saveAsRoleDefault}
+        />
       )}
 
       {nav.level === 0 && locations.length === 0 && (
