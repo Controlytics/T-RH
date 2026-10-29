@@ -165,7 +165,10 @@ export function useTelemetrySettings(): TelemetrySettings {
  * ingest. Every "live" surface in this feature is an interval, and the UI says
  * so rather than implying a stream.
  */
-export function useTelemetryOverview(opts?: string | { floorplanId?: string; functionalLocationId?: string; directOnly?: boolean }) {
+export function useTelemetryOverview(opts?: string | {
+  floorplanId?: string; functionalLocationId?: string; directOnly?: boolean;
+  profileId?: string; instrumentIds?: string[];
+}) {
   const { overviewRefreshMs } = useTelemetrySettings();
   // A bare string stays supported so existing callers (floorplan-view) are
   // unchanged; the object form adds the functional-location scope.
@@ -179,9 +182,18 @@ export function useTelemetryOverview(opts?: string | { floorplanId?: string; fun
   // Direct-only: this location itself, WITHOUT its Areas. Without this flag the
   // "— direct" card said 1 instrument while its table showed all 4 in the Block.
   if (o.functionalLocationId && o.directOnly) qs.set('functionalLocationDirect', 'true');
-  const url = qs.size
-    ? `/api/instruments/telemetry-overview?${qs.toString()}`
-    : '/api/instruments/telemetry-overview';
+  if (o.profileId) qs.set('profileId', o.profileId);
+  // An EMPTY list selects NOTHING and must make no request at all: the server
+  // reads an absent `instrumentIds` as "everything in view", so sending
+  // `instrumentIds=` (or dropping the parameter) is the one difference between
+  // an empty dashboard and the whole estate.
+  const noInstruments = o.instrumentIds !== undefined && o.instrumentIds.length === 0;
+  if (o.instrumentIds && o.instrumentIds.length > 0) qs.set('instrumentIds', o.instrumentIds.join(','));
+  const url = noInstruments
+    ? null
+    : qs.size
+      ? `/api/instruments/telemetry-overview?${qs.toString()}`
+      : '/api/instruments/telemetry-overview';
 
   const { data, error, isLoading } = useSWR<{ data: OverviewRow[] }>(url, {
     refreshInterval: overviewRefreshMs,

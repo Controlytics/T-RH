@@ -14,6 +14,7 @@ import {
   AlarmWidgetFilters, applyWidgetFilters, EMPTY_WIDGET_FILTERS,
   type AlarmWidgetFilterValue,
 } from '@/routes/alarms/alarm-widget-filters';
+import type { WIDGET_ALARM_STATUSES } from '@digilog/shared';
 import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import { AcknowledgeDialog } from '@/routes/alarms/acknowledge-dialog';
 import {
@@ -79,7 +80,23 @@ import {
  */
 const COLUMNS = 11;
 
-export function SelectionAlarms({ functionalLocationId }: { functionalLocationId?: string }) {
+/**
+ * Where a BUILT alarm table (dashboard builder) takes its alarms from. Absent =
+ * the home dashboard's panel, whose request is unchanged.
+ */
+export interface SelectionAlarmsScope {
+  functionalLocationId?: string;
+  directOnly?: boolean;
+  instrumentIds?: string[];
+  profileId?: string;
+  initialStatus?: (typeof WIDGET_ALARM_STATUSES)[number];
+}
+
+export function SelectionAlarms({ functionalLocationId: homeLocationId, scope }: {
+  functionalLocationId?: string;
+  scope?: SelectionAlarmsScope;
+}) {
+  const functionalLocationId = scope ? scope.functionalLocationId : homeLocationId;
   const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
   const can = useCan();
   const { toast } = useToast();
@@ -145,7 +162,9 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
    * On a paged panel a client-side filter would narrow ONE PAGE while reading as
    * a filter of the selection.
    */
-  const [filters, setFilters] = useState<AlarmWidgetFilterValue>(EMPTY_WIDGET_FILTERS);
+  const [filters, setFilters] = useState<AlarmWidgetFilterValue>(
+    scope?.initialStatus ? { ...EMPTY_WIDGET_FILTERS, status: scope.initialStatus } : EMPTY_WIDGET_FILTERS,
+  );
   const toolbarSlot = usePanelToolbarSlot();
 
   const qs = new URLSearchParams({
@@ -153,10 +172,18 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
     pageSize: String(pageSize),
   });
   if (functionalLocationId) qs.set('functionalLocationId', functionalLocationId);
+  if (scope) {
+    if (functionalLocationId && scope.directOnly) qs.set('functionalLocationDirect', 'true');
+    if (scope.profileId) qs.set('profileId', scope.profileId);
+    if (scope.instrumentIds && scope.instrumentIds.length > 0) qs.set('instrumentIds', scope.instrumentIds.join(','));
+  }
   applyWidgetFilters(qs, filters);
+  // A fixed list that is EMPTY selects nothing. The server reads an absent
+  // `instrumentIds` as everything in view, so this asks NO question at all.
+  const nothingInScope = scope?.instrumentIds !== undefined && scope.instrumentIds.length === 0;
 
   const { data, error, mutate } = useSWR<{ data: AlarmRow[]; total: number }>(
-    `/api/alarms?${qs.toString()}`,
+    nothingInScope ? null : `/api/alarms?${qs.toString()}`,
     {
       refreshInterval: 30_000,
     // Drilling into a location changes this key. Keep the previous rows until
@@ -215,6 +242,9 @@ export function SelectionAlarms({ functionalLocationId }: { functionalLocationId
   // wrong" to someone who simply cannot see them. Same reasoning as the count
   // card's `canSeeAlarms` guard.
   if (error) return null;
+  if (nothingInScope) {
+    return <p role="status" className="py-6 text-center text-sm text-slate-500">No instruments in your view</p>;
+  }
 
   const rows = data?.data ?? [];
   const total = data?.total ?? 0;

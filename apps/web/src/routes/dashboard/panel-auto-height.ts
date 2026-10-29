@@ -177,7 +177,7 @@ export function carryStoredFields(
 export function autoHeightIds(widgets: readonly CustomWidget[]): ReadonlySet<string> {
   const ids = new Set(AUTO_HEIGHT_PANELS);
   for (const w of widgets) {
-    if (w.type === 'latest_table' || w.type === 'timeseries_table') ids.add(widgetItemId(w.id));
+    if (w.type === 'latest_table' || w.type === 'timeseries_table' || w.type === 'alarm_table') ids.add(widgetItemId(w.id));
   }
   return ids;
 }

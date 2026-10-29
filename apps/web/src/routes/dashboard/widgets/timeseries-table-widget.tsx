@@ -19,7 +19,7 @@ import {
 
 export function TimeseriesTableWidget({ widget, selection }: { widget: CustomWidget; selection: WidgetSelection }) {
   const { rows, loading, error, empty } = useWidgetRows(widget, selection);
-  const { preset, setPreset, range } = useWidgetRange(widget.options.period);
+  const { preset, setPreset, range } = useWidgetRange(widget.options.period, selection.window);
   const { formatDateTime } = useDatetimeFormat();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(widget.options.pageSize ?? 25);
@@ -52,7 +52,7 @@ export function TimeseriesTableWidget({ widget, selection }: { widget: CustomWid
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        <PeriodSelect name={`widget-period-${widget.id}`} value={preset} onChange={setPreset} />
+        <PeriodSelect name={`widget-period-${widget.id}`} value={preset} onChange={setPreset} withDashboard={selection.window !== undefined} />
         <CapNote shown={queried.length} total={carriers.length} noun="instruments" />
       </div>
       <div className="overflow-x-auto">

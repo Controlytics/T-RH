@@ -37,7 +37,7 @@ interface Plotted {
 
 export function TrendChartWidget({ widget, selection }: { widget: CustomWidget; selection: WidgetSelection }) {
   const { rows, loading, error, empty } = useWidgetRows(widget, selection);
-  const { preset, setPreset, range, zoomed, zoomTo, resetZoom } = useWidgetRange(widget.options.period);
+  const { preset, setPreset, range, zoomed, zoomTo, resetZoom } = useWidgetRange(widget.options.period, selection.window);
   const words = useSensorWords();
 
   const telemetryKeys = widget.keys.filter((k) => k.source === 'telemetry');
@@ -118,7 +118,7 @@ export function TrendChartWidget({ widget, selection }: { widget: CustomWidget; 
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        <PeriodSelect name={`widget-period-${widget.id}`} value={preset} onChange={setPreset} />
+        <PeriodSelect name={`widget-period-${widget.id}`} value={preset} onChange={setPreset} withDashboard={selection.window !== undefined} />
         {zoomed && (
           <button type="button" onClick={resetZoom} className="text-xs font-semibold text-[var(--theme-primary)] hover:underline">
             Reset zoom

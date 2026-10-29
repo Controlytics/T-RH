@@ -138,6 +138,26 @@ describe('WidgetDialog', () => {
   });
 });
 
+describe('WidgetDialog - the alarm table', () => {
+  it('the alarm table has no key step and submits keys []', () => {
+    const onSubmit = vi.fn();
+    render(<WidgetDialog open selection={SEL} onCancel={() => {}} onSubmit={onSubmit} followLabel="Follow this dashboard" />);
+    expect(screen.getByRole('radio', { name: 'Follow this dashboard' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^Alarm table/ }));
+    expect(screen.queryByRole('region', { name: 'Keys' })).toBeNull();
+    expect(screen.queryByLabelText('Default period')).toBeNull();
+    const status = screen.getByLabelText('Status') as HTMLSelectElement;
+    expect(status.options[0].textContent).toBe('All statuses');
+    expect(status.options).toHaveLength(5);
+    fireEvent.change(status, { target: { value: 'active-unack' } });
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Open alarms' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
+    const w = onSubmit.mock.calls[0][0] as CustomWidget;
+    expect(w).toMatchObject({ type: 'alarm_table', keys: [], options: { status: 'active-unack' } });
+    expect(customWidgetSchema.safeParse(w).success).toBe(true);
+  });
+});
+
 describe('RoleDefaultDialog', () => {
   it('offers every role but SUPER_ADMIN, asks for re-auth and declares onCancel', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);

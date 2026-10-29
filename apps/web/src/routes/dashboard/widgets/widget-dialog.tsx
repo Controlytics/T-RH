@@ -9,7 +9,7 @@
  */
 import { useState } from 'react';
 import {
-  PERIOD_PRESETS, WIDGET_INSTRUMENTS_MAX, WIDGET_PAGE_SIZES, customWidgetSchema,
+  PERIOD_PRESETS, WIDGET_ALARM_STATUSES, WIDGET_INSTRUMENTS_MAX, WIDGET_PAGE_SIZES, customWidgetSchema,
   type CustomWidget, type WidgetKey, type WidgetType,
 } from '@digilog/shared';
 import { Dialog, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -25,7 +25,15 @@ const TYPES: { type: WidgetType; label: string; blurb: string }[] = [
   { type: 'latest_table', label: 'Latest values table', blurb: 'A row per instrument, a column per key' },
   { type: 'trend_chart', label: 'Trend chart', blurb: 'Each key plotted over a period' },
   { type: 'timeseries_table', label: 'Time series table', blurb: 'Every stored reading, newest first' },
+  { type: 'alarm_table', label: 'Alarm table', blurb: 'Open and recent alarms of these instruments, with acknowledge' },
 ];
+
+const STATUS_LABEL: Record<(typeof WIDGET_ALARM_STATUSES)[number], string> = {
+  'active-unack': 'Active Unacknowledged',
+  'active-ack': 'Active Acknowledged',
+  'cleared-unack': 'Cleared Unacknowledged',
+  'cleared-ack': 'Cleared Acknowledged',
+};
 
 const newId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto
   ? crypto.randomUUID()
@@ -33,13 +41,15 @@ const newId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto
     (Number(c) ^ (Math.random() * 16) >> (Number(c) / 4)).toString(16)));
 
 export function WidgetDialog({
-  open, initial, selection, onCancel, onSubmit,
+  open, initial, selection, onCancel, onSubmit, followLabel = 'Follow the dashboard selection',
 }: {
   open: boolean;
   initial?: CustomWidget;
   selection: WidgetSelection;
   onCancel: () => void;
   onSubmit: (w: CustomWidget) => void;
+  /** What the follow radio says; a dashboard page says what it follows. */
+  followLabel?: string;
 }) {
   const [id] = useState(() => initial?.id ?? newId());
   const [type, setType] = useState<WidgetType>(initial?.type ?? 'value_cards');
@@ -49,18 +59,24 @@ export function WidgetDialog({
   const [keys, setKeys] = useState<WidgetKey[]>(initial?.keys ?? []);
   const [period, setPeriod] = useState<string | undefined>(initial?.options.period);
   const [pageSize, setPageSize] = useState<number | undefined>(initial?.options.pageSize);
+  const [status, setStatus] = useState<(typeof WIDGET_ALARM_STATUSES)[number] | undefined>(initial?.options.status);
   const [problem, setProblem] = useState<string | null>(null);
   const scope = useHistoryScope();
 
   const selector: CatalogueSelector = mode === 'instruments'
     ? (picked.length > 0 ? { instrumentIds: picked } : null)
-    : selection.functionalLocationId
-      ? { functionalLocationId: selection.functionalLocationId, directOnly: selection.directOnly }
-      : { all: true };
+    : selection.instrumentIds
+      ? (selection.instrumentIds.length > 0 ? { instrumentIds: selection.instrumentIds } : null)
+      : selection.profileId
+        ? { profileId: selection.profileId }
+        : selection.functionalLocationId
+          ? { functionalLocationId: selection.functionalLocationId, directOnly: selection.directOnly }
+          : { all: true };
   const { keys: catalogue, loading: catalogueLoading } = useKeyCatalogue(selector);
   const measured = (k: WidgetKey) =>
     catalogue.some((e) => e.source === k.source && e.key === k.key && e.measurement !== null);
 
+  const alarms = type === 'alarm_table';
   const history = type === 'trend_chart' || type === 'timeseries_table';
   const table = type === 'latest_table' || type === 'timeseries_table';
   const draft = {
@@ -68,8 +84,9 @@ export function WidgetDialog({
     type,
     title,
     source: mode === 'selection' ? { mode: 'selection' as const } : { mode: 'instruments' as const, ids: picked },
-    keys,
+    keys: alarms ? [] : keys,
     options: {
+      ...(alarms && status ? { status } : {}),
       ...(history && period ? { period } : {}),
       ...(table && pageSize ? { pageSize } : {}),
     },
@@ -117,7 +134,7 @@ export function WidgetDialog({
           <div className="flex flex-wrap gap-4 text-sm">
             <label className="flex items-center gap-2">
               <input type="radio" className="ctl-radio" name={`widget-source-${id}`} checked={mode === 'selection'} onChange={() => setMode('selection')} />
-              Follow the dashboard selection
+              {followLabel}
             </label>
             <label className="flex items-center gap-2">
               <input type="radio" className="ctl-radio" name={`widget-source-${id}`} checked={mode === 'instruments'} onChange={() => setMode('instruments')} />
@@ -157,6 +174,7 @@ export function WidgetDialog({
           )}
         </section>
 
+        {!alarms && (
         <section aria-label="Keys" className="space-y-2">
           <h3 className="text-sm font-bold text-slate-800">3. Keys</h3>
           {selector === null ? (
@@ -167,6 +185,7 @@ export function WidgetDialog({
             <KeyPicker catalogue={catalogue} chosen={keys} onChange={setKeys} type={type} />
           )}
         </section>
+        )}
 
         <section aria-label="Display" className="space-y-3">
           <h3 className="text-sm font-bold text-slate-800">4. Display</h3>
@@ -175,6 +194,15 @@ export function WidgetDialog({
             <input className="ctl w-full max-w-md" value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} />
           </label>
           <div className="flex flex-wrap gap-4">
+            {alarms && (
+              <label className="text-sm">
+                <span className="mb-1 block font-medium text-slate-700">Status</span>
+                <select aria-label="Status" className="ctl ctl-sm" value={status ?? ''} onChange={(e) => setStatus((e.target.value || undefined) as typeof status)}>
+                  <option value="">All statuses</option>
+                  {WIDGET_ALARM_STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+                </select>
+              </label>
+            )}
             {history && (
               <label className="text-sm">
                 <span className="mb-1 block font-medium text-slate-700">Default period</span>
@@ -194,7 +222,7 @@ export function WidgetDialog({
               </label>
             )}
           </div>
-          <KeyDisplayRows keys={keys} measured={measured} onChange={setKeys} />
+          {!alarms && <KeyDisplayRows keys={keys} measured={measured} onChange={setKeys} />}
         </section>
 
         <section aria-label="Preview" className="space-y-2">

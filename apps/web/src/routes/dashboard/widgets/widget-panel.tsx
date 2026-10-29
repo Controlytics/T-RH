@@ -5,6 +5,7 @@
  */
 import type { CustomWidget, LayoutItem, PanelStyle, WidgetType } from '@digilog/shared';
 import { PanelCard } from '../panel-card';
+import { AlarmTableWidget } from './alarm-table-widget';
 import { LatestTableWidget } from './latest-table-widget';
 import { TimeseriesTableWidget } from './timeseries-table-widget';
 import { TrendChartWidget } from './trend-chart-widget';
@@ -16,6 +17,7 @@ export const WIDGET_EYEBROW: Record<WidgetType, string> = {
   latest_table: 'Latest values',
   trend_chart: 'Trend',
   timeseries_table: 'Time series',
+  alarm_table: 'Alarms',
 };
 
 /** The renderer for a widget's type — also the Add widget dialog's live preview. */
@@ -25,6 +27,7 @@ export function WidgetBody({ widget, selection }: { widget: CustomWidget; select
     case 'latest_table': return <LatestTableWidget widget={widget} selection={selection} />;
     case 'trend_chart': return <TrendChartWidget widget={widget} selection={selection} />;
     case 'timeseries_table': return <TimeseriesTableWidget widget={widget} selection={selection} />;
+    case 'alarm_table': return <AlarmTableWidget widget={widget} selection={selection} />;
   }
 }
 

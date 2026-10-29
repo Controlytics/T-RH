@@ -12,7 +12,7 @@
 import useSWR from 'swr';
 import {
   DATA_KEYS_INSTRUMENTS_MAX, MAX_SERIES_POINTS,
-  type CustomWidget, type DataKeyInfo, type DataKeyRef, type LatestValuesRow, type WidgetKey,
+  type CustomWidget, type DashboardTimeWindow, type DataKeyInfo, type DataKeyRef, type LatestValuesRow, type WidgetKey,
 } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
 import { useTelemetryOverview, useTelemetrySettings } from '../use-telemetry';
@@ -21,6 +21,12 @@ import { useTelemetryOverview, useTelemetrySettings } from '../use-telemetry';
 export interface WidgetSelection {
   functionalLocationId?: string;
   directOnly: boolean;
+  /** A dashboard over one profile. */
+  profileId?: string;
+  /** A dashboard over a fixed list; `[]` is NOTHING, never everything. */
+  instrumentIds?: string[];
+  /** The dashboard's time window; absent on the home dashboard. */
+  window?: DashboardTimeWindow;
 }
 
 export function chunk<T>(xs: readonly T[], n: number): T[][] {
@@ -44,6 +50,8 @@ export function useWidgetInstrumentIds(
   const { rows, isLoading } = useTelemetryOverview({
     functionalLocationId: selection.functionalLocationId,
     directOnly: selection.directOnly,
+    profileId: selection.profileId,
+    instrumentIds: selection.instrumentIds,
   });
   if (source.mode === 'instruments') return { ids: source.ids, loading: false };
   return { ids: rows.map((r) => r.instrumentId), loading: isLoading };
@@ -77,6 +85,7 @@ export function useLatestValues(
 
 export type CatalogueSelector =
   | { instrumentIds: string[] }
+  | { profileId: string }
   | { functionalLocationId: string; directOnly: boolean }
   | { all: true }
   | null;
@@ -87,6 +96,7 @@ export function catalogueUrl(selector: CatalogueSelector): string | null {
   const qs = new URLSearchParams();
   if ('all' in selector) qs.set('all', 'true');
   else if ('instrumentIds' in selector) qs.set('instrumentIds', selector.instrumentIds.join(','));
+  else if ('profileId' in selector) qs.set('profileId', selector.profileId);
   else {
     qs.set('functionalLocationId', selector.functionalLocationId);
     if (selector.directOnly) qs.set('functionalLocationDirect', 'true');

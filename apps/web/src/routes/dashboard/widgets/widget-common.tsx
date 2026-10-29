@@ -6,7 +6,7 @@
 import { useMemo, useState } from 'react';
 import {
   DEFAULT_PERIOD, PERIOD_PRESETS,
-  type CustomWidget, type LatestKeyValue, type LatestValuesRow, type WidgetKey,
+  type CustomWidget, type DashboardTimeWindow, type LatestKeyValue, type LatestValuesRow, type WidgetKey,
 } from '@digilog/shared';
 import { useLatestValues, useWidgetInstrumentIds, type WidgetRange, type WidgetSelection } from './use-widget-data';
 
@@ -72,14 +72,25 @@ export function CapNote({ shown, total, noun }: { shown: number; total: number; 
  * the polls in between re-ask the same range — which still includes every
  * reading up to now — instead of minting a new cache key on every render.
  */
-export function useWidgetRange(defaultPeriod: string | undefined) {
-  const [preset, setPreset] = useState(defaultPeriod ?? DEFAULT_PERIOD);
+export const DASHBOARD_PRESET = 'dashboard';
+
+export function useWidgetRange(defaultPeriod: string | undefined, window?: DashboardTimeWindow) {
+  const [preset, setPreset] = useState(defaultPeriod ?? (window ? DASHBOARD_PRESET : DEFAULT_PERIOD));
   const [zoom, setZoom] = useState<WidgetRange | null>(null);
-  const ms = (PERIOD_PRESETS.find((p) => p.value === preset) ?? PERIOD_PRESETS.find((p) => p.value === DEFAULT_PERIOD)!).ms;
+  // Following the dashboard: the window's own period (relative) or its stored
+  // from / to (fixed). Any other preset is the widget's own choice.
+  const following = preset === DASHBOARD_PRESET && window !== undefined;
+  const fixed = following && window.mode === 'fixed' ? window : null;
+  const effective = following && window.mode === 'relative' ? window.period : preset;
+  const ms = (PERIOD_PRESETS.find((p) => p.value === effective) ?? PERIOD_PRESETS.find((p) => p.value === DEFAULT_PERIOD)!).ms;
   const toMs = Math.ceil(Date.now() / 60_000) * 60_000;
+  const fixedFrom = fixed?.from;
+  const fixedTo = fixed?.to;
   const live = useMemo(
-    () => ({ from: new Date(toMs - ms).toISOString(), to: new Date(toMs).toISOString() }),
-    [toMs, ms],
+    () => (fixedFrom !== undefined && fixedTo !== undefined
+      ? { from: fixedFrom, to: fixedTo }
+      : { from: new Date(toMs - ms).toISOString(), to: new Date(toMs).toISOString() }),
+    [toMs, ms, fixedFrom, fixedTo],
   );
   const range = zoom ?? live;
   return {
@@ -92,7 +103,9 @@ export function useWidgetRange(defaultPeriod: string | undefined) {
   };
 }
 
-export function PeriodSelect({ value, onChange, name }: { value: string; onChange: (v: string) => void; name: string }) {
+export function PeriodSelect({ value, onChange, name, withDashboard }: {
+  value: string; onChange: (v: string) => void; name: string; withDashboard?: boolean;
+}) {
   return (
     <select
       aria-label="Period"
@@ -101,6 +114,7 @@ export function PeriodSelect({ value, onChange, name }: { value: string; onChang
       onChange={(e) => onChange(e.target.value)}
       className="ctl ctl-sm"
     >
+      {withDashboard && <option value={DASHBOARD_PRESET}>Dashboard window</option>}
       {PERIOD_PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
     </select>
   );
