@@ -656,6 +656,12 @@ model InstrumentProfile {
   /// profile is refused on every ingest channel unless its device connects
   /// with its own platform-issued client certificate. Default OFF.
   requireDeviceCertificate Boolean @default(false) @map("require_device_certificate")
+  /// WIDGET DATA KEYS phase 3 (2026-10-29): the extra TELEMETRY keys the
+  /// instrument trend page shows for every instrument of this profile, with
+  /// their display settings. Validated by `profileDisplayKeysSchema` in
+  /// @digilog/shared; read ONLY through `coerceProfileDisplayKeys` (NULL or
+  /// unreadable = no extra keys). Written by PUT /:id/display-keys, SUPER_ADMIN.
+  displayKeys Json? @map("display_keys")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
   createdBy   String?  @map("created_by")

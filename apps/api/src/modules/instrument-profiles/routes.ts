@@ -10,6 +10,9 @@ import {
   profileMeasurementsSchema,
   DEFAULT_PROFILE_MEASUREMENTS,
   MEASUREMENT_CODES_PHASE1,
+  coerceProfileDisplayKeys,
+  displayKeysEqual,
+  profileDisplayKeysSchema,
   type ProfileMeasurement,
 } from '@digilog/shared';
 import { invalidateProfileMeasurementsCache, loadMeasurementTypes } from '../instruments/profile-measurements.js';
@@ -104,6 +107,22 @@ const profileProps = {
   attributeKeys: { type: 'string', nullable: true },
   measurements: { type: 'array', items: measurementItem },
   requireDeviceCertificate: { type: 'boolean' },
+  // WIDGET DATA KEYS phase 3 (2026-10-29): the trend page's extra keys. Every
+  // inner key DECLARED — Fastify strips what this block does not name.
+  displayKeys: {
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        source: { type: 'string' },
+        key: { type: 'string' },
+        label: { type: 'string' },
+        unit: { type: 'string' },
+        decimals: { type: 'integer' },
+        color: { type: 'integer' },
+      },
+    },
+  },
   instrumentCount: { type: 'integer' },
   activeCount: { type: 'integer' },
   createdAt: { type: 'string', format: 'date-time' },
@@ -119,6 +138,7 @@ type ProfileRow = {
   attributeKeys: string | null;
   measurements: unknown;
   requireDeviceCertificate: boolean;
+  displayKeys?: unknown;
   createdAt: Date;
   updatedAt: Date;
   createdBy: string | null;
@@ -216,6 +236,8 @@ function present(row: ProfileRow) {
     // NULL ("never customised") and anything unreadable read as the defaults —
     // the ONE reader, the same one every server consumer uses.
     measurements: coerceProfileMeasurements(row.measurements),
+    // NULL or unreadable = no extra keys: the ONE reader, never a raw column.
+    displayKeys: coerceProfileDisplayKeys(row.displayKeys),
     instrumentCount: instruments.length,
     activeCount: instruments.filter((i) => i.isActive).length,
   };
@@ -871,6 +893,73 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
       }
       throw err;
     }
+  });
+
+  // PUT /api/instrument-profiles/:id/display-keys — the extra keys the trend page
+  // shows for every instrument of the profile (widget data keys phase 3,
+  // 2026-10-29). SUPER_ADMIN, like what the profile measures; behind
+  // INSTRUMENT_UPDATE and the profile re-auth action; audited with before and
+  // after in the same transaction. Display configuration, not a measurement or a
+  // limit, so `reason` is optional (ruling P3-4). An unchanged list writes
+  // nothing and audits nothing.
+  app.put('/:id/display-keys', {
+    preHandler: [app.requirePermission('INSTRUMENT_UPDATE')],
+    schema: {
+      tags: ['Instrument Profiles'],
+      summary: "Set the trend page's extra keys for a profile",
+      description: 'SUPER_ADMIN only. Up to 12 TELEMETRY keys with display settings (label, unit, decimals, colour). Unchanged = no write, no audit.',
+      params: { type: 'object', properties: { id: { type: 'string' } } },
+      body: {
+        type: 'object',
+        required: ['displayKeys'],
+        properties: {
+          displayKeys: { type: 'array', items: { type: 'object', additionalProperties: true } },
+          reason: { type: 'string' },
+        },
+      },
+      response: { 200: { type: 'object', properties: profileProps }, ...errorResponses },
+    },
+  }, async (req, reply) => {
+    if (req.user?.role !== 'SUPER_ADMIN') {
+      return reply.code(403).send({ error: 'SUPER_ADMIN_ONLY', message: "Only a super admin may set the trend page's extra keys." });
+    }
+    const { ok } = await enforceReauth('UPDATE_INSTRUMENT_PROFILE', req, reply);
+    if (!ok) return;
+    const { id } = req.params as { id: string };
+    const body = req.body as { displayKeys: unknown; reason?: string };
+    const parsed = profileDisplayKeysSchema.safeParse(body.displayKeys);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: parsed.error.issues[0]?.message ?? 'Not a list of keys.' });
+    }
+    const reason = typeof body.reason === 'string' && body.reason.trim() ? body.reason.trim().slice(0, 500) : null;
+    const ctx = buildContext(req);
+
+    const result = await prisma.$transaction(async (tx) => {
+      const before = await tx.instrumentProfile.findUnique({ where: { id }, select: { name: true, displayKeys: true } });
+      if (!before) return null;
+      const stored = coerceProfileDisplayKeys(before.displayKeys);
+      if (displayKeysEqual(stored, parsed.data)) return 'unchanged' as const;
+      await tx.instrumentProfile.update({
+        where: { id },
+        data: { displayKeys: parsed.data as unknown as Prisma.InputJsonValue, updatedBy: ctx.userId },
+      });
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole,
+        action: 'INSTRUMENT_PROFILE_UPDATED',
+        targetType: 'instrument_profile', targetId: id,
+        beforeValue: { displayKeys: stored },
+        afterValue: { displayKeys: parsed.data },
+        reason,
+        signatureMeaning: `Profile "${before.name.slice(0, 60)}" trend-page keys set: ${parsed.data.length} key(s)`,
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
+      return 'changed' as const;
+    });
+    if (result === null) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Profile not found.' });
+
+    const { where: visibility } = await resolveVisibility(ctx);
+    const row = await prisma.instrumentProfile.findUnique({ where: { id }, include: withInstruments(visibility) });
+    return present(row as ProfileRow);
   });
 
   // POST /api/instrument-profiles/:id/measurement-impact — which OPEN alarms a

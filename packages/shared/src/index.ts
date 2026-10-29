@@ -36,6 +36,10 @@ export {
 export type { WidgetType, WidgetKey, WidgetSource, CustomWidget } from './types/dashboard-widgets.js';
 
 export {
+  PROFILE_DISPLAY_KEYS_MAX, profileDisplayKeySchema, profileDisplayKeysSchema, coerceProfileDisplayKeys, displayKeysEqual,
+} from './types/profile-display-keys.js';
+
+export {
   PANEL_TINTS, PANEL_SIZES, PANEL_PADDINGS,
   DEFAULT_TINT, DEFAULT_SIZE, DEFAULT_PADDING, MAX_PANEL_TITLE,
   isTintKey, tintFor, sizeFor, paddingFor, normalizePanelStyle, contrastRatio,
