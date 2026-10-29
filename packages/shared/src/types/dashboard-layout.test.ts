@@ -3,7 +3,9 @@ import {
   DEFAULT_DASHBOARD_LAYOUT, LAYOUT_VERSION, normalizeLayout, resolveLayout,
 } from './dashboard-layout.js';
 import { PANELS } from './panels.js';
-import { PANEL_WIDTHS, PANEL_HEIGHTS, namedWidth, namedHeight } from './dashboard-layout.js';
+import { PANEL_WIDTHS, PANEL_HEIGHTS, namedWidth, namedHeight, parseLayoutForWrite } from './dashboard-layout.js';
+import { PANEL_KEYS } from './panels.js';
+import { CUSTOM_WIDGETS_PANEL, widgetItemId, type CustomWidget } from './dashboard-widgets.js';
 
 const item = (i: string, y: number) => ({ i, x: 0, y, w: 12, h: 6 });
 
@@ -121,8 +123,10 @@ describe('the layout is about the DASHBOARD only', () => {
     // dashboard with four cards and five holes in it.
     const everyPanel = PANELS.map((p) => p.key);
     const out = resolveLayout(undefined, undefined, everyPanel);
+    // `custom_widgets` is a dashboard panel on the Panels tab but a GATE, never a
+    // card (2026-10-28) — the same "no holes" rule this test exists for.
     expect(out.items.map((i) => i.i)).toEqual(
-      PANELS.filter((p) => p.page === 'dashboard').map((p) => p.key),
+      PANELS.filter((p) => p.page === 'dashboard' && p.key !== CUSTOM_WIDGETS_PANEL).map((p) => p.key),
     );
   });
 
@@ -201,5 +205,128 @@ describe('the named card sizes', () => {
 
   it('offers full width, since that is what the default layout uses', () => {
     expect(PANEL_WIDTHS.some((w) => w.w === 12)).toBe(true);
+  });
+});
+
+// ── Built widgets (widget data keys phase 2, 2026-10-28) ─────────────────────
+
+const W1 = '11111111-1111-4111-8111-111111111111';
+const W2 = '22222222-2222-4222-8222-222222222222';
+const widget = (id: string, title = 'Pressures'): CustomWidget => ({
+  id, type: 'value_cards', title, source: { mode: 'selection' },
+  keys: [{ source: 'telemetry', key: 'p' }], options: {},
+});
+const wItem = (id: string, y: number, w = 12, h = 5) => ({ i: widgetItemId(id), x: 0, y, w, h });
+const dashboardKeys = PANELS.filter((p) => p.page === 'dashboard').map((p) => p.key);
+
+describe('a layout that carries widgets', () => {
+  it('keeps every other item when one widget is malformed', () => {
+    const stored = {
+      version: LAYOUT_VERSION,
+      items: [item('telemetry_table', 0), item('telemetry_floorplan', 6), item('dashboard_alarms', 12), wItem(W1, 18), wItem(W2, 23)],
+      widgets: [widget(W1), { ...widget(W2), type: 'pie' }],
+    };
+    const out = normalizeLayout(stored);
+    expect(out?.items.map((i) => i.i)).toEqual(['telemetry_table', 'telemetry_floorplan', 'dashboard_alarms', widgetItemId(W1)]);
+    expect(out?.widgets).toEqual([widget(W1)]);
+  });
+
+  it('drops a w: item with no definition, not the layout', () => {
+    const out = normalizeLayout({ version: LAYOUT_VERSION, items: [item('dashboard_alarms', 0), wItem(W1, 6)] });
+    expect(out?.items.map((i) => i.i)).toEqual(['dashboard_alarms']);
+    expect(out && 'widgets' in out).toBe(false);
+  });
+
+  it('drops a widget nothing places', () => {
+    const out = normalizeLayout({ version: LAYOUT_VERSION, items: [item('dashboard_alarms', 0)], widgets: [widget(W1)] });
+    expect(out && 'widgets' in out).toBe(false);
+  });
+
+  it('drops an item named custom_widgets — the panel is a gate, never a card', () => {
+    const out = normalizeLayout({ version: LAYOUT_VERSION, items: [item(CUSTOM_WIDGETS_PANEL, 0), item('dashboard_alarms', 6)] });
+    expect(out?.items.map((i) => i.i)).toEqual(['dashboard_alarms']);
+  });
+
+  it('places no custom_widgets card when every panel is visible', () => {
+    expect(resolveLayout(undefined, undefined, [...PANEL_KEYS]).items.map((i) => i.i)).not.toContain(CUSTOM_WIDGETS_PANEL);
+    const user = { version: LAYOUT_VERSION, items: [item('dashboard_alarms', 0)] };
+    expect(resolveLayout(user, undefined, [...PANEL_KEYS]).items.map((i) => i.i)).not.toContain(CUSTOM_WIDGETS_PANEL);
+  });
+
+  it('shows w: items only when the custom_widgets panel is visible', () => {
+    const user = { version: LAYOUT_VERSION, items: [item('dashboard_alarms', 0), wItem(W1, 6)], widgets: [widget(W1)] };
+    const without = resolveLayout(user, undefined, dashboardKeys.filter((k) => k !== CUSTOM_WIDGETS_PANEL));
+    expect(without.items.map((i) => i.i)).not.toContain(widgetItemId(W1));
+    expect('widgets' in without).toBe(false);
+    const withPanel = resolveLayout(user, undefined, dashboardKeys);
+    expect(withPanel.items.map((i) => i.i)).toContain(widgetItemId(W1));
+    expect(withPanel.widgets).toEqual([widget(W1)]);
+  });
+
+  it("a non-super-admin's own layout still shows the role's widgets", () => {
+    // Arrange is SUPER_ADMIN-only since 2026-08-29, so a user layout saved
+    // before then can never be reset by its owner. Without this rule the
+    // role's widgets would never reach them.
+    const user = { version: LAYOUT_VERSION, items: [item('telemetry_table', 0), item('dashboard_alarms', 6)] };
+    const role = { version: LAYOUT_VERSION, items: [item('telemetry_table', 0), wItem(W1, 0, 6, 5)], widgets: [widget(W1)] };
+    const visible = ['telemetry_table', 'dashboard_alarms', CUSTOM_WIDGETS_PANEL];
+    const out = resolveLayout(user, role, visible, { viewerIsSuperAdmin: false });
+    expect(out.items.map((i) => i.i)).toEqual(['telemetry_table', 'dashboard_alarms', widgetItemId(W1)]);
+    expect(out.items[2]).toEqual({ i: widgetItemId(W1), x: 0, y: 12, w: 6, h: 5 });
+    expect(out.widgets).toEqual([widget(W1)]);
+
+    const sa = resolveLayout(user, role, visible, { viewerIsSuperAdmin: true });
+    expect(sa.items.map((i) => i.i)).toEqual(['telemetry_table', 'dashboard_alarms']);
+    expect('widgets' in sa).toBe(false);
+  });
+
+  it('a layout without widgets keeps its old shape', () => {
+    const stored = { version: LAYOUT_VERSION, items: [item('dashboard_alarms', 0)] };
+    expect(normalizeLayout(stored)).toEqual(stored);
+    expect(resolveLayout(stored, undefined, ['dashboard_alarms'])).toEqual(stored);
+  });
+});
+
+describe('parseLayoutForWrite', () => {
+  const placed = { version: LAYOUT_VERSION, items: [item('dashboard_alarms', 0), wItem(W1, 6)] };
+
+  it('keeps the stored widgets when the key is omitted', () => {
+    const r = parseLayoutForWrite(placed, [widget(W1)]);
+    expect(r.ok && r.layout.widgets).toEqual([widget(W1)]);
+  });
+
+  it('accepts an explicit empty list with no w: items', () => {
+    const r = parseLayoutForWrite({ version: LAYOUT_VERSION, items: [item('dashboard_alarms', 0)], widgets: [] }, [widget(W1)]);
+    expect(r.ok).toBe(true);
+    expect(r.ok && 'widgets' in r.layout).toBe(false);
+  });
+
+  it('refuses a malformed widget, naming it', () => {
+    const r = parseLayoutForWrite({ ...placed, widgets: [{ ...widget(W1, 'Bad one'), keys: [] }] }, undefined);
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.message).toContain('Bad one');
+  });
+
+  it('refuses a w: item with no widget, and a widget with no item', () => {
+    expect(parseLayoutForWrite({ ...placed, widgets: [] }, undefined).ok).toBe(false);
+    const unplaced = parseLayoutForWrite(
+      { version: LAYOUT_VERSION, items: [item('dashboard_alarms', 0)], widgets: [widget(W1, 'Loose')] }, undefined,
+    );
+    expect(!unplaced.ok && unplaced.message).toBe('Widget "Loose" is not placed');
+  });
+
+  it('refuses more than 20 widgets and a duplicate id', () => {
+    const ids = Array.from({ length: 21 }, (_, n) => `33333333-3333-4333-8333-${String(n).padStart(12, '0')}`);
+    const many = { version: LAYOUT_VERSION, items: ids.map((id, n) => wItem(id, n * 5)), widgets: ids.map((id) => widget(id)) };
+    expect(parseLayoutForWrite(many, undefined).ok).toBe(false);
+    const dup = { version: LAYOUT_VERSION, items: [wItem(W1, 0)], widgets: [widget(W1), widget(W1, 'Again')] };
+    expect(parseLayoutForWrite(dup, undefined).ok).toBe(false);
+  });
+
+  it('drops a retired panel key and refuses an unreadable item, as the reader always has', () => {
+    const r = parseLayoutForWrite({ version: LAYOUT_VERSION, items: [item('total_users', 0), item('dashboard_alarms', 6)] }, undefined);
+    expect(r.ok && r.layout.items.map((i) => i.i)).toEqual(['dashboard_alarms']);
+    expect(parseLayoutForWrite({ version: LAYOUT_VERSION, items: [{ i: 'dashboard_alarms' }] }, undefined).ok).toBe(false);
+    expect(parseLayoutForWrite({ version: LAYOUT_VERSION + 1, items: [] }, undefined).ok).toBe(false);
   });
 });

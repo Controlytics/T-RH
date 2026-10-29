@@ -116,6 +116,17 @@ export const PANELS: readonly PanelDefinition[] = [
     label: 'Alarms in this period',
     description: 'Alarms raised on this instrument during the selected period',
   },
+  // APPENDED 2026-10-28 (widget data keys phase 2). The GATE for widgets a super
+  // admin builds on the dashboard: a role sees built widgets only when this is
+  // ticked. It is never a card itself — `dashboard-layout.ts` keeps it out of the
+  // placeable set. A role with a stored panel list does not get it until an admin
+  // ticks it, the catalogue's default for new capability (see the note above).
+  {
+    key: 'custom_widgets',
+    page: 'dashboard',
+    label: 'Built widgets',
+    description: 'Widgets a super admin adds to the dashboard — value cards, tables and trend charts over any key',
+  },
 ] as const;
 
 export const PANEL_KEYS: readonly string[] = PANELS.map((p) => p.key);

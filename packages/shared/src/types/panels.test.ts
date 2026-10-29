@@ -25,6 +25,9 @@ describe('PANELS catalogue', () => {
       // user selections may still list it; an unknown key is inert.
       'trend_historian_table',
       'trend_alarms',
+      // APPENDED 2026-10-28 (widget data keys phase 2): the gate for built
+      // dashboard widgets. Never a card of its own.
+      'custom_widgets',
     ]);
   });
 

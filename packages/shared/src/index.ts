@@ -24,9 +24,16 @@ export type { PanelDefinition, PanelKey, PanelPage } from './types/panels.js';
 
 export {
   DEFAULT_DASHBOARD_LAYOUT, LAYOUT_VERSION, GRID_COLUMNS, normalizeLayout, resolveLayout,
-  PANEL_WIDTHS, PANEL_HEIGHTS, namedWidth, namedHeight,
+  parseLayoutForWrite, PANEL_WIDTHS, PANEL_HEIGHTS, namedWidth, namedHeight,
 } from './types/dashboard-layout.js';
 export type { DashboardLayout, LayoutItem } from './types/dashboard-layout.js';
+
+export {
+  CUSTOM_WIDGETS_PANEL, WIDGET_ITEM_PREFIX, WIDGET_TYPES, WIDGETS_PER_LAYOUT_MAX, WIDGET_INSTRUMENTS_MAX,
+  WIDGET_KEYS_MAX, TREND_SERIES_MAX, VALUE_CARDS_SHOWN_MAX, WIDGET_COLOR_COUNT, WIDGET_PAGE_SIZES,
+  widgetKeySchema, widgetSourceSchema, customWidgetSchema, widgetItemId, widgetIdOf, isWidgetItem, widgetsEqual,
+} from './types/dashboard-widgets.js';
+export type { WidgetType, WidgetKey, WidgetSource, CustomWidget } from './types/dashboard-widgets.js';
 
 export {
   PANEL_TINTS, PANEL_SIZES, PANEL_PADDINGS,
