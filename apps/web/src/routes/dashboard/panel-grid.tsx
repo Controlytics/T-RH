@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from 'react';
-import { ResponsiveGridLayout, useContainerWidth, type Layout } from 'react-grid-layout';
+import type { ReactNode } from 'react';
+import { ResponsiveGridLayout, getBreakpointFromWidth, useContainerWidth, type Layout } from 'react-grid-layout';
 import { GRID_COLUMNS, type LayoutItem } from '@digilog/shared';
 import { AUTO_HEIGHT_PANELS, ROW_HEIGHT, MARGIN_Y } from './panel-auto-height';
 import { Button } from '@/components/ui/button';
@@ -88,15 +88,27 @@ export function PanelGrid({
   resetLabel?: string;
   saveLabel?: string;
 }) {
-  const [breakpoint, setBreakpoint] = useState<keyof typeof COLS>('lg');
   // v2 requires an explicit width. `useContainerWidth` measures the element the
   // ref is attached to and re-measures on resize — the replacement for v1's
   // WidthProvider higher-order component.
   const { width, mounted, containerRef } = useContainerWidth();
 
-  // Precise dragging on a phone is a way to destroy a layout by accident, not a
-  // feature. Resizing is off there for the same reason.
-  const interactive = canArrange && editing && breakpoint !== 'sm';
+  /**
+   * The breakpoint the grid is drawing, by react-grid-layout's OWN rule
+   * (`width > 1200` is `lg`) from the same width it is given. It used to be
+   * state fed by `onBreakpointChange`, which the library fires only on a LATER
+   * width change — a grid that mounted at `md` reported `lg` for ever.
+   */
+  const breakpoint = getBreakpointFromWidth(BREAKPOINTS, width) as keyof typeof COLS;
+
+  /**
+   * Drag and resize ONLY at `lg` (ruling R9, 2026-10-29). Only the `lg`
+   * arrangement is stored (see `onLayoutChange`), so at `md` a drag moved a
+   * card on screen and was then thrown away: Save found nothing changed and
+   * the cards snapped back. A 1240px window with the sidebar open is `md`.
+   * (On a phone it was already off: precise dragging there destroys layouts.)
+   */
+  const interactive = canArrange && editing && breakpoint === 'lg';
 
   return (
     <div className="space-y-2">
@@ -112,8 +124,8 @@ export function PanelGrid({
         ) : (
           <>
             <span className="mr-auto text-xs text-slate-500">
-              {breakpoint === 'sm'
-                ? 'Rearranging is disabled on a narrow screen — open the dashboard wider to move cards.'
+              {breakpoint !== 'lg'
+                ? 'Widen the window (or collapse the sidebar) to move and resize cards — the arrangement is saved in the 12-column layout.'
                 : 'Drag a card to move it, or drag its bottom-right corner to resize.'}
             </span>
             {editActions}
@@ -155,7 +167,6 @@ export function PanelGrid({
             cancel: 'button,a,input,select,textarea',
           }}
           resizeConfig={{ enabled: interactive }}
-          onBreakpointChange={(bp: string) => setBreakpoint(bp as keyof typeof COLS)}
           onLayoutChange={(current: Layout, all: Partial<Record<string, Layout>>) => {
             // Only `lg` is stored. Writing back a derived md/sm arrangement would
             // overwrite the operator's desktop layout with one the library
