@@ -299,6 +299,19 @@ overview query; one catalogue URL builder), `key-value.ts` (`keyCell` / `formatK
   A chart window's `to` is rounded up to the next minute (a stable SWR key; the window moves once a
   minute). Period and zoom chosen on a widget are session state; only the default is stored.
 
+## The trend page's extra keys, per profile (2026-10-29)
+
+Widget data keys phase 3. `trend.tsx` reads `/api/instrument-profiles/<inst.profileId>` →
+`displayKeys`, their current values via Phase 2's `useLatestValues([id], displayKeys)`, and their
+history from the chart / table responses it already fetches (every key). It draws an `ExtraKeyCard`
+per key after the gauges, an extra `TrendChartCard` per key after the charts (`onExportPdf` is optional
+now — absent = no download, phase 4) and `extraColumns` on `TimeseriesTableCard` (`extraRaw` = the RAW
+stored value; `extraColumnCell` judges only a measured key and never prints the failure word). A
+SUPER_ADMIN gets a **Keys** button in the hero → `display-keys-dialog.tsx` (`KeyPicker` with a `refuse`
+for the two keys the page draws, `KeyDisplayRows` shared with the widget dialog). The dead
+`telemetry-keys` request is gone. Tests: `extra-keys.test.tsx`, `trend-extra-keys.test.tsx`,
+`display-keys-dialog.test.tsx`.
+
 ## Instrument detail — the Details card (trimmed 2026-09-16)
 
 Edit offers TWO fields — Instrument ID and Is Gateway — and the PUT carries

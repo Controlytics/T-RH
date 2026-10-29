@@ -1,5 +1,38 @@
 # Changelog
 
+## [Unreleased] - Widget data keys, phase 3: the trend page shows each profile's extra keys (2026-10-29)
+
+Operator: "go ahead with phase 3 trend page" (spec §7; plan
+`docs/superpowers/plans/2026-10-29-widget-data-keys-phase3.md`).
+
+- **A super admin presses Keys on an instrument's trend page** and picks, from the keys THIS instrument
+  has sent, extra TELEMETRY keys for every instrument of its PROFILE ("Applies to all N instruments of
+  <profile>"), with a label, colour and — for a raw key — unit and decimals. The two keys the page
+  already draws (temperature, humidity) and attributes are refused with the reason.
+- **Each extra key appears** as a value card after the band gauges, a chart card after the two charts
+  (numbers only, "N text readings not plotted", limit lines only for a measured key, no download until
+  phase 4) and a Time Series column printed from the RAW stored value (never the failure word). Each
+  under its existing panel. A measured key wears the server's verdict, a raw key is "Not judged",
+  never green; a key an instrument never sent reads NA.
+- **Server:** `instrument_profiles.display_keys` JSONB (migration `20261029120000_profile_display_keys`,
+  ADD COLUMN only); `PUT /api/instrument-profiles/:id/display-keys` (SUPER_ADMIN, re-auth
+  `UPDATE_INSTRUMENT_PROFILE`, strict, an unchanged list writes nothing, a change audits
+  `INSTRUMENT_PROFILE_UPDATED` with before / after in the transaction; `reason` optional); the profile
+  GET / list return `displayKeys` through the ONE forgiving reader `coerceProfileDisplayKeys`
+  (`@digilog/shared` `profile-display-keys.ts`).
+- **Removed:** the trend page's `telemetry-keys` request, fetched and never rendered since 2026-09-01.
+- **Counts:** migrations +1, routes +1, shared type files 36 → 37. No model, enum, permission, re-auth
+  action, audit action, panel, sidebar item, def or page.
+- **Rulings:** telemetry only (P3-1); keys ride on the profile GET (P3-2); the two drawn keys refused
+  (P3-3); reason optional (P3-4); an extra column never prints the failure word (P3-5).
+- **Tests:** shared `profile-display-keys.test.ts` (5); API `e2e/profile-display-keys.e2e.test.ts` (6,
+  mutation-checked three ways); web `extra-keys`, `trend-extra-keys` (7), `display-keys-dialog` (4).
+  Rendered with the built stylesheet in headless Chrome. **Not seen in the operator's browser.**
+- **Also in this batch — the phase 2 review fix pass** (`0abb5e5`): a measured key with no bound in
+  force is neutral, never green; the trend chart / time series widgets spend their caps only on
+  instruments that SENT a key; trend series capped at 6 (the palette); Reset asks before deleting
+  built widgets.
+
 ## [Unreleased] - Widget data keys, phase 2: a super admin adds widgets over ANY key to the dashboard (2026-10-28)
 
 Operator: "in application dashboards widgets, if different keys data was coming to instrument where i

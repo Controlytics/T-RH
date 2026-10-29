@@ -495,6 +495,15 @@ node apps/api/dist/app.js
   first `auditLog`. `updated` / `unchanged` / `changes[].from` (nullable) are
   DECLARED — mutation-checked. **No count moved, no migration.** Pinned by
   `e2e/bulk-update.e2e.test.ts` (15) and `__tests__/bulk-plan.test.ts` (20).
+- **2026-10-29 — WIDGET DATA KEYS, phase 3 (trend page keys per profile).** Migration
+  `20261029120000_profile_display_keys` (ADD COLUMN `instrument_profiles.display_keys` JSONB, both
+  local DBs; `prisma generate` EPERMed only on the engine DLL rename while the operator's `tsx watch`
+  held it — the JS client and types WERE regenerated, the DLL is byte-identical, the client's
+  `schema.prisma` copied by hand). `PUT /api/instrument-profiles/:id/display-keys` (SUPER_ADMIN 403
+  first, then `enforceReauth('UPDATE_INSTRUMENT_PROFILE')`, zod, unchanged = no write / no audit,
+  a change = `INSTRUMENT_PROFILE_UPDATED` before / after in the transaction). `profileProps.displayKeys`
+  declares every inner key (deleting it fails 5 of 6 e2e). `present()` reads through
+  `coerceProfileDisplayKeys`. Routes +1, no model / enum moved.
 - **2026-10-28 — WIDGET DATA KEYS, phase 2 (dashboard widgets).** Both layout PUTs
   (`/api/config/my-dashboard-layout`, `/api/roles/dashboard-layout/role/:name`) go through ONE
   `checkLayoutWrite` (`modules/config/dashboard-layout.ts`): the strict shared writer

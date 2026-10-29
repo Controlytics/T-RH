@@ -188,7 +188,7 @@ Spec `docs/superpowers/specs/2026-10-28-widget-data-keys-design.md`; phase 1 pla
 - Phase 1 rulings: `getDistinctKeys` stays on history; no `take` on Block/profile selectors; attribute SQL in the repository; an unreported slot's keys keep their bounds; a blank attribute reads as absent; `lastSeenAt` by an extra query; phase 2 must page selections over 200 and handle mixed-profile device keys for one card.
 - [x] Phase 2 dashboard widgets (SUPER_ADMIN builds, Save as role default, `custom_widgets` panel) — plan `docs/superpowers/plans/2026-10-28-widget-data-keys-phase2.md`, 9 tasks, ledger `.superpowers/sdd/2026-10-28-widget-data-keys-phase2/progress.md`; rendered with the built CSS in headless Chrome; NOT seen in the operator's browser; not pushed / deployed
 - [ ] Phase 2 follow-ups (operator's call): a value card / column over a mixed-profile selection lists `t` and `temperature` as two keys (P2-5); chart period / zoom are not remembered (P2-6)
-- [ ] Phase 3 trend page extra keys per profile (migration `display_keys`)
+- [x] Phase 3 trend page extra keys per profile (migration `display_keys`) — plan `docs/superpowers/plans/2026-10-29-widget-data-keys-phase3.md`, 5 tasks, ledger `.superpowers/sdd/2026-10-29-widget-data-keys-phase3/progress.md`; NOT seen in the operator's browser; AWS gets the migration on the next deploy (nothing by hand)
 - [ ] Phase 4 downloads (separate approval)
 - [ ] Push to trh / deploy — operator's call
 
