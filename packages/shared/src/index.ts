@@ -29,9 +29,19 @@ export {
 export type { DashboardLayout, LayoutItem } from './types/dashboard-layout.js';
 
 export {
+  DASHBOARD_DOCUMENT_VERSION, DASHBOARD_SOURCE_INSTRUMENTS_MAX, DEFAULT_DASHBOARD_WINDOW,
+  dashboardSourceSchema, dashboardTimeWindowSchema, emptyDashboardDocument,
+  parseDashboardDocument, readDashboardDocument, diffWidgets,
+} from './types/dashboard-document.js';
+export type {
+  DashboardSource, DashboardTimeWindow, DashboardDocument, StoredDashboardDocument,
+  DashboardSourceSummary, DashboardSummary, DashboardDetail,
+} from './types/dashboard-document.js';
+
+export {
   CUSTOM_WIDGETS_PANEL, WIDGET_ITEM_PREFIX, WIDGET_TYPES, WIDGETS_PER_LAYOUT_MAX, WIDGET_INSTRUMENTS_MAX,
   WIDGET_KEYS_MAX, TREND_SERIES_MAX, VALUE_CARDS_SHOWN_MAX, WIDGET_COLOR_COUNT, WIDGET_PAGE_SIZES,
-  widgetKeySchema, widgetSourceSchema, customWidgetSchema, widgetItemId, widgetIdOf, isWidgetItem, widgetsEqual,
+  WIDGET_ALARM_STATUSES, widgetKeySchema, widgetSourceSchema, customWidgetSchema, widgetItemId, widgetIdOf, isWidgetItem, widgetsEqual,
 } from './types/dashboard-widgets.js';
 export type { WidgetType, WidgetKey, WidgetSource, CustomWidget } from './types/dashboard-widgets.js';
 

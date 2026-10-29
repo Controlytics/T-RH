@@ -150,7 +150,7 @@ const FALLBACK_SIZE = { w: 12, h: 8 };
 
 const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
-function readItem(v: unknown): LayoutItem | null | undefined {
+export function readItem(v: unknown): LayoutItem | null | undefined {
   if (typeof v !== 'object' || v === null) return undefined;
   const o = v as Record<string, unknown>;
   if (typeof o.i !== 'string') return undefined;
@@ -198,7 +198,7 @@ export function normalizeLayout(v: unknown): DashboardLayout | undefined {
   return { version: LAYOUT_VERSION, ...pairWidgets(items, readWidgets(o.widgets)) };
 }
 
-function readWidgets(v: unknown): CustomWidget[] {
+export function readWidgets(v: unknown): CustomWidget[] {
   if (!Array.isArray(v)) return [];
   const out: CustomWidget[] = [];
   const ids = new Set<string>();
@@ -218,7 +218,7 @@ function readWidgets(v: unknown): CustomWidget[] {
  * goes. `widgets` is present only when non-empty, so a layout without any keeps
  * its pre-widget shape.
  */
-function pairWidgets(items: LayoutItem[], widgets: readonly CustomWidget[]): Pick<DashboardLayout, 'items' | 'widgets'> {
+export function pairWidgets(items: LayoutItem[], widgets: readonly CustomWidget[]): Pick<DashboardLayout, 'items' | 'widgets'> {
   const defined = new Set(widgets.map((w) => w.id));
   const placed = new Set<string>();
   const kept = items.filter((it) => {
@@ -351,6 +351,11 @@ function appendMissing(items: LayoutItem[], visiblePanels: string[]): LayoutItem
   return out;
 }
 
+/** An `alarm_table` widget is shown only to a viewer who holds the alarms panel. */
+function dropAlarmTables(widgets: readonly CustomWidget[], visiblePanels: string[]): CustomWidget[] {
+  return visiblePanels.includes('dashboard_alarms') ? [...widgets] : widgets.filter((w) => w.type !== 'alarm_table');
+}
+
 /**
  * The layout to render: the user's, else the role's default, else the built-in —
  * narrowed to the panels this viewer may actually see.
@@ -395,16 +400,18 @@ export function resolveLayout(
    */
   const fromRole = opts.viewerIsSuperAdmin === false && userLayout !== undefined;
   if (!fromRole) {
-    const defined = new Set((chosen.widgets ?? []).map((w) => w.id));
+    // An alarm table lists alarms, so it needs the alarms panel as well.
+    const widgets = dropAlarmTables(chosen.widgets ?? [], visiblePanels);
+    const defined = new Set(widgets.map((w) => w.id));
     const items = chosen.items.filter((it) => {
       const id = widgetIdOf(it.i);
       return id === null ? allowed.has(it.i) : defined.has(id);
     });
-    return { version: LAYOUT_VERSION, ...pairWidgets(appendMissing(items, ordered), chosen.widgets ?? []) };
+    return { version: LAYOUT_VERSION, ...pairWidgets(appendMissing(items, ordered), widgets) };
   }
 
   const panels = appendMissing(userLayout.items.filter((it) => allowed.has(it.i)), ordered);
-  const roleWidgets = roleLayout?.widgets ?? [];
+  const roleWidgets = dropAlarmTables(roleLayout?.widgets ?? [], visiblePanels);
   const defined = new Set(roleWidgets.map((w) => w.id));
   const roleItems = (roleLayout?.items ?? []).filter((it) => {
     const id = widgetIdOf(it.i);

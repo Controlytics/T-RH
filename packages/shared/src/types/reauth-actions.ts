@@ -73,6 +73,7 @@ export const REAUTH_ACTIONS = {
   // routes on or off (replacing the AUDIT_HARD_DELETE_ENABLED env var). The
   // dynamic config page derives `UPDATE_<MODULE_KEY>` from the module key, so
   // this name lets it prompt BEFORE the save rather than after a 401.
+  UPDATE_DASHBOARD: { label: 'Update Dashboard (create, edit, delete, assign)', category: 'Configuration' },
   UPDATE_AUDIT_HARD_DELETE: { label: 'Allow / Disallow Audit Record Deletion', category: 'Configuration' },
   // 2026-05-26 audit fix (PA-REAUTH-4): notification bulk-delete is
   // destructive (irreversible, no recycle bin) and was missing reauth.

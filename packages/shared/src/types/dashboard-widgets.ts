@@ -27,7 +27,10 @@ export const CUSTOM_WIDGETS_PANEL = 'custom_widgets';
 /** A grid item that places a widget is `w:<widget id>`. */
 export const WIDGET_ITEM_PREFIX = 'w:';
 
-export const WIDGET_TYPES = ['value_cards', 'latest_table', 'trend_chart', 'timeseries_table'] as const;
+export const WIDGET_TYPES = ['value_cards', 'latest_table', 'trend_chart', 'timeseries_table', 'alarm_table'] as const;
+
+/** The alarm states an alarm table can be filtered to. */
+export const WIDGET_ALARM_STATUSES = ['active-unack', 'active-ack', 'cleared-unack', 'cleared-ack'] as const;
 export type WidgetType = (typeof WIDGET_TYPES)[number];
 
 export const WIDGETS_PER_LAYOUT_MAX = 20;
@@ -81,13 +84,20 @@ export const customWidgetSchema = z.object({
   title: z.string().trim().min(1, 'A widget needs a title').max(80, 'A title must be 80 characters or fewer'),
   source: widgetSourceSchema,
   keys: z.array(widgetKeySchema)
-    .min(1, 'Choose at least one key')
     .max(WIDGET_KEYS_MAX, `At most ${WIDGET_KEYS_MAX} keys`),
   options: z.object({
     period: z.string().refine((v) => PERIOD_VALUES.includes(v), 'Not a period this widget can show').optional(),
     pageSize: z.union([z.literal(10), z.literal(25), z.literal(50)]).optional(),
+    status: z.enum(WIDGET_ALARM_STATUSES).optional(),
   }).default({}),
 }).superRefine((w, ctx) => {
+  if (w.type === 'alarm_table') {
+    if (w.keys.length > 0) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['keys'], message: 'An alarm table takes no keys' });
+    if (w.options.period !== undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['options', 'period'], message: 'An alarm table has no period' });
+  } else {
+    if (w.keys.length === 0) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['keys'], message: 'Choose at least one key' });
+    if (w.options.status !== undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['options', 'status'], message: 'Only an alarm table has a status filter' });
+  }
   const seen = new Set<string>();
   w.keys.forEach((k, n) => {
     const id = `${k.source}:${k.key}`;

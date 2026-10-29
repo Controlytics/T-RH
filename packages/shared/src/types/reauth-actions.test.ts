@@ -28,8 +28,8 @@ describe('REAUTH_ACTIONS — instrument registry (SEC-7)', () => {
   });
 
   // The counts root CLAUDE.md states. Re-derive before moving either.
-  it('holds 56 actions in 8 categories', () => {
-    expect(Object.keys(REAUTH_ACTIONS)).toHaveLength(56);
+  it('holds 57 actions in 8 categories', () => {
+    expect(Object.keys(REAUTH_ACTIONS)).toHaveLength(57);
     expect(REAUTH_ACTION_CATEGORIES).toHaveLength(8);
   });
 

@@ -25,8 +25,26 @@ const issues = (v: unknown) => {
 describe('customWidgetSchema', () => {
   it('accepts one widget of each type', () => {
     for (const type of WIDGET_TYPES) {
-      expect(customWidgetSchema.safeParse(widget({ type })).success).toBe(true);
+      // An alarm table lists alarms, not keys (spec §5): its fixture carries none.
+      const w = type === 'alarm_table' ? widget({ type, keys: [] }) : widget({ type });
+      expect(customWidgetSchema.safeParse(w).success).toBe(true);
     }
+  });
+
+  it('accepts an alarm table with no keys and a status filter', () => {
+    const r = customWidgetSchema.safeParse(widget({ type: 'alarm_table', keys: [], options: { status: 'active-unack' } }));
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.options.status).toBe('active-unack');
+  });
+
+  it('refuses an alarm table with a key, with a period, or a non-alarm widget with a status', () => {
+    expect(issues(widget({ type: 'alarm_table' }))).toContain('An alarm table takes no keys');
+    expect(issues(widget({ type: 'alarm_table', keys: [], options: { period: '24h' } }))).toContain('An alarm table has no period');
+    expect(issues(widget({ options: { status: 'active-ack' } }))).toContain('Only an alarm table has a status filter');
+  });
+
+  it('still refuses a value_cards widget with no keys', () => {
+    expect(issues(widget({ keys: [] }))).toContain('Choose at least one key');
   });
 
   it('accepts every optional field at its bounds', () => {

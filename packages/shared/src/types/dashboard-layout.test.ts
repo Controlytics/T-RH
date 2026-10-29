@@ -287,6 +287,25 @@ describe('a layout that carries widgets', () => {
   });
 });
 
+describe('an alarm table in a layout', () => {
+  it('an alarm table needs the dashboard_alarms panel', () => {
+    const alarm: CustomWidget = { ...widget(W1, 'Alarms'), type: 'alarm_table', keys: [], options: {} };
+    const cards = widget(W2, 'Cards');
+    const role = {
+      version: LAYOUT_VERSION,
+      items: [wItem(W1, 0), wItem(W2, 5)],
+      widgets: [alarm, cards],
+    };
+    const base = ['custom_widgets', 'telemetry_table'];
+    const without = resolveLayout(undefined, role, base, { viewerIsSuperAdmin: true });
+    expect(without.items.map((i) => i.i)).toContain(widgetItemId(W2));
+    expect(without.items.map((i) => i.i)).not.toContain(widgetItemId(W1));
+    expect(without.widgets?.map((w) => w.id)).toEqual([W2]);
+    const withPanel = resolveLayout(undefined, role, [...base, 'dashboard_alarms'], { viewerIsSuperAdmin: true });
+    expect(withPanel.items.map((i) => i.i)).toEqual(expect.arrayContaining([widgetItemId(W1), widgetItemId(W2)]));
+  });
+});
+
 describe('parseLayoutForWrite', () => {
   const placed = { version: LAYOUT_VERSION, items: [item('dashboard_alarms', 0), wItem(W1, 6)] };
 
