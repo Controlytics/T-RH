@@ -24,9 +24,12 @@ export function TimeseriesTableWidget({ widget, selection }: { widget: CustomWid
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(widget.options.pageSize ?? 25);
 
-  const queried = rows.slice(0, WIDGET_INSTRUMENTS_MAX);
-  const ids = queried.map((r) => r.instrumentId);
   const keys = widget.keys.filter((k) => k.source === 'telemetry');
+  // Only instruments that have SENT one of the keys — the 50 must not be spent on
+  // instruments that would add no row (review 2026-10-29).
+  const carriers = rows.filter((r) => keys.some((k) => valueOf(r, k)?.ts != null));
+  const queried = carriers.slice(0, WIDGET_INSTRUMENTS_MAX);
+  const ids = queried.map((r) => r.instrumentId);
   const history = useWidgetTimeseries(ids, keys.map((k) => k.key), range, page, pageSize);
   const byId = useMemo(() => new Map(rows.map((r) => [r.instrumentId, r])), [rows]);
 
@@ -50,7 +53,7 @@ export function TimeseriesTableWidget({ widget, selection }: { widget: CustomWid
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         <PeriodSelect name={`widget-period-${widget.id}`} value={preset} onChange={setPreset} />
-        <CapNote shown={queried.length} total={rows.length} noun="instruments" />
+        <CapNote shown={queried.length} total={carriers.length} noun="instruments" />
       </div>
       <div className="overflow-x-auto">
         <table className="tbl tbl-grid w-full text-sm" data-testid="timeseries-table">

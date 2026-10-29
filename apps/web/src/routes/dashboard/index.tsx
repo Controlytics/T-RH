@@ -18,6 +18,7 @@ import { CUSTOM_WIDGETS_PANEL, widgetIdOf, type CustomWidget, type LayoutItem } 
 import { WidgetPanel } from './widgets/widget-panel';
 import { WidgetDialog } from './widgets/widget-dialog';
 import { RoleDefaultDialog } from './widgets/role-default-dialog';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Button } from '@/components/ui/button';
 
 /** A CSS gradient STRING for `backgroundImage`. Not lib/theme-styles' themeGradient,
@@ -158,6 +159,17 @@ export function DashboardPage() {
   // The Add / Edit widget dialog (null = closed); `initial` = the widget being edited.
   const [widgetDialog, setWidgetDialog] = useState<{ initial?: CustomWidget } | null>(null);
   const [roleDefaultOpen, setRoleDefaultOpen] = useState(false);
+  /**
+   * Reset deletes the caller's WHOLE layout row — built widgets included — so it
+   * asks first whenever there are widgets to lose (review 2026-10-29: one click
+   * beside "Add widget" silently destroyed them). With none, it resets at once,
+   * as it always has.
+   */
+  const [confirmReset, setConfirmReset] = useState(false);
+  const requestReset = () => {
+    if (layout.widgets.length > 0) setConfirmReset(true);
+    else void layout.reset();
+  };
   // Arrange — and with it every widget control — is SUPER_ADMIN only (operator,
   // 2026-08-29 and 2026-10-28: "super admin only"). The layout routes' 403 is the
   // control; this is presentation.
@@ -357,7 +369,7 @@ export function DashboardPage() {
           onStart={layout.start}
           onCancel={layout.cancel}
           onSave={layout.save}
-          onReset={layout.reset}
+          onReset={requestReset}
           onChange={onGridChange}
           // Arrange is SUPER_ADMIN only (operator, 2026-08-29).
           canArrange={isSuperAdmin}
@@ -490,6 +502,16 @@ export function DashboardPage() {
           }}
         />
       )}
+      <ConfirmDialog
+        open={confirmReset}
+        title="Reset to default?"
+        message={`This removes your ${layout.widgets.length} built widget${layout.widgets.length === 1 ? '' : 's'} from your own dashboard and puts back the default arrangement. Roles you saved them to as a default keep their copies.`}
+        confirmLabel="Reset and remove widgets"
+        busyLabel="Resetting…"
+        busy={layout.saving}
+        onConfirm={async () => { await layout.reset(); setConfirmReset(false); }}
+        onClose={() => setConfirmReset(false)}
+      />
       {isSuperAdmin && (
         <RoleDefaultDialog
           open={roleDefaultOpen}

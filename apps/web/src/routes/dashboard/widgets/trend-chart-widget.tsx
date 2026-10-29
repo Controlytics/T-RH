@@ -21,7 +21,7 @@ import { TimeSeriesChart, seriesColor, type ChartSeries } from '../time-series-c
 import { decimalsSeen, isMeasured, keyCell } from './key-value';
 import { useWidgetHistory, type WidgetSelection } from './use-widget-data';
 import {
-  CapNote, LOAD_FAILED, NO_INSTRUMENTS, PeriodSelect, WidgetMessage, useWidgetRange, useWidgetRows, valueOf,
+  CapNote, LOAD_FAILED, NO_INSTRUMENTS, NO_KEY_YET, PeriodSelect, WidgetMessage, useWidgetRange, useWidgetRows, valueOf,
 } from './widget-common';
 
 interface Plotted {
@@ -41,14 +41,24 @@ export function TrendChartWidget({ widget, selection }: { widget: CustomWidget; 
   const words = useSensorWords();
 
   const telemetryKeys = widget.keys.filter((k) => k.source === 'telemetry');
-  const pairs = rows.flatMap((row) => telemetryKeys.map((key) => ({ row, key })));
+  // Only instruments that have SENT the key: a key a few instruments carry must
+  // not be cut behind empty series of instruments that never sent it
+  // (review 2026-10-29).
+  const pairs = rows.flatMap((row) => telemetryKeys
+    .filter((key) => valueOf(row, key)?.ts != null)
+    .map((key) => ({ row, key })));
   const shownPairs = pairs.slice(0, TREND_SERIES_MAX);
   const historyIds = [...new Set(shownPairs.map((p) => p.row.instrumentId))];
+  // A key's chosen colour names the KEY only when one instrument is drawn; across
+  // several instruments every series takes its own palette slot, or the lines
+  // for one key would be indistinguishable.
+  const singleInstrument = historyIds.length === 1;
   const { byInstrument, loading: historyLoading } = useWidgetHistory(historyIds, telemetryKeys.map((k) => k.key), range);
 
   if (loading) return <WidgetMessage>Loading…</WidgetMessage>;
   if (error) return <WidgetMessage tone="error">{LOAD_FAILED}</WidgetMessage>;
   if (empty) return <WidgetMessage>{NO_INSTRUMENTS}</WidgetMessage>;
+  if (pairs.length === 0) return <WidgetMessage>{NO_KEY_YET}</WidgetMessage>;
 
   const plotted: Plotted[] = shownPairs.flatMap(({ row, key }, index) => {
     const h = byInstrument.get(row.instrumentId);
@@ -69,7 +79,7 @@ export function TrendChartWidget({ widget, selection }: { widget: CustomWidget; 
         id: `${row.instrumentId}:${key.key}`,
         label: `${row.code} · ${key.label ?? key.key}`,
         decimals,
-        color: seriesColor(key.color ?? index),
+        color: seriesColor(singleInstrument ? key.color ?? index : index),
         points,
       },
       instrumentId: row.instrumentId,

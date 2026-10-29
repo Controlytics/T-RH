@@ -34,7 +34,12 @@ export const WIDGETS_PER_LAYOUT_MAX = 20;
 /** A fixed instrument list; also how many instruments a time series table queries. */
 export const WIDGET_INSTRUMENTS_MAX = 50;
 export const WIDGET_KEYS_MAX = DATA_KEYS_PER_REQUEST_MAX;
-export const TREND_SERIES_MAX = 10;
+/**
+ * = the palette (`WIDGET_COLOR_COUNT`): a seventh series would repeat a colour,
+ * and the trend chart has no legend to tell two same-coloured lines apart
+ * (review 2026-10-29; was 10).
+ */
+export const TREND_SERIES_MAX = 6;
 /** Value cards drawn at most; the widget says how many it did not draw. */
 export const VALUE_CARDS_SHOWN_MAX = 60;
 /** Colours are an INDEX into the chart palette (the web's `SERIES_COLORS`). */

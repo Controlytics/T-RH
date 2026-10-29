@@ -79,7 +79,10 @@ export function keyCell(
       sensorError: v.judged.sensorError,
       rangeError: v.judged.rangeError,
     }, words);
-    const classes = statusClasses(verdict.status);
+    // Not assessed (a reading, but NO bound in force) takes the neutral look,
+    // exactly as the band gauge does — the OK palette would assert a check that
+    // is not happening (review 2026-10-29).
+    const classes = verdict.assessed ? statusClasses(verdict.status) : UNJUDGED_CLASSES;
     const shown = verdict.fault ?? text;
     return {
       text: shown,

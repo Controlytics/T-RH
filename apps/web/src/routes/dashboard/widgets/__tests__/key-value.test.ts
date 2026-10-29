@@ -93,9 +93,16 @@ describe('a measured key is the server\'s', () => {
     expect(cell.classes).not.toEqual(statusClasses('OUT_OF_SPEC'));
   });
 
-  it('a measured key with no bound in force is Not assessed', () => {
+  it('a measured key with no bound in force is Not assessed — and NOT green', () => {
+    // Review 2026-10-29 (Important): the label said "Not assessed" while the
+    // card wore the OK palette. Nothing is judging it, so it takes the neutral
+    // look, as the band gauge does. Compared field by field with the palette.
     const cell = keyCell(measured(21, { limitMin: null, limitMax: null }), true, { source: 'telemetry', key: 't' }, WORDS);
     expect(cell.label).toBe('Not assessed');
+    const ok = statusClasses('OK');
+    for (const field of ['dot', 'text', 'bg', 'border'] as const) {
+      expect(cell.classes[field]).not.toBe(ok[field]);
+    }
   });
 
   it('measured is the server\'s answer, judged !== null', () => {

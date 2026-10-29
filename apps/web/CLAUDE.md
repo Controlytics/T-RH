@@ -295,7 +295,7 @@ overview query; one catalogue URL builder), `key-value.ts` (`keyCell` / `formatK
   drag; before 2026-10-28 a drag silently dropped a card's tint and renamed heading.
 - **Table widgets follow their content** (`autoHeightIds(widgets)`); cards and charts keep a dragged
   height. Widgets show in BOTH views.
-- **Never cut silently**: 60 cards, 10 series, 50 table instruments, each with "Showing X of Y".
+- **Never cut silently**: 60 cards, 6 series (= the palette, so no two lines share a colour; a key's colour applies only to a one-instrument chart), 50 table instruments, each with "Showing X of Y". The chart and the table spend their caps only on instruments that have SENT a key. Reset asks first when built widgets would be lost; a measured key with no bound in force is neutral, never green (review fix pass 2026-10-29).
   A chart window's `to` is rounded up to the next minute (a stable SWR key; the window moves once a
   minute). Period and zoom chosen on a widget are session state; only the default is stored.
 

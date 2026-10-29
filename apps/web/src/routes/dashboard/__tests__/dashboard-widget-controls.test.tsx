@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { LAYOUT_VERSION } from '@digilog/shared';
 
@@ -11,10 +11,11 @@ const CAN = () => true;
 vi.mock('@/hooks/use-can', () => ({ useCan: () => CAN }));
 const PANELS = { showPanel: () => true, loaded: true };
 vi.mock('@/hooks/use-panels', () => ({ usePanels: () => PANELS }));
-const LAYOUT = {
+const reset = vi.fn(async () => {});
+const LAYOUT: Record<string, unknown> & { editing: boolean; widgets: unknown[] } = {
   items: [{ i: 'telemetry_table', x: 0, y: 0, w: 12, h: 9 }], widgets: [],
   editing: false, saving: false, loaded: true,
-  start: () => {}, cancel: () => {}, save: async () => {}, reset: async () => {}, setDraft: () => {},
+  start: () => {}, cancel: () => {}, save: async () => {}, reset, setDraft: () => {},
   setStyle: () => {}, setSize: () => {}, addWidget: () => {}, updateWidget: () => {}, removeWidget: () => {},
   saveAsRoleDefault: async () => {},
 };
@@ -71,6 +72,34 @@ describe('dashboard widget controls', () => {
     renderPage();
     expect(screen.queryByRole('button', { name: 'Add widget' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Save as role default' })).toBeNull();
+  });
+});
+
+describe('Reset to default', () => {
+  it('asks before deleting built widgets, and resets only on Confirm', async () => {
+    // Review 2026-10-29 (Important): Reset deletes the caller's whole layout row,
+    // widgets included — one click beside "Add widget" destroyed up to 20.
+    AUTH.user.role = 'SUPER_ADMIN';
+    LAYOUT.editing = true;
+    LAYOUT.widgets = [{ id: 'w1' }, { id: 'w2' }];
+    reset.mockClear();
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }));
+    expect(reset).not.toHaveBeenCalled();
+    expect(screen.getByText(/2 built widgets/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Reset and remove widgets' }));
+    await waitFor(() => expect(reset).toHaveBeenCalledTimes(1));
+    LAYOUT.widgets = [];
+  });
+
+  it('resets straight away when there are no built widgets to lose', () => {
+    AUTH.user.role = 'SUPER_ADMIN';
+    LAYOUT.editing = true;
+    LAYOUT.widgets = [];
+    reset.mockClear();
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }));
+    expect(reset).toHaveBeenCalledTimes(1);
   });
 });
 

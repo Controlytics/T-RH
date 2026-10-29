@@ -17,11 +17,12 @@ const state: {
   series: { rows: [], total: 0, loading: false },
 };
 const historyCalls: unknown[][] = [];
+const seriesCalls: unknown[][] = [];
 vi.mock('../use-widget-data', () => ({
   useWidgetInstrumentIds: () => state.ids,
   useLatestValues: () => state.latest,
   useWidgetHistory: (...a: unknown[]) => { historyCalls.push(a); return state.history; },
-  useWidgetTimeseries: () => state.series,
+  useWidgetTimeseries: (...a: unknown[]) => { seriesCalls.push(a); return state.series; },
 }));
 const FORMAT = { formatDateTime: (v: string) => `T:${v}`, formatDate: (v: string) => v, formatTime: (v: string) => v };
 vi.mock('@/hooks/use-datetime-format', () => ({ useDatetimeFormat: () => FORMAT }));
@@ -158,16 +159,59 @@ describe('trend chart', () => {
     expect(series.decimals).toBe(1); // the precision the device sent, nothing invented
   });
 
-  it('12 series → Showing 10 of 12 series, and history asked only for the shown instruments', () => {
+  it('12 series → Showing 6 of 12 series, and history asked only for the shown instruments', () => {
+    // 6 = the palette: a seventh series would repeat a colour (review 2026-10-29).
     setRows(Array.from({ length: 12 }, (_, n) => row(`i${n}`, [measuredT(20)])));
     state.history = { byInstrument: new Map(), loading: false };
     render(<WidgetBody widget={widget({ type: 'trend_chart' })} selection={SEL} />);
-    expect(screen.getByTestId('widget-cap-note').textContent).toBe('Showing 10 of 12 series');
-    expect((historyCalls.at(-1)![0] as string[])).toHaveLength(10);
+    expect(screen.getByTestId('widget-cap-note').textContent).toBe('Showing 6 of 12 series');
+    expect((historyCalls.at(-1)![0] as string[])).toHaveLength(6);
+  });
+
+  it('plots the instruments that CARRY the key, not the first ones in the selection', () => {
+    // Review 2026-10-29: a key only a few instruments send was cut behind
+    // empty series from instruments that never sent it.
+    const never = (id: string) => row(id, [measuredT(null, { ts: null })]);
+    setRows([never('n1'), never('n2'), never('n3'), never('n4'), never('n5'), never('n6'), never('n7'),
+      row('c1', [measuredT(20)]), row('c2', [measuredT(21)])]);
+    state.history = { byInstrument: new Map(), loading: false };
+    render(<WidgetBody widget={widget({ type: 'trend_chart' })} selection={SEL} />);
+    expect(historyCalls.at(-1)![0]).toEqual(['c1', 'c2']);
+    expect(screen.queryByTestId('widget-cap-note')).toBeNull();
+  });
+
+  it('says so when no instrument in view has sent the key yet', () => {
+    setRows([row('n1', [measuredT(null, { ts: null })])]);
+    render(<WidgetBody widget={widget({ type: 'trend_chart' })} selection={SEL} />);
+    expect(screen.getByText('No instrument here has sent these keys yet.')).toBeTruthy();
+    expect(screen.queryByTestId('chart')).toBeNull();
+  });
+
+  it('every series drawn has its own colour; a key colour applies only to a single instrument', () => {
+    const hist1 = (key: string) => ({ history: [{ key, value: 1, ts: '2026-10-28T10:00:00.000Z' }], summaries: {}, historySampled: false, historyTotal: 1 });
+    setRows(Array.from({ length: 6 }, (_, n) => row(`i${n}`, [measuredT(20)])));
+    state.history = { byInstrument: new Map(Array.from({ length: 6 }, (_, n) => [`i${n}`, hist1('t')])), loading: false };
+    const { unmount } = render(<WidgetBody widget={widget({ type: 'trend_chart', keys: [{ source: 'telemetry', key: 't', color: 2 }] })} selection={SEL} />);
+    const colours = (chartProps.at(-1)!.series as { color: string }[]).map((s) => s.color);
+    expect(new Set(colours).size).toBe(6);
+    unmount();
+
+    setRows([row('only', [measuredT(20)])]);
+    state.history = { byInstrument: new Map([['only', hist1('t')]]), loading: false };
+    render(<WidgetBody widget={widget({ type: 'trend_chart', keys: [{ source: 'telemetry', key: 't', color: 2 }] })} selection={SEL} />);
+    expect((chartProps.at(-1)!.series as { color: string }[])[0].color).toContain('--chart-series-3');
   });
 });
 
 describe('time series table', () => {
+  it('queries the instruments that carry a key, not the first fifty', () => {
+    const never = (id: string) => row(id, [measuredT(null, { ts: null })]);
+    setRows([...Array.from({ length: 55 }, (_, n) => never(`n${n}`)), row('c1', [measuredT(20)])]);
+    render(<WidgetBody widget={widget({ type: 'timeseries_table' })} selection={SEL} />);
+    expect(seriesCalls.at(-1)![0]).toEqual(['c1']);
+    expect(screen.queryByTestId('widget-cap-note')).toBeNull();
+  });
+
   it("prints a measured cell at the server's decimals and a raw one as received", () => {
     setRows([row('a', [measuredT(20), rawP(0.05)])]);
     state.series = { rows: [{ instrumentId: 'a', ts: '2026-10-28T10:00:00.000Z', values: { t: '21.456', p: 0.05 } }], total: 1, loading: false };

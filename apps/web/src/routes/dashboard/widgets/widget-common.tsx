@@ -12,6 +12,8 @@ import { useLatestValues, useWidgetInstrumentIds, type WidgetRange, type WidgetS
 
 export const NO_INSTRUMENTS = 'No instruments in your view';
 export const LOAD_FAILED = 'Could not load this widget.';
+/** In view, but none of them has sent the widget's keys — distinct from out of view. */
+export const NO_KEY_YET = 'No instrument here has sent these keys yet.';
 
 /** The value a row holds for one widget key. */
 export function valueOf(row: LatestValuesRow, key: WidgetKey): LatestKeyValue | undefined {

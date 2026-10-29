@@ -28,7 +28,7 @@ can add those in widgets … like in thingsboard", answered "super admin only" f
   non-super-admin who holds a personal layout (saved before Arrange became super-admin-only — one
   MAINTENANCE and one ADMIN user locally) gets the ROLE's widgets below their panels.
 - **Caps that say what they hid:** latest-values batched in 200s (a ~320-instrument selection reaches
-  every instrument); value cards 60, trend series 10, the time series table's first 50 instruments,
+  every instrument); value cards 60, trend series 6 (one per palette colour), the time series table's first 50 instruments carrying a key,
   each with "Showing X of Y …". `GET /api/instruments/data-keys` gained `all=true` and
   `functionalLocationDirect=true` for the dashboard's own selections.
 - **Fixed (pre-existing):** dragging a dashboard card dropped its tint / renamed heading from the draft
