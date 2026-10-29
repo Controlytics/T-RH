@@ -174,9 +174,24 @@ export interface SlotColumn {
   max: number | null | undefined;
 }
 
+/**
+ * An extra key's column (widget data keys phase 3): the profile's display key,
+ * printed from the RAW stored value by `cell` — never through the slot rules
+ * above, so a text reading is shown as text and never as the failure word.
+ */
+export interface ExtraColumn {
+  key: string;
+  heading: string;
+  cell: (raw: unknown) => { text: string; tone: PillTone };
+}
+
 export interface TimeseriesTableCardProps {
   /** This page of raw history, newest first. */
   rows: PivotRow[];
+  /** The profile's extra keys, after the slot columns. They do not set the row's tone. */
+  extraColumns?: ExtraColumn[];
+  /** The RAW stored value of `key` at `ts`; undefined / null prints `—`. */
+  extraRaw?: (ts: string, key: string) => unknown;
   /** Temperature then humidity, in that order. A slot with a null `key` is
    *  skipped entirely — the instrument does not report it. */
   slots: SlotColumn[];
@@ -215,7 +230,7 @@ export interface TimeseriesTableCardProps {
 
 export function TimeseriesTableCard({
   rows, slots, failureWord, formatTs, title, subtitle, timestampHeading,
-  settingsButton = null,
+  settingsButton = null, extraColumns = [], extraRaw,
   onExportPdf, page, pageSize, totalItems, onPageChange,
 }: TimeseriesTableCardProps) {
   const columns = slots.filter((s): s is SlotColumn & { key: string } => s.key !== null);
@@ -280,6 +295,9 @@ export function TimeseriesTableCard({
                 {columns.map((s) => (
                   <th key={s.key} scope="col" className={`${th} !text-center`}>{s.heading}</th>
                 ))}
+                {extraColumns.map((c) => (
+                  <th key={`extra-${c.key}`} scope="col" className={`${th} !text-center`}>{c.heading}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -337,6 +355,28 @@ export function TimeseriesTableCard({
                         failureWord={failureWord}
                       />
                     ))}
+                    {extraColumns.map((c) => {
+                      const raw = extraRaw?.(row.ts, c.key);
+                      if (raw === undefined || raw === null) {
+                        return (
+                          <td key={`extra-${c.key}`} className="px-4 py-3.5 text-center">
+                            <span data-testid={`ts-extra-${c.key}`} className="text-sm text-slate-400">—</span>
+                          </td>
+                        );
+                      }
+                      const { text, tone: extraTone } = c.cell(raw);
+                      return (
+                        <td key={`extra-${c.key}`} className="px-4 py-3.5 text-center">
+                          <span
+                            data-testid={`ts-extra-${c.key}`}
+                            data-tone={extraTone}
+                            className={`inline-flex rounded-lg px-3 py-1.5 text-sm font-semibold tabular-nums ${PILL_CLASS[extraTone]}`}
+                          >
+                            {text}
+                          </span>
+                        </td>
+                      );
+                    })}
                   </tr>
                 );
               })}

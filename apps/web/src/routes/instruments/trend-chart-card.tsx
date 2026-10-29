@@ -82,7 +82,10 @@ export interface TrendChartCardProps {
   locationParts: (string | null | undefined)[];
   code: string;
   /** Fires the per-chart §11 report download. */
-  onExportPdf: () => void;
+  /** The download. Absent (a profile's extra key, phase 3) = no export icon
+   *  (`ExportMenu` renders nothing without a handler): the reports cover
+   *  temperature and humidity only until phase 4. */
+  onExportPdf?: () => void;
   /**
    * The SUPER_ADMIN edit affordance for this card's administered `title`, passed
    * in rather than rendered here — same reason as `BandGauge`'s: this card is a
