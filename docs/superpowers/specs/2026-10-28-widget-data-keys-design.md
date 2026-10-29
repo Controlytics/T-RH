@@ -1,6 +1,6 @@
 # Widget data keys — any key an instrument sends, in any widget
 
-**Date:** 2026-10-28 · **Status:** PROPOSED — awaiting the operator's approval · **Branch:** `data-layer`
+**Date:** 2026-10-28 · **Status:** APPROVED ("go ahead"); phase 1 built and deployed `8717b93`, phase 2 built 2026-10-28 · **Branch:** `data-layer`
 
 ## 1. Why
 
@@ -239,9 +239,10 @@ A device starts sending a key `p` tomorrow.
   is presentation; the 403 is the control). A widget a SUPER_ADMIN builds sits in their own layout
   — seen by them alone — until they press *Save as role default* (new, in Arrange mode, through
   the existing audited `PUT /api/roles/dashboard-layout/role/:name`); every user of that role then
-  sees it, subject to the `custom_widgets` panel. Other users keep their role's layout (they cannot
-  arrange, so none of them should hold a layout of their own; any that does keeps it whole and
-  meets the role's widgets after *Reset to role default*).
+  sees it, subject to the `custom_widgets` panel. **As built (ruling P2-2):** a non-super-admin who
+  still holds a layout of their own (saved before Arrange became super-admin-only — they cannot reach
+  *Reset*) keeps their panel positions and gets the ROLE's widgets placed below them; this sentence
+  said they would meet them "after Reset to role default", which they cannot do.
 - **No new permission, and no reuse of `DASHBOARD_*`.** Reusing those would reverse the 2026-10-24
   strip, which is still owed on AWS and would remove the grant again on its first run. **[my call]**
 

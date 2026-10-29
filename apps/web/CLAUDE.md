@@ -272,6 +272,33 @@ single definition of where the session token lives (`sessionStorage`). A
 hand-rolled `fetch` reading `localStorage.getItem('access_token')` is why
 profile photo upload silently 401'd until 2026-08-11.
 
+## Built dashboard widgets (2026-10-28) — `routes/dashboard/widgets/`
+
+Widget data keys phase 2 (spec §6, plan `docs/superpowers/plans/2026-10-28-widget-data-keys-phase2.md`).
+A SUPER_ADMIN arranging gets **Add widget** and **Save as role default** in the edit row
+(`PanelGrid editActions`); every other role gets neither (pinned by `dashboard-widget-controls.test.tsx`,
+mutation-checked). Files: `widget-dialog.tsx` (type / instruments / keys / display + live preview,
+validated by the shared `customWidgetSchema`), `key-picker.tsx` (the server catalogue, Time series /
+Attributes, Measured badge; numeric is a HINT — a text key is warned, only an attribute is refused for
+the two history widgets), `role-default-dialog.tsx` (UPDATE_ROLE_CONFIG re-auth with all three
+outcomes), `widget-panel.tsx` (`WidgetPanel` = `PanelCard` + Edit widget / Remove while arranging;
+`WidgetBody` = the renderer, also the preview), the four renderers, `widget-common.tsx`,
+`use-widget-data.ts` (latest-values batched in 200s; selection ids from the readings table's own
+overview query; one catalogue URL builder), `key-value.ts` (`keyCell` / `formatKeyValue`).
+
+- **Measured = `judged !== null` from the server.** `quantityVerdict` in `set-point.ts` is the band
+  gauge's verdict, lifted; `band-gauge.tsx` calls it. A raw key is NEVER a `statusClasses()` colour
+  (`UNJUDGED_CLASSES`, "Not judged"; tests compare with the palette, not a hex). A unit only beside a
+  number ("true kPa" was caught by the render check).
+- **Definitions live in `layout.widgets`, never on a grid item** — react-grid-layout hands back
+  geometry only. `carryStoredFields` (panel-auto-height.ts) now keeps each item's `style` through a
+  drag; before 2026-10-28 a drag silently dropped a card's tint and renamed heading.
+- **Table widgets follow their content** (`autoHeightIds(widgets)`); cards and charts keep a dragged
+  height. Widgets show in BOTH views.
+- **Never cut silently**: 60 cards, 10 series, 50 table instruments, each with "Showing X of Y".
+  A chart window's `to` is rounded up to the next minute (a stable SWR key; the window moves once a
+  minute). Period and zoom chosen on a widget are session state; only the default is stored.
+
 ## Instrument detail — the Details card (trimmed 2026-09-16)
 
 Edit offers TWO fields — Instrument ID and Is Gateway — and the PUT carries

@@ -1,5 +1,51 @@
 # Changelog
 
+## [Unreleased] - Widget data keys, phase 2: a super admin adds widgets over ANY key to the dashboard (2026-10-28)
+
+Operator: "in application dashboards widgets, if different keys data was coming to instrument where i
+can add those in widgets … like in thingsboard", answered "super admin only" for who builds them, then
+"go ahead with phase 2 dashboard widgets". Spec `docs/superpowers/specs/2026-10-28-widget-data-keys-design.md`
+§6; plan `docs/superpowers/plans/2026-10-28-widget-data-keys-phase2.md`.
+
+- **Arrange → Add widget** (SUPER_ADMIN only): four types — *Value cards*, *Latest values table*,
+  *Trend chart*, *Time series table* — over the dashboard's current selection or up to 50 picked
+  instruments, over any TELEMETRY key the instruments have sent and any ATTRIBUTE they carry (the
+  Phase 1 catalogue; a new key appears by itself). Per key: label, colour, and — for a RAW key only —
+  unit and decimals. A live preview draws the real widget. **Save as role default** shares the
+  arrangement, widgets included, through the existing audited, re-auth-gated role-layout route.
+- **A raw key is never judged and never green** ("Not judged", grey rule); a measured key wears the
+  server's verdict through `quantityVerdict` (`routes/dashboard/set-point.ts`) — the band gauge's rule
+  lifted into one function the gauge now calls too. A unit sits beside a NUMBER only. A faulted probe
+  shows its fault word, never "Out of limit".
+- **Storage:** inside the existing layout JSON (`layout.widgets`, items `w:<uuid>`), one zod schema
+  (`@digilog/shared` `dashboard-widgets.ts`). The reader FORGIVES (a bad widget is dropped with its item,
+  everything else stays); the writer (`parseLayoutForWrite`, both PUTs through `checkLayoutWrite`) is
+  STRICT (400). **An omitted `widgets` key keeps what is stored** — an old cached browser or an ADMIN
+  saving a role default cannot delete widgets. Any widget change by a non-super-admin is a **403
+  `WIDGETS_SUPER_ADMIN_ONLY`** (ROLE_MANAGE is not enough).
+- **Governed by a new panel, `custom_widgets` ("Built widgets", Roles & Access → Panels)** — a gate,
+  never a card. A role with a stored panel list does not see built widgets until it is ticked. A
+  non-super-admin who holds a personal layout (saved before Arrange became super-admin-only — one
+  MAINTENANCE and one ADMIN user locally) gets the ROLE's widgets below their panels.
+- **Caps that say what they hid:** latest-values batched in 200s (a ~320-instrument selection reaches
+  every instrument); value cards 60, trend series 10, the time series table's first 50 instruments,
+  each with "Showing X of Y …". `GET /api/instruments/data-keys` gained `all=true` and
+  `functionalLocationDirect=true` for the dashboard's own selections.
+- **Fixed (pre-existing):** dragging a dashboard card dropped its tint / renamed heading from the draft
+  and the saved layout (the grid hands back geometry only) — `carryStoredFields`.
+- **Counts:** `PANELS` +1 (`custom_widgets`); shared type files 35 → 36. No migration, permission,
+  re-auth action, audit action, route, model, enum, sidebar item, config def or config page.
+- **Rulings** (plan + ledger): numeric is a hint (only attributes refused for the two history widgets);
+  a non-super-admin's own layout takes the role's widgets; omitted widgets keep the stored; selection
+  over 200 batched; one KeyRef per device key; period / zoom are session state; a raw chart axis prints
+  the precision received; an attribute is refused on a time series table too.
+- **Tests:** shared `dashboard-widgets.test.ts` (9) + layout cases; API `e2e/dashboard-widgets.e2e.test.ts`
+  (8) + 2 in `data-keys.e2e`; web `key-value`, `set-point`, `use-widget-data`, `use-dashboard-layout`,
+  `panel-auto-height`, `widget-renderers`, `widget-dialog`, `dashboard-widget-controls`. Mutation-checked
+  (response schema line, the 403, omitted-as-none, the placeable gate, the role-widgets rule, the raw
+  palette, five renderer rules, the page gate). Rendered with the built stylesheet in headless Chrome at
+  1240 wide — one defect found ("true kPa") and fixed. **Not seen in the operator's browser.**
+
 ## [Unreleased] - Device attributes on EVERY protocol: HTTP/HTTPS, WebSocket, TCP (2026-10-28)
 
 Operator: "why attributes topic was not there for http and https", then "add for all

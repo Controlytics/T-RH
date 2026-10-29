@@ -495,6 +495,16 @@ node apps/api/dist/app.js
   first `auditLog`. `updated` / `unchanged` / `changes[].from` (nullable) are
   DECLARED — mutation-checked. **No count moved, no migration.** Pinned by
   `e2e/bulk-update.e2e.test.ts` (15) and `__tests__/bulk-plan.test.ts` (20).
+- **2026-10-28 — WIDGET DATA KEYS, phase 2 (dashboard widgets).** Both layout PUTs
+  (`/api/config/my-dashboard-layout`, `/api/roles/dashboard-layout/role/:name`) go through ONE
+  `checkLayoutWrite` (`modules/config/dashboard-layout.ts`): the strict shared writer
+  `parseLayoutForWrite`, an OMITTED `widgets` keeps the overwritten row's, and any widget change by a
+  non-SUPER_ADMIN is 403 `WIDGETS_SUPER_ADMIN_ONLY` (the role route judges it inside its transaction).
+  `layout.widgets` is declared `{type:'array', items:{type:'object', additionalProperties:true}}`
+  (`WIDGETS_JSON_SCHEMA`) on the my-config 200 and both bodies — zod validates the inner shape;
+  deleting the response line fails the round-trip e2e. `resolveLayoutFor` passes the viewer's role.
+  `GET /data-keys` gained `all=true` and `functionalLocationDirect=true`. No count moved, no migration.
+  `e2e/dashboard-widgets.e2e.test.ts` (8, own roles/users), mutation-checked three ways.
 - **2026-10-28 — WIDGET DATA KEYS, phase 1 (server).** Two routes in a child
   plugin of the instruments routes (`data-keys-routes.ts`, so no `app.ts` /
   `test-helper.ts` registration): `GET /api/instruments/data-keys` and
