@@ -259,7 +259,8 @@ describe('barModel — decimals (R6-6), units, the tooltip', () => {
     const m = barModel(resp([series('t', [pt(day(1), 1440, 1440)])], { agg: 'count' }), [T], [row('a', [measured('t', 1)])], 'all', FMT);
     expect(m.series[0].decimals).toBe(0);
     expect(m.unit).toBeNull();
-    expect(barTooltip(m, 1)).toContain('>1440<');
+    // Grouped like the "from 1,440 readings" beside it and the axis's "5,000".
+    expect(barTooltip(m, 1)).toContain('>1,440<');
     const option = buildBarOption(m) as Record<string, any>;
     expect(option.yAxis.minInterval).toBe(1);
     expect(option.yAxis.name).toBe('');

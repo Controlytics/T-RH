@@ -274,7 +274,10 @@ export function barTooltip(m: BarModel, index: number): string {
     : '';
   const lines = m.series.map((s) => {
     const p = s.points[index] ?? null;
-    const shown = p ? `${p.value.toFixed(s.decimals)}${s.unit ? ` ${s.unit}` : ''}` : 'No readings';
+    // A count is grouped like the "from N readings" beside it; a computed value
+    // prints at its decimals, as every reading in the app does.
+    const figure = (v: number) => (m.agg === 'count' ? Math.round(v).toLocaleString() : v.toFixed(s.decimals));
+    const shown = p ? `${figure(p.value)}${s.unit ? ` ${s.unit}` : ''}` : 'No readings';
     const basis = p
       ? [`from ${counted(p.readings, 'reading', 'readings')}`,
         ...(m.groupBy === 'all' ? [counted(p.instruments, 'instrument', 'instruments')] : [])].join(' · ')
