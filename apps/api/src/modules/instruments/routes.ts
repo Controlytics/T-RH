@@ -17,6 +17,10 @@ import { resolvePageSize } from '../../lib/page-size.js';
 import { resolveVisibility, withVisibility, type ScopeWhere } from './visibility.js';
 import { resolveLocationIds, type FlNode } from '../functional-locations/tree.js';
 import { getTelemetryAggregate } from './telemetry-aggregate.js';
+import {
+  getTelemetryBuckets, bucketCapError, bucketTimezone, BUCKET_SECONDS,
+  type BarBucket, type BarAgg, type BarGroup,
+} from './telemetry-buckets.js';
 import { HISTORY_WINDOWS, type HistoryWindow } from '../floorplans/room-history.js';
 import { auditLog } from '../../lib/audit.js';
 import { buildContext } from '../../lib/build-context.js';
@@ -36,6 +40,7 @@ import {
   ATTRIBUTE_REMARK_MAX, lttb, isInstrumentReporting,
   parseInstrumentAttributeKeys, coerceAttributeLabels, ATTRIBUTE_LABELS_CONFIG_KEY,
   isMktOn, mktFromExpMean, measurementsEquivalent,
+  WIDGET_INSTRUMENTS_MAX, WIDGET_BAR_BUCKETS, WIDGET_BAR_AGGS, WIDGET_BAR_GROUPS,
 } from '@digilog/shared';
 import { invalidateIngestAuthCache } from './ingest-auth.js';
 import { kickMqttClient } from './broker-kick.js';
@@ -1061,6 +1066,123 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       window: (q.window ?? '24h') as HistoryWindow,
       visibility,
     });
+  });
+
+  /**
+   * GET /api/instruments/telemetry-buckets — readings binned into LOCAL hours,
+   * days or weeks (the dashboard's bar chart, dashboard builder phase 2).
+   *
+   * EVERY VALUE IT RETURNS IS DERIVED, and each point carries the count of
+   * readings behind it; see telemetry-buckets.ts. Edges are local to the
+   * `datetime` config's timezone (an unknown zone = UTC, and `timezone` says so).
+   *
+   * Visibility is applied to the ID SET before the query, as `/telemetry-history`
+   * applies it: an out-of-scope instrument is simply absent, never a 403. Static
+   * path, registered before `/:id` like its siblings.
+   */
+  app.get('/telemetry-buckets', {
+    preHandler: [app.requirePermission('INSTRUMENT_READ')],
+    schema: {
+      tags: ['Instruments'],
+      summary: 'Readings binned into local hours, days or weeks',
+      description:
+        'Average / minimum / maximum / count of the numeric readings of the given keys, per bucket, '
+        + 'binned in the configured datetime timezone (days start at local midnight, weeks on a local '
+        + 'Monday). All values are COMPUTED, not stored readings. Buckets with no reading are absent.',
+      querystring: {
+        type: 'object',
+        required: ['instrumentIds', 'keys', 'from', 'to'],
+        properties: {
+          /** Comma-separated instrument UUIDs, at most WIDGET_INSTRUMENTS_MAX. Empty = none. */
+          instrumentIds: { type: 'string' },
+          /** Comma-separated telemetry keys, exactly as stored. */
+          keys: { type: 'string' },
+          from: { type: 'string', format: 'date-time' },
+          to: { type: 'string', format: 'date-time' },
+          bucket: { type: 'string', enum: [...WIDGET_BAR_BUCKETS], default: 'hour' },
+          agg: { type: 'string', enum: [...WIDGET_BAR_AGGS], default: 'avg' },
+          groupBy: { type: 'string', enum: [...WIDGET_BAR_GROUPS], default: 'all' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          // Fastify STRIPS any field absent from a response schema, silently —
+          // every field and inner key is declared for that reason.
+          properties: {
+            from: { type: 'string', format: 'date-time' },
+            to: { type: 'string', format: 'date-time' },
+            bucket: { type: 'string' },
+            agg: { type: 'string' },
+            timezone: { type: 'string' },
+            bucketSeconds: { type: 'integer' },
+            series: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  instrumentId: { type: 'string', nullable: true },
+                  key: { type: 'string' },
+                  points: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        ts: { type: 'string', format: 'date-time' },
+                        value: { type: 'number' },
+                        readings: { type: 'integer' },
+                        instruments: { type: 'integer' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const q = req.query as {
+      instrumentIds: string; keys: string; from: string; to: string;
+      bucket: BarBucket; agg: BarAgg; groupBy: BarGroup;
+    };
+    const invalid = (message: string) => reply.code(400).send({ error: 'VALIDATION_ERROR', message });
+
+    const list = parseUuidList(q.instrumentIds, WIDGET_INSTRUMENTS_MAX);
+    if (list.error) return invalid(list.error);
+    const keyFilter = parseKeysParam(q.keys);
+    if ('error' in keyFilter) return invalid(keyFilter.error);
+    // `null` means "every key" on the other routes; a bar chart names its keys.
+    if (keyFilter.keys === null) return invalid('Name at least one key.');
+    const from = new Date(q.from);
+    const to = new Date(q.to);
+    if (!(from.getTime() < to.getTime())) return invalid('`from` must be before `to`.');
+    const capError = bucketCapError(from, to, q.bucket);
+    if (capError) return invalid(capError);
+
+    const timezone = await bucketTimezone();
+    const asked = list.ids ?? [];
+    let instrumentIds: string[] = [];
+    if (asked.length > 0) {
+      const { where: visibility } = await resolveVisibility(buildContext(req));
+      const visible = new Set((await prisma.instrument.findMany({
+        where: withVisibility({ id: { in: asked } }, visibility) as { id: { in: string[] } },
+        select: { id: true },
+      })).map((i) => i.id));
+      // In the order asked, so `groupBy=instrument` series keep their order.
+      instrumentIds = asked.filter((id) => visible.has(id));
+    }
+    const series = await getTelemetryBuckets({
+      instrumentIds, keys: keyFilter.keys, from, to,
+      bucket: q.bucket, agg: q.agg, groupBy: q.groupBy, timezone,
+    });
+    return {
+      from: from.toISOString(), to: to.toISOString(),
+      bucket: q.bucket, agg: q.agg, timezone, bucketSeconds: BUCKET_SECONDS[q.bucket],
+      series,
+    };
   });
 
   /**
