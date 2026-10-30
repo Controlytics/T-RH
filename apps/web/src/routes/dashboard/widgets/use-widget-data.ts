@@ -13,9 +13,11 @@ import useSWR from 'swr';
 import {
   DATA_KEYS_INSTRUMENTS_MAX, MAX_SERIES_POINTS,
   type CustomWidget, type DashboardTimeWindow, type DataKeyInfo, type DataKeyRef, type LatestValuesRow, type WidgetKey,
+  type WIDGET_BAR_AGGS, type WIDGET_BAR_BUCKETS, type WIDGET_BAR_GROUPS,
 } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
 import { useTelemetryOverview, useTelemetrySettings } from '../use-telemetry';
+import { ALARM_REFRESH_MS, alarmScopeSelectsNothing, applyAlarmScope, type AlarmScope } from '../alarm-scope';
 
 /** The dashboard's current drill-down — `nav.functionalLocationId` / `nav.directOnly`. */
 export interface WidgetSelection {
@@ -202,4 +204,97 @@ export function useWidgetTimeseries(
     { refreshInterval: chartRefreshMs, keepPreviousData: true },
   );
   return { rows: data?.data ?? [], total: data?.total ?? 0, loading: isLoading };
+}
+
+export type BarBucket = (typeof WIDGET_BAR_BUCKETS)[number];
+export type BarAgg = (typeof WIDGET_BAR_AGGS)[number];
+export type BarGroup = (typeof WIDGET_BAR_GROUPS)[number];
+
+/** One bucket: the server's COMPUTED value, and how many readings it came from. */
+export interface TelemetryBucketPoint {
+  /** The bucket's start, a UTC instant (the edge is local to the configured timezone). */
+  ts: string;
+  value: number;
+  readings: number;
+  instruments: number;
+}
+
+export interface TelemetryBucketSeries {
+  /** `null` when the series is every instrument combined (`groupBy=all`). */
+  instrumentId: string | null;
+  key: string;
+  /** Only buckets that hold a reading; a gap is a gap, never a zero. */
+  points: TelemetryBucketPoint[];
+}
+
+/** `GET /api/instruments/telemetry-buckets`, as the server returns it. */
+export interface TelemetryBuckets {
+  from: string;
+  to: string;
+  bucket: BarBucket;
+  agg: BarAgg;
+  /** The zone the edges were drawn in (`UTC` when the configured one is unknown). */
+  timezone: string;
+  bucketSeconds: number;
+  series: TelemetryBucketSeries[];
+}
+
+/**
+ * Readings binned into local hours, days or weeks, aggregated on the SERVER —
+ * every value is derived and says how many readings are behind it. No instruments
+ * or no keys asks nothing. The server refuses more than `WIDGET_INSTRUMENTS_MAX`
+ * instruments or 1,000 buckets with a 400, which arrives here as `error`.
+ */
+export function useTelemetryBuckets(
+  ids: readonly string[],
+  keys: readonly string[],
+  range: WidgetRange,
+  bucket: BarBucket,
+  agg: BarAgg,
+  groupBy: BarGroup,
+): { data: TelemetryBuckets | undefined; loading: boolean; error: unknown } {
+  const { chartRefreshMs } = useTelemetrySettings();
+  const q = new URLSearchParams({
+    instrumentIds: ids.join(','),
+    keys: keys.join(','),
+    from: range.from,
+    to: range.to,
+    bucket,
+    agg,
+    groupBy,
+  });
+  const url = ids.length > 0 && keys.length > 0 ? `/api/instruments/telemetry-buckets?${q.toString()}` : null;
+  const { data, error, isLoading } = useSWR<TelemetryBuckets>(
+    url,
+    (u: string) => apiClient.get<TelemetryBuckets>(u),
+    { refreshInterval: chartRefreshMs, keepPreviousData: true },
+  );
+  return { data, loading: isLoading, error };
+}
+
+/** `GET /api/alarms/counts`, as the server returns it. */
+export interface AlarmCounts {
+  quadrants: { activeUnack: number; activeAck: number; clearedUnack: number; clearedAck: number };
+  byType: { type: string; active: number; unacknowledged: number }[];
+}
+
+/**
+ * The alarm counts of a selection — asked with the SAME scope filters the alarm
+ * table sends (`applyAlarmScope`), so the two cannot count different alarms. A
+ * `WidgetSelection` is a scope as it stands; a widget with its own instruments
+ * passes `widgetAlarmScope(widget.source, selection)`. An empty fixed list asks
+ * nothing. A viewer without ALARM_READ gets the 403 as `error`.
+ */
+export function useAlarmCounts(selection: AlarmScope): { data: AlarmCounts | undefined; loading: boolean; error: unknown } {
+  const qs = new URLSearchParams();
+  applyAlarmScope(qs, selection);
+  const url = alarmScopeSelectsNothing(selection)
+    ? null
+    : qs.size > 0 ? `/api/alarms/counts?${qs.toString()}` : '/api/alarms/counts';
+  const { data, error, isLoading } = useSWR<AlarmCounts>(
+    url,
+    (u: string) => apiClient.get<AlarmCounts>(u),
+    { refreshInterval: ALARM_REFRESH_MS, keepPreviousData: true },
+  );
+  return { data, loading: isLoading, error };
 }

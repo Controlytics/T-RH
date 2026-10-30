@@ -9,12 +9,15 @@ import { apiClient } from '@/lib/api-client';
 const NO_WIDGETS: CustomWidget[] = [];
 
 /**
- * Where a new widget lands, and how tall it starts: value cards short, the rest
- * medium. Exported for the built dashboards' draft (`routes/dashboards/
- * use-dashboard-draft.ts`), so a widget added there starts at the same size.
+ * Where a new widget lands, and how tall it starts (grid rows): a text card and
+ * value cards short, the charts and tables medium, a floor plan tall. Exported
+ * for the built dashboards' draft (`routes/dashboards/use-dashboard-draft.ts`),
+ * so a widget added there starts at the same size.
  */
 export const WIDGET_START_HEIGHT: Record<CustomWidget['type'], number> = {
   value_cards: 5, latest_table: 9, trend_chart: 9, timeseries_table: 9, alarm_table: 9,
+  gauge: 7, bar_chart: 9, comparison_bar: 9, pie_chart: 8, alarm_counts: 6,
+  status_grid: 8, instrument_list: 9, text_card: 4, floorplan: 12,
 };
 
 /**

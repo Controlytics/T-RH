@@ -11,6 +11,7 @@ import { SkeletonRows } from '@/components/ui/skeleton';
 import { Pagination } from '@/components/ui/pagination';
 import { usePanelToolbarSlot } from './panel-card';
 import { LOAD_FAILED, WidgetMessage } from './widgets/widget-common';
+import { ALARM_REFRESH_MS, alarmScopeSelectsNothing, applyAlarmScope, type AlarmScope } from './alarm-scope';
 import {
   AlarmWidgetFilters, applyWidgetFilters, EMPTY_WIDGET_FILTERS,
   type AlarmWidgetFilterValue,
@@ -83,13 +84,9 @@ const COLUMNS = 11;
 
 /**
  * Where a BUILT alarm table (dashboard builder) takes its alarms from. Absent =
- * the home dashboard's panel, whose request is unchanged.
+ * the home dashboard's panel, whose request is unchanged (its location only).
  */
-export interface SelectionAlarmsScope {
-  functionalLocationId?: string;
-  directOnly?: boolean;
-  instrumentIds?: string[];
-  profileId?: string;
+export interface SelectionAlarmsScope extends AlarmScope {
   initialStatus?: (typeof WIDGET_ALARM_STATUSES)[number];
 }
 
@@ -172,21 +169,18 @@ export function SelectionAlarms({ functionalLocationId: homeLocationId, scope }:
     page: String(page),
     pageSize: String(pageSize),
   });
-  if (functionalLocationId) qs.set('functionalLocationId', functionalLocationId);
-  if (scope) {
-    if (functionalLocationId && scope.directOnly) qs.set('functionalLocationDirect', 'true');
-    if (scope.profileId) qs.set('profileId', scope.profileId);
-    if (scope.instrumentIds && scope.instrumentIds.length > 0) qs.set('instrumentIds', scope.instrumentIds.join(','));
-  }
+  // The scope comes from the ONE builder `/api/alarms/counts` uses too (the home
+  // panel's is its location alone).
+  applyAlarmScope(qs, scope ?? { functionalLocationId });
   applyWidgetFilters(qs, filters);
   // A fixed list that is EMPTY selects nothing. The server reads an absent
   // `instrumentIds` as everything in view, so this asks NO question at all.
-  const nothingInScope = scope?.instrumentIds !== undefined && scope.instrumentIds.length === 0;
+  const nothingInScope = alarmScopeSelectsNothing(scope);
 
   const { data, error, mutate } = useSWR<{ data: AlarmRow[]; total: number }>(
     nothingInScope ? null : `/api/alarms?${qs.toString()}`,
     {
-      refreshInterval: 30_000,
+      refreshInterval: ALARM_REFRESH_MS,
     // Drilling into a location changes this key. Keep the previous rows until
     // the new ones land (2026-09-16): with SWR's default the panel collapsed
     // to a skeleton on every drill-down and the auto-height grid shrank, then

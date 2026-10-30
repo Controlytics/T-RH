@@ -1,7 +1,10 @@
 /**
- * A built widget on the dashboard: the site's `PanelCard` around one of the four
- * renderers. Moved and sized like any panel; Edit and Remove exist only while
+ * A built widget on the dashboard: the site's `PanelCard` around its type's
+ * renderer. Moved and sized like any panel; Edit and Remove exist only while
  * arranging (SUPER_ADMIN only — the layout routes' 403 is the control).
+ *
+ * Nothing imported here may import ECharts: a chart widget draws through
+ * `charts/lazy-echart.tsx`, so the library stays out of the main bundle.
  */
 import type { CustomWidget, LayoutItem, PanelStyle, WidgetType } from '@digilog/shared';
 import { PanelCard } from '../panel-card';
@@ -10,6 +13,7 @@ import { LatestTableWidget } from './latest-table-widget';
 import { TimeseriesTableWidget } from './timeseries-table-widget';
 import { TrendChartWidget } from './trend-chart-widget';
 import { ValueCardsWidget } from './value-cards-widget';
+import { WidgetMessage } from './widget-common';
 import type { WidgetSelection } from './use-widget-data';
 
 export const WIDGET_EYEBROW: Record<WidgetType, string> = {
@@ -18,7 +22,25 @@ export const WIDGET_EYEBROW: Record<WidgetType, string> = {
   trend_chart: 'Trend',
   timeseries_table: 'Time series',
   alarm_table: 'Alarms',
+  gauge: 'Gauge',
+  bar_chart: 'Bar chart',
+  comparison_bar: 'Comparison',
+  pie_chart: 'Pie',
+  alarm_counts: 'Alarm counts',
+  status_grid: 'Status grid',
+  instrument_list: 'Instruments',
+  text_card: 'Text',
+  floorplan: 'Floor plan',
 };
+
+/**
+ * The body of a dashboard builder phase 2 type whose renderer has not landed
+ * yet (each type's own task replaces its case below). Draws nothing it could be
+ * mistaken for.
+ */
+function PendingWidget() {
+  return <WidgetMessage>…</WidgetMessage>;
+}
 
 /** The renderer for a widget's type — also the Add widget dialog's live preview. */
 export function WidgetBody({ widget, selection }: { widget: CustomWidget; selection: WidgetSelection }) {
@@ -28,6 +50,16 @@ export function WidgetBody({ widget, selection }: { widget: CustomWidget; select
     case 'trend_chart': return <TrendChartWidget widget={widget} selection={selection} />;
     case 'timeseries_table': return <TimeseriesTableWidget widget={widget} selection={selection} />;
     case 'alarm_table': return <AlarmTableWidget widget={widget} selection={selection} />;
+    case 'gauge':
+    case 'bar_chart':
+    case 'comparison_bar':
+    case 'pie_chart':
+    case 'alarm_counts':
+    case 'status_grid':
+    case 'instrument_list':
+    case 'text_card':
+    case 'floorplan':
+      return <PendingWidget />;
   }
 }
 

@@ -21,6 +21,7 @@ vi.mock('../../use-telemetry', () => ({
 
 import {
   chunk, catalogueUrl, useLatestValues, useWidgetInstrumentIds, useKeyCatalogue, useWidgetHistory, useWidgetTimeseries,
+  useTelemetryBuckets, useAlarmCounts,
 } from '../use-widget-data';
 
 const wrapper = ({ children }: { children: ReactNode }) => (
@@ -137,5 +138,85 @@ describe('history', () => {
     expect(url).toContain('limit=10');
     expect(url).toContain('offset=10');
     expect(result.current.rows).toHaveLength(1);
+  });
+});
+
+describe('useTelemetryBuckets', () => {
+  const range = { from: '2026-10-28T00:00:00.000Z', to: '2026-10-29T00:00:00.000Z' };
+  const BUCKETS = {
+    from: range.from, to: range.to, bucket: 'hour', agg: 'avg', timezone: 'Asia/Kolkata', bucketSeconds: 3600,
+    series: [{ instrumentId: null, key: 'p', points: [{ ts: '2026-10-28T00:30:00.000Z', value: 1.5, readings: 12, instruments: 2 }] }],
+  };
+
+  it('is one telemetry-buckets request with every parameter, and returns the server answer as it came', async () => {
+    get.mockResolvedValue(BUCKETS);
+    const { result } = renderHook(() => useTelemetryBuckets(['a', 'b'], ['p', 'q'], range, 'day', 'max', 'instrument'), { wrapper });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    expect(get).toHaveBeenCalledTimes(1);
+    const url = get.mock.calls[0][0] as string;
+    expect(url.split('?')[0]).toBe('/api/instruments/telemetry-buckets');
+    expect(Object.fromEntries(new URLSearchParams(url.split('?')[1]))).toEqual({
+      instrumentIds: 'a,b', keys: 'p,q', from: range.from, to: range.to, bucket: 'day', agg: 'max', groupBy: 'instrument',
+    });
+    expect(result.current.data).toEqual(BUCKETS);
+    expect(result.current.loading).toBe(false);
+    expect(result.current.error).toBeUndefined();
+  });
+
+  it('no instruments or no keys, no request', async () => {
+    const { result: noIds } = renderHook(() => useTelemetryBuckets([], ['p'], range, 'hour', 'avg', 'all'), { wrapper });
+    const { result: noKeys } = renderHook(() => useTelemetryBuckets(['a'], [], range, 'hour', 'avg', 'all'), { wrapper });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(get).not.toHaveBeenCalled();
+    expect(noIds.current).toEqual({ data: undefined, loading: false, error: undefined });
+    expect(noKeys.current.data).toBeUndefined();
+  });
+
+  it('a refused request is the error, not an empty chart', async () => {
+    const refused = Object.assign(new Error('That window holds more than 1,000 hours'), { status: 400 });
+    get.mockRejectedValue(refused);
+    const { result } = renderHook(() => useTelemetryBuckets(['a'], ['p'], range, 'hour', 'avg', 'all'), { wrapper });
+    await waitFor(() => expect(result.current.error).toBe(refused));
+    expect(result.current.data).toBeUndefined();
+  });
+});
+
+describe('useAlarmCounts', () => {
+  const COUNTS = {
+    quadrants: { activeUnack: 3, activeAck: 5, clearedUnack: 7, clearedAck: 11 },
+    byType: [{ type: 'HIGH_TEMPERATURE', active: 2, unacknowledged: 1 }],
+  };
+
+  it('asks /api/alarms/counts with the alarm table filter set, and returns the server answer', async () => {
+    get.mockResolvedValue(COUNTS);
+    const { result } = renderHook(
+      () => useAlarmCounts({ functionalLocationId: 'fl-1', directOnly: true, profileId: 'p-1', instrumentIds: ['a', 'b'] }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.data).toEqual(COUNTS));
+    expect(get).toHaveBeenCalledWith(
+      '/api/alarms/counts?functionalLocationId=fl-1&functionalLocationDirect=true&profileId=p-1&instrumentIds=a%2Cb',
+    );
+  });
+
+  it('a WidgetSelection over everything asks with no filter', async () => {
+    get.mockResolvedValue(COUNTS);
+    renderHook(() => useAlarmCounts({ directOnly: false }), { wrapper });
+    await waitFor(() => expect(get).toHaveBeenCalled());
+    expect(get.mock.calls[0][0]).toBe('/api/alarms/counts');
+  });
+
+  it('an EMPTY fixed list asks nothing - never the whole estate', async () => {
+    const { result } = renderHook(() => useAlarmCounts({ directOnly: false, instrumentIds: [] }), { wrapper });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(get).not.toHaveBeenCalled();
+    expect(result.current).toEqual({ data: undefined, loading: false, error: undefined });
+  });
+
+  it('a refused request (no ALARM_READ) is the error', async () => {
+    const forbidden = Object.assign(new Error('Forbidden'), { status: 403 });
+    get.mockRejectedValue(forbidden);
+    const { result } = renderHook(() => useAlarmCounts({ directOnly: false }), { wrapper });
+    await waitFor(() => expect(result.current.error).toBe(forbidden));
   });
 });

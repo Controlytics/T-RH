@@ -6,17 +6,26 @@
  *
  * `numeric` is a HINT, never a gate (spec §4, ruling P2-1): a probe currently
  * sending `NA` stays choosable for a chart, flagged. Only an ATTRIBUTE — which
- * has no history at all — is refused for the two history widgets, with the
- * reason beside it (the same rule the shared schema enforces).
+ * has no history at all — is refused for a widget whose keys must be telemetry
+ * (`WIDGET_TYPE_SPECS[type].keys`), with the reason beside it (the same rule the
+ * shared schema enforces). The type's `keysMax` is the cap.
  */
 import { useState } from 'react';
-import { WIDGET_KEYS_MAX, type DataKeyInfo, type WidgetKey, type WidgetType } from '@digilog/shared';
+import { WIDGET_TYPE_SPECS, type DataKeyInfo, type WidgetKey, type WidgetType } from '@digilog/shared';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 
 const NO_HISTORY: Partial<Record<WidgetType, string>> = {
   trend_chart: 'Attributes have no history to plot',
   timeseries_table: 'Attributes have no history to list',
+  bar_chart: 'Attributes have no history to plot',
 };
+/** Charts that plot a number: a key with no numeric reading lately is flagged (never refused). */
+const PLOTS_NUMBERS: readonly WidgetType[] = ['trend_chart', 'bar_chart'];
+
+/** Why an attribute cannot go on this type, or undefined when it can. */
+function attributeRefusal(type: WidgetType): string | undefined {
+  return WIDGET_TYPE_SPECS[type].keys === 'telemetry' ? NO_HISTORY[type] ?? 'Attributes have no history' : undefined;
+}
 
 const sameKey = (a: { source: string; key: string }, b: { source: string; key: string }) =>
   a.source === b.source && a.key === b.key;
@@ -37,7 +46,8 @@ export function KeyPicker({
   const visible = needle
     ? catalogue.filter((e) => `${e.label} ${e.key} ${e.measurement?.name ?? ''}`.toLowerCase().includes(needle))
     : catalogue;
-  const full = chosen.length >= WIDGET_KEYS_MAX;
+  const keysMax = WIDGET_TYPE_SPECS[type].keysMax;
+  const full = chosen.length >= keysMax;
 
   const toggle = (e: DataKeyInfo) => {
     if (chosen.some((k) => sameKey(k, e))) onChange(chosen.filter((k) => !sameKey(k, e)));
@@ -54,8 +64,8 @@ export function KeyPicker({
         {entries.length === 0 && <p className="text-xs text-slate-400">None</p>}
         {entries.map((e) => {
           const checked = chosen.some((k) => sameKey(k, e));
-          const refusal = (source === 'attribute' ? NO_HISTORY[type] : undefined) ?? refuse?.(e);
-          const hint = source === 'telemetry' && !e.numeric && type === 'trend_chart' ? 'No numeric reading lately' : undefined;
+          const refusal = (source === 'attribute' ? attributeRefusal(type) : undefined) ?? refuse?.(e);
+          const hint = source === 'telemetry' && !e.numeric && PLOTS_NUMBERS.includes(type) ? 'No numeric reading lately' : undefined;
           const disabled = (refusal !== undefined && !checked) || (full && !checked);
           return (
             <label
@@ -106,7 +116,7 @@ export function KeyPicker({
         onChange={(ev) => setSearch(ev.target.value)}
         className="ctl ctl-sm w-full"
       />
-      {full && <p className="text-xs text-amber-700">At most {WIDGET_KEYS_MAX} keys on one widget.</p>}
+      {full && <p className="text-xs text-amber-700">At most {keysMax} keys on one widget.</p>}
       <div className="grid gap-4 md:grid-cols-2">
         {group('Time series', 'telemetry')}
         {group('Attributes', 'attribute')}
