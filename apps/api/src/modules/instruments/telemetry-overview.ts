@@ -151,8 +151,8 @@ export interface OverviewRow {
   decimals: { temperature: number; humidity: number };
   reporting: boolean;
   /**
-   * TRUE when this instrument's PROFILE measures temperature or humidity, i.e.
-   * `status` is a verdict about something. A pressure-only profile (`measurements`
+   * TRUE when this instrument's PROFILE measures temperature or humidity AND maps
+   * at least one device key to it, i.e. `status` is a verdict about something. A pressure-only profile (`measurements`
    * of `[]`) is FALSE: its `status` stays NO_DATA (unchanged), and a widget must
    * read that as "Not judged", never "No data". Decided here, from the same
    * per-profile slot config as the rest of the row.
@@ -600,7 +600,9 @@ export async function buildTelemetryOverview(
       humidity,
       decimals: decimalsFor(slot.decimals, inst.attributes),
       reporting,
-      judged: slot.measured.temperature || slot.measured.humidity,
+      judged: (['temperature', 'humidity'] as const).some(
+        (s) => slot.measured[s] && slot.aliases[s].length > 0,
+      ),
       lastSeenAt: inst.lastSeenAt?.toISOString() ?? null,
       status: computeInstrumentStatus({
         temperature: temperature?.value ?? null,

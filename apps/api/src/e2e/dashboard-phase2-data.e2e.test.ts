@@ -6,6 +6,7 @@ import { hashPassword } from '../lib/password.js';
 import { invalidateRolePermsCache } from '../plugins/rbac.js';
 import { invalidateProfileMeasurementsCache } from '../modules/instruments/profile-measurements.js';
 import { ALARM_TYPE_TOKENS } from '../modules/alarms/list-query.js';
+import { DEFAULT_PROFILE_MEASUREMENTS } from '@digilog/shared';
 
 /**
  * Dashboard builder phase 2, task 2: the overview's `judged` + `lastSeenAt`, and
@@ -36,8 +37,8 @@ let sa: Record<string, string>;
 let operator: Record<string, string>;
 let noRead: Record<string, string>;
 let blockK = '', areaX = '', areaY = '';
-let profileT = '', profileP = '';
-let tA = '', pA = '', tB = '';
+let profileT = '', profileP = '', profileTH = '', profileH = '', profileNoKey = '';
+let tA = '', pA = '', tB = '', iTH = '', iH = '', iNoKey = '';
 const alarmIds: string[] = [];
 const userIds: string[] = [];
 
@@ -78,8 +79,30 @@ beforeAll(async () => {
   profileP = (await prisma.instrumentProfile.create({
     data: { name: `dp2-Pressure-${S}`, description: 'dp2 fixture', measurements: [] as never },
   })).id;
+  // An explicitly STORED temperature + humidity list (not the NULL default).
+  profileTH = (await prisma.instrumentProfile.create({
+    data: { name: `dp2-TH-${S}`, description: 'dp2 fixture', measurements: structuredClone(DEFAULT_PROFILE_MEASUREMENTS) as never },
+  })).id;
+  // Humidity only, with its device keys: still judged (the `|| humidity` operand).
+  profileH = (await prisma.instrumentProfile.create({
+    data: {
+      name: `dp2-H-${S}`, description: 'dp2 fixture',
+      measurements: structuredClone(DEFAULT_PROFILE_MEASUREMENTS).filter((m) => m.code === 'HUMIDITY') as never,
+    },
+  })).id;
+  // A temperature measurement that maps NO device key: nothing it could judge.
+  profileNoKey = (await prisma.instrumentProfile.create({
+    data: {
+      name: `dp2-NoKey-${S}`, description: 'dp2 fixture',
+      measurements: structuredClone(DEFAULT_PROFILE_MEASUREMENTS)
+        .filter((m) => m.code === 'TEMPERATURE').map((m) => ({ ...m, deviceKeys: [] })) as never,
+    },
+  })).id;
   invalidateProfileMeasurementsCache();
 
+  iTH = await instrument(`DP2-TH-${S}`, profileTH, areaY, null);
+  iH = await instrument(`DP2-H-${S}`, profileH, areaY, null);
+  iNoKey = await instrument(`DP2-NK-${S}`, profileNoKey, areaY, new Date());
   tA = await instrument(`DP2-TA-${S}`, profileT, areaX, SEEN);
   // Reporting NOW (the staleness rule is relative to the request instant) and no readings.
   pA = await instrument(`DP2-PA-${S}`, profileP, areaX, new Date());
@@ -123,10 +146,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await prisma.alarm.deleteMany({ where: { id: { in: alarmIds } } }).catch(() => {});
-  await prisma.instrument.deleteMany({ where: { id: { in: [tA, pA, tB].filter(Boolean) } } }).catch(() => {});
+  await prisma.instrument.deleteMany({ where: { id: { in: [tA, pA, tB, iTH, iH, iNoKey].filter(Boolean) } } }).catch(() => {});
   await prisma.functionalLocation.deleteMany({ where: { id: { in: [areaX, areaY].filter(Boolean) } } }).catch(() => {});
   await prisma.functionalLocation.deleteMany({ where: { id: blockK } }).catch(() => {});
-  await prisma.instrumentProfile.deleteMany({ where: { id: { in: [profileT, profileP].filter(Boolean) } } }).catch(() => {});
+  await prisma.instrumentProfile.deleteMany({ where: { id: { in: [profileT, profileP, profileTH, profileH, profileNoKey].filter(Boolean) } } }).catch(() => {});
   invalidateProfileMeasurementsCache();
   await prisma.roleConfig.deleteMany({ where: { role: ROLE } }).catch(() => {});
   await prisma.session.deleteMany({ where: { userId: { in: userIds } } }).catch(() => {});
@@ -161,6 +184,16 @@ describe('telemetry-overview: judged + lastSeenAt', () => {
     expect(rows[pA].judged).toBe(false);
     expect(rows[tA].judged).toBe(true);
     expect(rows[tB].judged).toBe(true);
+  });
+
+  it('judged follows the profile: stored T&RH, humidity-only true; a temperature entry with no device key false', async () => {
+    const res = await overview(`instrumentIds=${iTH},${iH},${iNoKey}`);
+    const rows = Object.fromEntries(res.json().data.map((r: { instrumentId: string }) => [r.instrumentId, r]));
+    expect(rows[iTH].judged).toBe(true);
+    expect(rows[iH].judged).toBe(true);
+    expect(rows[iNoKey].reporting).toBe(true);
+    expect(rows[iNoKey].status).toBe('NO_DATA');
+    expect(rows[iNoKey].judged).toBe(false);
   });
 
   it('lastSeenAt round-trips as an ISO string, null when never seen', async () => {
@@ -208,6 +241,7 @@ describe('GET /api/alarms/counts', () => {
     ['instrumentIds', () => `instrumentIds=${tA},${tB}`],
     ['profileId', () => `profileId=${profileT}`],
     ['functionalLocationDirect', () => `functionalLocationId=${areaX}&functionalLocationDirect=true`],
+    ['functionalLocationId, Block direct', () => `functionalLocationId=${blockK}&functionalLocationDirect=true`],
     ['functionalLocationId (Block expands to Areas)', () => `functionalLocationId=${blockK}`],
     ['type', () => `functionalLocationId=${blockK}&type=TEMP_HIGH`],
   ];
@@ -220,6 +254,27 @@ describe('GET /api/alarms/counts', () => {
     });
   }
 
+  it('absolute numbers for the instrumentIds and profileId filters', async () => {
+    // tA + tB: a1 a2 a3 a4 / a6 a7
+    const ids = await counts(`instrumentIds=${tA},${tB}`);
+    expect(ids.json().quadrants).toEqual({ activeUnack: 2, activeAck: 1, clearedUnack: 2, clearedAck: 1 });
+    // profile T&RH holds tA and tB too (pA is the Pressure profile)
+    const prof = await counts(`profileId=${profileT}`);
+    expect(prof.json().quadrants).toEqual({ activeUnack: 2, activeAck: 1, clearedUnack: 2, clearedAck: 1 });
+    const pressure = await counts(`profileId=${profileP}`);
+    expect(pressure.json().quadrants).toEqual({ activeUnack: 1, activeAck: 0, clearedUnack: 0, clearedAck: 0 });
+  });
+
+  it('functionalLocationDirect on a Block excludes its Areas (the expanded Block holds 7)', async () => {
+    const expanded = await counts(`functionalLocationId=${blockK}`);
+    const total = (q: Quadrants) => q.activeUnack + q.activeAck + q.clearedUnack + q.clearedAck;
+    expect(total(expanded.json().quadrants)).toBe(7);
+    const direct = await counts(`functionalLocationId=${blockK}&functionalLocationDirect=true`);
+    expect(direct.json().quadrants).toEqual({ activeUnack: 0, activeAck: 0, clearedUnack: 0, clearedAck: 0 });
+    const l = await list(`functionalLocationId=${blockK}&functionalLocationDirect=true`);
+    expect(fromList(l.json().counts)).toEqual(direct.json().quadrants);
+  });
+
   it('an empty instrumentIds selects nothing; a bad filter is a 400 like the list', async () => {
     const empty = await counts('instrumentIds=');
     expect(empty.statusCode).toBe(200);
@@ -227,11 +282,6 @@ describe('GET /api/alarms/counts', () => {
     expect((await counts('instrumentIds=nope')).statusCode).toBe(400);
     expect((await counts('profileId=nope')).statusCode).toBe(400);
     expect((await counts('functionalLocationId=nope&functionalLocationDirect=true')).statusCode).toBe(400);
-  });
-
-  it('is not captured by the /:id routes', async () => {
-    const res = await counts(`functionalLocationId=${blockK}`);
-    expect(res.json()).toHaveProperty('quadrants');
   });
 
   it('a user without ALARM_READ gets 403', async () => {

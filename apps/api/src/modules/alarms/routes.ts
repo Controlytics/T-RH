@@ -316,22 +316,30 @@ export default async function alarmRoutes(app: FastifyInstance) {
   // Registered before any `/:id` route so `counts` is never read as an id.
   //
   // The dashboard's alarm widgets draw counts, not rows. Same query language as the
-  // list (resolveAlarmQuery + buildAlarmWhere + the same visibility), paging and
-  // sort ignored. The e2e compares this route's quadrants with the list's `counts`
+  // list (resolveAlarmQuery + buildAlarmWhere + the same visibility). `status`,
+  // paging and sort are accepted and IGNORED: the quadrants are every status by
+  // construction. The e2e compares this route's quadrants with the list's `counts`
   // for the same query, which is what keeps the two from drifting.
   app.get('/counts', {
     preHandler: [app.requirePermission('ALARM_READ')],
     schema: {
       tags: ['Alarms'],
-      summary: 'Alarm counts by state quadrant and by type, over the list filters',
+      summary: 'Alarm counts by state quadrant and by type, over the list filters (status, paging and sort are ignored)',
       querystring: {
         type: 'object',
         properties: {
+          state: { type: 'string', enum: ['ACTIVE', 'CLEARED'] },
+          acknowledged: { type: 'string', enum: ['true', 'false'] },
           functionalLocationId: { type: 'string' },
           functionalLocationDirect: { type: 'string', enum: ['true', 'false'] },
+          instrumentId: { type: 'string' },
           instrumentIds: { type: 'string' },
           profileId: { type: 'string', format: 'uuid' },
+          search: { type: 'string' },
+          from: { type: 'string' },
+          to: { type: 'string' },
           type: { type: 'string', enum: [...ALARM_TYPE_TOKENS] },
+          status: { type: 'string', enum: [...ALARM_STATUS_TOKENS] },
         },
       },
       response: {
@@ -376,15 +384,23 @@ export default async function alarmRoutes(app: FastifyInstance) {
       _count: { _all: true, acknowledgedAt: true },
     });
 
-    const [quadrantRows, typeRows] = await Promise.all([
-      byState(scopedToVisible(buildAlarmWhere(q, { locationIds }), visibility)),
-      // Every type token, in order. The token -> rows mapping is buildAlarmWhere's
-      // `type` handling and nothing here; a query that already names a type keeps
-      // it (the other tokens are then zero, not a second reading of the filter).
-      Promise.all(ALARM_TYPE_TOKENS.map((token) => (q.type && q.type !== token
-        ? Promise.resolve([])
-        : byState(scopedToVisible(buildAlarmWhere({ ...q, type: token }, { locationIds }), visibility))))),
-    ]);
+    // ONE snapshot for every query: quadrants and byType describe the same set of
+    // alarms and this page polls beside a live evaluator. The token -> rows mapping
+    // is buildAlarmWhere's `type` handling and nothing here; a query that already
+    // names a type queries only that token (the others are zero, not a second
+    // reading of the filter).
+    const tokens = ALARM_TYPE_TOKENS.filter((t) => !q.type || q.type === t);
+    const [quadrantRows, ...tokenRows] = await prisma.$transaction(
+      [
+        byState(scopedToVisible(buildAlarmWhere(q, { locationIds }), visibility)),
+        ...tokens.map((token) => byState(scopedToVisible(buildAlarmWhere({ ...q, type: token }, { locationIds }), visibility))),
+      ],
+      { isolationLevel: 'RepeatableRead' },
+    );
+    const typeRows = ALARM_TYPE_TOKENS.map((t) => {
+      const at = tokens.indexOf(t);
+      return at === -1 ? [] : tokenRows[at];
+    });
 
     const quadrants = { activeUnack: 0, activeAck: 0, clearedUnack: 0, clearedAck: 0 };
     for (const g of quadrantRows) {
