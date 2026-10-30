@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import { PANEL_KEYS } from './panels.js';
 import {
   customWidgetSchema, widgetsEqual, widgetItemId, widgetIdOf, isWidgetItem,
   WIDGET_TYPES, WIDGET_TYPE_SPECS, widgetPanelGate, GAUGES_SHOWN_MAX, BAR_SERIES_MAX, TEXT_CARD_MAX,
-  TREND_SERIES_MAX, type CustomWidget,
+  TREND_SERIES_MAX, WIDGET_KEYS_MAX, GAUGE_KEYS_MAX, COMPARISON_KEYS_MAX, type CustomWidget,
 } from './dashboard-widgets.js';
 
 const ID = '7d3c8a52-3f0e-4b8e-9a51-2a3b4c5d6e7f';
@@ -141,11 +142,24 @@ describe('the widget-type registry', () => {
   it('has a spec for every type, with keysMax within the schema cap', () => {
     for (const t of WIDGET_TYPES) {
       expect(WIDGET_TYPE_SPECS[t]).toBeDefined();
-      expect(WIDGET_TYPE_SPECS[t].keysMax).toBeLessThanOrEqual(20);
+      expect(WIDGET_TYPE_SPECS[t].keysMax).toBeLessThanOrEqual(WIDGET_KEYS_MAX);
     }
     expect(GAUGES_SHOWN_MAX).toBe(24);
     expect(BAR_SERIES_MAX).toBe(TREND_SERIES_MAX);
     expect(TEXT_CARD_MAX).toBe(2000);
+    expect(WIDGET_TYPE_SPECS.gauge.keysMax).toBe(GAUGE_KEYS_MAX);
+    expect(WIDGET_TYPE_SPECS.comparison_bar.keysMax).toBe(COMPARISON_KEYS_MAX);
+  });
+
+  it('only ever names a panel that exists', () => {
+    // PanelKey widens to string, so the compiler cannot catch a typo.
+    for (const t of WIDGET_TYPES) {
+      const panel = WIDGET_TYPE_SPECS[t].panel;
+      if (typeof panel === 'string') expect(PANEL_KEYS).toContain(panel);
+    }
+    const pie = (of: 'status' | 'alarm_types') => widgetPanelGate(none('pie_chart', { of }));
+    expect(PANEL_KEYS).toContain(pie('alarm_types'));
+    expect(pie('status')).toBeNull();
   });
 
   it('records which types follow the dashboard window', () => {
@@ -186,10 +200,10 @@ describe('the phase 2 widget types', () => {
   it('refuses an option outside its type', () => {
     expect(issues(widget({ type: 'gauge', options: { bucket: 'day' } }))).toContain('A gauge takes no bucket');
     expect(issues(widget({ type: 'comparison_bar', options: { period: '24h' } }))).toContain('A comparison bar takes no period');
-    expect(issues(none('status_grid', { pageSize: 10 }))).toContain('A status grid takes no pageSize');
-    expect(issues(none('alarm_counts', { status: 'active-ack' }))).toContain('An alarm count takes no status');
-    expect(issues(widget({ type: 'bar_chart', options: { min: 0, max: 5 } }))).toContain('A bar chart takes no min');
-    expect(issues(none('text_card', { text: 'a', planId: PLAN }))).toContain('A text card takes no planId');
+    expect(issues(none('status_grid', { pageSize: 10 }))).toContain('A status grid takes no page size');
+    expect(issues(none('alarm_counts', { status: 'active-ack' }))).toContain('An alarm counts widget takes no status filter');
+    expect(issues(widget({ type: 'bar_chart', options: { min: 0, max: 5 } }))).toContain('A bar chart takes no scale minimum');
+    expect(issues(none('text_card', { text: 'a', planId: PLAN }))).toContain('A text card takes no floor plan');
   });
 
   it('refuses keys on a type that takes none', () => {
@@ -256,12 +270,32 @@ describe('the phase 2 widget types', () => {
     expect(issues(none('floorplan', { planId: 'nope' }))).toContain('Not a floor plan id');
   });
 
+  it('strips, never refuses, a phase 2 option on one of the old five', () => {
+    const parsed = (w: CustomWidget) => {
+      const r = customWidgetSchema.safeParse(w);
+      return r.success ? r.data : null;
+    };
+    expect(parsed(widget({ options: { planId: PLAN } }))?.options).toEqual({});
+    expect(parsed(none('alarm_table', { of: 'status', status: 'active-ack' }))?.options).toEqual({ status: 'active-ack' });
+    expect(parsed(widget({ type: 'latest_table', options: { min: 9, max: 1 } }))?.options).toEqual({});
+    expect(parsed(widget({ type: 'trend_chart', options: { period: '24h', bucket: 'day', agg: 'max', text: 'x' } }))?.options)
+      .toEqual({ period: '24h' });
+    // A new type keeps its own options.
+    expect(parsed(widget({ type: 'gauge', options: { min: 1, max: 2 } }))?.options).toEqual({ min: 1, max: 2 });
+  });
+
+  it('a stored old widget compares equal to itself and to its stripped form', () => {
+    const stored = widget({ options: { period: '24h' } });
+    expect(widgetsEqual([stored], [stored])).toBe(true);
+    expect(widgetsEqual([widget({ options: { planId: PLAN } })], [widget()])).toBe(true);
+  });
+
   it('keeps the old five accepting what they always did', () => {
     // Options the old schema never policed stay unpoliced on the old types.
     expect(issues(widget({ options: { period: '24h', pageSize: 10 } }))).toEqual([]);
     expect(issues(widget({ type: 'latest_table', options: { period: '24h' } }))).toEqual([]);
     expect(issues(widget({ type: 'trend_chart', options: { pageSize: 25 } }))).toEqual([]);
     expect(issues(none('alarm_table', { pageSize: 10, status: 'cleared-ack' }))).toEqual([]);
-    expect(issues(widget({ keys: Array.from({ length: 20 }, (_, n) => k(`k${n}`)) }))).toEqual([]);
+    expect(issues(widget({ keys: Array.from({ length: WIDGET_KEYS_MAX }, (_, n) => k(`k${n}`)) }))).toEqual([]);
   });
 });

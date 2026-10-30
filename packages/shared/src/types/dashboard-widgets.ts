@@ -62,6 +62,12 @@ export const TEXT_CARD_MAX = 2000;
 export const VALUE_CARDS_SHOWN_MAX = 60;
 /** Colours are an INDEX into the chart palette (the web's `SERIES_COLORS`). */
 export const WIDGET_COLOR_COUNT = 6;
+/**
+ * A gauge's and a comparison bar's keys: = the palette (`WIDGET_COLOR_COUNT`), so
+ * two same-coloured series never stand side by side with nothing to tell them apart.
+ */
+export const GAUGE_KEYS_MAX = WIDGET_COLOR_COUNT;
+export const COMPARISON_KEYS_MAX = WIDGET_COLOR_COUNT;
 export const WIDGET_PAGE_SIZES = [10, 25, 50] as const;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -133,9 +139,9 @@ export const WIDGET_TYPE_SPECS: Record<WidgetType, WidgetTypeSpec> = {
   trend_chart: { keys: 'telemetry', keysMax: WIDGET_KEYS_MAX, followsWindow: true, options: ['period'], panel: null },
   timeseries_table: { keys: 'telemetry', keysMax: WIDGET_KEYS_MAX, followsWindow: true, options: ['period', 'pageSize'], panel: null },
   alarm_table: { keys: 'none', keysMax: 0, followsWindow: false, options: ['pageSize', 'status'], panel: 'dashboard_alarms' },
-  gauge: { keys: 'any', keysMax: 6, followsWindow: false, options: ['min', 'max'], panel: null },
+  gauge: { keys: 'any', keysMax: GAUGE_KEYS_MAX, followsWindow: false, options: ['min', 'max'], panel: null },
   bar_chart: { keys: 'telemetry', keysMax: BAR_SERIES_MAX, followsWindow: true, options: ['period', 'bucket', 'agg', 'groupBy'], panel: null },
-  comparison_bar: { keys: 'any', keysMax: 6, followsWindow: false, options: [], panel: null },
+  comparison_bar: { keys: 'any', keysMax: COMPARISON_KEYS_MAX, followsWindow: false, options: [], panel: null },
   pie_chart: {
     keys: 'none', keysMax: 0, followsWindow: false, options: ['of'],
     panel: (w) => (w.options.of === 'alarm_types' ? 'dashboard_alarms' : null),
@@ -166,11 +172,26 @@ const WIDGET_TYPE_NOUN: Record<WidgetType, string> = {
   bar_chart: 'A bar chart',
   comparison_bar: 'A comparison bar',
   pie_chart: 'A pie chart',
-  alarm_counts: 'An alarm count',
+  alarm_counts: 'An alarm counts widget',
   status_grid: 'A status grid',
   instrument_list: 'An instrument list',
   text_card: 'A text card',
   floorplan: 'A floor plan',
+};
+
+/** How an option is named in an error message. */
+const WIDGET_OPTION_LABEL: Record<WidgetOptionName, string> = {
+  period: 'period',
+  pageSize: 'page size',
+  status: 'status filter',
+  min: 'scale minimum',
+  max: 'scale maximum',
+  bucket: 'bucket',
+  agg: 'value',
+  groupBy: 'grouping',
+  of: 'chart subject',
+  text: 'text',
+  planId: 'floor plan',
 };
 
 /** Why an attribute key is refused on a type whose keys must be telemetry. */
@@ -234,7 +255,7 @@ export const customWidgetSchema = z.object({
   if (!legacy) {
     for (const name of Object.keys(w.options) as WidgetOptionName[]) {
       if (w.options[name] !== undefined && !spec.options.includes(name)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['options', name], message: `${noun} takes no ${name}` });
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['options', name], message: `${noun} takes no ${WIDGET_OPTION_LABEL[name]}` });
       }
     }
   }
@@ -268,6 +289,17 @@ export const customWidgetSchema = z.object({
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['keys', n], message: NO_HISTORY_MESSAGE[w.type] ?? 'Attributes have no history' });
     }
   });
+}).transform((w) => {
+  // The phase 1 five carry ONLY what phase 1 parsed: its object stripped every
+  // other name, and the same schema backs the forgiving reader, so strip (never
+  // refuse) -- no stored widget can be dropped, and the output is what it was.
+  if (!LEGACY_WIDGET_TYPES.includes(w.type)) return w;
+  const { period, pageSize, status } = w.options;
+  const options: typeof w.options = {};
+  if (period !== undefined) options.period = period;
+  if (pageSize !== undefined) options.pageSize = pageSize;
+  if (status !== undefined) options.status = status;
+  return { ...w, options };
 });
 export type CustomWidget = z.infer<typeof customWidgetSchema>;
 

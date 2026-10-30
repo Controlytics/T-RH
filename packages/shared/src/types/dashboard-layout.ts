@@ -408,7 +408,7 @@ export function resolveLayout(
    */
   const fromRole = opts.viewerIsSuperAdmin === false && userLayout !== undefined;
   if (!fromRole) {
-    // An alarm table lists alarms, so it needs the alarms panel as well.
+    // A widget needs the extra panel its type names (`widgetPanelGate`).
     const widgets = dropGatedWidgets(chosen.widgets ?? [], visiblePanels);
     const defined = new Set(widgets.map((w) => w.id));
     const items = chosen.items.filter((it) => {
