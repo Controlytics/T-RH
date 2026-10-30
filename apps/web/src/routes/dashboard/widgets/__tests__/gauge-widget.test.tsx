@@ -127,6 +127,33 @@ describe('gauge widget', () => {
     expect(series(0).progress.show).toBe(false);
   });
 
+  it('a long reading or fault word is never cut — no truncation, the whole of it in the title; only device text is clamped', () => {
+    // The administered failure word at its 24-character ceiling (RS485_FAILURE_TEXT_MAX).
+    const longFault = 'Probe disconnected (bus)';
+    expect(longFault).toHaveLength(24);
+    const shipped = WORDS.failure;
+    WORDS.failure = longFault;
+    try {
+      setRows([row('101-01', [
+        { ...measured(21.4567891234), decimals: 10 },
+        raw('1013.2500000001'),
+      ]), row('102-01', [measured('NA', { sensorError: true }), raw('MAINTENANCE MODE ACTIVE ON GATEWAY')])]);
+      render(<WidgetBody widget={widget({ options: {} })} selection={SEL} />);
+    } finally {
+      WORDS.failure = shipped;
+    }
+    const values = screen.getAllByTestId('gauge-value');
+    expect(values.map((v) => v.textContent)).toEqual(['21.4567891234', '1013.2500000001', longFault, 'MAINTENANCE MODE ACTIVE ON GATEWAY']);
+    for (const v of values) {
+      expect(v.className.split(/\s+/)).not.toContain('truncate');
+      expect(v.getAttribute('title')).toBe(v.textContent);
+    }
+    expect(values[0].className).not.toContain('line-clamp');
+    expect(values[1].className).not.toContain('line-clamp');
+    expect(values[2].className).not.toContain('line-clamp');
+    expect(values[3].className).toContain('line-clamp-3');
+  });
+
   it(`draws at most ${GAUGES_SHOWN_MAX} and says how many it did not`, () => {
     setRows(Array.from({ length: 13 }, (_, n) => row(`i${n}`, [measured(20), raw(1)])));
     render(<WidgetBody widget={widget()} selection={SEL} />);

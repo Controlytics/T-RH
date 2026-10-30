@@ -3,7 +3,7 @@ import type { LatestKeyValue, LatestValuesRow, WidgetKey } from '@digilog/shared
 import { statusClasses } from '../../status';
 import { UNJUDGED_CLASSES } from '../key-value';
 import { CHART_FONT_FAMILY, NEUTRAL_HEX, SERIES_HEX, STATUS_HEX } from '../charts/chart-colors';
-import { GAUGE_SIZE, buildGaugeOption, gaugeModel, gaugePairs, readingSize, type GaugeModel } from '../gauge-model';
+import { GAUGE_SIZE, READING_BOX_PX, buildGaugeOption, gaugeModel, gaugePairs, readingSize, type GaugeModel } from '../gauge-model';
 
 const WORDS = { failure: 'Error', outOfRange: 'OL' };
 const T: WidgetKey = { source: 'telemetry', key: 't', label: 'Temperature' };
@@ -315,10 +315,27 @@ describe('gaugePairs — the cap is spent only on keys an instrument has SENT', 
   });
 });
 
-describe('readingSize — the number steps down, never wraps or clips', () => {
-  it('three steps by length', () => {
-    expect(readingSize('21.5')).toBe(readingSize('100.0'));
-    expect(readingSize('1013.25')).not.toBe(readingSize('21.5'));
-    expect(readingSize('123456789.12')).not.toBe(readingSize('1013.25'));
+describe('readingSize — the value steps down to the ring, so it is never clipped', () => {
+  it("the box is the ring's hole, less a little air", () => {
+    expect(READING_BOX_PX).toBe(2 * (GAUGE_SIZE.outerRadius - GAUGE_SIZE.stroke) - 6);
+  });
+
+  it('a short reading is the big figure; each longer one a step smaller', () => {
+    expect(readingSize('21.5')).toBe('text-[24px]');
+    expect(readingSize('100.0')).toBe('text-[24px]');
+    expect(readingSize('1013.25')).toBe('text-[19px]');
+    expect(readingSize('1013.2500')).toBe('text-[15px]');
+    expect(readingSize('MAINTENANCE')).toBe('text-[12px]');
+  });
+
+  it('the longest realistic values take the last step: a 10-decimal reading, a device float, a 24-character fault word', () => {
+    // 10 = TELEMETRY_DECIMALS_MAX; 24 = RS485_FAILURE_TEXT_MAX / SENSOR_RANGE_TEXT_MAX.
+    expect(readingSize('21.4567891234')).toBe('text-[11px]');
+    expect(readingSize('1013.2500000001')).toBe('text-[11px]');
+    expect(readingSize('Probe disconnected (bus)')).toBe('text-[11px]');
+    expect('Probe disconnected (bus)').toHaveLength(24);
+    const m = gaugeModel(measured(21.4567891234), T, {}, true, WORDS);
+    expect(m.text).toBe('21.5');
+    expect(gaugeModel({ ...measured(21.4567891234), decimals: 10 }, T, {}, true, WORDS).text).toBe('21.4567891234');
   });
 });

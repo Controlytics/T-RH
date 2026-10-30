@@ -9,7 +9,7 @@ import { useMemo } from 'react';
 import { GAUGES_SHOWN_MAX, type CustomWidget, type LatestKeyValue, type WidgetKey } from '@digilog/shared';
 import { useSensorWords, type SensorWords } from '@/hooks/use-failure-text';
 import { LazyEChart } from './charts/lazy-echart';
-import { GAUGE_SIZE, buildGaugeOption, gaugeModel, gaugePairs, readingSize, type GaugeScale } from './gauge-model';
+import { GAUGE_SIZE, READING_BOX_PX, buildGaugeOption, gaugeModel, gaugePairs, readingSize, type GaugeScale } from './gauge-model';
 import type { WidgetSelection } from './use-widget-data';
 import { CapNote, LOAD_FAILED, NO_INSTRUMENTS, NO_KEY_YET, WidgetMessage, useWidgetRows } from './widget-common';
 
@@ -62,6 +62,8 @@ function GaugeTile({ code, reporting, widgetKey, value, scale, words }: {
   const label = widgetKey.label ?? widgetKey.key;
   const title = `${code} · ${label}`;
   const reading = m.unit ? `${m.text} ${m.unit}` : m.text;
+  // Text as a device sent it: neither a number, nor NA, nor an administered fault word.
+  const rawText = m.value === null && !m.fault && value.value !== null && value.value !== undefined;
 
   return (
     <figure
@@ -81,9 +83,15 @@ function GaugeTile({ code, reporting, widgetKey, value, scale, words }: {
         <LazyEChart option={option} height={GAUGE_SIZE.height} ariaLabel={`${title}: ${reading}`} />
         {/* Over the ring's centre. The chart's label already reads it out. */}
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+          {/* Never `truncate`: a reading or a fault word is broken onto a second
+              line, never cut (READING_BOX_PX is the ring's hole). Only TEXT a
+              device sent — not a number, not a word of ours — is clamped, at
+              three lines, with the whole of it in the title. */}
           <span
             data-testid="gauge-value"
-            className={`max-w-[6rem] truncate font-extrabold leading-none tracking-tight tabular-nums ${readingSize(m.text)} ${m.fault ? 'text-red-600' : 'text-slate-900'}`}
+            title={m.text}
+            style={{ maxWidth: READING_BOX_PX }}
+            className={`whitespace-normal text-center font-extrabold leading-[1.1] tracking-tight tabular-nums [overflow-wrap:anywhere] ${readingSize(m.text)} ${m.fault ? 'text-red-600' : 'text-slate-900'} ${rawText ? 'line-clamp-3' : ''}`}
           >
             {m.text}
           </span>
@@ -95,9 +103,10 @@ function GaugeTile({ code, reporting, widgetKey, value, scale, words }: {
         {m.label}
       </p>
       {m.scale && (
+        // Wraps, never truncates: a bound at ten decimals is still a bound.
         <p
           data-testid="gauge-scale"
-          className="mt-0.5 truncate text-center text-[0.6875rem] text-slate-500"
+          className="mt-0.5 break-words text-center text-[0.6875rem] text-slate-500"
           title={`${m.scale.label} ${m.scale.text}${m.scale.unit ? ` ${m.scale.unit}` : ''}`}
         >
           <span className="font-semibold uppercase tracking-[0.06em] text-slate-400">{m.scale.label}</span>

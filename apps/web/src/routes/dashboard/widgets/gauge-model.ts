@@ -203,10 +203,30 @@ export function gaugePairs(rows: readonly LatestValuesRow[], keys: readonly Widg
 }
 
 /**
- * The number's size in the ring: three steps by length, so a long value (a
- * fault word, a reading at ten decimals) steps down instead of wrapping or
- * clipping — the band gauge's rule, at a gauge's scale.
+ * The widest the value may be, in px: the ring's hole (2 x (outer radius -
+ * stroke) = 100) less a little air. Px, not rem, because the ring is px.
+ */
+export const READING_BOX_PX = 2 * (GAUGE_SIZE.outerRadius - GAUGE_SIZE.stroke) - 6;
+
+/**
+ * The value's size in the ring, stepped down by length so it is never CLIPPED —
+ * the band gauge's rule ("neither wraps the line nor clips digits off a §11
+ * reading"), at a ring's size. The longest a reading gets is a measured key at
+ * the 10-decimal ceiling (`21.4567891234`) or a float as a device sent it
+ * (`1013.2500000001`); a fault word may be 24 characters
+ * (`RS485_FAILURE_TEXT_MAX`). Those take the last step and, in the widget, may
+ * break onto a second line — a reading is broken, never cut. Each step holds
+ * its length inside READING_BOX_PX.
+ *
+ * PX, deliberately, against the app's rem rule: the root size grows to 16 px on
+ * a wide screen (`app.css`) but the ring is a fixed 120 px, so rem text would
+ * outgrow its hole and break readings mid-digit (render check at a 16 px root).
  */
 export function readingSize(text: string): string {
-  return text.length <= 5 ? 'text-[1.625rem]' : text.length <= 7 ? 'text-[1.25rem]' : 'text-[0.9375rem]';
+  const n = text.length;
+  return n <= 5 ? 'text-[24px]'
+    : n <= 7 ? 'text-[19px]'
+      : n <= 9 ? 'text-[15px]'
+        : n <= 12 ? 'text-[12px]'
+          : 'text-[11px]';
 }
