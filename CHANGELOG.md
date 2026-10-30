@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased] - Fix: a wrong signature password on Acknowledge Alarm now SAYS so (2026-10-30)
+
+Found by the OQ walkthrough with Re-auth ON for "Acknowledge Alarm". `apiClient` throws a re-auth
+refusal untouched as a plain `{ error: 'REAUTH_FAILED', message }` object (so dialogs can show it),
+but the three acknowledge dialogs — Alarms page, the dashboard's "Alarms in this selection" and the
+trend page's alarms widget — read the message only from an `Error`, so a wrong password printed
+"Could not acknowledge this alarm." They now read `message` from either shape, as the Reports
+decision dialog already did; on screen the dialog shows "Incorrect password. Please try again.".
+Test: `selection-alarms.test.tsx` rejects with the real plain-object shape (the existing cases only
+ever rejected with `new Error`); `alarms-page` and `alarms-widget` suites green. **Not committed.**
+
+## [Unreleased] - Fix: the Audit Trail's password dialog names the action it signs (2026-10-30)
+
+Found while reviewing the T&RH OQ test scripts. The Audit Trail page serves Excel export
+(`DOWNLOAD_REPORT`), redaction and deletion from ONE "Confirm Your Identity" dialog whose label was
+typed as "Delete Audit Record", so a user exporting to Excel was asked to sign "Delete Audit Record".
+`useReauth()` now returns `action` (the action whose password the open dialog collects, null when
+closed) and exports `reauthActionLabel(action)`, which reads the label from `REAUTH_ACTIONS`; the
+Audit Trail passes that instead of a literal. Every other caller is unchanged (an added field).
+Tests: 4 new cases in `hooks/__tests__/use-reauth.test.tsx` (both entry points, the retroactive
+server-demanded path, clearing on cancel / success, the registry lookup); the two Audit Trail tests'
+hook mocks keep the real label helper. Web typecheck clean. **Not committed.**
+
 ## [Unreleased] - Dashboard builder, phase 1: many named dashboards a super admin builds and assigns (2026-10-29)
 
 Operator: "… like in thingsboard i need same feature like different dashboards creation and different

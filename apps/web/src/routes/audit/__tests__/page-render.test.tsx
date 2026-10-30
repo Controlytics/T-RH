@@ -52,10 +52,12 @@ const COLUMNS = { timestamp: 'Timestamp', action: 'Action', user: 'User', role: 
 vi.mock('../../../hooks/use-report-labels', () => ({
   useReportLabels: () => ({ labelsFor: () => ({ title: 'Audit Trail', subtitle: '', columns: COLUMNS }) }),
 }));
-vi.mock('@/hooks/use-reauth', () => ({
+vi.mock('@/hooks/use-reauth', async (importOriginal) => ({
+  // The real label lookup — the page names the action its one dialog signs.
+  reauthActionLabel: (await importOriginal<typeof import('@/hooks/use-reauth')>()).reauthActionLabel,
   useReauth: () => ({
     execute: async (_a: string, cb: (p?: string) => Promise<void>) => { await cb(); },
-    isOpen: false, password: '', error: '', isVerifying: false,
+    isOpen: false, password: '', error: '', isVerifying: false, action: null,
     setPassword: vi.fn(), confirm: vi.fn(), cancel: vi.fn(), needsReauth: () => false,
   }),
 }));

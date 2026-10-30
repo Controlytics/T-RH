@@ -9,7 +9,7 @@ import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import { useRoleColors } from '@/hooks/use-role-colors';
 import { apiClient } from '@/lib/api-client';
 import { resolveBulkTargets } from '@/lib/resolve-bulk-targets';
-import { useReauth } from '@/hooks/use-reauth';
+import { useReauth, reauthActionLabel } from '@/hooks/use-reauth';
 import { useToast } from '@/hooks/use-toast';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { getDefaultTemplates } from '@digilog/shared';
@@ -585,7 +585,9 @@ export function AuditTrailPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={() => { reauth.cancel(); setDeleting(false); setHardDeleting(false); }}
-        actionLabel="Delete Audit Record"
+        // One dialog serves Excel export, redaction and deletion: name the action
+        // that opened it (it read "Delete Audit Record" for all three until 2026-10-30).
+        actionLabel={reauthActionLabel(reauth.action)}
       />
 
       <ReportDownloadDialog
