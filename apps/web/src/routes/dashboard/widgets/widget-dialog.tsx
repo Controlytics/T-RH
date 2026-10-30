@@ -57,12 +57,80 @@ export interface WidgetOptionSectionProps {
 }
 
 /**
- * A type's own option controls, drawn in the Display step. EMPTY until each
- * widget type's task registers its section (gauge scale, bar bucket / value /
+ * The words the SHARED schema says about a gauge's scale, per end — asked of
+ * `customWidgetSchema` itself on a gauge holding only this scale, so the dialog
+ * repeats the server's own wording and never a second copy of its rule.
+ */
+function gaugeScaleProblems(widgetId: string, min: number | undefined, max: number | undefined): { min?: string; max?: string } {
+  const parsed = customWidgetSchema.safeParse({
+    id: widgetId, type: 'gauge', title: 'Scale', source: { mode: 'selection' },
+    keys: [{ source: 'telemetry', key: 'scale' }], options: { min, max },
+  });
+  const out: { min?: string; max?: string } = {};
+  if (parsed.success) return out;
+  for (const issue of parsed.error.issues) {
+    const end = issue.path[1];
+    if (issue.path[0] === 'options' && (end === 'min' || end === 'max') && out[end] === undefined) out[end] = issue.message;
+  }
+  return out;
+}
+
+/**
+ * The gauge's scale for a key the server does not judge (a measured key draws its
+ * own limits). Both or neither, the minimum below the maximum — said under the
+ * field at fault, in the schema's words, as it is typed.
+ */
+function GaugeScaleSection({ widgetId, options, onChange }: WidgetOptionSectionProps) {
+  // The typed TEXT is kept here: a number input mid-entry ("-", "0.") is not yet
+  // a number, and round-tripping it through the option would wipe it.
+  const [typed, setTyped] = useState({ min: options.min?.toString() ?? '', max: options.max?.toString() ?? '' });
+  const problems = gaugeScaleProblems(widgetId, options.min, options.max);
+  const field = (end: 'min' | 'max', label: string) => {
+    const id = `widget-gauge-${end}-${widgetId}`;
+    const problem = problems[end];
+    return (
+      <div className="text-sm">
+        <label htmlFor={id} className="mb-1 block font-medium text-slate-700">{label}</label>
+        <input
+          id={id}
+          name={id}
+          type="number"
+          step="any"
+          inputMode="decimal"
+          className="ctl ctl-sm w-36"
+          value={typed[end]}
+          aria-invalid={problem ? true : undefined}
+          aria-describedby={problem ? `${id}-problem` : undefined}
+          onChange={(e) => {
+            const text = e.target.value;
+            setTyped((t) => ({ ...t, [end]: text }));
+            onChange({ [end]: text.trim() === '' ? undefined : Number(text) });
+          }}
+        />
+        {problem && <p id={`${id}-problem`} className="mt-1 text-xs font-medium text-red-700">{problem}</p>}
+      </div>
+    );
+  };
+  return (
+    <fieldset className="space-y-2">
+      <legend className="text-sm font-semibold text-slate-800">Scale for keys the server does not judge</legend>
+      <div className="flex flex-wrap items-start gap-4">
+        {field('min', 'Scale minimum')}
+        {field('max', 'Scale maximum')}
+      </div>
+    </fieldset>
+  );
+}
+
+/**
+ * A type's own option controls, drawn in the Display step. Each widget type's
+ * task registers its section here (gauge scale; later bar bucket / value /
  * grouping, pie subject, text, floor plan). Only the options the type is offered
  * are saved, whatever a section sets.
  */
-export const WIDGET_OPTION_SECTIONS: Partial<Record<WidgetType, ComponentType<WidgetOptionSectionProps>>> = {};
+export const WIDGET_OPTION_SECTIONS: Partial<Record<WidgetType, ComponentType<WidgetOptionSectionProps>>> = {
+  gauge: GaugeScaleSection,
+};
 
 /** Options with every `undefined` left out, so a cleared option is gone, not present-and-empty. */
 const prune = (o: WidgetOptions): WidgetOptions =>

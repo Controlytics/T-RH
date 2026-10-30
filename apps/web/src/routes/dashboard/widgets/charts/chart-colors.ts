@@ -40,3 +40,30 @@ export const STATUS_HEX: Readonly<Record<InstrumentStatus | 'NOT_JUDGED', string
 
 /** A value nothing judges (a raw key's gauge ring): the "Not judged" colour, never a status one. */
 export const NEUTRAL_HEX = STATUS_HEX.NOT_JUDGED;
+
+/**
+ * The page's own greys, for a chart's axes, gridlines, legend and tooltip — so a
+ * chart's chrome is the app's slate, never ECharts' own. Tailwind v4.1 slate
+ * values in sRGB, like STATUS_HEX. None of them is a status colour: the slate
+ * the status palette uses for No data (slate-400) is deliberately absent.
+ */
+export const CHART_INK = {
+  /** slate-900 — a tooltip's heading and figures. */
+  strong: '#0f172b',
+  /** slate-600 — category labels, legend. */
+  body: '#45556c',
+  /** slate-500 — value-axis labels, the axis name. */
+  muted: '#62748e',
+  /** slate-200 — gridlines, the tooltip's border. */
+  rule: '#e2e8f0',
+  /** slate-300 — the category axis line. */
+  axis: '#cad5e2',
+} as const;
+
+/**
+ * The page's font stack (`--font-body` in `app.css`), written out for
+ * `textStyle.fontFamily`: ECharts measures its text to lay it out, and a `var()`
+ * measures as nothing. Inter is self-hosted, so the SVG text renders in it.
+ * `chart-colors.test.ts` reads app.css and pins the two together.
+ */
+export const CHART_FONT_FAMILY = "'Inter Variable', Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif";

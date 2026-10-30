@@ -105,6 +105,30 @@ describe('a measured key is the server\'s', () => {
     }
   });
 
+  it("names its look's status (tone) and its fault, from the SAME verdict as its classes", () => {
+    // The gauge colours its arc from `tone` (STATUS_HEX[tone]); it must be the
+    // status the classes were drawn from, never a second judgement.
+    const key: WidgetKey = { source: 'telemetry', key: 't' };
+    expect(keyCell(measured(21), true, key, WORDS)).toMatchObject({ tone: 'OK', fault: false });
+    expect(keyCell(measured(30), true, key, WORDS)).toMatchObject({ tone: 'OUT_OF_SPEC', fault: false });
+    expect(keyCell(measured(21), false, key, WORDS)).toMatchObject({ tone: 'STALE', fault: false });
+    expect(keyCell(measured(null), true, key, WORDS)).toMatchObject({ tone: 'NO_DATA', fault: false });
+    // A range fault arrives WITH its number (60): the tone is No data, never Out of limit.
+    expect(keyCell(measured(60, { rangeError: true }), true, key, WORDS)).toMatchObject({ tone: 'NO_DATA', fault: true });
+    expect(keyCell(measured('NA', { sensorError: true }), true, key, WORDS)).toMatchObject({ tone: 'NO_DATA', fault: true, text: 'Error' });
+    expect(keyCell(measured(21, { limitMin: null, limitMax: null }), true, key, WORDS)).toMatchObject({ tone: 'NOT_JUDGED', fault: false });
+    // A raw key's tone is the one its classes show; it is never a fault.
+    expect(keyCell(raw(21.5), true, RAW_KEY, WORDS)).toMatchObject({ tone: 'NOT_JUDGED', fault: false });
+    expect(keyCell(raw(21.5), false, RAW_KEY, WORDS)).toMatchObject({ tone: 'STALE', fault: false });
+    for (const [cell, status] of [
+      [keyCell(measured(21), true, key, WORDS), 'OK'],
+      [keyCell(measured(30), true, key, WORDS), 'OUT_OF_SPEC'],
+      [keyCell(measured(21), false, key, WORDS), 'STALE'],
+    ] as const) {
+      expect(cell.classes).toEqual(statusClasses(status));
+    }
+  });
+
   it('measured is the server\'s answer, judged !== null', () => {
     expect(isMeasured(measured(1))).toBe(true);
     expect(isMeasured(raw(1))).toBe(false);

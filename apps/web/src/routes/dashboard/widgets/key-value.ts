@@ -15,7 +15,7 @@
  * `TELEMETRY_DECIMALS_FALLBACK` is never applied to a raw key: it would round a
  * 0.05 kPa reading to 0.1. Only a widget's own stored `decimals` rounds one.
  */
-import { clampDecimals, coerceReading, type LatestKeyValue, type WidgetKey } from '@digilog/shared';
+import { clampDecimals, coerceReading, type InstrumentStatus, type LatestKeyValue, type WidgetKey } from '@digilog/shared';
 import { statusClasses, type StatusClasses } from '../status';
 import { NOT_AVAILABLE, quantityVerdict } from '../set-point';
 import type { SensorWords } from '@/hooks/use-failure-text';
@@ -58,6 +58,14 @@ export interface KeyCell {
   judged: boolean;
   label: string;
   classes: StatusClasses;
+  /**
+   * The status `classes` were drawn from — `NOT_JUDGED` for the neutral look — so
+   * a chart can colour by the SAME verdict (`STATUS_HEX[tone]`, `charts/chart-colors`)
+   * instead of judging the value a second time.
+   */
+  tone: InstrumentStatus | 'NOT_JUDGED';
+  /** `text` is the administered fault word, not a reading (a measured key only). */
+  fault: boolean;
 }
 
 /** Everything a card or a table cell draws for one instrument × key. */
@@ -90,6 +98,8 @@ export function keyCell(
       judged: true,
       label: verdict.assessed ? classes.label : 'Not assessed',
       classes,
+      tone: verdict.assessed ? verdict.status : 'NOT_JUDGED',
+      fault: verdict.fault !== null,
     };
   }
   return {
@@ -98,6 +108,8 @@ export function keyCell(
     judged: false,
     label: reporting ? UNJUDGED_CLASSES.label : statusClasses('STALE').label,
     classes: reporting ? UNJUDGED_CLASSES : statusClasses('STALE'),
+    tone: reporting ? 'NOT_JUDGED' : 'STALE',
+    fault: false,
   };
 }
 

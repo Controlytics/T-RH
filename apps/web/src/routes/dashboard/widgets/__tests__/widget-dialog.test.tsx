@@ -339,8 +339,111 @@ describe('WidgetDialog - the widget-type registry', () => {
     expect(onSubmit.mock.calls[0][0]).toEqual(initial);
   });
 
-  it('starts with no option sections registered - later tasks fill the map', () => {
-    expect(WIDGET_OPTION_SECTIONS).toEqual({});
+  it('registers exactly the option sections that have landed - each widget task adds its own', () => {
+    expect(Object.keys(WIDGET_OPTION_SECTIONS)).toEqual(['gauge']);
+  });
+});
+
+describe('WidgetDialog - the gauge scale', () => {
+  const HEADING = 'Scale for keys the server does not judge';
+  /** The shared schema's own words, read from it rather than retyped. */
+  const schemaMessage = (options: CustomWidget['options']) => {
+    const r = customWidgetSchema.safeParse({
+      id: '7d3c8a52-3f0e-4b8e-9a51-2a3b4c5d6e7f', type: 'gauge', title: 'G', source: { mode: 'selection' },
+      keys: [{ source: 'telemetry', key: 't' }], options,
+    });
+    return r.success ? null : r.error.issues[0].message;
+  };
+  const openGauge = (onSubmit = vi.fn()) => {
+    render(<WidgetDialog open selection={SEL} onCancel={() => {}} onSubmit={onSubmit} />);
+    fireEvent.click(screen.getByRole('button', { name: /^Gauge/ }));
+    tick('Temperature (t)');
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Dials' } });
+    return onSubmit;
+  };
+
+  it('offers Scale minimum and Scale maximum under its heading, each with its own name', () => {
+    openGauge();
+    const group = screen.getByRole('group', { name: HEADING });
+    const min = within(group).getByLabelText('Scale minimum') as HTMLInputElement;
+    const max = within(group).getByLabelText('Scale maximum') as HTMLInputElement;
+    expect(min.type).toBe('number');
+    expect(min.name).toMatch(/^widget-gauge-min-[0-9a-f-]{36}$/);
+    expect(max.name).toMatch(/^widget-gauge-max-[0-9a-f-]{36}$/);
+    expect(min.name).not.toBe(max.name);
+  });
+
+  it('saves the scale it was given', () => {
+    const onSubmit = openGauge();
+    fireEvent.change(screen.getByLabelText('Scale minimum'), { target: { value: '-5' } });
+    fireEvent.change(screen.getByLabelText('Scale maximum'), { target: { value: '10.5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
+    const w = onSubmit.mock.calls[0][0] as CustomWidget;
+    expect(w.options).toEqual({ min: -5, max: 10.5 });
+    expect(customWidgetSchema.safeParse(w).success).toBe(true);
+  });
+
+  it("one end without the other: the shared schema's words, under the empty field, and nothing is saved", () => {
+    const onSubmit = openGauge();
+    fireEvent.change(screen.getByLabelText('Scale minimum'), { target: { value: '0' } });
+    const words = schemaMessage({ min: 0 });
+    expect(words).toBe('Set both the minimum and the maximum, or neither');
+    const max = screen.getByLabelText('Scale maximum');
+    expect(max.getAttribute('aria-invalid')).toBe('true');
+    expect(document.getElementById(max.getAttribute('aria-describedby')!)!.textContent).toBe(words);
+    expect(screen.getByLabelText('Scale minimum').getAttribute('aria-invalid')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("a minimum not below the maximum: the shared schema's words, under the minimum", () => {
+    const onSubmit = openGauge();
+    fireEvent.change(screen.getByLabelText('Scale minimum'), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText('Scale maximum'), { target: { value: '10' } });
+    const words = schemaMessage({ min: 10, max: 10 });
+    expect(words).toBe('The minimum must be below the maximum');
+    const min = screen.getByLabelText('Scale minimum');
+    expect(min.getAttribute('aria-invalid')).toBe('true');
+    expect(document.getElementById(min.getAttribute('aria-describedby')!)!.textContent).toBe(words);
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('clearing both leaves no scale; an untouched gauge saves none', () => {
+    const onSubmit = openGauge();
+    fireEvent.change(screen.getByLabelText('Scale minimum'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('Scale maximum'), { target: { value: '2' } });
+    fireEvent.change(screen.getByLabelText('Scale minimum'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('Scale maximum'), { target: { value: '' } });
+    expect(screen.queryByText('Set both the minimum and the maximum, or neither')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
+    expect((onSubmit.mock.calls[0][0] as CustomWidget).options).toEqual({});
+  });
+
+  it('editing a gauge shows its stored scale', () => {
+    const initial: CustomWidget = {
+      id: '7d3c8a52-3f0e-4b8e-9a51-2a3b4c5d6e7f', type: 'gauge', title: 'Dials',
+      source: { mode: 'selection' }, keys: [{ source: 'telemetry', key: 'p' }], options: { min: 0, max: 250 },
+    };
+    const onSubmit = vi.fn();
+    render(<WidgetDialog open initial={initial} selection={SEL} onCancel={() => {}} onSubmit={onSubmit} />);
+    expect((screen.getByLabelText('Scale minimum') as HTMLInputElement).value).toBe('0');
+    expect((screen.getByLabelText('Scale maximum') as HTMLInputElement).value).toBe('250');
+    fireEvent.click(screen.getByRole('button', { name: 'Save widget' }));
+    expect(onSubmit.mock.calls[0][0]).toEqual(initial);
+  });
+
+  it('switching to comparison bars drops the scale - it has none', () => {
+    const onSubmit = openGauge();
+    fireEvent.change(screen.getByLabelText('Scale minimum'), { target: { value: '0' } });
+    fireEvent.change(screen.getByLabelText('Scale maximum'), { target: { value: '10' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Comparison bars/ }));
+    expect(screen.queryByRole('group', { name: HEADING })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
+    const w = onSubmit.mock.calls[0][0] as CustomWidget;
+    expect(w.type).toBe('comparison_bar');
+    expect(w.options).toEqual({});
+    expect(customWidgetSchema.safeParse(w).success).toBe(true);
   });
 });
 

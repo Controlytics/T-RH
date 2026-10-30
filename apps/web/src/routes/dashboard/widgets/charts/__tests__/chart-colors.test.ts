@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { SERIES_COLORS } from '../../../time-series-chart';
 import { statusClasses } from '../../../status';
 import { UNJUDGED_CLASSES } from '../../key-value';
-import { NEUTRAL_HEX, SERIES_HEX, STATUS_HEX } from '../chart-colors';
+import { CHART_FONT_FAMILY, CHART_INK, NEUTRAL_HEX, SERIES_HEX, STATUS_HEX } from '../chart-colors';
 
 describe('SERIES_HEX', () => {
   it("is the series palette's own literal fallbacks, in its order", () => {
@@ -46,6 +48,27 @@ describe('STATUS_HEX', () => {
     expect(NEUTRAL_HEX).toBe(STATUS_HEX.NOT_JUDGED);
     for (const k of ['OUT_OF_SPEC', 'STALE', 'PARTIAL', 'NO_DATA', 'OK'] as const) {
       expect(NEUTRAL_HEX).not.toBe(STATUS_HEX[k]);
+    }
+  });
+});
+
+describe('CHART_FONT_FAMILY', () => {
+  it("is the page's own font stack (app.css --font-body), written out — ECharts measures text and cannot read var()", () => {
+    const css = readFileSync(join(__dirname, '..', '..', '..', '..', '..', 'app.css'), 'utf-8');
+    const body = /--font-body:\s*([^;]+);/.exec(css);
+    expect(body).not.toBeNull();
+    const norm = (stack: string) => stack.split(',').map((f) => f.trim().replace(/^['"]|['"]$/g, ''));
+    expect(norm(CHART_FONT_FAMILY)).toEqual(norm(body![1]));
+    expect(CHART_FONT_FAMILY).not.toContain('var(');
+  });
+});
+
+describe('CHART_INK', () => {
+  it("is the app's slate, and no grey a chart draws its chrome in is a verdict colour", () => {
+    const verdicts = Object.entries(STATUS_HEX).filter(([k]) => k !== 'NOT_JUDGED').map(([, hex]) => hex.toLowerCase());
+    for (const hex of Object.values(CHART_INK)) {
+      expect(hex).toMatch(/^#[0-9a-f]{6}$/);
+      expect(verdicts).not.toContain(hex.toLowerCase());
     }
   });
 });
