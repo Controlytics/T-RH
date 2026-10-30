@@ -81,7 +81,7 @@
 1. **A pressure-only project instrument that is reporting.** Today the server says `NO_DATA`. On the status grid, instrument list and status pie it must read "Not judged" (neutral) while reporting and "Offline" when not — never "No data", never green. Owned by Task 2 (server `judged`) and Task 4 (the one mapping), tested in Task 7.
 2. **A reading at 23:00 UTC on an Asia/Kolkata install** lands in the NEXT local day's bar, and an hourly bucket edge falls on the local hour, not :30. Task 3 pins both.
 3. **The home dashboard after deploy.** Every stored `w:` widget on `/` renders exactly as before. An `alarm_counts` widget placed on `/` for a role without `dashboard_alarms` is not drawn. Tasks 1 and 4.
-4. **A viewer without `ALARM_READ`, assigned a dashboard with alarm widgets**, sees "Could not load this widget." on those cards, and the rest of the dashboard draws. Tasks 2 and 6.
+4. **A viewer without `ALARM_READ`, assigned a dashboard with alarm widgets**, sees "Could not load this widget." on those cards, and the rest of the dashboard draws. Tasks 2 and 7.
 5. **A gauge on a raw key with no min/max set** draws the value and a neutral full ring, never a coloured band. A gauge on a measured key whose bounds are both absent reads "Not assessed" in neutral, exactly as `keyCell` does. Task 5.
 
 ---
