@@ -238,6 +238,19 @@ describe('telemetry-buckets: aggregates per local hour (Asia/Kolkata)', () => {
     ]);
   });
 
+  it('groupBy=instrument: min, max and count per instrument, two instruments', async () => {
+    const values = async (agg: string) => {
+      const res = await buckets(`instrumentIds=${A},${B}&keys=temperature&${HOUR_WINDOW}&groupBy=instrument&agg=${agg}`);
+      expect(res.statusCode).toBe(200);
+      return (res.json().series as Series[]).map((s) => [s.instrumentId, s.points.map((p) => [p.ts, p.value, p.readings])]);
+    };
+    const H1 = '2026-10-10T04:30:00.000Z';
+    const H2 = '2026-10-10T05:30:00.000Z';
+    expect(await values('min')).toEqual([[A, [[H1, 20, 2], [H2, 25, 1]]], [B, [[H1, 21.5, 2]]]]);
+    expect(await values('max')).toEqual([[A, [[H1, 22, 2], [H2, 25, 1]]], [B, [[H1, 30, 2]]]]);
+    expect(await values('count')).toEqual([[A, [[H1, 2, 2], [H2, 1, 1]]], [B, [[H1, 2, 2]]]]);
+  });
+
   it('count per instrument: "21.5" counts, "NA" does not', async () => {
     const res = await buckets(`instrumentIds=${B}&keys=temperature&${HOUR_WINDOW}&groupBy=instrument&agg=count`);
     expect(res.json().series).toEqual([{ instrumentId: B, key: 'temperature', points: [
