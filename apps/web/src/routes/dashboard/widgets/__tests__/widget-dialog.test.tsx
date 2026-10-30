@@ -340,7 +340,60 @@ describe('WidgetDialog - the widget-type registry', () => {
   });
 
   it('registers exactly the option sections that have landed - each widget task adds its own', () => {
-    expect(Object.keys(WIDGET_OPTION_SECTIONS)).toEqual(['gauge', 'bar_chart']);
+    expect(Object.keys(WIDGET_OPTION_SECTIONS)).toEqual(['gauge', 'bar_chart', 'pie_chart']);
+  });
+});
+
+describe('WidgetDialog - what the pie shows', () => {
+  const openPie = (onSubmit = vi.fn()) => {
+    render(<WidgetDialog open selection={SEL} onCancel={() => {}} onSubmit={onSubmit} />);
+    fireEvent.click(screen.getByRole('button', { name: /^Pie chart/ }));
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Health' } });
+    return onSubmit;
+  };
+
+  it('offers "Instrument status" and "Active alarms by type", neither chosen until one is — what is shown is what is stored', () => {
+    const onSubmit = openPie();
+    const group = screen.getByRole('radiogroup', { name: 'The pie shows' });
+    const choices = within(group).getAllByRole('radio');
+    expect(choices.map((r) => r.closest('label')?.textContent)).toEqual(['Instrument status', 'Active alarms by type']);
+    expect(choices.map((r) => (r as HTMLInputElement).checked)).toEqual([false, false]);
+    // One name for the pair, distinct to this widget.
+    expect(new Set(choices.map((r) => r.getAttribute('name'))).size).toBe(1);
+    expect(choices[0].getAttribute('name')).toMatch(/^widget-pie-of-[0-9a-f-]{36}$/);
+    // Unchosen, the schema's own words — no silent default.
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert').textContent).toBe('Choose what the pie shows');
+  });
+
+  it('the subject chosen is the option saved', () => {
+    const onSubmit = openPie();
+    fireEvent.click(screen.getByRole('radio', { name: 'Active alarms by type' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
+    const w = onSubmit.mock.calls[0][0] as CustomWidget;
+    expect(w).toMatchObject({ type: 'pie_chart', keys: [], options: { of: 'alarm_types' } });
+    expect(customWidgetSchema.safeParse(w).success).toBe(true);
+  });
+
+  it('editing a pie shows its stored subject chosen, and keeps it', () => {
+    const onSubmit = vi.fn();
+    const initial: CustomWidget = {
+      id: '5a1c2d3e-4f50-4617-8a9b-0c1d2e3f4a5b', type: 'pie_chart', title: 'Health',
+      source: { mode: 'selection' }, keys: [], options: { of: 'status' },
+    };
+    render(<WidgetDialog open initial={initial} selection={SEL} onCancel={() => {}} onSubmit={onSubmit} />);
+    expect(screen.getByRole('radio', { name: 'Instrument status' })).toHaveProperty('checked', true);
+    fireEvent.click(screen.getByRole('button', { name: 'Save widget' }));
+    expect(onSubmit.mock.calls[0][0]).toEqual(initial);
+  });
+
+  it('switching away drops the subject the next type refuses', () => {
+    const onSubmit = openPie();
+    fireEvent.click(screen.getByRole('radio', { name: 'Instrument status' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Status grid/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
+    expect((onSubmit.mock.calls[0][0] as CustomWidget).options).toEqual({});
   });
 });
 

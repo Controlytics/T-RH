@@ -8,11 +8,14 @@
  */
 import type { CustomWidget, LayoutItem, PanelStyle, WidgetType } from '@digilog/shared';
 import { PanelCard } from '../panel-card';
+import { AlarmCountsWidget } from './alarm-counts-widget';
 import { AlarmTableWidget } from './alarm-table-widget';
 import { BarChartWidget } from './bar-chart-widget';
 import { ComparisonBarWidget } from './comparison-bar-widget';
 import { GaugeWidget } from './gauge-widget';
 import { LatestTableWidget } from './latest-table-widget';
+import { PieChartWidget } from './pie-chart-widget';
+import { StatusGridWidget, type WidgetTrail } from './status-grid-widget';
 import { TimeseriesTableWidget } from './timeseries-table-widget';
 import { TrendChartWidget } from './trend-chart-widget';
 import { ValueCardsWidget } from './value-cards-widget';
@@ -45,8 +48,15 @@ function PendingWidget() {
   return <WidgetMessage>…</WidgetMessage>;
 }
 
-/** The renderer for a widget's type — also the Add widget dialog's live preview. */
-export function WidgetBody({ widget, selection }: { widget: CustomWidget; selection: WidgetSelection }) {
+/**
+ * The renderer for a widget's type — also the Add widget dialog's live preview.
+ *
+ * `trail` is the host dashboard's breadcrumb as links, carried by every way from
+ * a widget into the trend page (the status grid's tiles); the home dashboard
+ * passes `trailFor(nav.breadcrumb)`, a built dashboard its own two crumbs. The
+ * dialog's preview passes none, and its tiles are not links.
+ */
+export function WidgetBody({ widget, selection, trail }: { widget: CustomWidget; selection: WidgetSelection; trail?: WidgetTrail }) {
   switch (widget.type) {
     case 'value_cards': return <ValueCardsWidget widget={widget} selection={selection} />;
     case 'latest_table': return <LatestTableWidget widget={widget} selection={selection} />;
@@ -56,9 +66,9 @@ export function WidgetBody({ widget, selection }: { widget: CustomWidget; select
     case 'gauge': return <GaugeWidget widget={widget} selection={selection} />;
     case 'comparison_bar': return <ComparisonBarWidget widget={widget} selection={selection} />;
     case 'bar_chart': return <BarChartWidget widget={widget} selection={selection} />;
-    case 'pie_chart':
-    case 'alarm_counts':
-    case 'status_grid':
+    case 'pie_chart': return <PieChartWidget widget={widget} selection={selection} />;
+    case 'alarm_counts': return <AlarmCountsWidget widget={widget} selection={selection} />;
+    case 'status_grid': return <StatusGridWidget widget={widget} selection={selection} trail={trail} />;
     case 'instrument_list':
     case 'text_card':
     case 'floorplan':
@@ -67,11 +77,13 @@ export function WidgetBody({ widget, selection }: { widget: CustomWidget; select
 }
 
 export function WidgetPanel({
-  widget, item, selection, editing, onEdit, onRemove, onStyleChange, onSizeChange, autoHeight, onNaturalHeight,
+  widget, item, selection, trail, editing, onEdit, onRemove, onStyleChange, onSizeChange, autoHeight, onNaturalHeight,
 }: {
   widget: CustomWidget;
   item: LayoutItem;
   selection: WidgetSelection;
+  /** The host dashboard's breadcrumb as links (see `WidgetBody`). */
+  trail?: WidgetTrail;
   editing: boolean;
   onEdit: () => void;
   onRemove: () => void;
@@ -111,7 +123,7 @@ export function WidgetPanel({
         </>
       )}
     >
-      <WidgetBody widget={widget} selection={selection} />
+      <WidgetBody widget={widget} selection={selection} trail={trail} />
     </PanelCard>
   );
 }

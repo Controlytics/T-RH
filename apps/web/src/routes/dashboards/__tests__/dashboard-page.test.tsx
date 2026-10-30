@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation, useParams } from 'react-router-dom';
 import { SWRConfig } from 'swr';
 import type { CustomWidget, DashboardDetail, LatestValuesRow } from '@digilog/shared';
 
@@ -177,7 +177,8 @@ const DETAIL_BOOM = detail({
   },
 });
 
-const OVERVIEW = { data: [{ instrumentId: INST }] };
+// Full enough for the status widgets: the server's code, status, reporting and judged.
+const OVERVIEW = { data: [{ instrumentId: INST, code: 'CWH/RDU/014-00', status: 'OK', reporting: true, judged: true }] };
 const LATEST: { data: LatestValuesRow[] } = {
   data: [{
     instrumentId: INST, code: 'CWH/RDU/014-00', name: 'x', functionalLocationName: 'QC', locationAttribute: 'Dissolution Room-II',
@@ -198,6 +199,25 @@ const HISTORY = {
 // instead of the configured one comes out different.
 const DATETIME = { dateFormat: 'DD/MM/YYYY', timeFormat: '24-hour', timezone: 'America/New_York' };
 
+const W_GRID = '11111111-1111-4111-8111-000000000005';
+const W_COUNTS = '11111111-1111-4111-8111-000000000006';
+const W_ALARM_PIE = '11111111-1111-4111-8111-000000000007';
+const none = { mode: 'selection' as const };
+const DETAIL_STATUS = detail({
+  document: {
+    items: [
+      { i: `w:${W_CARDS}`, x: 0, y: 0, w: 6, h: 5 }, { i: `w:${W_GRID}`, x: 6, y: 0, w: 6, h: 8 },
+      { i: `w:${W_COUNTS}`, x: 0, y: 8, w: 6, h: 6 }, { i: `w:${W_ALARM_PIE}`, x: 6, y: 8, w: 6, h: 8 },
+    ],
+    widgets: [
+      cards(W_CARDS, 'Room cards'),
+      { id: W_GRID, type: 'status_grid', title: 'Plant health', source: none, keys: [], options: {} },
+      { id: W_COUNTS, type: 'alarm_counts', title: 'Alarms now', source: none, keys: [], options: {} },
+      { id: W_ALARM_PIE, type: 'pie_chart', title: 'Alarms by type', source: none, keys: [], options: { of: 'alarm_types' } },
+    ],
+  },
+});
+
 const failure = (status: number, code?: string) => Object.assign(new Error(`HTTP ${status}`), { status, code });
 const state: { detail: DashboardDetail | 'missing' } = { detail: DETAIL };
 
@@ -207,7 +227,16 @@ function route(url: string): Promise<unknown> {
   }
   if (url.startsWith('/api/instruments/telemetry-overview')) return Promise.resolve(OVERVIEW);
   if (url.startsWith(`/api/instruments/${INST}/telemetry?`)) return Promise.resolve(HISTORY);
+  // This viewer holds no ALARM_READ.
+  if (url.startsWith('/api/alarms/counts')) return Promise.reject(failure(403, 'FORBIDDEN'));
   return Promise.resolve(undefined);
+}
+
+/** Where a status tile lands: the trend route, printing the router state it was given. */
+function TrendProbe() {
+  const { id } = useParams();
+  const location = useLocation();
+  return <pre data-testid="trend-probe" data-id={id}>{JSON.stringify(location.state)}</pre>;
 }
 
 function mount(search = '') {
@@ -220,6 +249,7 @@ function mount(search = '') {
         <Routes>
           <Route path="/dashboards/:id" element={<DashboardPage />} />
           <Route path="/dashboards" element={<div>the list</div>} />
+          <Route path="/instruments/:id/trend" element={<TrendProbe />} />
         </Routes>
       </MemoryRouter>
     </SWRConfig>,
@@ -390,6 +420,34 @@ describe('DashboardPage', () => {
     expect(await screen.findByText('21.5')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Room cards' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Forbidden cards' })).toBeInTheDocument();
+  });
+
+  it("R7-4: a status tile opens the trend page carrying this dashboard's trail — Dashboards, then this dashboard", async () => {
+    state.detail = DETAIL_STATUS;
+    mount();
+    const tile = await screen.findByRole('link', { name: 'Open trend page for CWH/RDU/014-00 — In limit' });
+    fireEvent.click(tile);
+    const probe = await screen.findByTestId('trend-probe');
+    expect(probe.getAttribute('data-id')).toBe(INST);
+    expect(JSON.parse(probe.textContent!)).toEqual({
+      from: 'dashboard',
+      trail: [{ label: 'Dashboards', to: '/dashboards' }, { label: 'QC Block — Room Conditions', to: `/dashboards/${ID}` }],
+    });
+  });
+
+  it('Review Focus 4: a viewer without ALARM_READ sees "Could not load this widget." on the alarm widgets, and the rest draws', async () => {
+    state.detail = DETAIL_STATUS;
+    mount();
+    expect(await screen.findByText('21.5')).toBeInTheDocument();
+    expect((await screen.findByTestId('status-tile')).textContent).toContain('CWH/RDU/014-00');
+    await waitFor(() => expect(screen.getAllByText('Could not load this widget.')).toHaveLength(2));
+    for (const title of ['Alarms now', 'Alarms by type']) {
+      // In ITS card, not merely somewhere on the page.
+      const card = screen.getByRole('heading', { name: title }).closest('.panel-card')!;
+      expect(card.textContent).toContain('Could not load this widget.');
+    }
+    // A refusal is asked once, never retried into a loop.
+    expect(urls().filter((u) => u.startsWith('/api/alarms/counts')).length).toBeLessThanOrEqual(2);
   });
 
   it('a widget that throws while drawing leaves the page and the other widgets drawn', async () => {

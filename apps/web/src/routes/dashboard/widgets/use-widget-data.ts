@@ -17,7 +17,7 @@ import {
   type WIDGET_BAR_AGGS, type WIDGET_BAR_BUCKETS, type WIDGET_BAR_GROUPS,
 } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
-import { useTelemetryOverview, useTelemetrySettings } from '../use-telemetry';
+import { useTelemetryOverview, useTelemetrySettings, type OverviewRow } from '../use-telemetry';
 import { ALARM_REFRESH_MS, alarmScopeSelectsNothing, applyAlarmScope, type AlarmScope } from '../alarm-scope';
 import { isRefusal } from './refusal';
 
@@ -111,6 +111,32 @@ export function useWidgetInstrumentIds(
   });
   if (source.mode === 'instruments') return { ids: source.ids, loading: false };
   return { ids: rows.map((r) => r.instrumentId), loading: isLoading };
+}
+
+/**
+ * The overview rows — the server's `status` / `reporting` / `judged` per
+ * instrument, in the server's order — that the status widgets (status grid,
+ * status pie) draw.
+ *
+ * Following the selection it is the readings table's OWN query (one SWR key, no
+ * extra request); over picked instruments it asks for exactly those ids, as
+ * `widgetAlarmScope` does, and never the selection's rows (the same rule). One
+ * call with its arguments chosen, never a conditional hook. The overview hook's
+ * own polling and retry are the readings table's, unchanged.
+ */
+export function useWidgetOverview(
+  source: CustomWidget['source'],
+  selection: WidgetSelection,
+): { rows: OverviewRow[]; loading: boolean; error: unknown } {
+  const { rows, isLoading, error } = useTelemetryOverview(source.mode === 'instruments'
+    ? { instrumentIds: source.ids }
+    : {
+      functionalLocationId: selection.functionalLocationId,
+      directOnly: selection.directOnly,
+      profileId: selection.profileId,
+      instrumentIds: selection.instrumentIds,
+    });
+  return { rows, loading: isLoading && rows.length === 0, error };
 }
 
 const refsOf = (keys: readonly (DataKeyRef | WidgetKey)[]): DataKeyRef[] => keys.map((k) => ({ source: k.source, key: k.key }));

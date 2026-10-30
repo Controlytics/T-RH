@@ -8,6 +8,7 @@ import {
   DEFAULT_PERIOD, PERIOD_PRESETS, WIDGET_COLOR_COUNT,
   type CustomWidget, type DashboardTimeWindow, type LatestKeyValue, type LatestValuesRow, type WidgetKey,
 } from '@digilog/shared';
+import { isRefusal } from './refusal';
 import { useLatestValues, useWidgetInstrumentIds, type WidgetRange, type WidgetSelection } from './use-widget-data';
 
 export const NO_INSTRUMENTS = 'No instruments in your view';
@@ -115,27 +116,51 @@ export function CapNote({ shown, total, noun }: { shown: number; total: number; 
 export const REFRESH_FAILED = 'These readings could not be refreshed. Showing the last ones that loaded.';
 
 /**
- * The notes a widget prints above what it draws — the cap, the keys with no
- * readings, a failed refresh — on ONE wrapping row, so each widget says them the
- * same way and the drawing keeps its room (fix round 1, m-6). Nothing to say →
- * nothing rendered.
+ * The notes a widget prints above what it draws — the cap, the tiles beyond a
+ * cap ("N more not shown", the status grid), the keys with no readings, a failed
+ * refresh — on ONE wrapping row, so each widget says them the same way and the
+ * drawing keeps its room (fix round 1, m-6). Nothing to say → nothing rendered.
  */
-export function WidgetNotes({ cap, unsent = [], refreshFailed = false }: {
+export function WidgetNotes({ cap, more = 0, unsent = [], refreshFailed = false }: {
   cap?: { shown: number; total: number; noun: string };
+  /** How many the widget did not draw, said as "N more not shown". */
+  more?: number;
   unsent?: readonly string[];
   refreshFailed?: boolean;
 }) {
   const capped = cap !== undefined && cap.shown < cap.total;
-  if (!capped && unsent.length === 0 && !refreshFailed) return null;
+  if (!capped && more <= 0 && unsent.length === 0 && !refreshFailed) return null;
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-1" data-testid="widget-notes">
       {capped && <CapNote shown={cap.shown} total={cap.total} noun={cap.noun} />}
+      {more > 0 && (
+        <p className="text-xs font-medium text-amber-700" data-testid="widget-more-note">{more} more not shown</p>
+      )}
       <NoReadingsNote labels={unsent} />
       {refreshFailed && (
         <p className="text-xs font-medium text-amber-700" data-testid="widget-refresh-failed">{REFRESH_FAILED}</p>
       )}
     </div>
   );
+}
+
+/**
+ * Whether a present-state widget draws the answer it holds — the bar chart's
+ * held-answer rule (fix round 1, I-1) for a query with no window to compare:
+ * - `fresh`: an answer, no failure;
+ * - `stale`: an answer held through a failed REFRESH — drawn, and said
+ *   (`WidgetNotes refreshFailed`). The widget data hooks keep retrying at their
+ *   cadence (`widgetPolling`); the status widgets' overview is the readings
+ *   table's own hook (`useWidgetOverview`), with that hook's polling and retry;
+ * - `failed`: a REFUSAL (a 403 for a viewer without ALARM_READ) never keeps what
+ *   it holds, and a failure with nothing held is a failure — "Could not load
+ *   this widget.";
+ * - `none`: nothing yet, nothing failed.
+ */
+export function answerState(held: boolean, error: unknown): 'fresh' | 'stale' | 'failed' | 'none' {
+  const failed = error !== undefined && error !== null;
+  if (failed) return isRefusal(error) || !held ? 'failed' : 'stale';
+  return held ? 'fresh' : 'none';
 }
 
 /**

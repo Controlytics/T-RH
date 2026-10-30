@@ -95,6 +95,12 @@ function DashboardView({ dashboard, mutate }: {
   const { draft, editing } = session;
   const [activeWindow, setActiveWindow] = useState<DashboardTimeWindow>(dashboard.document.timeWindow);
   const selection = useMemo(() => selectionForSource(draft.source, activeWindow), [draft.source, activeWindow]);
+  // What a way from a widget into the trend page carries back (R7-4): the list,
+  // then this dashboard — the trend page's crumbs lead back here.
+  const trail = useMemo(
+    () => [{ label: 'Dashboards', to: '/dashboards' }, { label: dashboard.title, to: `/dashboards/${dashboard.id}` }],
+    [dashboard.id, dashboard.title],
+  );
   // The same overview query the "follow the dashboard" widgets make — one SWR
   // key, so the count costs no extra request.
   const overview = useTelemetryOverview({
@@ -339,6 +345,7 @@ function DashboardView({ dashboard, mutate }: {
                     widget={w}
                     item={it}
                     selection={selection}
+                    trail={trail}
                     editing={editing}
                     onEdit={() => setWidgetDialog({ initial: w })}
                     onRemove={() => session.removeWidget(w.id)}

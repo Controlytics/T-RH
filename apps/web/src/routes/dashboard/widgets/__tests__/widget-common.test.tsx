@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 
 vi.mock('../use-widget-data', () => ({}));
 
-import { REFRESH_FAILED, WidgetNotes, keyColorSlots } from '../widget-common';
+import { REFRESH_FAILED, WidgetNotes, answerState, keyColorSlots } from '../widget-common';
 
 describe('WidgetNotes — ONE note row for every widget (fix round 1, m-6)', () => {
   it('says nothing when there is nothing to say', () => {
@@ -21,8 +21,33 @@ describe('WidgetNotes — ONE note row for every widget (fix round 1, m-6)', () 
     expect(screen.getByTestId('widget-refresh-failed').textContent).toBe(REFRESH_FAILED);
   });
 
+  it('tiles beyond a cap are said as "N more not shown", on the same row', () => {
+    render(<WidgetNotes more={200} refreshFailed />);
+    const row = screen.getByTestId('widget-notes');
+    expect([...row.children].map((c) => c.getAttribute('data-testid'))).toEqual(['widget-more-note', 'widget-refresh-failed']);
+    expect(screen.getByTestId('widget-more-note').textContent).toBe('200 more not shown');
+  });
+
+  it('none hidden says nothing', () => {
+    const { container } = render(<WidgetNotes more={0} />);
+    expect(container.innerHTML).toBe('');
+  });
+
   it("a failed refresh is said in the trend page's own words", () => {
     expect(REFRESH_FAILED).toBe('These readings could not be refreshed. Showing the last ones that loaded.');
+  });
+});
+
+describe('answerState — what a present-state widget draws from a polled answer', () => {
+  const refused = Object.assign(new Error('HTTP 403'), { status: 403 });
+  const down = Object.assign(new Error('HTTP 502'), { status: 502 });
+  it('an answer and no failure is drawn', () => expect(answerState(true, undefined)).toBe('fresh'));
+  it('nothing yet, nothing failed', () => expect(answerState(false, undefined)).toBe('none'));
+  it('a failed refresh keeps the answer it holds, and says so', () => expect(answerState(true, down)).toBe('stale'));
+  it('a refusal never keeps what it holds', () => expect(answerState(true, refused)).toBe('failed'));
+  it('a failure with nothing held is a failure', () => {
+    expect(answerState(false, down)).toBe('failed');
+    expect(answerState(false, refused)).toBe('failed');
   });
 });
 

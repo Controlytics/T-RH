@@ -34,13 +34,16 @@ vi.mock('react-grid-layout', async (importActual) => ({
   ...(await importActual<typeof import('react-grid-layout')>()),
   useContainerWidth: () => ({ width: 1240, mounted: true, containerRef: { current: null } }),
 }));
-// Counts how many times a built widget's panel is MOUNTED (not rendered).
+// Counts how many times a built widget's panel is MOUNTED (not rendered), and
+// records the trail each render was handed.
 const panelMounts = vi.fn();
+const panelTrails: unknown[] = [];
 vi.mock('../widgets/widget-panel', async () => {
   const React = await import('react');
   return {
-    WidgetPanel: ({ widget }: { widget: { title: string } }) => {
+    WidgetPanel: ({ widget, trail }: { widget: { title: string }; trail?: unknown }) => {
       React.useEffect(() => { panelMounts(widget.title); }, []);
+      panelTrails.push(trail);
       return React.createElement('div', { 'data-testid': 'built-widget' }, widget.title);
     },
   };
@@ -48,6 +51,7 @@ vi.mock('../widgets/widget-panel', async () => {
 class StubResizeObserver { observe() {} disconnect() {} unobserve() {} }
 
 import { DashboardPage } from '../index';
+import { ALL_INSTRUMENTS, resolveNav, trailFor } from '../location-nav';
 
 const renderPage = () => render(
   <MemoryRouter initialEntries={['/?fl=__all__']}>
@@ -149,6 +153,24 @@ describe('a built widget on the home dashboard', () => {
     view.rerender(<MemoryRouter initialEntries={['/?fl=__all__']}><DashboardPage /></MemoryRouter>);
     expect(panelMounts).toHaveBeenCalledTimes(2);
 
+    LAYOUT.items = [{ i: 'telemetry_table', x: 0, y: 0, w: 12, h: 9 }];
+    LAYOUT.widgets = [];
+    delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+  });
+
+  it("is handed the dashboard's breadcrumb trail, as the readings table and the floor plan are", () => {
+    // Every way from the dashboard into the trend page carries the trail; the
+    // status grid's tiles are one (R7-4).
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = StubResizeObserver;
+    AUTH.user.role = 'SUPER_ADMIN';
+    LAYOUT.editing = false;
+    LAYOUT.items = [{ i: `w:${W}`, x: 0, y: 0, w: 12, h: 8 }];
+    LAYOUT.widgets = [{ id: W, type: 'status_grid', title: 'Plant health', source: { mode: 'selection' }, keys: [], options: {} }];
+    panelTrails.length = 0;
+    renderPage();
+    expect(screen.getByTestId('built-widget')).toHaveTextContent('Plant health');
+    expect(panelTrails.at(-1)).toEqual(trailFor(resolveNav(ALL_INSTRUMENTS, []).breadcrumb));
+    expect(panelTrails.at(-1)).toEqual([{ label: 'Dashboard', to: '/' }, { label: 'All Instruments', to: `/?fl=${ALL_INSTRUMENTS}` }]);
     LAYOUT.items = [{ i: 'telemetry_table', x: 0, y: 0, w: 12, h: 9 }];
     LAYOUT.widgets = [];
     delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;

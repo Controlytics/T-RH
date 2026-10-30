@@ -17,7 +17,7 @@
 import { useState, type ComponentType } from 'react';
 import {
   PERIOD_PRESETS, WIDGET_ALARM_STATUSES, WIDGET_BAR_AGGS, WIDGET_BAR_BUCKETS, WIDGET_BAR_GROUPS, WIDGET_INSTRUMENTS_MAX,
-  WIDGET_PAGE_SIZES, WIDGET_TYPE_SPECS, customWidgetSchema,
+  WIDGET_PAGE_SIZES, WIDGET_PIE_SUBJECTS, WIDGET_TYPE_SPECS, customWidgetSchema,
   type CustomWidget, type WidgetKey, type WidgetType,
 } from '@digilog/shared';
 import { Dialog, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -164,15 +164,50 @@ function BarOptionsSection({ widgetId, options, onChange }: WidgetOptionSectionP
   );
 }
 
+const PIE_SUBJECT_LABEL: Record<(typeof WIDGET_PIE_SUBJECTS)[number], string> = {
+  status: 'Instrument status',
+  alarm_types: 'Active alarms by type',
+};
+
+/**
+ * What a pie counts. The schema REQUIRES it, so neither choice is shown chosen
+ * until one is: a control showing "Instrument status" over an unset option
+ * would be a decoy, and Add would then refuse with "Choose what the pie shows".
+ * One radio name per widget.
+ */
+function PieSubjectSection({ widgetId, options, onChange }: WidgetOptionSectionProps) {
+  return (
+    <fieldset role="radiogroup" aria-labelledby={`widget-pie-of-legend-${widgetId}`} className="space-y-1.5">
+      <legend id={`widget-pie-of-legend-${widgetId}`} className="text-sm font-medium text-slate-700">The pie shows</legend>
+      <div className="flex flex-wrap gap-4 text-sm">
+        {WIDGET_PIE_SUBJECTS.map((of) => (
+          <label key={of} className="flex items-center gap-2">
+            <input
+              type="radio"
+              className="ctl-radio"
+              name={`widget-pie-of-${widgetId}`}
+              value={of}
+              checked={options.of === of}
+              onChange={() => onChange({ of })}
+            />
+            {PIE_SUBJECT_LABEL[of]}
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
 /**
  * A type's own option controls, drawn in the Display step. Each widget type's
- * task registers its section here (gauge scale, bar bucket / value / grouping;
- * later pie subject, text, floor plan). Only the options the type is offered are
+ * task registers its section here (gauge scale, bar bucket / value / grouping,
+ * pie subject; later text, floor plan). Only the options the type is offered are
  * saved, whatever a section sets.
  */
 export const WIDGET_OPTION_SECTIONS: Partial<Record<WidgetType, ComponentType<WidgetOptionSectionProps>>> = {
   gauge: GaugeScaleSection,
   bar_chart: BarOptionsSection,
+  pie_chart: PieSubjectSection,
 };
 
 /** Options with every `undefined` left out, so a cleared option is gone, not present-and-empty. */

@@ -423,6 +423,9 @@ export function DashboardPage() {
                     widget={w}
                     item={it}
                     selection={widgetSelection}
+                    // A status tile opens the trend page: it carries the trail,
+                    // as the readings table and the floor plan do.
+                    trail={trailFor(nav.breadcrumb)}
                     editing={layout.editing}
                     onEdit={() => setWidgetDialog({ initial: w })}
                     onRemove={() => layout.removeWidget(w.id)}
