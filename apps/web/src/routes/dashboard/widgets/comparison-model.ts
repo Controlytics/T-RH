@@ -151,7 +151,8 @@ export function comparisonModel(
 }
 
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ESCAPES[c]);
+/** For an ECharts tooltip, which is HTML: device text and labels are typed by someone else. */
+export const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ESCAPES[c]);
 
 /** The tooltip for one instrument: its code, then each key as the value card prints it. */
 export function comparisonTooltip(m: ComparisonModel, index: number): string {

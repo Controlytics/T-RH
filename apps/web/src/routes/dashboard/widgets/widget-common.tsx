@@ -3,7 +3,7 @@
  * display order, the three states every widget can be in, and the period
  * control of the two history widgets.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   DEFAULT_PERIOD, PERIOD_PRESETS,
   type CustomWidget, type DashboardTimeWindow, type LatestKeyValue, type LatestValuesRow, type WidgetKey,
@@ -79,6 +79,22 @@ export function NoReadingsNote({ labels }: { labels: readonly string[] }) {
       {text}
     </p>
   );
+}
+
+/**
+ * The element's width in whole px, followed as the panel is resized; null until
+ * measured. A chart widget wraps its `LazyEChart` in the measured box, so how its
+ * category labels stand (`codeAxis`) is decided by the width it really has.
+ */
+export function useBoxWidth(el: HTMLElement | null): number | null {
+  const [width, setWidth] = useState<number | null>(null);
+  useEffect(() => {
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(([entry]) => setWidth(Math.round(entry.contentRect.width)));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [el]);
+  return width;
 }
 
 /** "Showing X of Y <things>" — every cap says what it did not draw. */

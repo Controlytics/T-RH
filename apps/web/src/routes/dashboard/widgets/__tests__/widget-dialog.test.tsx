@@ -340,7 +340,90 @@ describe('WidgetDialog - the widget-type registry', () => {
   });
 
   it('registers exactly the option sections that have landed - each widget task adds its own', () => {
-    expect(Object.keys(WIDGET_OPTION_SECTIONS)).toEqual(['gauge']);
+    expect(Object.keys(WIDGET_OPTION_SECTIONS)).toEqual(['gauge', 'bar_chart']);
+  });
+});
+
+describe('WidgetDialog - the bar chart options', () => {
+  const openBars = (onSubmit = vi.fn()) => {
+    render(<WidgetDialog open selection={SEL} onCancel={() => {}} onSubmit={onSubmit} />);
+    fireEvent.click(screen.getByRole('button', { name: /^Bar chart/ }));
+    tick('Temperature (t)');
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Bars' } });
+    return onSubmit;
+  };
+  const optionsOf = (label: string) =>
+    [...(screen.getByLabelText(label) as HTMLSelectElement).options].map((o) => [o.value, o.textContent]);
+
+  it('offers Bucket, Value and Show, each with its own name, set to the defaults', () => {
+    openBars();
+    expect(optionsOf('Bucket')).toEqual([['hour', 'Hour'], ['day', 'Day'], ['week', 'Week']]);
+    expect(optionsOf('Value')).toEqual([['avg', 'Average'], ['min', 'Minimum'], ['max', 'Maximum'], ['count', 'Reading count']]);
+    expect(optionsOf('Show')).toEqual([['all', 'All instruments combined'], ['instrument', 'Each instrument']]);
+    const names = ['Bucket', 'Value', 'Show'].map((l) => (screen.getByLabelText(l) as HTMLSelectElement).name);
+    expect(names[0]).toMatch(/^widget-bar-bucket-[0-9a-f-]{36}$/);
+    expect(names[1]).toMatch(/^widget-bar-agg-[0-9a-f-]{36}$/);
+    expect(names[2]).toMatch(/^widget-bar-group-[0-9a-f-]{36}$/);
+    expect((screen.getByLabelText('Bucket') as HTMLSelectElement).value).toBe('hour');
+    expect((screen.getByLabelText('Value') as HTMLSelectElement).value).toBe('avg');
+    expect((screen.getByLabelText('Show') as HTMLSelectElement).value).toBe('all');
+  });
+
+  it('saves only the options a bar chart takes, and the shared schema accepts them', () => {
+    const onSubmit = openBars();
+    fireEvent.change(screen.getByLabelText('Bucket'), { target: { value: 'day' } });
+    fireEvent.change(screen.getByLabelText('Value'), { target: { value: 'count' } });
+    fireEvent.change(screen.getByLabelText('Show'), { target: { value: 'instrument' } });
+    fireEvent.change(screen.getByLabelText('Default period'), { target: { value: '7d' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
+    const w = onSubmit.mock.calls[0][0] as CustomWidget;
+    expect(w.type).toBe('bar_chart');
+    expect(w.options).toEqual({ bucket: 'day', agg: 'count', groupBy: 'instrument', period: '7d' });
+    expect(customWidgetSchema.safeParse(w).success).toBe(true);
+  });
+
+  it.each([
+    ['Bucket', 'week', { bucket: 'week' }],
+    ['Value', 'min', { agg: 'min' }],
+    ['Show', 'instrument', { groupBy: 'instrument' }],
+  ] as const)('%s writes its own option and nothing else', (label, value, expected) => {
+    const onSubmit = openBars();
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
+    expect((onSubmit.mock.calls[0][0] as CustomWidget).options).toEqual(expected);
+  });
+
+  it('an untouched bar chart saves no options — the renderer reads the same defaults', () => {
+    const onSubmit = openBars();
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
+    expect((onSubmit.mock.calls[0][0] as CustomWidget).options).toEqual({});
+  });
+
+  it('editing a bar chart shows its stored options', () => {
+    const initial: CustomWidget = {
+      id: '7d3c8a52-3f0e-4b8e-9a51-2a3b4c5d6e7f', type: 'bar_chart', title: 'Bars',
+      source: { mode: 'selection' }, keys: [{ source: 'telemetry', key: 't' }], options: { bucket: 'week', agg: 'min', groupBy: 'instrument' },
+    };
+    const onSubmit = vi.fn();
+    render(<WidgetDialog open initial={initial} selection={SEL} onCancel={() => {}} onSubmit={onSubmit} />);
+    expect((screen.getByLabelText('Bucket') as HTMLSelectElement).value).toBe('week');
+    expect((screen.getByLabelText('Value') as HTMLSelectElement).value).toBe('min');
+    expect((screen.getByLabelText('Show') as HTMLSelectElement).value).toBe('instrument');
+    fireEvent.click(screen.getByRole('button', { name: 'Save widget' }));
+    expect(onSubmit.mock.calls[0][0]).toEqual(initial);
+  });
+
+  it('switching to a trend chart drops what a trend chart does not take, and keeps the period', () => {
+    const onSubmit = openBars();
+    fireEvent.change(screen.getByLabelText('Bucket'), { target: { value: 'week' } });
+    fireEvent.change(screen.getByLabelText('Default period'), { target: { value: '30d' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Trend chart/ }));
+    expect(screen.queryByLabelText('Bucket')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
+    const w = onSubmit.mock.calls[0][0] as CustomWidget;
+    expect(w.type).toBe('trend_chart');
+    expect(w.options).toEqual({ period: '30d' });
+    expect(customWidgetSchema.safeParse(w).success).toBe(true);
   });
 });
 

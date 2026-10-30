@@ -4,13 +4,15 @@
  * this file draws them and says how many instruments it drew. Present state
  * only: no period, no window.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { CustomWidget } from '@digilog/shared';
 import { useSensorWords } from '@/hooks/use-failure-text';
 import { LazyEChart } from './charts/lazy-echart';
 import { COMPARISON_HEIGHT, buildComparisonOption, codeAxis, comparisonModel } from './comparison-model';
 import type { WidgetSelection } from './use-widget-data';
-import { CapNote, LOAD_FAILED, NO_INSTRUMENTS, NO_KEY_YET, NoReadingsNote, WidgetMessage, useWidgetRows } from './widget-common';
+import {
+  CapNote, LOAD_FAILED, NO_INSTRUMENTS, NO_KEY_YET, NoReadingsNote, WidgetMessage, useBoxWidth, useWidgetRows,
+} from './widget-common';
 
 export function ComparisonBarWidget({ widget, selection }: { widget: CustomWidget; selection: WidgetSelection }) {
   const { rows, loading, error, empty } = useWidgetRows(widget, selection);
@@ -45,16 +47,4 @@ export function ComparisonBarWidget({ widget, selection }: { widget: CustomWidge
       </div>
     </div>
   );
-}
-
-/** The element's width in whole px, followed as the panel is resized; null until measured. */
-function useBoxWidth(el: HTMLElement | null): number | null {
-  const [width, setWidth] = useState<number | null>(null);
-  useEffect(() => {
-    if (!el || typeof ResizeObserver === 'undefined') return undefined;
-    const observer = new ResizeObserver(([entry]) => setWidth(Math.round(entry.contentRect.width)));
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [el]);
-  return width;
 }

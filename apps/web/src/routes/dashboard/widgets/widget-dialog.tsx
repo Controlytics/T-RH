@@ -16,12 +16,14 @@
  */
 import { useState, type ComponentType } from 'react';
 import {
-  PERIOD_PRESETS, WIDGET_ALARM_STATUSES, WIDGET_INSTRUMENTS_MAX, WIDGET_PAGE_SIZES, WIDGET_TYPE_SPECS, customWidgetSchema,
+  PERIOD_PRESETS, WIDGET_ALARM_STATUSES, WIDGET_BAR_AGGS, WIDGET_BAR_BUCKETS, WIDGET_BAR_GROUPS, WIDGET_INSTRUMENTS_MAX,
+  WIDGET_PAGE_SIZES, WIDGET_TYPE_SPECS, customWidgetSchema,
   type CustomWidget, type WidgetKey, type WidgetType,
 } from '@digilog/shared';
 import { Dialog, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useHistoryScope } from '@/routes/data-report/use-history-scope';
+import { BAR_DEFAULTS } from './bar-chart-model';
 import { KeyDisplayRows } from './key-display-rows';
 import { KeyPicker } from './key-picker';
 import { WIDGET_PAGE_SIZE_DEFAULT, keysForType, offeredOptions, optionsForType, type WidgetOptions } from './type-switch';
@@ -122,14 +124,55 @@ function GaugeScaleSection({ widgetId, options, onChange }: WidgetOptionSectionP
   );
 }
 
+const BAR_BUCKET_LABEL: Record<(typeof WIDGET_BAR_BUCKETS)[number], string> = { hour: 'Hour', day: 'Day', week: 'Week' };
+const BAR_AGG_LABEL: Record<(typeof WIDGET_BAR_AGGS)[number], string> = {
+  avg: 'Average', min: 'Minimum', max: 'Maximum', count: 'Reading count',
+};
+const BAR_GROUP_LABEL: Record<(typeof WIDGET_BAR_GROUPS)[number], string> = {
+  all: 'All instruments combined', instrument: 'Each instrument',
+};
+
+/**
+ * A bar chart's bucket, value and grouping — the vocabulary is the shared
+ * registry's, the defaults are `BAR_DEFAULTS` (the renderer reads the same), and
+ * an untouched widget stores none of them. It writes ONLY `bucket`, `agg` and
+ * `groupBy`; the default period is the dialog's own select above.
+ */
+function BarOptionsSection({ widgetId, options, onChange }: WidgetOptionSectionProps) {
+  const select = <V extends string>(
+    name: string, label: string, value: V, choices: readonly V[], labels: Record<V, string>, set: (v: V) => void,
+  ) => (
+    <label className="text-sm">
+      <span className="mb-1 block font-medium text-slate-700">{label}</span>
+      <select
+        aria-label={label}
+        name={`widget-bar-${name}-${widgetId}`}
+        className="ctl ctl-sm"
+        value={value}
+        onChange={(e) => set(e.target.value as V)}
+      >
+        {choices.map((c) => <option key={c} value={c}>{labels[c]}</option>)}
+      </select>
+    </label>
+  );
+  return (
+    <div className="flex flex-wrap gap-4">
+      {select('bucket', 'Bucket', options.bucket ?? BAR_DEFAULTS.bucket, WIDGET_BAR_BUCKETS, BAR_BUCKET_LABEL, (bucket) => onChange({ bucket }))}
+      {select('agg', 'Value', options.agg ?? BAR_DEFAULTS.agg, WIDGET_BAR_AGGS, BAR_AGG_LABEL, (agg) => onChange({ agg }))}
+      {select('group', 'Show', options.groupBy ?? BAR_DEFAULTS.groupBy, WIDGET_BAR_GROUPS, BAR_GROUP_LABEL, (groupBy) => onChange({ groupBy }))}
+    </div>
+  );
+}
+
 /**
  * A type's own option controls, drawn in the Display step. Each widget type's
- * task registers its section here (gauge scale; later bar bucket / value /
- * grouping, pie subject, text, floor plan). Only the options the type is offered
- * are saved, whatever a section sets.
+ * task registers its section here (gauge scale, bar bucket / value / grouping;
+ * later pie subject, text, floor plan). Only the options the type is offered are
+ * saved, whatever a section sets.
  */
 export const WIDGET_OPTION_SECTIONS: Partial<Record<WidgetType, ComponentType<WidgetOptionSectionProps>>> = {
   gauge: GaugeScaleSection,
+  bar_chart: BarOptionsSection,
 };
 
 /** Options with every `undefined` left out, so a cleared option is gone, not present-and-empty. */

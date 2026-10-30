@@ -9,6 +9,7 @@
 import type { CustomWidget, LayoutItem, PanelStyle, WidgetType } from '@digilog/shared';
 import { PanelCard } from '../panel-card';
 import { AlarmTableWidget } from './alarm-table-widget';
+import { BarChartWidget } from './bar-chart-widget';
 import { ComparisonBarWidget } from './comparison-bar-widget';
 import { GaugeWidget } from './gauge-widget';
 import { LatestTableWidget } from './latest-table-widget';
@@ -54,7 +55,7 @@ export function WidgetBody({ widget, selection }: { widget: CustomWidget; select
     case 'alarm_table': return <AlarmTableWidget widget={widget} selection={selection} />;
     case 'gauge': return <GaugeWidget widget={widget} selection={selection} />;
     case 'comparison_bar': return <ComparisonBarWidget widget={widget} selection={selection} />;
-    case 'bar_chart':
+    case 'bar_chart': return <BarChartWidget widget={widget} selection={selection} />;
     case 'pie_chart':
     case 'alarm_counts':
     case 'status_grid':
