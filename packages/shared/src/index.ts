@@ -41,9 +41,11 @@ export type {
 export {
   CUSTOM_WIDGETS_PANEL, WIDGET_ITEM_PREFIX, WIDGET_TYPES, WIDGETS_PER_LAYOUT_MAX, WIDGET_INSTRUMENTS_MAX,
   WIDGET_KEYS_MAX, TREND_SERIES_MAX, VALUE_CARDS_SHOWN_MAX, WIDGET_COLOR_COUNT, WIDGET_PAGE_SIZES,
+  GAUGES_SHOWN_MAX, BAR_SERIES_MAX, TEXT_CARD_MAX, WIDGET_BAR_BUCKETS, WIDGET_BAR_AGGS, WIDGET_BAR_GROUPS, WIDGET_PIE_SUBJECTS,
+  WIDGET_TYPE_SPECS, widgetPanelGate,
   WIDGET_ALARM_STATUSES, widgetKeySchema, widgetSourceSchema, customWidgetSchema, widgetItemId, widgetIdOf, isWidgetItem, widgetsEqual,
 } from './types/dashboard-widgets.js';
-export type { WidgetType, WidgetKey, WidgetSource, CustomWidget } from './types/dashboard-widgets.js';
+export type { WidgetType, WidgetKey, WidgetSource, CustomWidget, WidgetTypeSpec, WidgetOptionName } from './types/dashboard-widgets.js';
 
 export {
   PROFILE_DISPLAY_KEYS_MAX, profileDisplayKeySchema, profileDisplayKeysSchema, coerceProfileDisplayKeys, displayKeysEqual,

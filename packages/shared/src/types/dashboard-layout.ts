@@ -1,7 +1,7 @@
 import { PANELS, isPanelKey } from './panels.js';
 import { normalizePanelStyle, type PanelStyle } from './panel-style.js';
 import {
-  CUSTOM_WIDGETS_PANEL, WIDGETS_PER_LAYOUT_MAX, customWidgetSchema, widgetIdOf, type CustomWidget,
+  CUSTOM_WIDGETS_PANEL, WIDGETS_PER_LAYOUT_MAX, customWidgetSchema, widgetIdOf, widgetPanelGate, type CustomWidget,
 } from './dashboard-widgets.js';
 
 /**
@@ -351,9 +351,17 @@ function appendMissing(items: LayoutItem[], visiblePanels: string[]): LayoutItem
   return out;
 }
 
-/** An `alarm_table` widget is shown only to a viewer who holds the alarms panel. */
-function dropAlarmTables(widgets: readonly CustomWidget[], visiblePanels: string[]): CustomWidget[] {
-  return visiblePanels.includes('dashboard_alarms') ? [...widgets] : widgets.filter((w) => w.type !== 'alarm_table');
+/**
+ * A widget is shown only to a viewer who holds the extra panel its type needs
+ * (`widgetPanelGate`: alarm table / alarm counts / an alarm-types pie need the
+ * alarms panel, a floor plan needs the floorplan panel). A built widget never
+ * widens Panels.
+ */
+function dropGatedWidgets(widgets: readonly CustomWidget[], visiblePanels: string[]): CustomWidget[] {
+  return widgets.filter((w) => {
+    const gate = widgetPanelGate(w);
+    return gate === null || visiblePanels.includes(gate);
+  });
 }
 
 /**
@@ -401,7 +409,7 @@ export function resolveLayout(
   const fromRole = opts.viewerIsSuperAdmin === false && userLayout !== undefined;
   if (!fromRole) {
     // An alarm table lists alarms, so it needs the alarms panel as well.
-    const widgets = dropAlarmTables(chosen.widgets ?? [], visiblePanels);
+    const widgets = dropGatedWidgets(chosen.widgets ?? [], visiblePanels);
     const defined = new Set(widgets.map((w) => w.id));
     const items = chosen.items.filter((it) => {
       const id = widgetIdOf(it.i);
@@ -411,7 +419,7 @@ export function resolveLayout(
   }
 
   const panels = appendMissing(userLayout.items.filter((it) => allowed.has(it.i)), ordered);
-  const roleWidgets = dropAlarmTables(roleLayout?.widgets ?? [], visiblePanels);
+  const roleWidgets = dropGatedWidgets(roleLayout?.widgets ?? [], visiblePanels);
   const defined = new Set(roleWidgets.map((w) => w.id));
   const roleItems = (roleLayout?.items ?? []).filter((it) => {
     const id = widgetIdOf(it.i);

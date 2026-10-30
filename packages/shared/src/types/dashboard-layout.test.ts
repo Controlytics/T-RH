@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  DEFAULT_DASHBOARD_LAYOUT, LAYOUT_VERSION, normalizeLayout, resolveLayout,
+  DEFAULT_DASHBOARD_LAYOUT, LAYOUT_VERSION, normalizeLayout, resolveLayout, type DashboardLayout,
 } from './dashboard-layout.js';
 import { PANELS } from './panels.js';
 import { PANEL_WIDTHS, PANEL_HEIGHTS, namedWidth, namedHeight, parseLayoutForWrite } from './dashboard-layout.js';
@@ -347,5 +347,60 @@ describe('parseLayoutForWrite', () => {
     expect(r.ok && r.layout.items.map((i) => i.i)).toEqual(['dashboard_alarms']);
     expect(parseLayoutForWrite({ version: LAYOUT_VERSION, items: [{ i: 'dashboard_alarms' }] }, undefined).ok).toBe(false);
     expect(parseLayoutForWrite({ version: LAYOUT_VERSION + 1, items: [] }, undefined).ok).toBe(false);
+  });
+});
+
+describe('the panel a built widget needs on `/`', () => {
+  const W3 = '33333333-3333-4333-8333-333333333333';
+  const W4 = '44444444-4444-4444-8444-444444444444';
+  const alarmCounts: CustomWidget = { ...widget(W1, 'Counts'), type: 'alarm_counts', keys: [], options: {} };
+  const pieAlarms: CustomWidget = { ...widget(W2, 'Pie'), type: 'pie_chart', keys: [], options: { of: 'alarm_types' } };
+  const pieStatus: CustomWidget = { ...widget(W3, 'Pie status'), type: 'pie_chart', keys: [], options: { of: 'status' } };
+  const plan: CustomWidget = {
+    ...widget(W4, 'Plan'), type: 'floorplan', keys: [], options: { planId: '5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d' },
+  };
+  const role = {
+    version: LAYOUT_VERSION,
+    items: [wItem(W1, 0), wItem(W2, 5), wItem(W3, 10), wItem(W4, 15)],
+    widgets: [alarmCounts, pieAlarms, pieStatus, plan],
+  };
+  const resolved = (panels: string[]) => resolveLayout(undefined, role, panels, { viewerIsSuperAdmin: true });
+  const ids = (panels: string[]) => (resolved(panels).widgets ?? []).map((w) => w.id);
+
+  it('drops alarm counts and an alarm-types pie without dashboard_alarms, keeps them with it', () => {
+    const base = ['custom_widgets', 'telemetry_floorplan'];
+    expect(ids(base)).toEqual([W3, W4]);
+    expect(ids([...base, 'dashboard_alarms'])).toEqual([W1, W2, W3, W4]);
+  });
+
+  it('keeps a status pie without dashboard_alarms', () => {
+    expect(ids(['custom_widgets'])).toContain(W3);
+  });
+
+  it('drops a floor plan without telemetry_floorplan', () => {
+    expect(ids(['custom_widgets', 'dashboard_alarms'])).not.toContain(W4);
+    expect(ids(['custom_widgets', 'dashboard_alarms', 'telemetry_floorplan'])).toContain(W4);
+  });
+
+  it('drops the items of the dropped widgets too', () => {
+    expect(resolved(['custom_widgets']).items.map((i) => i.i)).toEqual([widgetItemId(W3)]);
+  });
+});
+
+describe('a stored home layout from before phase 2', () => {
+  const W = '66666666-6666-4666-8666-666666666666';
+  const T = '77777777-7777-4777-8777-777777777777';
+  const stored: DashboardLayout = {
+    version: LAYOUT_VERSION,
+    items: [item('telemetry_table', 0), wItem(W, 6), wItem(T, 11)],
+    widgets: [
+      { id: W, type: 'value_cards', title: 'Cards', source: { mode: 'selection' }, keys: [{ source: 'telemetry', key: 'p' }], options: {} },
+      { id: T, type: 'trend_chart', title: 'Trend', source: { mode: 'selection' }, keys: [{ source: 'telemetry', key: 'p', color: 2 }], options: { period: '24h' } },
+    ],
+  };
+
+  it('resolves to exactly itself', () => {
+    expect(normalizeLayout(stored)).toEqual(stored);
+    expect(resolveLayout(undefined, stored, ['telemetry_table', 'custom_widgets'], { viewerIsSuperAdmin: true })).toEqual(stored);
   });
 });

@@ -28,7 +28,8 @@ const refusal = (v: unknown) => {
 
 describe('parseDashboardDocument', () => {
   it('accepts one widget of each of the five types, a profile source and a fixed window', () => {
-    const ws = WIDGET_TYPES.map((type, n) => widget(n + 1, type === 'alarm_table' ? { type, keys: [] } : { type }));
+    // The phase 1 five; the nine phase 2 types are exercised in dashboard-widgets.test.ts.
+    const ws = WIDGET_TYPES.slice(0, 5).map((type, n) => widget(n + 1, type === 'alarm_table' ? { type, keys: [] } : { type }));
     expect(ws).toHaveLength(5);
     const r = parseDashboardDocument(doc(ws, {
       source: { mode: 'profile', profileId: PROFILE },

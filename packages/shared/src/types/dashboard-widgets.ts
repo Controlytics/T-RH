@@ -16,6 +16,7 @@
 import { z } from 'zod';
 import { dataKeyRefSchema, DATA_KEYS_PER_REQUEST_MAX } from './data-keys.js';
 import { PERIOD_PRESETS } from './telemetry-period.js';
+import type { PanelKey } from './panels.js';
 
 /**
  * The panel that decides whether a viewer sees built widgets at all (Roles &
@@ -27,7 +28,15 @@ export const CUSTOM_WIDGETS_PANEL = 'custom_widgets';
 /** A grid item that places a widget is `w:<widget id>`. */
 export const WIDGET_ITEM_PREFIX = 'w:';
 
-export const WIDGET_TYPES = ['value_cards', 'latest_table', 'trend_chart', 'timeseries_table', 'alarm_table'] as const;
+/**
+ * APPENDED to, never reordered: the order is the order of the Add widget picker
+ * and of the registry below. The first five are the phase 1 types; the last nine
+ * are dashboard builder phase 2 (2026-10-30).
+ */
+export const WIDGET_TYPES = [
+  'value_cards', 'latest_table', 'trend_chart', 'timeseries_table', 'alarm_table',
+  'gauge', 'bar_chart', 'comparison_bar', 'pie_chart', 'alarm_counts', 'status_grid', 'instrument_list', 'text_card', 'floorplan',
+] as const;
 
 /** The alarm states an alarm table can be filtered to. */
 export const WIDGET_ALARM_STATUSES = ['active-unack', 'active-ack', 'cleared-unack', 'cleared-ack'] as const;
@@ -43,6 +52,12 @@ export const WIDGET_KEYS_MAX = DATA_KEYS_PER_REQUEST_MAX;
  * (review 2026-10-29; was 10).
  */
 export const TREND_SERIES_MAX = 6;
+/** Gauges drawn at most on one gauge widget (it has up to 6 keys x several instruments). */
+export const GAUGES_SHOWN_MAX = 24;
+/** A bar chart's series: the same palette limit as the trend chart. */
+export const BAR_SERIES_MAX = TREND_SERIES_MAX;
+/** A text card's text, in characters. */
+export const TEXT_CARD_MAX = 2000;
 /** Value cards drawn at most; the widget says how many it did not draw. */
 export const VALUE_CARDS_SHOWN_MAX = 60;
 /** Colours are an INDEX into the chart palette (the web's `SERIES_COLORS`). */
@@ -78,6 +93,93 @@ export const widgetSourceSchema = z.discriminatedUnion('mode', [
 ]);
 export type WidgetSource = z.infer<typeof widgetSourceSchema>;
 
+/** Bar chart vocabulary. */
+export const WIDGET_BAR_BUCKETS = ['hour', 'day', 'week'] as const;
+export const WIDGET_BAR_AGGS = ['avg', 'min', 'max', 'count'] as const;
+export const WIDGET_BAR_GROUPS = ['all', 'instrument'] as const;
+/** What a pie chart counts. */
+export const WIDGET_PIE_SUBJECTS = ['status', 'alarm_types'] as const;
+
+/** Every option a widget may carry. A type's spec lists the ONLY ones it may use. */
+export type WidgetOptionName =
+  | 'period' | 'pageSize' | 'status'
+  | 'min' | 'max' | 'bucket' | 'agg' | 'groupBy' | 'of' | 'text' | 'planId';
+
+/**
+ * What one widget type is. The ONE place a type's rules live: the schema's
+ * `superRefine`, the server's layout gate and (later tasks) the Add widget dialog
+ * and the renderers all read this, so they cannot disagree.
+ */
+export interface WidgetTypeSpec {
+  /** What keys it takes: `none` = keys must be `[]`; `telemetry` = no attribute keys (an attribute has no history). */
+  keys: 'none' | 'any' | 'telemetry';
+  /** At most this many keys (<= WIDGET_KEYS_MAX). */
+  keysMax: number;
+  /** Takes `options.period` / the dashboard window (history). Every other type shows the present. */
+  followsWindow: boolean;
+  /** The ONLY options it may carry (phase 2 types; see LEGACY_WIDGET_TYPES). */
+  options: readonly WidgetOptionName[];
+  /**
+   * The extra panel a viewer must hold, on the home dashboard `/`, to be shown it
+   * (a built widget never widens Panels). A function of the widget when the gate
+   * depends on its options; `null` = none.
+   */
+  panel: PanelKey | ((w: CustomWidget) => PanelKey | null) | null;
+}
+
+export const WIDGET_TYPE_SPECS: Record<WidgetType, WidgetTypeSpec> = {
+  value_cards: { keys: 'any', keysMax: WIDGET_KEYS_MAX, followsWindow: false, options: [], panel: null },
+  latest_table: { keys: 'any', keysMax: WIDGET_KEYS_MAX, followsWindow: false, options: [], panel: null },
+  trend_chart: { keys: 'telemetry', keysMax: WIDGET_KEYS_MAX, followsWindow: true, options: ['period'], panel: null },
+  timeseries_table: { keys: 'telemetry', keysMax: WIDGET_KEYS_MAX, followsWindow: true, options: ['period', 'pageSize'], panel: null },
+  alarm_table: { keys: 'none', keysMax: 0, followsWindow: false, options: ['pageSize', 'status'], panel: 'dashboard_alarms' },
+  gauge: { keys: 'any', keysMax: 6, followsWindow: false, options: ['min', 'max'], panel: null },
+  bar_chart: { keys: 'telemetry', keysMax: BAR_SERIES_MAX, followsWindow: true, options: ['period', 'bucket', 'agg', 'groupBy'], panel: null },
+  comparison_bar: { keys: 'any', keysMax: 6, followsWindow: false, options: [], panel: null },
+  pie_chart: {
+    keys: 'none', keysMax: 0, followsWindow: false, options: ['of'],
+    panel: (w) => (w.options.of === 'alarm_types' ? 'dashboard_alarms' : null),
+  },
+  alarm_counts: { keys: 'none', keysMax: 0, followsWindow: false, options: [], panel: 'dashboard_alarms' },
+  status_grid: { keys: 'none', keysMax: 0, followsWindow: false, options: [], panel: null },
+  instrument_list: { keys: 'none', keysMax: 0, followsWindow: false, options: ['pageSize'], panel: null },
+  text_card: { keys: 'none', keysMax: 0, followsWindow: false, options: ['text'], panel: null },
+  floorplan: { keys: 'none', keysMax: 0, followsWindow: false, options: ['planId'], panel: 'telemetry_floorplan' },
+};
+
+/**
+ * The five phase 1 types. Their stored widgets must parse exactly as they did, so
+ * the "an option outside the spec is refused" rule does NOT apply to them (the
+ * old schema let `value_cards` carry a `period`, and a stored one may). Their
+ * own rules below are the phase 1 rules, word for word.
+ */
+const LEGACY_WIDGET_TYPES: readonly WidgetType[] = WIDGET_TYPES.slice(0, 5);
+
+/** How a type is named in an error message. */
+const WIDGET_TYPE_NOUN: Record<WidgetType, string> = {
+  value_cards: 'A value cards widget',
+  latest_table: 'A latest values table',
+  trend_chart: 'A trend chart',
+  timeseries_table: 'A time series table',
+  alarm_table: 'An alarm table',
+  gauge: 'A gauge',
+  bar_chart: 'A bar chart',
+  comparison_bar: 'A comparison bar',
+  pie_chart: 'A pie chart',
+  alarm_counts: 'An alarm count',
+  status_grid: 'A status grid',
+  instrument_list: 'An instrument list',
+  text_card: 'A text card',
+  floorplan: 'A floor plan',
+};
+
+/** Why an attribute key is refused on a type whose keys must be telemetry. */
+const NO_HISTORY_MESSAGE: Partial<Record<WidgetType, string>> = {
+  trend_chart: 'Attributes have no history to plot',
+  timeseries_table: 'Attributes have no history to list',
+  bar_chart: 'Attributes have no history to plot',
+};
+
 export const customWidgetSchema = z.object({
   id: z.string().regex(UUID_RE, 'Not a widget id'),
   type: z.enum(WIDGET_TYPES),
@@ -89,32 +191,95 @@ export const customWidgetSchema = z.object({
     period: z.string().refine((v) => PERIOD_VALUES.includes(v), 'Not a period this widget can show').optional(),
     pageSize: z.union([z.literal(10), z.literal(25), z.literal(50)]).optional(),
     status: z.enum(WIDGET_ALARM_STATUSES).optional(),
+    // Gauge range for a raw key.
+    min: z.number().finite('The minimum must be a number').optional(),
+    max: z.number().finite('The maximum must be a number').optional(),
+    // Bar chart.
+    bucket: z.enum(WIDGET_BAR_BUCKETS).optional(),
+    agg: z.enum(WIDGET_BAR_AGGS).optional(),
+    groupBy: z.enum(WIDGET_BAR_GROUPS).optional(),
+    // Pie chart.
+    of: z.enum(WIDGET_PIE_SUBJECTS).optional(),
+    // Text card.
+    text: z.string().trim()
+      .min(1, "Write the card's text")
+      .max(TEXT_CARD_MAX, `The text must be ${TEXT_CARD_MAX} characters or fewer`)
+      .optional(),
+    // Floor plan.
+    planId: z.string().regex(UUID_RE, 'Not a floor plan id').optional(),
   }).default({}),
 }).superRefine((w, ctx) => {
+  const spec = WIDGET_TYPE_SPECS[w.type];
+  const noun = WIDGET_TYPE_NOUN[w.type];
+  const legacy = LEGACY_WIDGET_TYPES.includes(w.type);
+
   if (w.type === 'alarm_table') {
     if (w.keys.length > 0) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['keys'], message: 'An alarm table takes no keys' });
     if (w.options.period !== undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['options', 'period'], message: 'An alarm table has no period' });
   } else {
-    if (w.keys.length === 0) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['keys'], message: 'Choose at least one key' });
-    if (w.options.status !== undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['options', 'status'], message: 'Only an alarm table has a status filter' });
+    if (spec.keys === 'none') {
+      if (w.keys.length > 0) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['keys'], message: `${noun} takes no keys` });
+    } else {
+      if (w.keys.length === 0) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['keys'], message: 'Choose at least one key' });
+      // The array's own cap is WIDGET_KEYS_MAX; a type's smaller cap is checked here.
+      if (spec.keysMax < WIDGET_KEYS_MAX && w.keys.length > spec.keysMax) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['keys'], message: `At most ${spec.keysMax} keys` });
+      }
+    }
+    if (legacy && w.options.status !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['options', 'status'], message: 'Only an alarm table has a status filter' });
+    }
   }
+
+  if (!legacy) {
+    for (const name of Object.keys(w.options) as WidgetOptionName[]) {
+      if (w.options[name] !== undefined && !spec.options.includes(name)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['options', name], message: `${noun} takes no ${name}` });
+      }
+    }
+  }
+
+  if (w.type === 'gauge') {
+    const { min, max } = w.options;
+    if ((min === undefined) !== (max === undefined)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['options', min === undefined ? 'min' : 'max'], message: 'Set both the minimum and the maximum, or neither' });
+    } else if (min !== undefined && max !== undefined && min >= max) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['options', 'min'], message: 'The minimum must be below the maximum' });
+    }
+  }
+  if (w.type === 'pie_chart' && w.options.of === undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['options', 'of'], message: 'Choose what the pie shows' });
+  }
+  if (w.type === 'text_card' && w.options.text === undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['options', 'text'], message: "Write the card's text" });
+  }
+  if (w.type === 'floorplan' && w.options.planId === undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['options', 'planId'], message: 'Choose a floor plan' });
+  }
+
   const seen = new Set<string>();
   w.keys.forEach((k, n) => {
     const id = `${k.source}:${k.key}`;
     if (seen.has(id)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['keys', n], message: `"${k.key}" is chosen twice` });
     seen.add(id);
     // Spec §4 makes `numeric` a HINT for telemetry keys; only an attribute —
-    // which has no history at all — is refused for a chart.
-    if (w.type === 'trend_chart' && k.source === 'attribute') {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['keys', n], message: 'Attributes have no history to plot' });
-    }
-    // The same for the time series table: its column would always be empty.
-    if (w.type === 'timeseries_table' && k.source === 'attribute') {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['keys', n], message: 'Attributes have no history to list' });
+    // which has no history at all — is refused where history is shown.
+    if (spec.keys === 'telemetry' && k.source === 'attribute') {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['keys', n], message: NO_HISTORY_MESSAGE[w.type] ?? 'Attributes have no history' });
     }
   });
 });
 export type CustomWidget = z.infer<typeof customWidgetSchema>;
+
+/**
+ * The extra panel a viewer must hold on the home dashboard to be shown this
+ * widget, or `null` for none. The server's `resolveLayout` drops a widget whose
+ * gate names a panel the viewer lacks.
+ */
+export function widgetPanelGate(w: CustomWidget): PanelKey | null {
+  const panel = WIDGET_TYPE_SPECS[w.type].panel;
+  return typeof panel === 'function' ? panel(w) : panel;
+}
 
 export function widgetItemId(id: string): string {
   return `${WIDGET_ITEM_PREFIX}${id}`;
