@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { SWRConfig } from 'swr';
+import { SWRConfig, useSWRConfig } from 'swr';
+import { registerSwrToast, swrConfig, unregisterSwrToast } from '@/lib/swr-config';
 
 const get = vi.fn();
 const post = vi.fn();
@@ -241,5 +242,155 @@ describe('useAlarmCounts', () => {
     get.mockRejectedValue(forbidden);
     const { result } = renderHook(() => useAlarmCounts({ directOnly: false }), { wrapper });
     await waitFor(() => expect(result.current.error).toBe(forbidden));
+  });
+});
+
+describe('the widget data hooks: ONE retry policy (fix round 1, I-1 / I-3)', () => {
+  // The APP's SWR configuration (errorRetryCount 2, the global toast and
+  // console.error), so the hooks' own policy is proved to override it.
+  const appWrapper = ({ children }: { children: ReactNode }) => (
+    <SWRConfig value={{ ...swrConfig, provider: () => new Map(), dedupingInterval: 0, isVisible: () => true, isOnline: () => true }}>
+      {children}
+    </SWRConfig>
+  );
+  const range = { from: '2026-10-28T00:00:00.000Z', to: '2026-10-29T00:00:00.000Z' };
+  const BUCKETS = {
+    from: range.from, to: range.to, bucket: 'hour', agg: 'avg', timezone: 'Asia/Kolkata', bucketSeconds: 3600,
+    series: [{ instrumentId: null, key: 'p', points: [{ ts: '2026-10-28T00:30:00.000Z', value: 1.5, readings: 12, instruments: 2 }] }],
+  };
+  const COUNTS = { quadrants: { activeUnack: 0, activeAck: 0, clearedUnack: 0, clearedAck: 0 }, byType: [] };
+  const toast = vi.fn();
+  let consoleError: MockInstance;
+  const tick = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+  const down = () => Object.assign(new Error('Internal Server Error'), { status: 500 });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    toast.mockReset();
+    registerSwrToast(toast);
+    consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    unregisterSwrToast();
+    consoleError.mockRestore();
+    SETTINGS.chartRefreshMs = 0;
+    SETTINGS.overviewRefreshMs = 0;
+  });
+
+  it("buckets: a failed request is retried at the widget's refresh cadence until it succeeds — past the app's two retries — then polling resumes", async () => {
+    SETTINGS.chartRefreshMs = 10_000;
+    get.mockRejectedValueOnce(down()).mockRejectedValueOnce(down()).mockRejectedValueOnce(down()).mockRejectedValueOnce(down())
+      .mockResolvedValue(BUCKETS);
+    const { result } = renderHook(() => useTelemetryBuckets(['a'], ['p'], range, 'hour', 'avg', 'all'), { wrapper: appWrapper });
+    await tick(0);
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(result.current.error).toBeDefined();
+    await tick(9_000);
+    expect(get).toHaveBeenCalledTimes(1);
+    await tick(1_000);
+    expect(get).toHaveBeenCalledTimes(2);
+    await tick(30_000);
+    expect(get).toHaveBeenCalledTimes(5);
+    expect(result.current.data).toEqual(BUCKETS);
+    expect(result.current.error).toBeUndefined();
+    await tick(10_000);
+    expect(get).toHaveBeenCalledTimes(6);
+    // One outage, one report — not one per retry.
+    expect(toast).toHaveBeenCalledTimes(1);
+    expect(consoleError).toHaveBeenCalledTimes(1);
+  });
+
+  it('buckets: a refused window (400) is not retried, and raises no global toast and no console error', async () => {
+    SETTINGS.chartRefreshMs = 10_000;
+    const refused = Object.assign(new Error('That window holds more than 1,000 hours; choose a larger bucket or a shorter window'), { status: 400 });
+    get.mockRejectedValue(refused);
+    const { result } = renderHook(() => useTelemetryBuckets(['a'], ['p'], range, 'hour', 'avg', 'all'), { wrapper: appWrapper });
+    await tick(0);
+    await tick(120_000);
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(result.current.error).toBe(refused);
+    expect(toast).not.toHaveBeenCalled();
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+
+  it('buckets: the answer carries the request it answers, so a held answer can be told from the current one', async () => {
+    get.mockResolvedValue(BUCKETS);
+    const { result } = renderHook(() => useTelemetryBuckets(['a', 'b'], ['p', 'q'], range, 'day', 'max', 'instrument'), { wrapper: appWrapper });
+    await tick(0);
+    expect(result.current.request).toEqual({
+      instrumentIds: ['a', 'b'], keys: ['p', 'q'], from: range.from, to: range.to, bucket: 'day', agg: 'max', groupBy: 'instrument',
+    });
+  });
+
+  it('latest values (phase 1): the same policy — retried at the overview cadence until the rows come back', async () => {
+    SETTINGS.overviewRefreshMs = 5_000;
+    const rows = { data: [{ instrumentId: 'a', values: [] }] };
+    post.mockRejectedValueOnce(down()).mockRejectedValueOnce(down()).mockRejectedValueOnce(down()).mockResolvedValue(rows);
+    const { result } = renderHook(() => useLatestValues(['a'], [{ source: 'telemetry', key: 'p' }]), { wrapper: appWrapper });
+    await tick(0);
+    await tick(4_000);
+    expect(post).toHaveBeenCalledTimes(1);
+    await tick(11_000);
+    expect(post).toHaveBeenCalledTimes(4);
+    expect(result.current.rows).toEqual(rows.data);
+    expect(result.current.error).toBeUndefined();
+    expect(toast).toHaveBeenCalledTimes(1);
+  });
+
+  it('alarm counts: a refusal (403, no ALARM_READ) is not retried and is silent', async () => {
+    get.mockRejectedValue(Object.assign(new Error('Forbidden'), { status: 403 }));
+    const { result } = renderHook(() => useAlarmCounts({ directOnly: false }), { wrapper: appWrapper });
+    await tick(0);
+    await tick(300_000);
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(result.current.error).toBeDefined();
+    expect(toast).not.toHaveBeenCalled();
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+
+  it('alarm counts and the time series table poll and retry by the same policy', async () => {
+    get.mockRejectedValueOnce(down()).mockResolvedValue(COUNTS);
+    const counts = renderHook(() => useAlarmCounts({ directOnly: false }), { wrapper: appWrapper });
+    await tick(0);
+    await tick(30_000);
+    expect(counts.result.current.data).toEqual(COUNTS);
+    counts.unmount();
+    get.mockReset();
+    SETTINGS.chartRefreshMs = 10_000;
+    get.mockRejectedValueOnce(down()).mockRejectedValueOnce(down()).mockRejectedValueOnce(down())
+      .mockResolvedValue({ data: [{ instrumentId: 'a', ts: range.from, values: {} }], total: 1 });
+    const series = renderHook(() => useWidgetTimeseries(['a'], ['p'], range, 1, 25), { wrapper: appWrapper });
+    await tick(0);
+    await tick(30_000);
+    expect(get).toHaveBeenCalledTimes(4);
+    expect(series.result.current.total).toBe(1);
+  });
+
+  it('a second failure while a retry is already pending starts no second retry chain, and reports nothing more', async () => {
+    SETTINGS.chartRefreshMs = 10_000;
+    get.mockRejectedValue(down());
+    const { result } = renderHook(() => ({
+      buckets: useTelemetryBuckets(['a'], ['p'], range, 'hour', 'avg', 'all'),
+      mutate: useSWRConfig().mutate,
+    }), { wrapper: appWrapper });
+    await tick(0);
+    await tick(3_000);
+    // A revalidation from elsewhere (a focus, a mutate) fails while the retry is pending.
+    await act(async () => { await result.current.mutate((k) => typeof k === 'string' && k.includes('telemetry-buckets')); });
+    expect(get).toHaveBeenCalledTimes(2);
+    await tick(22_000);
+    // t = 10 s and t = 20 s: ONE chain. A second would have fired at 13 s and 23 s.
+    expect(get).toHaveBeenCalledTimes(4);
+    expect(toast).toHaveBeenCalledTimes(1);
+  });
+
+  it('a refresh interval of 0 never retries in a tight loop', async () => {
+    SETTINGS.chartRefreshMs = 0;
+    get.mockRejectedValue(down());
+    renderHook(() => useTelemetryBuckets(['a'], ['p'], range, 'hour', 'avg', 'all'), { wrapper: appWrapper });
+    await tick(0);
+    await tick(4_000);
+    expect(get).toHaveBeenCalledTimes(1);
   });
 });

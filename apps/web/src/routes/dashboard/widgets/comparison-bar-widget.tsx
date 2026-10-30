@@ -11,7 +11,7 @@ import { LazyEChart } from './charts/lazy-echart';
 import { COMPARISON_HEIGHT, buildComparisonOption, codeAxis, comparisonModel } from './comparison-model';
 import type { WidgetSelection } from './use-widget-data';
 import {
-  CapNote, LOAD_FAILED, NO_INSTRUMENTS, NO_KEY_YET, NoReadingsNote, WidgetMessage, useBoxWidth, useWidgetRows,
+  LOAD_FAILED, NO_INSTRUMENTS, NO_KEY_YET, WidgetMessage, WidgetNotes, useBoxWidth, useWidgetRows,
 } from './widget-common';
 
 export function ComparisonBarWidget({ widget, selection }: { widget: CustomWidget; selection: WidgetSelection }) {
@@ -36,8 +36,7 @@ export function ComparisonBarWidget({ widget, selection }: { widget: CustomWidge
 
   return (
     <div className="space-y-2">
-      <CapNote shown={model.codes.length} total={model.total} noun="instruments" />
-      <NoReadingsNote labels={model.unsent} />
+      <WidgetNotes cap={{ shown: model.codes.length, total: model.total, noun: 'instruments' }} unsent={model.unsent} />
       <div ref={setBox}>
         <LazyEChart
           option={option}

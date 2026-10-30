@@ -40,6 +40,17 @@ describe('comparisonModel', () => {
     expect(m.series.map((s) => s.color)).toEqual([SERIES_HEX[0], SERIES_HEX[1]]);
   });
 
+  it("m-7: a key without a colour never lands on the slot another key chose", () => {
+    // Before: Temperature took slot 0 by position — the slot Pressure chose.
+    const m = comparisonModel([row('a', [measured(1), raw(2)])], [T, { ...P, color: 0 }], WORDS);
+    expect(m.series.map((s) => s.color)).toEqual([SERIES_HEX[1], SERIES_HEX[0]]);
+  });
+
+  it('m-5: the legend is a key, not a filter — no click hides a series the tooltip would still list', () => {
+    const m = comparisonModel([row('a', [measured(1), raw(2)])], [T, P], WORDS);
+    expect((buildComparisonOption(m) as Record<string, any>).legend.selectedMode).toBe(false);
+  });
+
   it('a value that is not a number is a GAP (null), never 0', () => {
     const rows = [
       row('a', [measured(21), raw('RUN')]),

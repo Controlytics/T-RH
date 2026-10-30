@@ -4,7 +4,7 @@ import useSWR from 'swr';
 import { Activity, Droplet, Thermometer } from 'lucide-react';
 import type { WidgetKey } from '@digilog/shared';
 import { useLatestValues } from '@/routes/dashboard/widgets/use-widget-data';
-import { valueOf } from '@/routes/dashboard/widgets/widget-common';
+import { REFRESH_FAILED, valueOf } from '@/routes/dashboard/widgets/widget-common';
 import { decimalsSeen, isMeasured } from '@/routes/dashboard/widgets/key-value';
 import { ExtraKeyCard, extraColumnCell } from './extra-key-card';
 import { DisplayKeysDialog } from './display-keys-dialog';
@@ -248,7 +248,7 @@ function ChartPanel({
     return (
       <>
         <p className="mb-1 flex flex-wrap items-center gap-2 text-xs text-amber-700">
-          <span>These readings could not be refreshed. Showing the last ones that loaded.</span>
+          <span>{REFRESH_FAILED}</span>
           <Button variant="link" size="inline" type="button" onClick={onRetry}>Retry</Button>
         </p>
         {children}

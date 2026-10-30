@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, renderHook, screen } from '@testing-library/react';
+import { act, render, renderHook, screen } from '@testing-library/react';
 import type { DashboardTimeWindow } from '@digilog/shared';
 
 vi.mock('../use-widget-data', () => ({}));
@@ -32,6 +32,20 @@ describe('useWidgetRange with a dashboard window', () => {
   it('with no window it is exactly as before', () => {
     const { result } = renderHook(() => useWidgetRange(undefined));
     expect(result.current.preset).toBe('24h');
+  });
+
+  it('says whether the range ROLLS with the clock (a period) or is fixed (a fixed window)', () => {
+    const fixed: DashboardTimeWindow = { mode: 'fixed', from: '2026-10-01T00:00:00.000Z', to: '2026-10-02T06:30:00.000Z' };
+    expect(renderHook(() => useWidgetRange(undefined, fixed)).result.current.rolling).toBe(false);
+    expect(renderHook(() => useWidgetRange('7d', fixed)).result.current.rolling).toBe(true);
+    expect(renderHook(() => useWidgetRange(undefined, { mode: 'relative', period: '7d' })).result.current.rolling).toBe(true);
+    expect(renderHook(() => useWidgetRange(undefined)).result.current.rolling).toBe(true);
+  });
+
+  it('a zoom is a fixed range', () => {
+    const { result } = renderHook(() => useWidgetRange('24h'));
+    act(() => result.current.zoomTo(new Date('2026-10-01T00:00:00.000Z'), new Date('2026-10-01T06:00:00.000Z')));
+    expect(result.current.rolling).toBe(false);
   });
 });
 

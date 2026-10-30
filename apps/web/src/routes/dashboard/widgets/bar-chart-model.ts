@@ -38,16 +38,16 @@
  *   the server administers that quantity's precision.
  */
 import {
-  BAR_SERIES_MAX, WIDGET_INSTRUMENTS_MAX, clampDecimals,
+  BAR_SERIES_MAX, WIDGET_INSTRUMENTS_MAX, clampDecimals, coerceReading,
   type LatestKeyValue, type LatestValuesRow, type WidgetKey,
 } from '@digilog/shared';
 // Type-only, and erased from the build: nothing here pulls ECharts in statically.
 import type { EChartsCoreOption } from 'echarts/core';
 import { CHART_FONT_FAMILY, CHART_INK, SERIES_HEX } from './charts/chart-colors';
-import { codeAxis, escapeHtml, type CodeAxis } from './comparison-model';
+import { CODE_PX_PER_CHAR, VALUE_AXIS_PX, codeAxis, escapeHtml, type CodeAxis } from './comparison-model';
 import { decimalsSeen, isMeasured } from './key-value';
-import type { BarAgg, BarBucket, BarGroup, TelemetryBuckets } from './use-widget-data';
-import { LOAD_FAILED, valueOf } from './widget-common';
+import type { BarAgg, BarBucket, BarGroup, BucketRequest, TelemetryBuckets } from './use-widget-data';
+import { LOAD_FAILED, keyColorSlots, valueOf } from './widget-common';
 
 /**
  * What a bar chart shows when its options do not say — the server's own
@@ -79,7 +79,15 @@ export function barCaption(bucket: BarBucket, agg: BarAgg): string {
   return `${BUCKET_WORD[bucket]} ${AGG_WORD[agg]}`;
 }
 
-const counted = (n: number, one: string, many: string) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
+/**
+ * The ONE way a bar chart groups a whole number's digits — the value axis's
+ * labels and the tooltip both (m-3): ECharts' own axis formatting groups in
+ * thousands whatever the browser, so an en-IN tooltip said "5,04,000" beside an
+ * axis of "500,000". Now both say it the browser's way.
+ */
+export const groupDigits = (n: number): string => Math.round(n).toLocaleString();
+
+const counted = (n: number, one: string, many: string) => `${groupDigits(n)} ${n === 1 ? one : many}`;
 
 /** Each instrument would draw more series than the palette has colours. */
 export function tooManyBarsText(instruments: number, keys: number): string {
@@ -117,12 +125,58 @@ export function barLoadProblem(error: unknown): string {
   return LOAD_FAILED;
 }
 
+const sameList = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, n) => x === b[n]);
+
 /**
- * Every bucket start the window touches, in ms, ascending: the returned starts,
- * and the empty buckets between, before and after them, stepped from those
- * starts by the server's `bucketSeconds` (see the no-DST assumption above). A
- * bucket starting exactly at `to` covers one instant and is not filled — if a
- * reading lies there the server returned it, and it is on the axis.
+ * Whether an answer HELD from an earlier request still answers the widget as it
+ * stands (fix round 1, I-1) — the same instruments, keys, bucket, value and
+ * grouping over the same window. A ROLLING window (a period) is the same window
+ * while its span is: it moves a minute at a time, and an answer from before an
+ * outage is that window minutes ago. A FIXED window is the same only at the same
+ * instants. Only such an answer may stay drawn while a refresh fails, and then
+ * with a note saying so; anything else is another request's bars.
+ */
+export function heldAnswers(held: BucketRequest, now: BucketRequest, rolling: boolean): boolean {
+  const span = (r: BucketRequest) => Date.parse(r.to) - Date.parse(r.from);
+  return sameList(held.instrumentIds, now.instrumentIds)
+    && sameList(held.keys, now.keys)
+    && held.bucket === now.bucket && held.agg === now.agg && held.groupBy === now.groupBy
+    && (rolling ? span(held) === span(now) : Date.parse(held.from) === Date.parse(now.from) && Date.parse(held.to) === Date.parse(now.to));
+}
+
+/**
+ * What a drawn answer was ASKED with, in the widget's terms — the widget keys it
+ * asked for (in the widget's order), its instruments (in its order) and its
+ * grouping. The model is built from these, never from the definition as it
+ * stands now: while a new definition loads, the bars on screen are the held
+ * answer's, and judged by the new one they would match nothing — the chart
+ * would vanish and every key would read "No readings" over a load (I-2).
+ */
+export function drawnDefinition(
+  request: BucketRequest,
+  keys: readonly WidgetKey[],
+  rows: readonly LatestValuesRow[],
+): { keys: WidgetKey[]; asked: LatestValuesRow[]; groupBy: BarGroup } {
+  const byId = new Map(rows.map((r) => [r.instrumentId, r]));
+  return {
+    keys: keys.filter((k) => request.keys.includes(k.key)),
+    asked: request.instrumentIds.map((id) => byId.get(id)).filter((r): r is LatestValuesRow => r !== undefined),
+    groupBy: request.groupBy,
+  };
+}
+
+/**
+ * Every bucket start the window touches, in ms, ascending (R6-11): the whole
+ * window, anchored on a start the SERVER returned and stepped by its
+ * `bucketSeconds` back to `from` and on to `to`, so leading, trailing and
+ * middle buckets with no reading are visible gaps. A bucket starting exactly at
+ * `to` covers one instant and is not filled — a reading there was returned.
+ *
+ * DST GUARD: when any returned start is not a whole number of `bucketSeconds`
+ * from the anchor, the zone changed its offset inside the window (a 23- or
+ * 25-hour day) and stepping would put slots off the server's edges — so nothing
+ * is filled and only the returned buckets are drawn. The installation's zone
+ * (Asia/Kolkata) has no DST; this is for a zone that does.
  */
 function bucketStarts(resp: TelemetryBuckets): number[] {
   const step = resp.bucketSeconds * 1000;
@@ -130,14 +184,11 @@ function bucketStarts(resp: TelemetryBuckets): number[] {
   const to = Date.parse(resp.to);
   const returned = [...new Set(resp.series.flatMap((s) => s.points.map((p) => Date.parse(p.ts))))].sort((a, b) => a - b);
   if (returned.length === 0 || !(step > 0)) return returned;
+  const anchor = returned[0];
+  if (returned.some((t) => (t - anchor) % step !== 0)) return returned;
   const out: number[] = [];
-  for (let t = returned[0] - step; t + step > from; t -= step) out.unshift(t);
-  returned.forEach((t, n) => {
-    out.push(t);
-    const next = returned[n + 1];
-    if (next !== undefined) for (let u = t + step; u < next - step / 2; u += step) out.push(u);
-  });
-  for (let t = returned[returned.length - 1] + step; t < to; t += step) out.push(t);
+  for (let t = anchor - step; t + step > from; t -= step) out.unshift(t);
+  for (let t = anchor; t < to || t <= returned[returned.length - 1]; t += step) out.push(t);
   return out;
 }
 
@@ -163,12 +214,22 @@ export interface BarSeries {
 }
 
 export interface BarModel {
+  /** The bucket and value the bars were COMPUTED with — the response's, so the caption describes what is drawn (m-4). */
+  bucket: BarBucket;
   agg: BarAgg;
   groupBy: BarGroup;
   /** The bucket starts, UTC ISO instants, ascending. */
   categories: string[];
-  /** The axis labels: the date (day, week) or the date and time (hour), administered format. */
+  /**
+   * Each bucket's name in full, administered format — the tooltip's heading:
+   * the date (day, week) or the date and the time (hour). A day or week axis
+   * prints these too.
+   */
   labels: string[];
+  /** An hour bucket's axis prints its TIME (R6-12); empty for a day or week. */
+  times: string[];
+  /** An hour bucket's date, added under its time where a shown label starts a day; empty for a day or week. */
+  dates: string[];
   /** Per category: the window covers only part of the bucket. */
   partial: boolean[];
   /** The value axis's unit, when every series shares one (a count has none). */
@@ -178,10 +239,28 @@ export interface BarModel {
   unsent: string[];
 }
 
-/** `useDatetimeFormat()`'s two formatters — passed in, so this stays pure. */
+/** `useDatetimeFormat()`'s formatters — passed in, so this stays pure. */
 export interface BarDateFormat {
   formatDate: (value: string) => string;
+  formatTime: (value: string) => string;
   formatDateTime: (value: string) => string;
+}
+
+/**
+ * The precision of a raw series (R6-6, R6-10): the widget key's `decimals` when
+ * it sets them. Else an AVERAGE prints at the precision the DEVICE reports — the
+ * most digits among the latest raw readings of the instruments behind it — for a
+ * mean of 101.3 and 101.4 is not a 101.698580-precise reading; only when no such
+ * reading is a number, the series' own values. A minimum or a maximum IS a
+ * reading: the values' own precision.
+ */
+function rawDecimals(agg: BarAgg, key: WidgetKey, covers: readonly LatestValuesRow[], values: readonly number[]): number {
+  if (typeof key.decimals === 'number') return key.decimals;
+  if (agg === 'avg') {
+    const device = covers.map((row) => coerceReading(valueOf(row, key)?.value)).filter((n): n is number => n !== null);
+    if (device.length > 0) return decimalsSeen(device);
+  }
+  return decimalsSeen(values);
 }
 
 /** The precision and unit of one series (R6-6): `covers` is the instruments behind it. */
@@ -195,11 +274,11 @@ function seriesNumbers(
   const measured = covers
     .map((row) => valueOf(row, key))
     .filter((v): v is LatestKeyValue => v !== undefined && isMeasured(v));
-  if (measured.length === 0) return { decimals: key.decimals ?? decimalsSeen(values), unit: key.unit ?? null };
+  if (measured.length === 0) return { decimals: rawDecimals(agg, key, covers, values), unit: key.unit ?? null };
   const administered = measured.filter((v) => v.decimals !== null).map((v) => clampDecimals(v.decimals));
   const units = new Set(measured.map((v) => v.unit));
   return {
-    decimals: administered.length > 0 ? Math.max(...administered) : key.decimals ?? decimalsSeen(values),
+    decimals: administered.length > 0 ? Math.max(...administered) : rawDecimals(agg, key, covers, values),
     unit: units.size === 1 ? [...units][0] : null,
   };
 }
@@ -217,11 +296,14 @@ export function barModel(
   const from = Date.parse(resp.from);
   const to = Date.parse(resp.to);
   const categories = starts.map((t) => new Date(t).toISOString());
-  const label = resp.bucket === 'hour' ? fmt.formatDateTime : fmt.formatDate;
+  const hourly = resp.bucket === 'hour';
+  const label = hourly ? fmt.formatDateTime : fmt.formatDate;
 
-  // The series ASKED, in the asked order: its position is its colour (R6-1).
+  // The series ASKED, in the asked order: its position is its colour (R6-1). A
+  // key's colour is its own on one owner, with the free slots for the rest (m-7).
   const owners: (LatestValuesRow | null)[] = groupBy === 'instrument' ? [...asked] : [null];
   const byKey = owners.length === 1;
+  const keySlots = keyColorSlots(keys);
   const plotted = owners.flatMap((owner, i) => keys.flatMap((key, k) => {
     const id = owner ? owner.instrumentId : null;
     const got = resp.series.find((s) => s.instrumentId === id && s.key === key.key);
@@ -231,7 +313,7 @@ export function barModel(
       const n = slot.get(Date.parse(p.ts));
       if (n !== undefined) points[n] = { value: p.value, readings: p.readings, instruments: p.instruments };
     }
-    const position = byKey ? key.color ?? k : i * keys.length + k;
+    const position = byKey ? keySlots[k] : i * keys.length + k;
     const keyLabel = key.label ?? key.key;
     const series: Omit<BarSeries, 'legendName'> = {
       name: owner ? `${owner.code} · ${keyLabel}` : keyLabel,
@@ -245,10 +327,13 @@ export function barModel(
   const units = new Set(plotted.map((p) => p.series.unit));
   const unit = units.size === 1 ? [...units][0] : null;
   return {
+    bucket: resp.bucket,
     agg: resp.agg,
     groupBy,
     categories,
     labels: categories.map((c) => label(c)),
+    times: hourly ? categories.map((c) => fmt.formatTime(c)) : [],
+    dates: hourly ? categories.map((c) => fmt.formatDate(c)) : [],
     partial: starts.map((t) => t < from || t + step > to),
     unit,
     series: plotted.map(({ series: s }) => ({
@@ -272,16 +357,18 @@ export function barTooltip(m: BarModel, index: number): string {
   const partial = m.partial[index]
     ? `<div style="margin-top:2px;font-size:11px;color:${CHART_INK.muted}">${escapeHtml(PARTIAL_NOTE)}</div>`
     : '';
+  const count = m.agg === 'count';
   const lines = m.series.map((s) => {
     const p = s.points[index] ?? null;
-    // A count is grouped like the "from N readings" beside it; a computed value
-    // prints at its decimals, as every reading in the app does.
-    const figure = (v: number) => (m.agg === 'count' ? Math.round(v).toLocaleString() : v.toFixed(s.decimals));
-    const shown = p ? `${figure(p.value)}${s.unit ? ` ${s.unit}` : ''}` : 'No readings';
+    // A COUNT is the number of readings, said once — "4,320 readings" — never
+    // also "from 4,320 readings" under it (m-2). A computed value prints at its
+    // decimals, as every reading in the app does, and says what it came from.
+    let shown = 'No readings';
+    if (p) shown = count ? counted(p.value, 'reading', 'readings') : `${p.value.toFixed(s.decimals)}${s.unit ? ` ${s.unit}` : ''}`;
     const basis = p
-      ? [`from ${counted(p.readings, 'reading', 'readings')}`,
+      ? [...(count ? [] : [`from ${counted(p.readings, 'reading', 'readings')}`]),
         ...(m.groupBy === 'all' ? [counted(p.instruments, 'instrument', 'instruments')] : [])].join(' · ')
-      : null;
+      : '';
     return '<div style="display:flex;align-items:center;gap:8px;margin-top:6px">'
       + `<span style="flex:none;width:8px;height:8px;border-radius:2px;background:${s.color}"></span>`
       + `<span style="flex:1;color:${CHART_INK.body}">${escapeHtml(s.name)}</span>`
@@ -292,8 +379,13 @@ export function barTooltip(m: BarModel, index: number): string {
   return head + partial + lines.join('');
 }
 
-/** One legend row's height, in px: a 12 px label and the legend's 16 px item gap, as ECharts lays it out. */
-export const LEGEND_ROW_PX = 26;
+/**
+ * One legend row's height, in px: a 12 px label measured as ECharts measures a
+ * line (about 12 px) and the legend's 16 px item gap between rows (m-1). The
+ * legend is drawn with `padding: 0`, so it wraps at the full chart width — the
+ * width `legendRows` estimates against.
+ */
+export const LEGEND_ROW_PX = 28;
 /** A legend label's width at 12 px semibold Inter, per character (an estimate, a little generous). */
 const LEGEND_PX_PER_CHAR = 12 * 0.62;
 /** Beside each label: its 10 px icon, the 5 px before the text, the 16 px to the next item. */
@@ -323,14 +415,92 @@ export function legendRows(names: readonly string[], width: number | null): numb
   return rows;
 }
 
+/** Hour strides that read as a clock: each below a day divides it, so a day's labels fall at the same times. */
+const HOUR_STRIDES = [1, 2, 3, 4, 6, 8, 12, 24, 48, 72, 168, 336, 720] as const;
+/** Air between two hour labels, as `codeAxis` leaves. */
+const HOUR_LABEL_GAP_PX = 8;
+/** Before its width is known, an hour axis is sized for the narrowest card (w=3: 286 px less its border and padding). */
+const NARROWEST_CHART_PX = 260;
+
+/** A dated hour label's two lines, in px: an 11 px time over an 11 px date, each with air — zrender's own line height is the font size, and the date touched the time. */
+const HOUR_LABEL_LINE_PX = 14;
+
+/**
+ * Which buckets of an hour axis carry the DATE when every `every`th is shown:
+ * the first shown, and each shown one whose day (as the administered formatter
+ * prints it — never offset arithmetic) differs from the shown one before it.
+ * The ONE rule, read by the stride (`hourAxis`) and by the labels (`hourLabels`).
+ */
+function datedBuckets(dates: readonly string[], every: number): boolean[] {
+  let day: string | null = null;
+  return dates.map((date, n) => {
+    if (n % every !== 0) return false;
+    const dated = date !== day;
+    day = date;
+    return dated;
+  });
+}
+
+/**
+ * How an HOUR axis stands (R6-12): always LEVEL — a time is short — every
+ * `interval + 1`th bucket labelled, the stride a whole number of hours, and the
+ * smallest at which EVERY two neighbouring shown labels stand clear of each
+ * other — half of each one's width and the air between, a dated label ("14:00"
+ * over "30/10/2026") being a date wide. The pairs are the real ones
+ * (`datedBuckets`): two dated labels can be neighbours below a day's stride (the
+ * first label late in its day, the next after midnight), so no shortcut on the
+ * stride alone holds.
+ *
+ * Measured with the same per-character estimate as `codeAxis`, so overlap-hiding
+ * never has to drop a label — a date dropped would lose the day.
+ */
+export function hourAxis(times: readonly string[], dates: readonly string[], width: number | null): CodeAxis {
+  const n = times.length;
+  if (n === 0) return { rotate: 0, interval: 0 };
+  const w = width !== null && width > 0 ? width : NARROWEST_CHART_PX;
+  const per = Math.max(w - VALUE_AXIS_PX, 1) / n;
+  const widest = (xs: readonly string[]) => Math.max(0, ...xs.map((s) => s.length)) * CODE_PX_PER_CHAR;
+  const timePx = widest(times);
+  const datePx = Math.max(widest(dates), timePx);
+  const fits = (stride: number) => {
+    const dated = datedBuckets(dates, stride);
+    let before: number | null = null;
+    for (let k = 0; k < n; k += stride) {
+      const own = dated[k] ? datePx : timePx;
+      if (before !== null && stride * per < (before + own) / 2 + HOUR_LABEL_GAP_PX) return false;
+      before = own;
+    }
+    return true;
+  };
+  const stride = HOUR_STRIDES.find(fits) ?? HOUR_STRIDES[HOUR_STRIDES.length - 1];
+  return { rotate: 0, interval: stride - 1 };
+}
+
+/** How the category axis stands: an hour axis by `hourAxis`, a day or week axis by Task 5's `codeAxis`. */
+export function barAxis(m: BarModel, width: number | null): CodeAxis {
+  return m.bucket === 'hour' ? hourAxis(m.times, m.dates, width) : codeAxis(m.labels, width);
+}
+
+/**
+ * An hour axis's labels: the time, and the date on a second line on the first
+ * SHOWN label and on each shown label whose day differs from the shown one
+ * before it — the day is compared as the administered formatter prints it, never
+ * by offset arithmetic. A label not shown stays the bare time.
+ */
+function hourLabels(m: BarModel, interval: CodeAxis['interval']): string[] {
+  const dated = datedBuckets(m.dates, typeof interval === 'number' ? interval + 1 : 1);
+  return m.times.map((time, n) => (dated[n] ? `${time}\n${m.dates[n]}` : time));
+}
+
 type TooltipParams = { dataIndex: number } | { dataIndex: number }[];
 
 export function buildBarOption(
   m: BarModel,
-  axis: CodeAxis = codeAxis(m.labels, null),
+  axis: CodeAxis = barAxis(m, null),
   rows: number = m.series.length > 1 ? 1 : 0,
 ): EChartsCoreOption {
   const legend = m.series.length > 1;
+  const hourly = m.bucket === 'hour';
   return {
     color: m.series.map((s) => s.color),
     textStyle: { fontFamily: CHART_FONT_FAMILY },
@@ -340,6 +510,10 @@ export function buildBarOption(
       show: legend,
       top: 0,
       left: 0,
+      // Wraps at the full chart width — the width `legendRows` estimates against (m-1).
+      padding: 0,
+      // A key, not a filter (m-5): a hidden series would still be in the tooltip.
+      selectedMode: false,
       icon: 'roundRect',
       itemWidth: 10,
       itemHeight: 10,
@@ -360,7 +534,7 @@ export function buildBarOption(
     },
     xAxis: {
       type: 'category',
-      data: m.labels,
+      data: hourly ? hourLabels(m, axis.interval) : m.labels,
       axisTick: { show: false },
       axisLine: { lineStyle: { color: CHART_INK.axis } },
       axisLabel: {
@@ -368,10 +542,13 @@ export function buildBarOption(
         fontSize: 11,
         fontWeight: 600,
         margin: 10,
-        // codeAxis decides (Task 5's rule): level, 45°, or upright with a stride.
+        // barAxis decides: an hour axis level at a clock stride (R6-12); a day or
+        // week axis by Task 5's rule — level, 45°, or upright with a stride.
         rotate: axis.rotate,
         interval: axis.interval,
-        hideOverlap: true,
+        // The hour stride already keeps every shown label clear; hiding one could drop a date.
+        hideOverlap: !hourly,
+        ...(hourly ? { lineHeight: HOUR_LABEL_LINE_PX } : {}),
       },
     },
     yAxis: {
@@ -381,7 +558,9 @@ export function buildBarOption(
       nameTextStyle: { color: CHART_INK.muted, fontSize: 11, fontWeight: 600, align: 'left' },
       // A count steps by whole readings.
       ...(m.agg === 'count' ? { minInterval: 1 } : {}),
-      axisLabel: { color: CHART_INK.muted, fontSize: 11 },
+      // ONE formatter with the tooltip (m-3): a count grouped as the tooltip
+      // groups it; a computed value ungrouped, as the tooltip prints it.
+      axisLabel: { color: CHART_INK.muted, fontSize: 11, formatter: (v: number) => (m.agg === 'count' ? groupDigits(v) : String(v)) },
       splitLine: { lineStyle: { color: CHART_INK.rule, type: 'dashed' } },
     },
     series: m.series.map((s) => ({

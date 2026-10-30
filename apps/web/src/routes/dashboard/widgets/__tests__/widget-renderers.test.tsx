@@ -214,6 +214,17 @@ describe('trend chart', () => {
     render(<WidgetBody widget={widget({ type: 'trend_chart', keys: [{ source: 'telemetry', key: 't', color: 2 }] })} selection={SEL} />);
     expect((chartProps.at(-1)!.series as { color: string }[])[0].color).toContain('--chart-series-3');
   });
+
+  it('m-7: one instrument, a key without a colour never lands on the slot another key chose', () => {
+    const hist = { history: [{ key: 't', value: 1, ts: '2026-10-28T10:00:00.000Z' }, { key: 'p', value: 2, ts: '2026-10-28T10:00:00.000Z' }], summaries: {}, historySampled: false, historyTotal: 2 };
+    setRows([row('only', [measuredT(20), rawP(2)])]);
+    state.history = { byInstrument: new Map([['only', hist]]), loading: false };
+    // Before: t took slot 0 by position — the slot p chose.
+    render(<WidgetBody widget={widget({ type: 'trend_chart', keys: [{ source: 'telemetry', key: 't' }, { source: 'telemetry', key: 'p', color: 0 }] })} selection={SEL} />);
+    const colours = (chartProps.at(-1)!.series as { color: string }[]).map((s) => s.color);
+    expect(colours[0]).toContain('--chart-series-2');
+    expect(colours[1]).toContain('--chart-series-1');
+  });
 });
 
 describe('time series table', () => {

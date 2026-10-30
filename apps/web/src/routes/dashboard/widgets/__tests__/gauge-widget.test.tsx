@@ -220,6 +220,15 @@ describe('gauge widget', () => {
     expect(screen.getByTestId('widget-cap-note').textContent).toBe(`Showing ${GAUGES_SHOWN_MAX} of 26 gauges`);
   });
 
+  it('m-6: the cap and the keys with no readings share ONE note row — the bar chart and comparison layout', () => {
+    const keys = [...widget().keys, { source: 'telemetry' as const, key: 'Voltage', label: 'Voltage' }];
+    setRows(Array.from({ length: 13 }, (_, n) => row(`i${n}`, [measured(20), raw(1), { ...raw(null), key: 'Voltage', ts: null }])));
+    render(<WidgetBody widget={widget({ keys })} selection={SEL} />);
+    const row1 = screen.getByTestId('widget-notes');
+    expect(row1.contains(screen.getByTestId('widget-cap-note'))).toBe(true);
+    expect(row1.contains(screen.getByTestId('widget-no-readings'))).toBe(true);
+  });
+
   it('spends its gauges only on keys an instrument has sent; none sent says so', () => {
     setRows([row('a', [measured(20), raw(null, { ts: null })]), row('b', [measured(21), raw(3)])]);
     render(<WidgetBody widget={widget()} selection={SEL} />);

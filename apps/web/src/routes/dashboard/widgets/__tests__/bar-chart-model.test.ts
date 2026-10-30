@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { BAR_SERIES_MAX, WIDGET_INSTRUMENTS_MAX, type LatestKeyValue, type LatestValuesRow, type WidgetKey } from '@digilog/shared';
 import { SERIES_HEX, STATUS_HEX } from '../charts/chart-colors';
+import { codeAxis } from '../comparison-model';
 import {
   BAR_DEFAULTS, LEGEND_ROW_PX, PARTIAL_NOTE, PARTIAL_OPACITY,
-  barCaption, barLoadProblem, barModel, barPlan, barTooltip, buildBarOption, legendRows, tooManyBarsText,
+  barAxis, barCaption, barLoadProblem, barModel, barPlan, barTooltip, buildBarOption, drawnDefinition, heldAnswers, hourAxis,
+  legendRows, tooManyBarsText,
 } from '../bar-chart-model';
-import type { TelemetryBucketPoint, TelemetryBucketSeries, TelemetryBuckets } from '../use-widget-data';
+import type { BucketRequest, TelemetryBucketPoint, TelemetryBucketSeries, TelemetryBuckets } from '../use-widget-data';
 import { LOAD_FAILED } from '../widget-common';
 
 const T: WidgetKey = { source: 'telemetry', key: 't', label: 'Temperature' };
@@ -16,6 +18,7 @@ const V: WidgetKey = { source: 'telemetry', key: 'Voltage', unit: 'V' };
 /** Marks which formatter drew a label, so a test can tell date-only from date + time. */
 const FMT = {
   formatDate: (v: string) => `D:${v.slice(0, 10)}`,
+  formatTime: (v: string) => `T:${v.slice(11, 16)}`,
   formatDateTime: (v: string) => `DT:${v.slice(0, 16)}`,
 };
 
@@ -163,14 +166,25 @@ describe('barModel — the axis, the gaps, the partial buckets', () => {
     expect(m.partial).toEqual([false]);
   });
 
-  it('day and week buckets label the axis with the date only; hour with the date and the time', () => {
+  it('day and week buckets label the axis with the date only; the tooltip of an hour has the date and the time', () => {
     const daily = barModel(resp([series('t', [pt(day(1), 21)])]), [T], [row('a', [measured('t', 1)])], 'all', FMT);
     expect(daily.labels[1]).toBe(`D:${day(1).slice(0, 10)}`);
+    expect((buildBarOption(daily) as Record<string, any>).xAxis.data).toEqual(daily.labels);
     const weekly = barModel(resp([series('t', [pt('2026-10-25T18:30:00.000Z', 21)])], { bucket: 'week', bucketSeconds: 604_800, from: '2026-10-25T18:30:00.000Z', to: '2026-11-01T18:30:00.000Z' }), [T], [row('a', [measured('t', 1)])], 'all', FMT);
     expect(weekly.labels).toEqual(['D:2026-10-25']);
     const hourly = barModel(resp([series('t', [pt('2026-10-30T07:30:00.000Z', 21)])], { bucket: 'hour', bucketSeconds: 3600, from: '2026-10-30T07:00:00.000Z', to: '2026-10-30T09:00:00.000Z' }), [T], [row('a', [measured('t', 1)])], 'all', FMT);
     expect(hourly.labels).toEqual(['DT:2026-10-30T06:30', 'DT:2026-10-30T07:30', 'DT:2026-10-30T08:30']);
+    expect(barTooltip(hourly, 1)).toContain('DT:2026-10-30T07:30');
     expect(hourly.partial).toEqual([true, false, true]);
+  });
+
+  it('R6-11: a returned start OFF the bucketSeconds grid (a DST change) fills nothing — the returned buckets only', () => {
+    // 25 hours between two "day" starts: the zone changed its offset. Stepping
+    // bucketSeconds from either would put slots off the server's edges.
+    const off = new Date(DAY0 + 2 * 86_400_000 + 3_600_000).toISOString();
+    const m = barModel(resp([series('t', [pt(day(1), 21), pt(off, 22)])]), [T], [row('a', [measured('t', 1)])], 'all', FMT);
+    expect(m.categories).toEqual([day(1), off]);
+    expect(m.series[0].points.map((p) => p?.value)).toEqual([21, 22]);
   });
 
   it('nothing came back: no buckets, and every key is named as having no readings', () => {
@@ -178,6 +192,81 @@ describe('barModel — the axis, the gaps, the partial buckets', () => {
     expect(m.categories).toEqual([]);
     expect(m.series).toEqual([]);
     expect(m.unsent).toEqual(['Temperature', 'Pressure']);
+  });
+
+  it("the model names the bucket and value it was computed with — the RESPONSE's (m-4)", () => {
+    const m = barModel(resp([series('t', [pt(day(1), 21)])], { bucket: 'day', agg: 'max' }), [T], [row('a', [measured('t', 1)])], 'all', FMT);
+    expect([m.bucket, m.agg]).toEqual(['day', 'max']);
+  });
+});
+
+describe('R6-12 — an hour bucket: the time on the axis, the date where the day changes', () => {
+  const H0 = Date.parse('2026-10-29T08:30:00.000Z');
+  const hours = (n: number) => Array.from({ length: n }, (_, k) => pt(new Date(H0 + k * 3_600_000).toISOString(), 21));
+  const hourly = (n: number) => barModel(
+    resp([series('t', hours(n))], { bucket: 'hour', bucketSeconds: 3600, from: new Date(H0).toISOString(), to: new Date(H0 + n * 3_600_000).toISOString() }),
+    [T], [row('a', [measured('t', 1)])], 'all', FMT,
+  );
+
+  it('the axis prints the TIME; the first SHOWN label and each shown label on a new day add the DATE on a second line', () => {
+    const m = hourly(48);
+    expect(m.times[0]).toBe('T:08:30');
+    expect(m.dates[0]).toBe('D:2026-10-29');
+    const data = (buildBarOption(m, { rotate: 0, interval: 5 }) as Record<string, any>).xAxis.data as string[];
+    // Shown: every 6th. 08:30 (first: dated), 14:30, 20:30 (same day), 02:30 (a new day: dated), …
+    expect(data[0]).toBe('T:08:30\nD:2026-10-29');
+    expect(data[6]).toBe('T:14:30');
+    expect(data[12]).toBe('T:20:30');
+    expect(data[18]).toBe('T:02:30\nD:2026-10-30');
+    expect(data[24]).toBe('T:08:30');
+    expect(data[42]).toBe('T:02:30\nD:2026-10-31');
+    // A label that is not shown carries no date — the date goes where it is seen.
+    expect(data[16]).toBe('T:00:30');
+  });
+
+  /** Hourly labels as the administered formatter prints them, starting at `startHour` on 23/10/2026. */
+  const clock = (n: number, startHour = 14) => ({
+    times: Array.from({ length: n }, (_, k) => `${String((startHour + k) % 24).padStart(2, '0')}:00`),
+    dates: Array.from({ length: n }, (_, k) => `${23 + Math.floor((startHour + k) / 24)}/10/2026`),
+  });
+
+  it('labels stay LEVEL, never overlap-hidden, at a stride of whole hours that keeps every shown label clear of the next', () => {
+    const c169 = clock(169);
+    const c25 = clock(25);
+    // 169 hours in a half-width card: dated labels two days apart.
+    expect(hourAxis(c169.times, c169.dates, 562)).toEqual({ rotate: 0, interval: 47 });
+    // The same at full width: every 12 hours.
+    expect(hourAxis(c169.times, c169.dates, 1140)).toEqual({ rotate: 0, interval: 11 });
+    // 25 hours in a half-width card: every 3 hours.
+    expect(hourAxis(c25.times, c25.dates, 562)).toEqual({ rotate: 0, interval: 2 });
+    // Before the width is known: the narrowest card's stride, never "auto" (the dates need to know).
+    expect(typeof hourAxis(c169.times, c169.dates, null).interval).toBe('number');
+    const option = buildBarOption(hourly(48), { rotate: 0, interval: 5 }) as Record<string, any>;
+    expect(option.xAxis.axisLabel.rotate).toBe(0);
+    expect(option.xAxis.axisLabel.hideOverlap).toBe(false);
+  });
+
+  it('two DATED labels side by side get a whole date of room — the first label late in its day, the next after midnight', () => {
+    // 100 hours from 14:00 at 5.5 px a bucket: every 12 hours puts 14:00 (dated:
+    // the first) beside 02:00 (dated: a new day) only 66 px apart — under a
+    // date's width. The stride must step up to a day.
+    const c = clock(100);
+    expect(hourAxis(c.times, c.dates, 56 + 5.5 * 100)).toEqual({ rotate: 0, interval: 23 });
+    // Starting at 01:00 the same width allows 12 hours: 01:00 (dated), 13:00, 01:00 (dated) — never two in a row.
+    const early = clock(100, 1);
+    expect(hourAxis(early.times, early.dates, 56 + 5.5 * 100)).toEqual({ rotate: 0, interval: 11 });
+  });
+
+  it("a dated label's two lines get a line's height each, so the date never touches the time above it", () => {
+    const option = buildBarOption(hourly(48), { rotate: 0, interval: 5 }) as Record<string, any>;
+    expect(option.xAxis.axisLabel.lineHeight).toBeGreaterThanOrEqual(14);
+  });
+
+  it('barAxis: an hour axis by the hour rule, a day or week axis by the code rule', () => {
+    const h = hourly(169);
+    expect(barAxis(h, 562)).toEqual(hourAxis(h.times, h.dates, 562));
+    const d = barModel(resp([series('t', everyDayBut(-1))]), [T], [row('a', [measured('t', 1)])], 'all', FMT);
+    expect(barAxis(d, 300)).toEqual(codeAxis(d.labels, 300));
   });
 });
 
@@ -193,6 +282,18 @@ describe('barModel — colours by the ASKED position (R6-1), series colours only
   it("all combined: a key's chosen colour is its own", () => {
     const m = barModel(resp([series('t', [pt(day(1), 21)])]), [{ ...T, color: 4 }], [row('a', [measured('t', 1)])], 'all', FMT);
     expect(m.series[0].color).toBe(SERIES_HEX[4]);
+  });
+
+  it("m-7: a key without a colour never lands on the slot another key chose", () => {
+    // Before: Temperature took slot 0 by position — the slot Humidity chose.
+    const asked = [row('a', [measured('t', 1), measured('h', 1, '%RH')])];
+    const m = barModel(resp([series('t', [pt(day(1), 21)]), series('h', [pt(day(1), 40)])]), [T, { ...H, color: 0 }], asked, 'all', FMT);
+    expect(m.series.map((s) => s.color)).toEqual([SERIES_HEX[1], SERIES_HEX[0]]);
+  });
+
+  it('m-5: the legend is a key, not a filter — no click hides a series the tooltip would still list', () => {
+    const m = barModel(resp([series('t', [pt(day(1), 21)]), series('h', [pt(day(1), 40)])]), [T, H], [row('a', [measured('t', 1), measured('h', 1, '%RH')])], 'all', FMT);
+    expect((buildBarOption(m) as Record<string, any>).legend.selectedMode).toBe(false);
   });
 
   it('each instrument: by (instrument, key) in the asked order, whatever the server returned', () => {
@@ -245,25 +346,72 @@ describe('barModel — decimals (R6-6), units, the tooltip', () => {
     expect(barTooltip(m, 1)).toContain('21.47 °C');
   });
 
-  it("a raw key: the widget's decimals, else the precision of the series' own values", () => {
+  it("a raw key with the widget's decimals prints at them, whatever the value", () => {
     const asked = [row('a', [raw('Pressure')])];
-    const own = barModel(resp([series('Pressure', [pt(day(1), 101.3)])]), [{ ...P, decimals: 2 }], asked, 'all', FMT);
+    const own = barModel(resp([series('Pressure', [pt(day(1), 101.698580417)])]), [{ ...P, decimals: 2 }], asked, 'all', FMT);
     expect(own.series[0].decimals).toBe(2);
-    expect(barTooltip(own, 1)).toContain('101.30 kPa');
-    const seen = barModel(resp([series('Pressure', [pt(day(1), 101.25), pt(day(2), 101.5)])]), [P], asked, 'all', FMT);
-    expect(seen.series[0].decimals).toBe(2);
-    expect(barTooltip(seen, 2)).toContain('101.50 kPa');
+    expect(barTooltip(own, 1)).toContain('101.70 kPa');
   });
 
-  it('a reading count is a whole number with no unit, and its axis steps by whole readings', () => {
-    const m = barModel(resp([series('t', [pt(day(1), 1440, 1440)])], { agg: 'count' }), [T], [row('a', [measured('t', 1)])], 'all', FMT);
+  it("R6-10: a raw AVERAGE prints at the precision the DEVICE reports (its latest raw readings), never the mean's", () => {
+    // The device sends 101.3; the mean is 101.698580417. Before: "101.698580 kPa".
+    const one = barModel(resp([series('Pressure', [pt(day(1), 101.698580417)])]), [P], [row('a', [raw('Pressure', { value: 101.3 })])], 'all', FMT);
+    expect(one.series[0].decimals).toBe(1);
+    expect(barTooltip(one, 1)).toContain('101.7 kPa');
+    // Across the asked instruments: the most digits any device reports (a quoted number is a number).
+    const two = barModel(resp([series('Pressure', [pt(day(1), 101.698580417)])]), [P],
+      [row('a', [raw('Pressure', { value: 101.3 })]), row('b', [raw('Pressure', { value: '101.25' })])], 'all', FMT);
+    expect(two.series[0].decimals).toBe(2);
+    // Each instrument: its OWN device.
+    const each = barModel(resp([series('Pressure', [pt(day(1), 101.698580417)], 'a'), series('Pressure', [pt(day(1), 99.25)], 'b')]), [P],
+      [row('a', [raw('Pressure', { value: 101 })]), row('b', [raw('Pressure', { value: 99.125 })])], 'instrument', FMT);
+    expect(each.series.map((s) => s.decimals)).toEqual([0, 3]);
+    // No numeric latest reading: the series' own values.
+    const none = barModel(resp([series('Pressure', [pt(day(1), 101.25)])]), [P], [row('a', [raw('Pressure', { value: 'RUN' })])], 'all', FMT);
+    expect(none.series[0].decimals).toBe(2);
+  });
+
+  it('R6-10: a raw minimum or maximum IS a reading — it keeps the precision of the values themselves', () => {
+    const asked = [row('a', [raw('Pressure', { value: 101.3 })])];
+    const max = barModel(resp([series('Pressure', [pt(day(1), 101.25), pt(day(2), 101.5)])], { agg: 'max' }), [P], asked, 'all', FMT);
+    expect(max.series[0].decimals).toBe(2);
+    expect(barTooltip(max, 2)).toContain('101.50 kPa');
+  });
+
+  it('m-2: a reading count says its figure ONCE — "4,320 readings" — with no unit and no "from"; its axis steps by whole readings', () => {
+    const asked = [row('a', [measured('t', 1)]), row('b', [measured('t', 1)]), row('c', [measured('t', 1)])];
+    const m = barModel(resp([series('t', [pt(day(1), 4320, 4320, 3), pt(day(2), 1, 1, 1)])], { agg: 'count' }), [T], asked, 'all', FMT);
     expect(m.series[0].decimals).toBe(0);
     expect(m.unit).toBeNull();
-    // Grouped like the "from 1,440 readings" beside it and the axis's "5,000".
-    expect(barTooltip(m, 1)).toContain('>1,440<');
+    expect(barTooltip(m, 1)).toContain('>4,320 readings<');
+    expect(barTooltip(m, 1)).not.toContain('from');
+    expect(barTooltip(m, 1)).toContain('3 instruments');
+    expect(barTooltip(m, 2)).toContain('>1 reading<');
     const option = buildBarOption(m) as Record<string, any>;
     expect(option.yAxis.minInterval).toBe(1);
     expect(option.yAxis.name).toBe('');
+    // Each instrument: the count alone.
+    const each = barModel(resp([series('t', [pt(day(1), 1440, 1440, 1)], 'a')], { agg: 'count' }), [T], asked.slice(0, 1), 'instrument', FMT);
+    expect(barTooltip(each, 1)).toContain('>1,440 readings<');
+    expect(barTooltip(each, 1)).not.toMatch(/instrument|from/);
+  });
+
+  it('m-3: the value axis and the tooltip group a figure with ONE formatter, so no locale makes them disagree', () => {
+    const asked = [row('a', [measured('t', 1)])];
+    const m = barModel(resp([series('t', [pt(day(1), 504000, 504000)])], { agg: 'count' }), [T], asked, 'all', FMT);
+    const formatter = (buildBarOption(m) as Record<string, any>).yAxis.axisLabel.formatter as (v: number) => string;
+    const original = Number.prototype.toLocaleString;
+    // An en-IN browser groups by lakh: 5,04,000.
+    Number.prototype.toLocaleString = function lakh(this: number) { return this === 504000 ? '5,04,000' : original.call(this); };
+    try {
+      expect(formatter(504000)).toBe('5,04,000');
+      expect(barTooltip(m, 1)).toContain('>5,04,000 readings<');
+    } finally {
+      Number.prototype.toLocaleString = original;
+    }
+    // An average's axis prints like its tooltip: ungrouped, as every reading in the app.
+    const avg = barModel(resp([series('t', [pt(day(1), 1013.25)])]), [T], asked, 'all', FMT);
+    expect(((buildBarOption(avg) as Record<string, any>).yAxis.axisLabel.formatter as (v: number) => string)(1000)).toBe('1000');
   });
 
   it('the tooltip gives the readings behind each bar, and — all combined — how many instruments', () => {
@@ -320,6 +468,45 @@ describe('legendRows — the legend never runs into the plot', () => {
     expect(top(3)).toBe(3 * LEGEND_ROW_PX + 28);
     const one = barModel(resp([series('t', [pt(day(1), 21)])]), [T], [row('a', [measured('t', 1)])], 'all', FMT);
     expect((buildBarOption(one, undefined, 0) as Record<string, any>).grid.top).toBe(28);
+  });
+
+  it("m-1: the estimate is ECharts' own layout — the legend's padding is 0 (it wraps at the full width) and a row is 28 px", () => {
+    const m = barModel(resp([series('t', [pt(day(1), 21)], 'a'), series('t', [pt(day(1), 22)], 'b')]), [T], [row('a', [measured('t', 1)]), row('b', [measured('t', 1)])], 'instrument', FMT);
+    expect((buildBarOption(m) as Record<string, any>).legend.padding).toBe(0);
+    expect(LEGEND_ROW_PX).toBe(28);
+  });
+});
+
+describe('a held answer (fix round 1, I-1): drawn under a failed refresh only when it answers the widget as it stands', () => {
+  const REQ: BucketRequest = { instrumentIds: ['a', 'b'], keys: ['t', 'h'], from: FROM, to: TO, bucket: 'day', agg: 'avg', groupBy: 'all' };
+  const shift = (iso: string, ms: number) => new Date(Date.parse(iso) + ms).toISOString();
+
+  it('the same request answers it, rolling or fixed', () => {
+    expect(heldAnswers(REQ, { ...REQ }, false)).toBe(true);
+    expect(heldAnswers(REQ, { ...REQ, instrumentIds: ['a', 'b'], keys: ['t', 'h'] }, true)).toBe(true);
+  });
+
+  it("a ROLLING window's minute shift (or an outage's minutes) is the same window; a FIXED window moved is not", () => {
+    const later = { ...REQ, from: shift(FROM, 30 * 60_000), to: shift(TO, 30 * 60_000) };
+    expect(heldAnswers(REQ, later, true)).toBe(true);
+    expect(heldAnswers(REQ, later, false)).toBe(false);
+  });
+
+  it('another span (a period changed), other instruments, keys, bucket, value or grouping: not the widget as it stands', () => {
+    expect(heldAnswers(REQ, { ...REQ, from: shift(FROM, -86_400_000) }, true)).toBe(false);
+    expect(heldAnswers(REQ, { ...REQ, instrumentIds: ['a'] }, true)).toBe(false);
+    expect(heldAnswers(REQ, { ...REQ, keys: ['t'] }, true)).toBe(false);
+    expect(heldAnswers(REQ, { ...REQ, bucket: 'hour' }, true)).toBe(false);
+    expect(heldAnswers(REQ, { ...REQ, agg: 'max' }, true)).toBe(false);
+    expect(heldAnswers(REQ, { ...REQ, groupBy: 'instrument' }, true)).toBe(false);
+  });
+
+  it("drawnDefinition: the keys, instruments and grouping the HELD answer was asked with, in the widget's terms", () => {
+    const rows = [row('a', [measured('t', 1)]), row('b', [measured('t', 1)]), row('c', [measured('t', 1)])];
+    const d = drawnDefinition({ ...REQ, instrumentIds: ['b', 'a'], keys: ['t'], groupBy: 'instrument' }, [T, H], rows);
+    expect(d.keys).toEqual([T]);
+    expect(d.asked.map((r) => r.instrumentId)).toEqual(['b', 'a']);
+    expect(d.groupBy).toBe('instrument');
   });
 });
 

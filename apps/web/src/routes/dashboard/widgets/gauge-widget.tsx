@@ -13,7 +13,7 @@ import { LazyEChart } from './charts/lazy-echart';
 import { GAUGE_SIZE, buildGaugeOption, gaugeModel, gaugePairs, type GaugeScale } from './gauge-model';
 import type { WidgetSelection } from './use-widget-data';
 import {
-  CapNote, LOAD_FAILED, NO_INSTRUMENTS, NO_KEY_YET, NoReadingsNote, WidgetMessage, keysNotSent, useWidgetRows,
+  LOAD_FAILED, NO_INSTRUMENTS, NO_KEY_YET, WidgetMessage, WidgetNotes, keysNotSent, useWidgetRows,
 } from './widget-common';
 
 /**
@@ -75,8 +75,7 @@ export function GaugeWidget({ widget, selection }: { widget: CustomWidget; selec
 
   return (
     <div className="space-y-2">
-      <CapNote shown={shown.length} total={pairs.length} noun="gauges" />
-      <NoReadingsNote labels={unsent} />
+      <WidgetNotes cap={{ shown: shown.length, total: pairs.length, noun: 'gauges' }} unsent={unsent} />
       {/* A LITERAL class (Tailwind cannot see an interpolated one); its 160px is
           GAUGE_TILE_PX.min, and gauge-widget.test pins the two together. */}
       <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(160px,1fr))]">

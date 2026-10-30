@@ -168,6 +168,15 @@ describe('comparison bar widget', () => {
     expect(charts.at(-1)!.option.series.map((s: { name: string }) => s.name)).toEqual(['Temperature']);
   });
 
+  it('m-6: the cap and the keys with no readings share ONE note row — the bar chart and gauge layout', () => {
+    const keys = [...widget().keys, { source: 'telemetry' as const, key: 'Voltage', label: 'Voltage' }];
+    setRows(Array.from({ length: WIDGET_INSTRUMENTS_MAX + 3 }, (_, n) => row(`i${n}`, [measured(20), raw(1), raw(null, { key: 'Voltage', ts: null })])));
+    render(<WidgetBody widget={widget({ keys })} selection={SEL} />);
+    const notes = screen.getByTestId('widget-notes');
+    expect(notes.contains(screen.getByTestId('widget-cap-note'))).toBe(true);
+    expect(notes.contains(screen.getByTestId('widget-no-readings'))).toBe(true);
+  });
+
   it('a key no drawn instrument has sent is SAID, not drawn as an empty legend entry (M5)', () => {
     setRows([row('101-01', [measured(21), raw(null, { ts: null })]), row('102-01', [measured(22), raw(null, { ts: null })])]);
     render(<WidgetBody widget={widget()} selection={SEL} />);

@@ -22,7 +22,7 @@ import { TimeSeriesChart, seriesColor, type ChartSeries } from '../time-series-c
 import { decimalsSeen, isMeasured, keyCell } from './key-value';
 import { useWidgetHistory, type WidgetSelection } from './use-widget-data';
 import {
-  CapNote, LOAD_FAILED, NO_INSTRUMENTS, NO_KEY_YET, PeriodSelect, WidgetMessage, useWidgetRange, useWidgetRows, valueOf,
+  CapNote, LOAD_FAILED, NO_INSTRUMENTS, NO_KEY_YET, PeriodSelect, WidgetMessage, keyColorSlots, useWidgetRange, useWidgetRows, valueOf,
 } from './widget-common';
 
 interface Plotted {
@@ -52,8 +52,11 @@ export function TrendChartWidget({ widget, selection }: { widget: CustomWidget; 
   const historyIds = [...new Set(shownPairs.map((p) => p.row.instrumentId))];
   // A key's chosen colour names the KEY only when one instrument is drawn; across
   // several instruments every series takes its own palette slot, or the lines
-  // for one key would be indistinguishable.
+  // for one key would be indistinguishable. On one instrument a key without a
+  // colour takes a slot no key chose (fix round 1, m-7 — `key.color ?? index`
+  // drew a key in the colour another key had been given).
   const singleInstrument = historyIds.length === 1;
+  const keySlots = keyColorSlots(telemetryKeys);
   const { byInstrument, loading: historyLoading } = useWidgetHistory(historyIds, telemetryKeys.map((k) => k.key), range);
 
   if (loading) return <WidgetMessage>Loading…</WidgetMessage>;
@@ -80,7 +83,7 @@ export function TrendChartWidget({ widget, selection }: { widget: CustomWidget; 
         id: `${row.instrumentId}:${key.key}`,
         label: `${row.code} · ${key.label ?? key.key}`,
         decimals,
-        color: seriesColor(singleInstrument ? key.color ?? index : index),
+        color: seriesColor(singleInstrument ? keySlots[telemetryKeys.indexOf(key)] : index),
         points,
       },
       instrumentId: row.instrumentId,

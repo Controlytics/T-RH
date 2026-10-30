@@ -9,7 +9,8 @@
  * cutting: the plant is ~320 instruments, and a widget following "All
  * Instruments" must reach every one of them (Phase 1 ruling, settled here).
  */
-import useSWR from 'swr';
+import useSWR, { type SWRConfiguration } from 'swr';
+import { swrConfig } from '@/lib/swr-config';
 import {
   DATA_KEYS_INSTRUMENTS_MAX, MAX_SERIES_POINTS,
   type CustomWidget, type DashboardTimeWindow, type DataKeyInfo, type DataKeyRef, type LatestValuesRow, type WidgetKey,
@@ -18,6 +19,59 @@ import {
 import { apiClient } from '@/lib/api-client';
 import { useTelemetryOverview, useTelemetrySettings } from '../use-telemetry';
 import { ALARM_REFRESH_MS, alarmScopeSelectsNothing, applyAlarmScope, type AlarmScope } from '../alarm-scope';
+import { isRefusal } from './refusal';
+
+/** Retries pending, per SWR cache: one retry chain per key, however many failures arrive. */
+const PENDING_RETRIES = new WeakMap<object, Set<string>>();
+
+/** When SWR's merged config carries no cache (it always does at run time), one shared bucket of pending retries. */
+const NO_CACHE = {};
+
+/**
+ * The ONE polling and retry policy of the widget data hooks (fix round 1, I-1 /
+ * I-3). Dashboards stay open all day on unattended screens, and SWR 2.4 STOPS
+ * polling a key whose cache holds an error (its poll `execute()` skips while
+ * `getCache().error` is set) while the app's `errorRetryCount: 2` gives up after
+ * two retries — so a widget used to freeze, or sit on "Could not load this
+ * widget.", until someone focused the window. Here:
+ *
+ * - a FAILURE is retried at the widget's own refresh cadence, indefinitely (a
+ *   cadence of 0 falls back to the configured `errorRetryInterval`, never a
+ *   tight loop), with ONE retry chain per key in each SWR cache: a failure that
+ *   arrives while a retry is pending (a focus, a mutate) starts no second chain;
+ * - it is reported through the app's `onError` (`lib/swr-config.ts`: the "Load
+ *   Error" toast and its console line) ONCE per outage — on its first failure —
+ *   not on every retry. The per-hook `onError` is silent, so only this path
+ *   reports; the app handler stays as it is for every other route;
+ * - a REFUSAL (`isRefusal`) is never retried and never reported: the widget
+ *   states it in its own body (the bar chart prints a 400's words), and a global
+ *   toast for a state the card already explains is noise.
+ *
+ * Options, not a hook: it reads nothing from React, so the many tests that mock
+ * `swr`'s default export alone render the pages that poll through it.
+ */
+export function widgetPolling(refreshMs: number): SWRConfiguration {
+  return {
+    refreshInterval: refreshMs,
+    keepPreviousData: true,
+    shouldRetryOnError: (error: unknown) => !isRefusal(error),
+    // Reported from onErrorRetry instead, so an outage is reported once.
+    onError: () => {},
+    onErrorRetry: (error, key, config, revalidate, opts) => {
+      // The merged config SWR hands in carries its cache; one pending set per cache.
+      const cache = (config as { cache?: object }).cache ?? NO_CACHE;
+      const pending = PENDING_RETRIES.get(cache) ?? new Set<string>();
+      PENDING_RETRIES.set(cache, pending);
+      if (pending.has(key)) return;
+      if (opts.retryCount === 1) swrConfig.onError?.(error, key, config as Parameters<NonNullable<typeof swrConfig.onError>>[2]);
+      pending.add(key);
+      setTimeout(() => {
+        pending.delete(key);
+        revalidate(opts);
+      }, refreshMs > 0 ? refreshMs : config.errorRetryInterval);
+    },
+  };
+}
 
 /** The dashboard's current drill-down — `nav.functionalLocationId` / `nav.directOnly`. */
 export interface WidgetSelection {
@@ -67,6 +121,7 @@ export function useLatestValues(
   keys: readonly (DataKeyRef | WidgetKey)[],
 ): { rows: LatestValuesRow[]; loading: boolean; error: unknown } {
   const { overviewRefreshMs } = useTelemetrySettings();
+  const polling = widgetPolling(overviewRefreshMs);
   const refs = refsOf(keys);
   const swrKey = ids.length > 0 && refs.length > 0
     ? ['widget-latest-values', ids.join(','), JSON.stringify(refs)]
@@ -80,7 +135,7 @@ export function useLatestValues(
       );
       return pages.flatMap((p) => p.data);
     },
-    { refreshInterval: overviewRefreshMs, keepPreviousData: true },
+    polling,
   );
   return { rows: data ?? [], loading: isLoading, error };
 }
@@ -145,6 +200,7 @@ export function useWidgetHistory(
   range: WidgetRange,
 ): { byInstrument: Map<string, InstrumentHistory>; loading: boolean } {
   const { chartRefreshMs } = useTelemetrySettings();
+  const polling = widgetPolling(chartRefreshMs);
   const swrKey = ids.length > 0 && keys.length > 0
     ? ['widget-history', ids.join(','), keys.join(','), range.from, range.to]
     : null;
@@ -169,7 +225,7 @@ export function useWidgetHistory(
       });
       return out;
     },
-    { refreshInterval: chartRefreshMs, keepPreviousData: true },
+    polling,
   );
   return { byInstrument: data ?? new Map(), loading: isLoading };
 }
@@ -189,6 +245,7 @@ export function useWidgetTimeseries(
   pageSize: number,
 ): { rows: TimeseriesRow[]; total: number; loading: boolean } {
   const { chartRefreshMs } = useTelemetrySettings();
+  const polling = widgetPolling(chartRefreshMs);
   const q = new URLSearchParams({
     instrumentIds: ids.join(','),
     keys: keys.join(','),
@@ -201,7 +258,7 @@ export function useWidgetTimeseries(
   const { data, isLoading } = useSWR<{ data: TimeseriesRow[]; total: number }>(
     url,
     (u: string) => apiClient.get<{ data: TimeseriesRow[]; total: number }>(u),
-    { refreshInterval: chartRefreshMs, keepPreviousData: true },
+    polling,
   );
   return { rows: data?.data ?? [], total: data?.total ?? 0, loading: isLoading };
 }
@@ -239,11 +296,40 @@ export interface TelemetryBuckets {
   series: TelemetryBucketSeries[];
 }
 
+/** The request a buckets answer answers — read back from its own URL. */
+export interface BucketRequest {
+  instrumentIds: string[];
+  keys: string[];
+  from: string;
+  to: string;
+  bucket: BarBucket;
+  agg: BarAgg;
+  groupBy: BarGroup;
+}
+
+function bucketRequestOf(url: string): BucketRequest {
+  const q = new URLSearchParams(url.slice(url.indexOf('?') + 1));
+  const list = (name: string) => (q.get(name) ?? '').split(',').filter((s) => s !== '');
+  return {
+    instrumentIds: list('instrumentIds'),
+    keys: list('keys'),
+    from: q.get('from') ?? '',
+    to: q.get('to') ?? '',
+    bucket: q.get('bucket') as BarBucket,
+    agg: q.get('agg') as BarAgg,
+    groupBy: q.get('groupBy') as BarGroup,
+  };
+}
+
 /**
  * Readings binned into local hours, days or weeks, aggregated on the SERVER —
  * every value is derived and says how many readings are behind it. No instruments
  * or no keys asks nothing. The server refuses more than `WIDGET_INSTRUMENTS_MAX`
  * instruments or 1,000 buckets with a 400, which arrives here as `error`.
+ *
+ * `request` is what `data` answers. Under `keepPreviousData` the answer on hand
+ * may be an EARLIER request's (a new window loading, or one that failed), and the
+ * widget must know which before it draws it as the current one.
  */
 export function useTelemetryBuckets(
   ids: readonly string[],
@@ -252,8 +338,9 @@ export function useTelemetryBuckets(
   bucket: BarBucket,
   agg: BarAgg,
   groupBy: BarGroup,
-): { data: TelemetryBuckets | undefined; loading: boolean; error: unknown } {
+): { data: TelemetryBuckets | undefined; request: BucketRequest | undefined; loading: boolean; error: unknown } {
   const { chartRefreshMs } = useTelemetrySettings();
+  const polling = widgetPolling(chartRefreshMs);
   const q = new URLSearchParams({
     instrumentIds: ids.join(','),
     keys: keys.join(','),
@@ -264,14 +351,16 @@ export function useTelemetryBuckets(
     groupBy,
   });
   const url = ids.length > 0 && keys.length > 0 ? `/api/instruments/telemetry-buckets?${q.toString()}` : null;
-  const { data, error, isLoading } = useSWR<TelemetryBuckets>(
+  const { data, error, isLoading } = useSWR<{ response: TelemetryBuckets; request: BucketRequest }>(
     url,
-    (u: string) => apiClient.get<TelemetryBuckets>(u),
-    { refreshInterval: chartRefreshMs, keepPreviousData: true },
+    async (u: string) => ({ response: await apiClient.get<TelemetryBuckets>(u), request: bucketRequestOf(u) }),
+    polling,
   );
   // `keepPreviousData` hands a NULL key the last key's data: asking nothing must
   // show nothing, never the previous selection's bars.
-  return url ? { data, loading: isLoading, error } : { data: undefined, loading: false, error: undefined };
+  return url
+    ? { data: data?.response, request: data?.request, loading: isLoading, error }
+    : { data: undefined, request: undefined, loading: false, error: undefined };
 }
 
 /** `GET /api/alarms/counts`, as the server returns it. */
@@ -288,6 +377,7 @@ export interface AlarmCounts {
  * nothing. A viewer without ALARM_READ gets the 403 as `error`.
  */
 export function useAlarmCounts(selection: AlarmScope): { data: AlarmCounts | undefined; loading: boolean; error: unknown } {
+  const polling = widgetPolling(ALARM_REFRESH_MS);
   const qs = new URLSearchParams();
   applyAlarmScope(qs, selection);
   // The string, not `URLSearchParams.size`: `size` is undefined before Chrome 113
@@ -299,7 +389,7 @@ export function useAlarmCounts(selection: AlarmScope): { data: AlarmCounts | und
   const { data, error, isLoading } = useSWR<AlarmCounts>(
     url,
     (u: string) => apiClient.get<AlarmCounts>(u),
-    { refreshInterval: ALARM_REFRESH_MS, keepPreviousData: true },
+    polling,
   );
   // `keepPreviousData` hands a NULL key the last key's data: an empty list must
   // count nothing, never the previous selection's alarms.

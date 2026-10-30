@@ -31,7 +31,7 @@ import type { EChartsCoreOption } from 'echarts/core';
 import type { SensorWords } from '@/hooks/use-failure-text';
 import { CHART_FONT_FAMILY, CHART_INK, SERIES_HEX } from './charts/chart-colors';
 import { keyCell } from './key-value';
-import { keysNotSent, valueOf } from './widget-common';
+import { keyColorSlots, keysNotSent, valueOf } from './widget-common';
 
 /**
  * The chart's height, in px: the default comparison panel (9 rows, 488 px) shows
@@ -42,10 +42,10 @@ export const COMPARISON_HEIGHT = 376;
 
 /** Before the chart's width is known: more instruments than this and the codes turn. */
 const TURN_LABELS_ABOVE = 8;
-/** An instrument code's width at the axis's 11 px semibold Inter, per character (an estimate, a little generous). */
-const CODE_PX_PER_CHAR = 11 * 0.62;
+/** A category label's width at the axis's 11 px semibold Inter, per character (an estimate, a little generous). */
+export const CODE_PX_PER_CHAR = 11 * 0.62;
 /** The value axis and the grid's margins, out of the chart's width. */
-const VALUE_AXIS_PX = 56;
+export const VALUE_AXIS_PX = 56;
 /** How far apart two shown codes must sit ACROSS their text: an 11 px line and its air. */
 const CODE_LINE_PX = 16;
 
@@ -117,9 +117,12 @@ export function comparisonModel(
   const drawn = sent.slice(0, WIDGET_INSTRUMENTS_MAX);
   // Not DRAWN: no drawn instrument has the key, so no series for it.
   const undrawnKeys = keysNotSent(drawn, keys);
+  // The colour is the KEY's (its slot among the widget's keys), so dropping a key
+  // moves no colour; a key's chosen colour is its own, and a key without one
+  // never takes a slot another key chose (fix round 1, m-7).
+  const slots = keyColorSlots(keys);
   const plotted = keys
-    // The colour is the KEY's (its own index), so dropping a key moves no colour.
-    .map((key, n) => ({ key, color: SERIES_HEX[Math.min(key.color ?? n, SERIES_HEX.length - 1)] }))
+    .map((key, n) => ({ key, color: SERIES_HEX[Math.min(slots[n], SERIES_HEX.length - 1)] }))
     .filter(({ key }) => !undrawnKeys.includes(key))
     .map(({ key, color }) => ({
       name: key.label ?? key.key,
@@ -181,6 +184,8 @@ export function buildComparisonOption(m: ComparisonModel, axis: CodeAxis = codeA
       show: legend,
       top: 0,
       left: 0,
+      // A key, not a filter (fix round 1, m-5): a hidden series would still be in the tooltip.
+      selectedMode: false,
       icon: 'roundRect',
       itemWidth: 10,
       itemHeight: 10,

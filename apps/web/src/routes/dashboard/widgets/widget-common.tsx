@@ -5,7 +5,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import {
-  DEFAULT_PERIOD, PERIOD_PRESETS,
+  DEFAULT_PERIOD, PERIOD_PRESETS, WIDGET_COLOR_COUNT,
   type CustomWidget, type DashboardTimeWindow, type LatestKeyValue, type LatestValuesRow, type WidgetKey,
 } from '@digilog/shared';
 import { useLatestValues, useWidgetInstrumentIds, type WidgetRange, type WidgetSelection } from './use-widget-data';
@@ -108,6 +108,57 @@ export function CapNote({ shown, total, noun }: { shown: number; total: number; 
 }
 
 /**
+ * A widget still drawing what it last loaded after a refresh failed. The trend
+ * page's own words (`trend.tsx`'s chart panel imports this), so the app says it
+ * one way.
+ */
+export const REFRESH_FAILED = 'These readings could not be refreshed. Showing the last ones that loaded.';
+
+/**
+ * The notes a widget prints above what it draws — the cap, the keys with no
+ * readings, a failed refresh — on ONE wrapping row, so each widget says them the
+ * same way and the drawing keeps its room (fix round 1, m-6). Nothing to say →
+ * nothing rendered.
+ */
+export function WidgetNotes({ cap, unsent = [], refreshFailed = false }: {
+  cap?: { shown: number; total: number; noun: string };
+  unsent?: readonly string[];
+  refreshFailed?: boolean;
+}) {
+  const capped = cap !== undefined && cap.shown < cap.total;
+  if (!capped && unsent.length === 0 && !refreshFailed) return null;
+  return (
+    <div className="flex flex-wrap gap-x-4 gap-y-1" data-testid="widget-notes">
+      {capped && <CapNote shown={cap.shown} total={cap.total} noun={cap.noun} />}
+      <NoReadingsNote labels={unsent} />
+      {refreshFailed && (
+        <p className="text-xs font-medium text-amber-700" data-testid="widget-refresh-failed">{REFRESH_FAILED}</p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Which palette slot each key draws in, where a key's colour is its own (fix
+ * round 1, m-7): a key with a chosen `color` keeps it; the keys without one
+ * take the slots NOT chosen by any key, in key order — so a default never lands
+ * on a slot another key chose (`key.color ?? index` drew `[{}, {color: 0}]` both
+ * in slot 0). Two keys given the same colour keep it: that is a choice. More
+ * keys than free slots wrap round the palette rather than leave it.
+ */
+export function keyColorSlots(keys: readonly { color?: number }[], slots: number = WIDGET_COLOR_COUNT): number[] {
+  const chosen = new Set(keys.flatMap((k) => (typeof k.color === 'number' ? [k.color] : [])));
+  const free = Array.from({ length: slots }, (_, n) => n).filter((n) => !chosen.has(n));
+  let next = 0;
+  return keys.map((k, n) => {
+    if (typeof k.color === 'number') return k.color;
+    const slot = next < free.length ? free[next] : n % slots;
+    next += 1;
+    return slot;
+  });
+}
+
+/**
  * The period a history widget shows. The stored option is only the DEFAULT; a
  * viewer's choice (and a chart zoom) is session state.
  *
@@ -140,6 +191,12 @@ export function useWidgetRange(defaultPeriod: string | undefined, window?: Dashb
     preset,
     setPreset: (p: string) => { setZoom(null); setPreset(p); },
     range,
+    /**
+     * The range moves with the clock (a period, its `to` the next minute) rather
+     * than being fixed (a fixed dashboard window, or a zoom): an answer held from
+     * a minute ago still answers a rolling range of the same span.
+     */
+    rolling: zoom === null && fixed === null,
     zoomed: zoom !== null,
     zoomTo: (from: Date, to: Date) => setZoom({ from: from.toISOString(), to: to.toISOString() }),
     resetZoom: () => setZoom(null),
