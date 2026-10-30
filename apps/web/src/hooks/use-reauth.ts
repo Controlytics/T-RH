@@ -1,11 +1,26 @@
 import { useState, useRef, useCallback } from 'react';
 import useSWR from 'swr';
+import { REAUTH_ACTIONS } from '@digilog/shared';
 
 interface ReauthState {
   isOpen: boolean;
   password: string;
   error: string;
   isVerifying: boolean;
+  /** The action whose password the open dialog collects — null when closed. */
+  action: string | null;
+}
+
+/**
+ * The registry's name for a re-auth action, for the dialog's "Performing ..."
+ * line. A page whose ONE dialog serves several actions must pass this, not a
+ * typed label: the Audit Trail asked users to sign "Delete Audit Record" for an
+ * Excel export (OQ review, 2026-10-30). Unknown or no action = undefined, which
+ * the dialog renders as its generic sentence.
+ */
+export function reauthActionLabel(action: string | null | undefined): string | undefined {
+  if (!action) return undefined;
+  return (REAUTH_ACTIONS as Record<string, { label: string }>)[action]?.label;
 }
 
 /**
@@ -45,6 +60,7 @@ export function useReauth() {
     password: '',
     error: '',
     isVerifying: false,
+    action: null,
   });
 
   const pendingAction = useRef<{
@@ -80,7 +96,7 @@ export function useReauth() {
           onError: options?.onError,
           onCancel: options?.onCancel,
         };
-        setState({ isOpen: true, password: '', error: '', isVerifying: false });
+        setState({ isOpen: true, password: '', error: '', isVerifying: false, action });
       } else {
         try {
           await callback();
@@ -97,7 +113,7 @@ export function useReauth() {
               onError: options?.onError,
               onCancel: options?.onCancel,
             };
-            setState({ isOpen: true, password: '', error: '', isVerifying: false });
+            setState({ isOpen: true, password: '', error: '', isVerifying: false, action });
           } else {
             options?.onError?.(err);
           }
@@ -124,7 +140,7 @@ export function useReauth() {
         // caller does today, but this keeps the shared primitive safe).
         pendingAction.current?.reject?.({ error: 'REAUTH_SUPERSEDED' });
         pendingAction.current = { action, callback, resolve, reject };
-        setState({ isOpen: true, password: '', error: '', isVerifying: false });
+        setState({ isOpen: true, password: '', error: '', isVerifying: false, action });
       };
       if (needsReauth(action)) {
         return new Promise<T>((resolve, reject) => openDialog(resolve, reject));
@@ -151,7 +167,7 @@ export function useReauth() {
       const result = await pendingAction.current.callback(state.password);
       pendingAction.current.onSuccess?.();
       pendingAction.current.resolve?.(result);
-      setState({ isOpen: false, password: '', error: '', isVerifying: false });
+      setState({ isOpen: false, password: '', error: '', isVerifying: false, action: null });
       pendingAction.current = null;
     } catch (err: any) {
       if (err?.error === 'REAUTH_FAILED') {
@@ -170,7 +186,7 @@ export function useReauth() {
       } else {
         pendingAction.current?.onError?.(err);
         pendingAction.current?.reject?.(err);
-        setState({ isOpen: false, password: '', error: '', isVerifying: false });
+        setState({ isOpen: false, password: '', error: '', isVerifying: false, action: null });
         pendingAction.current = null;
       }
     }
@@ -201,7 +217,7 @@ export function useReauth() {
     if (pending?.onCancel) pending.onCancel();
     else pending?.onError?.({ error: 'REAUTH_CANCELLED', message: 'Cancelled — password confirmation was not completed.' });
 
-    setState({ isOpen: false, password: '', error: '', isVerifying: false });
+    setState({ isOpen: false, password: '', error: '', isVerifying: false, action: null });
     pendingAction.current = null;
   }, []);
 
@@ -220,5 +236,6 @@ export function useReauth() {
     password: state.password,
     error: state.error,
     isVerifying: state.isVerifying,
+    action: state.action,
   };
 }

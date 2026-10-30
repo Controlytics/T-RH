@@ -285,7 +285,9 @@ export default function AlarmsPage() {
     } catch (e) {
       // Kept in the dialog rather than a toast: the password is still on screen and the
       // operator needs to correct it in place. A 409 here means someone else signed first.
-      setDialogError(e instanceof Error ? e.message : 'Could not acknowledge this alarm.');
+      // A wrong signature password arrives as a plain { error, message } object (apiClient
+      // throws REAUTH_FAILED untouched), so read `message` from either shape.
+      setDialogError((e as { message?: string } | null)?.message || 'Could not acknowledge this alarm.');
     } finally {
       setSubmitting(false);
     }

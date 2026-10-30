@@ -233,7 +233,9 @@ export function SelectionAlarms({ functionalLocationId: homeLocationId, scope }:
       setTarget(null);
       await mutate();
     } catch (e) {
-      setDialogError(e instanceof Error ? e.message : 'Could not acknowledge this alarm.');
+      // A wrong signature password arrives as a plain { error, message } object (apiClient
+      // throws REAUTH_FAILED untouched), so read `message` from either shape.
+      setDialogError((e as { message?: string } | null)?.message || 'Could not acknowledge this alarm.');
     } finally {
       setSubmitting(false);
     }

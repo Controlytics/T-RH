@@ -5,7 +5,7 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 const h = vi.hoisted(() => ({ actions: [] as string[] }));
 vi.mock('swr', () => ({ default: () => ({ data: { actions: h.actions } }) }));
 
-import { useReauth } from '../use-reauth';
+import { useReauth, reauthActionLabel } from '../use-reauth';
 
 describe('useReauth.executeWithResult', () => {
   beforeEach(() => { h.actions = []; });
@@ -173,3 +173,50 @@ describe('useReauth.execute — cancel notifies the caller', () => {
   });
 });
 
+
+// The dialog must name the action it signs. The Audit Trail page serves Excel
+// export, redaction and deletion from ONE dialog and printed "Delete Audit
+// Record" for all three (OQ review, 2026-10-30), so the hook now says which
+// action opened it and the label is looked up, never typed.
+describe('useReauth — the pending action is exposed', () => {
+  beforeEach(() => { h.actions = []; });
+
+  it('names the action that opened the dialog through execute, and clears it on cancel', async () => {
+    h.actions = ['DOWNLOAD_REPORT'];
+    const { result } = renderHook(() => useReauth());
+    expect(result.current.action).toBeNull();
+    act(() => { void result.current.execute('DOWNLOAD_REPORT', async () => {}, { onCancel: () => {} }); });
+    await waitFor(() => expect(result.current.isOpen).toBe(true));
+    expect(result.current.action).toBe('DOWNLOAD_REPORT');
+    act(() => { result.current.cancel(); });
+    expect(result.current.action).toBeNull();
+  });
+
+  it('names the action that opened the dialog through executeWithResult, and clears it on success', async () => {
+    h.actions = ['REDACT_AUDIT_RECORD'];
+    const { result } = renderHook(() => useReauth());
+    let promise: Promise<unknown> | undefined;
+    act(() => { promise = result.current.executeWithResult('REDACT_AUDIT_RECORD', async () => 'done'); });
+    await waitFor(() => expect(result.current.action).toBe('REDACT_AUDIT_RECORD'));
+    act(() => { result.current.setPassword('secret'); });
+    await act(async () => { await result.current.confirm(); });
+    await expect(promise!).resolves.toBe('done');
+    expect(result.current.action).toBeNull();
+  });
+
+  it('names the action when the server demands re-auth the client did not expect', async () => {
+    const { result } = renderHook(() => useReauth());
+    await act(async () => {
+      await result.current.execute('DELETE_AUDIT_RECORD', async () => { throw { error: 'REAUTH_REQUIRED' }; });
+    });
+    expect(result.current.isOpen).toBe(true);
+    expect(result.current.action).toBe('DELETE_AUDIT_RECORD');
+  });
+
+  it('reauthActionLabel reads the shared registry, and gives nothing for an unknown action', () => {
+    expect(reauthActionLabel('DOWNLOAD_REPORT')).toBe('Download / Generate a Report');
+    expect(reauthActionLabel('DELETE_AUDIT_RECORD')).toBe('Delete Audit Record');
+    expect(reauthActionLabel('NOT_AN_ACTION')).toBeUndefined();
+    expect(reauthActionLabel(null)).toBeUndefined();
+  });
+});

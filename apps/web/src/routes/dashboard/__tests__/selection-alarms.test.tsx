@@ -467,6 +467,19 @@ describe('SelectionAlarms — acknowledging is a gated §11 signature', () => {
     expect(mutate).not.toHaveBeenCalled();
   });
 
+  it('shows the server\'s wrong-password message — a re-auth refusal is a plain object, not an Error', async () => {
+    // `apiClient` throws REAUTH_FAILED untouched ({ error, message }) so a dialog can
+    // show it; an `instanceof Error` check printed "Could not acknowledge this alarm."
+    // for a wrong signature password (OQ review, 2026-10-30).
+    postWithReauth.mockRejectedValue({ error: 'REAUTH_FAILED', message: 'Incorrect password. Please try again.' });
+    const { container } = renderWith([active]);
+    fireEvent.click(screen.getByRole('button', { name: /acknowledge/i }));
+    sign(container, 'Verified against the chart and closed.', 'Wrong@123');
+
+    expect(await screen.findByText('Incorrect password. Please try again.')).toBeInTheDocument();
+    expect(screen.queryByText('Could not acknowledge this alarm.')).toBeNull();
+  });
+
   it('keeps a failure IN THE DIALOG, never as a toast', async () => {
     // The password is still on screen and has to be corrected in place. A 409
     // means somebody else signed for this alarm first.
