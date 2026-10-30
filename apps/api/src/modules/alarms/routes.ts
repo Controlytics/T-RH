@@ -1,4 +1,4 @@
-import { type FastifyInstance } from 'fastify';
+import { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { loadAlarmTypeNames, alarmDisplayName } from './load-type-names.js';
@@ -88,6 +88,50 @@ function scopedToVisible(
   return visibility ? { AND: [filters, { instrument: visibility }] } : filters;
 }
 
+/**
+ * The ONE reading of an alarm query's filters and the caller's scope, shared by
+ * `GET /api/alarms` and `GET /api/alarms/counts` so the two cannot drift: the
+ * parsed query (a bad filter is a 400, sent here), the location expansion and the
+ * caller's visibility. Returns null once a 400 has been sent.
+ */
+async function resolveAlarmQuery(req: FastifyRequest, reply: FastifyReply) {
+  const q = parseAlarmListQuery((req.query ?? {}) as Record<string, unknown>);
+  if (q.error) {
+    reply.code(400).send({ error: 'VALIDATION_ERROR', message: q.error.message, field: q.error.field });
+    return null;
+  }
+
+  const { where: visibility } = await resolveVisibility(buildContext(req));
+
+  let locationIds: string[] | undefined;
+  const askedLocation = (req.query as { functionalLocationId?: string }).functionalLocationId;
+  const direct = (req.query as { functionalLocationDirect?: string }).functionalLocationDirect === 'true';
+  if (askedLocation && direct) {
+    // Pinned to this location itself: no Area expansion. Still ANDed with
+    // visibility below, so a location the caller cannot see matches nothing.
+    // A non-uuid is a 400 here: the non-direct path resolves an unknown id to
+    // no rows, but this one reaches the query as it stands.
+    if (!UUID_RE.test(askedLocation)) {
+      reply.code(400).send({
+        error: 'VALIDATION_ERROR', message: 'functionalLocationId must be a location id', field: 'functionalLocationId',
+      });
+      return null;
+    }
+    locationIds = [askedLocation];
+  } else if (askedLocation) {
+    // resolveLocationIds, never a bare equality: an alarm on an instrument in a
+    // Block's AREA must appear when the Block is selected. Querying the id
+    // directly returns only what is pinned to the Block itself, which on this
+    // installation is nothing at all.
+    const nodes = await prisma.functionalLocation.findMany({
+      select: { id: true, name: true, type: true, parentId: true },
+    });
+    locationIds = resolveLocationIds(askedLocation, nodes as FlNode[]);
+  }
+
+  return { q, locationIds, visibility };
+}
+
 export default async function alarmRoutes(app: FastifyInstance) {
   // ─── Rules ────────────────────────────────────────────────────────────────
 
@@ -171,37 +215,9 @@ export default async function alarmRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const q = parseAlarmListQuery((req.query ?? {}) as Record<string, unknown>);
-    if (q.error) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: q.error.message, field: q.error.field });
-    }
-
-    const { where: visibility } = await resolveVisibility(buildContext(req));
-
-    let locationIds: string[] | undefined;
-    const askedLocation = (req.query as { functionalLocationId?: string }).functionalLocationId;
-    const direct = (req.query as { functionalLocationDirect?: string }).functionalLocationDirect === 'true';
-    if (askedLocation && direct) {
-      // Pinned to this location itself: no Area expansion. Still ANDed with
-      // visibility below, so a location the caller cannot see matches nothing.
-      // A non-uuid is a 400 here: the non-direct path resolves an unknown id to
-      // no rows, but this one reaches the query as it stands.
-      if (!UUID_RE.test(askedLocation)) {
-        return reply.code(400).send({
-          error: 'VALIDATION_ERROR', message: 'functionalLocationId must be a location id', field: 'functionalLocationId',
-        });
-      }
-      locationIds = [askedLocation];
-    } else if (askedLocation) {
-      // resolveLocationIds, never a bare equality: an alarm on an instrument in a
-      // Block's AREA must appear when the Block is selected. Querying the id
-      // directly returns only what is pinned to the Block itself, which on this
-      // installation is nothing at all.
-      const nodes = await prisma.functionalLocation.findMany({
-        select: { id: true, name: true, type: true, parentId: true },
-      });
-      locationIds = resolveLocationIds(askedLocation, nodes as FlNode[]);
-    }
+    const resolved = await resolveAlarmQuery(req, reply);
+    if (!resolved) return reply;
+    const { q, locationIds, visibility } = resolved;
 
     // scopedToVisible ANDs, so every filter narrows WITHIN the caller's scope and
     // cannot escape it — including a location the caller cannot see, which then
@@ -295,6 +311,104 @@ export default async function alarmRoutes(app: FastifyInstance) {
       total,
       counts,
     };
+  });
+
+  // Registered before any `/:id` route so `counts` is never read as an id.
+  //
+  // The dashboard's alarm widgets draw counts, not rows. Same query language as the
+  // list (resolveAlarmQuery + buildAlarmWhere + the same visibility), paging and
+  // sort ignored. The e2e compares this route's quadrants with the list's `counts`
+  // for the same query, which is what keeps the two from drifting.
+  app.get('/counts', {
+    preHandler: [app.requirePermission('ALARM_READ')],
+    schema: {
+      tags: ['Alarms'],
+      summary: 'Alarm counts by state quadrant and by type, over the list filters',
+      querystring: {
+        type: 'object',
+        properties: {
+          functionalLocationId: { type: 'string' },
+          functionalLocationDirect: { type: 'string', enum: ['true', 'false'] },
+          instrumentIds: { type: 'string' },
+          profileId: { type: 'string', format: 'uuid' },
+          type: { type: 'string', enum: [...ALARM_TYPE_TOKENS] },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            quadrants: {
+              type: 'object',
+              properties: {
+                activeUnack: { type: 'integer' },
+                activeAck: { type: 'integer' },
+                clearedUnack: { type: 'integer' },
+                clearedAck: { type: 'integer' },
+              },
+            },
+            byType: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  type: { type: 'string' },
+                  active: { type: 'integer' },
+                  unacknowledged: { type: 'integer' },
+                },
+              },
+            },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const resolved = await resolveAlarmQuery(req, reply);
+    if (!resolved) return reply;
+    const { q, locationIds, visibility } = resolved;
+
+    // ACTIVE and unacknowledged are independent axes: one groupBy by state, with the
+    // not-null count of acknowledgedAt, gives both for any where.
+    const byState = (where: Record<string, unknown>) => prisma.alarm.groupBy({
+      by: ['state'],
+      where: where as never,
+      _count: { _all: true, acknowledgedAt: true },
+    });
+
+    const [quadrantRows, typeRows] = await Promise.all([
+      byState(scopedToVisible(buildAlarmWhere(q, { locationIds }), visibility)),
+      // Every type token, in order. The token -> rows mapping is buildAlarmWhere's
+      // `type` handling and nothing here; a query that already names a type keeps
+      // it (the other tokens are then zero, not a second reading of the filter).
+      Promise.all(ALARM_TYPE_TOKENS.map((token) => (q.type && q.type !== token
+        ? Promise.resolve([])
+        : byState(scopedToVisible(buildAlarmWhere({ ...q, type: token }, { locationIds }), visibility))))),
+    ]);
+
+    const quadrants = { activeUnack: 0, activeAck: 0, clearedUnack: 0, clearedAck: 0 };
+    for (const g of quadrantRows) {
+      const acked = g._count.acknowledgedAt;
+      if (g.state === 'ACTIVE') {
+        quadrants.activeAck = acked;
+        quadrants.activeUnack = g._count._all - acked;
+      } else {
+        quadrants.clearedAck = acked;
+        quadrants.clearedUnack = g._count._all - acked;
+      }
+    }
+
+    const byType = ALARM_TYPE_TOKENS.map((type, i) => {
+      let active = 0;
+      let unacknowledged = 0;
+      for (const g of typeRows[i]) {
+        if (g.state === 'ACTIVE') active = g._count._all;
+        unacknowledged += g._count._all - g._count.acknowledgedAt;
+      }
+      return { type, active, unacknowledged };
+    });
+
+    return { quadrants, byType };
   });
 
   app.post('/:id/acknowledge', {

@@ -923,6 +923,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
                     },
                   },
                   reporting: { type: 'boolean' },
+                  // Declared or Fastify strips them. `judged`: the profile measures
+                  // temperature or humidity; `lastSeenAt`: ISO instant or null.
+                  judged: { type: 'boolean' },
+                  lastSeenAt: { type: 'string', nullable: true },
                   status: { type: 'string' },
                   // Which slots reported something that is not a number. Declared
                   // because Fastify strips what this block does not name — see the

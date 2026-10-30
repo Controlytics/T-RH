@@ -89,6 +89,10 @@ export interface OverviewRow {
    */
   decimals: { temperature: number; humidity: number };
   reporting: boolean;
+  /** Server-decided: the instrument's profile measures temperature or humidity. False = "Not judged". */
+  judged?: boolean;
+  /** ISO instant of the instrument's last report, or null if it never reported. */
+  lastSeenAt?: string | null;
   status: InstrumentStatus;
   /**
    * Which slots reported something that is NOT a number — a broken RS485 probe
