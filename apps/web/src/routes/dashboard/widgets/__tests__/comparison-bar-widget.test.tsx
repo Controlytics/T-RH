@@ -158,6 +158,16 @@ describe('comparison bar widget', () => {
     }
   });
 
+  it(`a key only instruments past the ${WIDGET_INSTRUMENTS_MAX}-cap have sent: not drawn, no "No readings" note — "Showing 50 of N" covers it`, () => {
+    const rows = Array.from({ length: WIDGET_INSTRUMENTS_MAX + 2 }, (_, n) => row(`i${n}`, [measured(20), raw(null, { ts: null })]));
+    rows[WIDGET_INSTRUMENTS_MAX + 1] = row(`i${WIDGET_INSTRUMENTS_MAX + 1}`, [measured(20), raw(101.3)]);
+    setRows(rows);
+    render(<WidgetBody widget={widget()} selection={SEL} />);
+    expect(screen.queryByTestId('widget-no-readings')).toBeNull();
+    expect(screen.getByTestId('widget-cap-note').textContent).toBe(`Showing ${WIDGET_INSTRUMENTS_MAX} of ${WIDGET_INSTRUMENTS_MAX + 2} instruments`);
+    expect(charts.at(-1)!.option.series.map((s: { name: string }) => s.name)).toEqual(['Temperature']);
+  });
+
   it('a key no drawn instrument has sent is SAID, not drawn as an empty legend entry (M5)', () => {
     setRows([row('101-01', [measured(21), raw(null, { ts: null })]), row('102-01', [measured(22), raw(null, { ts: null })])]);
     render(<WidgetBody widget={widget()} selection={SEL} />);

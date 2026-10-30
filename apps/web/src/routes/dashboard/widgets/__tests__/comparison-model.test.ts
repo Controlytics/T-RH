@@ -107,6 +107,19 @@ describe('comparisonModel', () => {
     expect(text.series.map((s) => s.legendName)).toEqual(['Temperature', 'Pressure']);
   });
 
+  it(`a key sent ONLY beyond the ${WIDGET_INSTRUMENTS_MAX}-instrument cap: not drawn, and NOT "No readings" — it has readings (fix round 2)`, () => {
+    const V: WidgetKey = { source: 'telemetry', key: 'Voltage', label: 'Voltage' };
+    const never: LatestKeyValue = { ...raw(null, { ts: null }), key: 'Voltage' };
+    const rows = Array.from({ length: WIDGET_INSTRUMENTS_MAX + 1 }, (_, n) => row(`i${n}`, [measured(20), never]));
+    // Instrument #51 — past the cap — is the only one that has sent Voltage.
+    rows[WIDGET_INSTRUMENTS_MAX] = row(`i${WIDGET_INSTRUMENTS_MAX}`, [measured(20), { ...raw(230), key: 'Voltage' }]);
+    const m = comparisonModel(rows, [T, V], WORDS);
+    expect(m.codes).toHaveLength(WIDGET_INSTRUMENTS_MAX);
+    expect(m.total).toBe(WIDGET_INSTRUMENTS_MAX + 1);
+    expect(m.series.map((x) => x.name)).toEqual(['Temperature']);
+    expect(m.unsent).toEqual([]);
+  });
+
   it('a key NO drawn instrument has sent is not drawn as an empty series, and is named in key order (M5)', () => {
     const V: WidgetKey = { source: 'telemetry', key: 'Voltage', label: 'Voltage' };
     const W: WidgetKey = { source: 'telemetry', key: 'Power' };

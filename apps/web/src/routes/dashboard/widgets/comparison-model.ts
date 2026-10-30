@@ -18,8 +18,10 @@
  * - At most `WIDGET_INSTRUMENTS_MAX` instruments are drawn, spent only on
  *   instruments that have SENT one of the keys (the trend chart's rule); the
  *   widget says how many it drew of how many.
- * - A key no DRAWN instrument has sent is not drawn as an empty series: it is
- *   named in `unsent`, and the widget says "No readings for …".
+ * - A key no DRAWN instrument has sent is not drawn as an empty series. Only a
+ *   key no instrument of the WIDGET has sent is named in `unsent` ("No readings
+ *   for …"): one sent only past the cap HAS readings, and "Showing 50 of N"
+ *   already says why it is not drawn (fix round 2 — the note was false there).
  * - Mixed units: each legend name carries its own unit ("Temperature (°C)"),
  *   since the value axis can name only one.
  */
@@ -102,7 +104,7 @@ export interface ComparisonModel {
   /** The value axis's unit, when every plotted value shares one. */
   unit: string | null;
   series: ComparisonSeries[];
-  /** The labels of the keys no drawn instrument has sent, in the widget's key order. */
+  /** The labels of the keys NO instrument of the widget has sent, in the widget's key order. */
   unsent: string[];
 }
 
@@ -113,11 +115,12 @@ export function comparisonModel(
 ): ComparisonModel {
   const sent = rows.filter((row) => keys.some((key) => valueOf(row, key)?.ts != null));
   const drawn = sent.slice(0, WIDGET_INSTRUMENTS_MAX);
-  const unsentKeys = keysNotSent(drawn, keys);
+  // Not DRAWN: no drawn instrument has the key, so no series for it.
+  const undrawnKeys = keysNotSent(drawn, keys);
   const plotted = keys
-    // The colour is the KEY's (its own index), so dropping an unsent key moves no colour.
+    // The colour is the KEY's (its own index), so dropping a key moves no colour.
     .map((key, n) => ({ key, color: SERIES_HEX[Math.min(key.color ?? n, SERIES_HEX.length - 1)] }))
-    .filter(({ key }) => !unsentKeys.includes(key))
+    .filter(({ key }) => !undrawnKeys.includes(key))
     .map(({ key, color }) => ({
       name: key.label ?? key.key,
       color,
@@ -141,7 +144,9 @@ export function comparisonModel(
     total: sent.length,
     unit,
     series,
-    unsent: unsentKeys.map((key) => key.label ?? key.key),
+    // "No readings" is a statement about the WIDGET's instruments, every one of them
+    // (the gauge's rule), never only the drawn ones.
+    unsent: keysNotSent(rows, keys).map((key) => key.label ?? key.key),
   };
 }
 
