@@ -59,9 +59,12 @@ export interface KeyCell {
   label: string;
   classes: StatusClasses;
   /**
-   * The status `classes` were drawn from — `NOT_JUDGED` for the neutral look — so
-   * a chart can colour by the SAME verdict (`STATUS_HEX[tone]`, `charts/chart-colors`)
-   * instead of judging the value a second time.
+   * The status `classes` were drawn from — `NOT_JUDGED` for the neutral look.
+   * For a MEASURED key (`judged`) it is that key's verdict, and a chart may colour
+   * by it (`STATUS_HEX[tone]`, `charts/chart-colors`) instead of judging the value
+   * a second time. For a RAW key it is NOT a verdict: an offline instrument's raw
+   * cell is `STALE` (the amber "Offline" look), and a chart that painted a raw key
+   * with it would colour a value nothing judges — a raw key is always NEUTRAL_HEX.
    */
   tone: InstrumentStatus | 'NOT_JUDGED';
   /** `text` is the administered fault word, not a reading (a measured key only). */

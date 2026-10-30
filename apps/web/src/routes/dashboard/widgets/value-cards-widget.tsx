@@ -6,6 +6,7 @@
 import { VALUE_CARDS_SHOWN_MAX, type CustomWidget } from '@digilog/shared';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { useSensorWords } from '@/hooks/use-failure-text';
+import { FAULT_INK } from '../status';
 import { keyCell } from './key-value';
 import type { WidgetSelection } from './use-widget-data';
 import { CapNote, LOAD_FAILED, NO_INSTRUMENTS, WidgetMessage, useWidgetRows, valueOf } from './widget-common';
@@ -43,7 +44,8 @@ export function ValueCardsWidget({ widget, selection }: { widget: CustomWidget; 
                 {key.label ?? key.key}
               </p>
               <p className="mt-1 flex items-baseline gap-1">
-                <span className="text-2xl font-bold tabular-nums text-slate-900" data-testid="value-card-value">{cell.text}</span>
+                {/* A fault WORD takes the one fault ink (as on the trend card and the gauge); a number stays slate. */}
+                <span className={`text-2xl font-bold tabular-nums ${cell.fault ? FAULT_INK : 'text-slate-900'}`} data-testid="value-card-value">{cell.text}</span>
                 {cell.unit && <span className="text-sm font-semibold text-slate-500">{cell.unit}</span>}
               </p>
               <p className={`mt-1 inline-flex items-center gap-1.5 text-xs font-bold ${cell.classes.text}`} data-testid="value-card-status">

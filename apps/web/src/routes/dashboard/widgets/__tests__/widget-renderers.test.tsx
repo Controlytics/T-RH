@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import type { CustomWidget, LatestValuesRow, LatestKeyValue } from '@digilog/shared';
-import { statusClasses } from '../../status';
+import { FAULT_INK, statusClasses } from '../../status';
 
 // ── Data: set per test, returned as STABLE objects (a fresh object per call
 // re-runs effects forever — the UI v3 vitest hang). ─────────────────────────
@@ -110,6 +110,19 @@ describe('value cards', () => {
     setRows([row('a', [measuredT(60, { judged: { limitMin: 18, limitMax: 27, limitMinText: null, limitMaxText: null, sensorError: false, rangeError: true } })], { reporting: false })]);
     render(<WidgetBody widget={widget({})} selection={SEL} />);
     expect(screen.getByTestId('value-card-value').textContent).toBe('OL');
+  });
+
+  it('the fault WORD prints in the one fault ink (as the trend card and the gauge); a number keeps its slate', () => {
+    setRows([
+      row('a', [measuredT('NA', { judged: { limitMin: 18, limitMax: 27, limitMinText: null, limitMaxText: null, sensorError: true, rangeError: false } })]),
+      row('b', [measuredT(21.5)]),
+    ]);
+    render(<WidgetBody widget={widget({})} selection={SEL} />);
+    const [fault, number] = screen.getAllByTestId('value-card-value');
+    expect(fault.textContent).toBe('Error');
+    expect(fault.className.split(/\s+/)).toContain(FAULT_INK);
+    expect(number.className.split(/\s+/)).not.toContain(FAULT_INK);
+    expect(number.className.split(/\s+/)).toContain('text-slate-900');
   });
 });
 

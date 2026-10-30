@@ -59,6 +59,15 @@ const MAP: Record<InstrumentStatus, StatusClasses> = {
   },
 };
 
+/**
+ * The ink of an administered FAULT word (`Error`, `OL`) printed where a number
+ * would be — red, so a probe measuring nothing never reads like a healthy reading
+ * (operator, 2026-09-01, on the trend page's latest-value card). ONE class for
+ * the trend card, the dashboard gauge and the value card, so one fault cannot
+ * show in two inks on one screen. Only the WORD: a number keeps its own ink.
+ */
+export const FAULT_INK = 'text-red-600';
+
 export function statusClasses(status: InstrumentStatus): StatusClasses {
   return MAP[status] ?? MAP.NO_DATA;
 }

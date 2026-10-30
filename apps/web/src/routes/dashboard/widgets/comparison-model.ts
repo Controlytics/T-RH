@@ -18,6 +18,10 @@
  * - At most `WIDGET_INSTRUMENTS_MAX` instruments are drawn, spent only on
  *   instruments that have SENT one of the keys (the trend chart's rule); the
  *   widget says how many it drew of how many.
+ * - A key no DRAWN instrument has sent is not drawn as an empty series: it is
+ *   named in `unsent`, and the widget says "No readings for …".
+ * - Mixed units: each legend name carries its own unit ("Temperature (°C)"),
+ *   since the value axis can name only one.
  */
 import { coerceReading, WIDGET_INSTRUMENTS_MAX, type LatestValuesRow, type WidgetKey } from '@digilog/shared';
 // Type-only, and erased from the build: nothing here pulls ECharts in statically.
@@ -25,7 +29,7 @@ import type { EChartsCoreOption } from 'echarts/core';
 import type { SensorWords } from '@/hooks/use-failure-text';
 import { CHART_FONT_FAMILY, CHART_INK, SERIES_HEX } from './charts/chart-colors';
 import { keyCell } from './key-value';
-import { valueOf } from './widget-common';
+import { keysNotSent, valueOf } from './widget-common';
 
 /**
  * The chart's height, in px: the default comparison panel (9 rows, 488 px) shows
@@ -40,18 +44,37 @@ const TURN_LABELS_ABOVE = 8;
 const CODE_PX_PER_CHAR = 11 * 0.62;
 /** The value axis and the grid's margins, out of the chart's width. */
 const VALUE_AXIS_PX = 56;
+/** How far apart two shown codes must sit ACROSS their text: an 11 px line and its air. */
+const CODE_LINE_PX = 16;
+
+/** How the instrument codes stand on the axis: the turn, and ECharts' `interval` (codes skipped between two shown). */
+export interface CodeAxis {
+  rotate: 0 | 45 | 90;
+  interval: number | 'auto';
+}
 
 /**
- * Do the instrument codes have to turn to stay readable? Measured against the
- * width each bar group gets — a count alone cannot know the panel: three codes
- * in a quarter-width card overlap, and ECharts then HIDES one, leaving a bar
- * nobody can name (render check, 2026-10-30). Unknown width: the count.
+ * How the codes stand, measured against the width each bar group gets — a count
+ * alone cannot know the panel (three codes in a quarter-width card overlapped and
+ * ECharts HID one, leaving a bar nobody could name). Never a block (review M3):
+ *
+ * - level, every code, while the longest fits its bar group;
+ * - else turned 45°, every code, while neighbours stay a line apart across the
+ *   text (`per · sin 45°`);
+ * - else UPRIGHT with a stride: every (interval + 1)th code, the smallest stride
+ *   that keeps shown codes a line apart. The tooltip names every bar.
+ *
+ * Unknown width (the first frame): the count decides, and ECharts thins.
  */
-export function labelsTurn(codes: readonly string[], width: number | null): boolean {
-  if (codes.length === 0) return false;
-  if (width === null || width <= 0) return codes.length > TURN_LABELS_ABOVE;
+export function codeAxis(codes: readonly string[], width: number | null): CodeAxis {
+  const n = codes.length;
+  if (n === 0) return { rotate: 0, interval: 0 };
+  if (width === null || width <= 0) return n > TURN_LABELS_ABOVE ? { rotate: 45, interval: 'auto' } : { rotate: 0, interval: 0 };
+  const per = (width - VALUE_AXIS_PX) / n;
   const longest = Math.max(...codes.map((c) => c.length)) * CODE_PX_PER_CHAR;
-  return longest > (width - VALUE_AXIS_PX) / codes.length - 8;
+  if (longest <= per - 8) return { rotate: 0, interval: 0 };
+  if (per * Math.SQRT1_2 >= CODE_LINE_PX) return { rotate: 45, interval: 0 };
+  return { rotate: 90, interval: Math.max(0, Math.ceil(CODE_LINE_PX / per) - 1) };
 }
 
 export interface ComparisonPoint {
@@ -63,7 +86,10 @@ export interface ComparisonPoint {
 }
 
 export interface ComparisonSeries {
+  /** The key's label — the tooltip's, whose values carry their own units. */
   name: string;
+  /** The legend's name: the label, with the series' unit when the axis cannot name one. */
+  legendName: string;
   color: string;
   points: ComparisonPoint[];
 }
@@ -76,6 +102,8 @@ export interface ComparisonModel {
   /** The value axis's unit, when every plotted value shares one. */
   unit: string | null;
   series: ComparisonSeries[];
+  /** The labels of the keys no drawn instrument has sent, in the widget's key order. */
+  unsent: string[];
 }
 
 export function comparisonModel(
@@ -85,21 +113,35 @@ export function comparisonModel(
 ): ComparisonModel {
   const sent = rows.filter((row) => keys.some((key) => valueOf(row, key)?.ts != null));
   const drawn = sent.slice(0, WIDGET_INSTRUMENTS_MAX);
-  const series = keys.map((key, n) => ({
-    name: key.label ?? key.key,
-    color: SERIES_HEX[Math.min(key.color ?? n, SERIES_HEX.length - 1)],
-    points: drawn.map((row): ComparisonPoint => {
-      const v = valueOf(row, key);
-      const cell = keyCell(v, row.reporting, key, words);
-      return { value: cell.fault ? null : coerceReading(v?.value), text: cell.text, unit: cell.unit };
-    }),
-  }));
-  const units = new Set(series.flatMap((s) => s.points.filter((p) => p.value !== null).map((p) => p.unit)));
+  const unsentKeys = keysNotSent(drawn, keys);
+  const plotted = keys
+    // The colour is the KEY's (its own index), so dropping an unsent key moves no colour.
+    .map((key, n) => ({ key, color: SERIES_HEX[Math.min(key.color ?? n, SERIES_HEX.length - 1)] }))
+    .filter(({ key }) => !unsentKeys.includes(key))
+    .map(({ key, color }) => ({
+      name: key.label ?? key.key,
+      color,
+      points: drawn.map((row): ComparisonPoint => {
+        const v = valueOf(row, key);
+        const cell = keyCell(v, row.reporting, key, words);
+        return { value: cell.fault ? null : coerceReading(v?.value), text: cell.text, unit: cell.unit };
+      }),
+    }));
+  const unitsOf = (points: readonly ComparisonPoint[]) => new Set(points.filter((p) => p.value !== null).map((p) => p.unit));
+  const all = unitsOf(plotted.flatMap((s) => s.points));
+  const unit = all.size === 1 ? [...all][0] : null;
+  const series = plotted.map((s) => {
+    const own = unitsOf(s.points);
+    const ownUnit = own.size === 1 ? [...own][0] : null;
+    // The axis names one shared unit; when it cannot, each legend entry names its own.
+    return { ...s, legendName: unit === null && ownUnit ? `${s.name} (${ownUnit})` : s.name };
+  });
   return {
     codes: drawn.map((row) => row.code),
     total: sent.length,
-    unit: units.size === 1 ? [...units][0] : null,
+    unit,
     series,
+    unsent: unsentKeys.map((key) => key.label ?? key.key),
   };
 }
 
@@ -122,7 +164,7 @@ export function comparisonTooltip(m: ComparisonModel, index: number): string {
 
 type TooltipParams = { dataIndex: number } | { dataIndex: number }[];
 
-export function buildComparisonOption(m: ComparisonModel, turned = labelsTurn(m.codes, null)): EChartsCoreOption {
+export function buildComparisonOption(m: ComparisonModel, axis: CodeAxis = codeAxis(m.codes, null)): EChartsCoreOption {
   const legend = m.series.length > 1;
   return {
     color: m.series.map((s) => s.color),
@@ -161,10 +203,9 @@ export function buildComparisonOption(m: ComparisonModel, turned = labelsTurn(m.
         fontSize: 11,
         fontWeight: 600,
         margin: 10,
-        rotate: turned ? 45 : 0,
-        // Every code while they fit; once turned, ECharts drops the ones that would overlap
-        // (the tooltip still names each bar).
-        interval: turned ? 'auto' : 0,
+        // codeAxis decides: level, 45°, or upright with a stride (the tooltip names every bar).
+        rotate: axis.rotate,
+        interval: axis.interval,
         hideOverlap: true,
       },
     },
@@ -178,7 +219,7 @@ export function buildComparisonOption(m: ComparisonModel, turned = labelsTurn(m.
     },
     series: m.series.map((s) => ({
       type: 'bar',
-      name: s.name,
+      name: s.legendName,
       data: s.points.map((p) => p.value),
       itemStyle: { color: s.color, borderRadius: [4, 4, 0, 0] },
       barMaxWidth: 28,

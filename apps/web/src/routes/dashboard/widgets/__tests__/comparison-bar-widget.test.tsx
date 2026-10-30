@@ -135,6 +135,37 @@ describe('comparison bar widget', () => {
     }
   });
 
+  it('fifty codes in a half-width card stand upright with a stride (M3)', () => {
+    const observers: ResizeObserverCallback[] = [];
+    const Original = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      constructor(cb: ResizeObserverCallback) { observers.push(cb); }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+    try {
+      setRows(Array.from({ length: 50 }, (_, n) => row(`${100 + n}-01`, [measured(20), raw(1)])));
+      render(<WidgetBody widget={widget()} selection={SEL} />);
+      act(() => {
+        observers.at(-1)!([{ contentRect: { width: 562 } } as ResizeObserverEntry], {} as ResizeObserver);
+      });
+      const label = charts.at(-1)!.option.xAxis.axisLabel;
+      expect(label.rotate).toBe(90);
+      expect(label.interval).toBeGreaterThanOrEqual(1);
+    } finally {
+      globalThis.ResizeObserver = Original;
+    }
+  });
+
+  it('a key no drawn instrument has sent is SAID, not drawn as an empty legend entry (M5)', () => {
+    setRows([row('101-01', [measured(21), raw(null, { ts: null })]), row('102-01', [measured(22), raw(null, { ts: null })])]);
+    render(<WidgetBody widget={widget()} selection={SEL} />);
+    expect(screen.getByTestId('widget-no-readings').textContent).toBe('No readings for Pressure');
+    expect(charts.at(-1)!.option.series.map((s: { name: string }) => s.name)).toEqual(['Temperature']);
+    expect(charts.at(-1)!.option.legend.show).toBe(false);
+  });
+
   it('re-renders with EQUAL data hand the chart the SAME option; a new value, a new one', () => {
     setRows([row('101-01', [measured(21.46), raw(2.5)])]);
     const w = widget();

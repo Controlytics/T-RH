@@ -3,7 +3,7 @@ import type { LatestKeyValue, LatestValuesRow, WidgetKey } from '@digilog/shared
 import { statusClasses } from '../../status';
 import { UNJUDGED_CLASSES } from '../key-value';
 import { CHART_FONT_FAMILY, NEUTRAL_HEX, SERIES_HEX, STATUS_HEX } from '../charts/chart-colors';
-import { GAUGE_SIZE, READING_BOX_PX, buildGaugeOption, gaugeModel, gaugePairs, readingSize, type GaugeModel } from '../gauge-model';
+import { GAUGE_SIZE, buildGaugeOption, gaugeModel, gaugePairs, type GaugeModel } from '../gauge-model';
 
 const WORDS = { failure: 'Error', outOfRange: 'OL' };
 const T: WidgetKey = { source: 'telemetry', key: 't', label: 'Temperature' };
@@ -152,6 +152,22 @@ describe('gaugeModel — a MEASURED key with no usable band is VALUE-ONLY', () =
     expect(zeroWidth.kind).toBe('value-only');
     expect(zeroWidth.color).toBe(STATUS_HEX.OK);
   });
+
+  it('draws NO arc and NO solid ring — the whole track, TINTED in the verdict (a solid ring read as "at the high limit")', () => {
+    // Ruling M2/M7: an arc means "a place inside an administered band"; there is none here.
+    const ring = (m: GaugeModel) => (buildGaugeOption(m).series as Record<string, any>[])[0];
+    const ok = gaugeModel(measured(21, { limitMin: null }), T, {}, true, WORDS);
+    expect(ring(ok).progress.show).toBe(false);
+    expect(ring(ok).axisLine.lineStyle.color).toEqual([[1, 'rgba(0, 188, 125, 0.18)']]);
+    expect(ring(ok).axisLine.lineStyle.color).not.toEqual([[1, STATUS_HEX.OK]]);
+    const out = gaugeModel(measured(30, { limitMin: null }), T, {}, true, WORDS);
+    expect(out.outOfLimit).toBe(true);
+    expect(ring(out).progress.show).toBe(false);
+    expect(ring(out).axisLine.lineStyle.color[0][1]).toMatch(/^rgba\(251, 44, 54, /);
+    const bad = gaugeModel(measured(21, { limitMin: 27, limitMax: 18 }), T, {}, true, WORDS);
+    expect(ring(bad).progress.show).toBe(false);
+    expect(ring(bad).axisLine.lineStyle.color[0][1]).toMatch(/^rgba\(251, 44, 54, /);
+  });
 });
 
 describe('gaugeModel — a RAW key is never judged and never takes a status colour', () => {
@@ -264,6 +280,21 @@ describe('buildGaugeOption — one ring, the band gauge\'s geometry, no ECharts 
     expect(series(gaugeModel(raw(2), P, { min: 0, max: 10 }, true, WORDS)).axisLine.lineStyle.color).toEqual([[1, 'rgba(202, 213, 226, 0.3)']]);
   });
 
+  it('a BREACH, either side, banded or not, has a STRONGER track than in limit — a low breach reads red, not pale pink (M2)', () => {
+    const alpha = (m: GaugeModel) => Number(/, ([\d.]+)\)$/.exec(series(m).axisLine.lineStyle.color[0][1])![1]);
+    const inLimit = gaugeModel(measured(21), T, {}, true, WORDS);
+    const low = gaugeModel(measured(12), T, {}, true, WORDS);
+    const high = gaugeModel(measured(30), T, {}, true, WORDS);
+    const oneBound = gaugeModel(measured(30, { limitMin: null }), T, {}, true, WORDS);
+    expect([low, high, oneBound].map((m) => m.outOfLimit)).toEqual([true, true, true]);
+    expect(inLimit.outOfLimit).toBe(false);
+    expect(alpha(low)).toBeGreaterThan(alpha(inLimit));
+    expect(alpha(high)).toBe(alpha(low));
+    expect(alpha(oneBound)).toBe(alpha(low));
+    // A raw key is never out of limit, whatever its value.
+    expect(gaugeModel(raw(50), P, { min: 0, max: 10 }, true, WORDS).outOfLimit).toBe(false);
+  });
+
   it('nothing to place (no reading, a fault, text) draws the track alone', () => {
     for (const m of [gaugeModel(measured(null), T, {}, true, WORDS), gaugeModel(measured(60, { rangeError: true }), T, {}, true, WORDS), gaugeModel(raw('RUN'), P, { min: 0, max: 10 }, true, WORDS)]) {
       expect(series(m).progress.show).toBe(false);
@@ -315,27 +346,9 @@ describe('gaugePairs — the cap is spent only on keys an instrument has SENT', 
   });
 });
 
-describe('readingSize — the value steps down to the ring, so it is never clipped', () => {
-  it("the box is the ring's hole, less a little air", () => {
-    expect(READING_BOX_PX).toBe(2 * (GAUGE_SIZE.outerRadius - GAUGE_SIZE.stroke) - 6);
-  });
-
-  it('a short reading is the big figure; each longer one a step smaller', () => {
-    expect(readingSize('21.5')).toBe('text-[24px]');
-    expect(readingSize('100.0')).toBe('text-[24px]');
-    expect(readingSize('1013.25')).toBe('text-[19px]');
-    expect(readingSize('1013.2500')).toBe('text-[15px]');
-    expect(readingSize('MAINTENANCE')).toBe('text-[12px]');
-  });
-
-  it('the longest realistic values take the last step: a 10-decimal reading, a device float, a 24-character fault word', () => {
-    // 10 = TELEMETRY_DECIMALS_MAX; 24 = RS485_FAILURE_TEXT_MAX / SENSOR_RANGE_TEXT_MAX.
-    expect(readingSize('21.4567891234')).toBe('text-[11px]');
-    expect(readingSize('1013.2500000001')).toBe('text-[11px]');
-    expect(readingSize('Probe disconnected (bus)')).toBe('text-[11px]');
-    expect('Probe disconnected (bus)').toHaveLength(24);
-    const m = gaugeModel(measured(21.4567891234), T, {}, true, WORDS);
-    expect(m.text).toBe('21.5');
+describe('a measured key at the 10-decimal ceiling prints every decimal (sized by the tile, gauge-widget.tsx)', () => {
+  it('its text is the server precision, whole', () => {
+    expect(gaugeModel(measured(21.4567891234), T, {}, true, WORDS).text).toBe('21.5');
     expect(gaugeModel({ ...measured(21.4567891234), decimals: 10 }, T, {}, true, WORDS).text).toBe('21.4567891234');
   });
 });

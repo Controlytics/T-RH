@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { WIDGET_INSTRUMENTS_MAX, type LatestKeyValue, type LatestValuesRow, type WidgetKey } from '@digilog/shared';
 import { CHART_FONT_FAMILY, SERIES_HEX, STATUS_HEX } from '../charts/chart-colors';
-import { buildComparisonOption, comparisonModel, comparisonTooltip, labelsTurn } from '../comparison-model';
+import { buildComparisonOption, codeAxis, comparisonModel, comparisonTooltip } from '../comparison-model';
+import { noReadingsFor } from '../widget-common';
 
 const WORDS = { failure: 'Error', outOfRange: 'OL' };
 const T: WidgetKey = { source: 'telemetry', key: 't', label: 'Temperature' };
@@ -83,6 +84,48 @@ describe('comparisonModel', () => {
     expect(comparisonModel([row('a', [measured(21), raw(2)])], [T, P], WORDS).unit).toBeNull();
     expect(comparisonModel([row('a', [raw(2)])], [{ ...P, unit: undefined }], WORDS).unit).toBeNull();
   });
+
+  it('mixed units: each legend name carries its own unit; one shared unit stays on the axis (M4)', () => {
+    const humid: LatestKeyValue = { ...measured(45), key: 'h', unit: '%RH' };
+    const H: WidgetKey = { source: 'telemetry', key: 'h', label: 'Humidity' };
+    const mixed = comparisonModel([row('a', [measured(21), humid])], [T, H], WORDS);
+    expect(mixed.unit).toBeNull();
+    expect(mixed.series.map((s) => s.legendName)).toEqual(['Temperature (°C)', 'Humidity (%RH)']);
+    // The tooltip keeps the plain label: its values already carry their units.
+    expect(mixed.series.map((s) => s.name)).toEqual(['Temperature', 'Humidity']);
+    expect((buildComparisonOption(mixed).series as any[]).map((s) => s.name)).toEqual(['Temperature (°C)', 'Humidity (%RH)']);
+    const same = comparisonModel([row('a', [measured(21), { ...measured(22), key: 'h' }])], [T, H], WORDS);
+    expect(same.unit).toBe('°C');
+    expect(same.series.map((s) => s.legendName)).toEqual(['Temperature', 'Humidity']);
+    // A number with no unit beside one in °C: mixed, and the unitless key gets no brackets.
+    const bare = comparisonModel([row('a', [measured(21), raw(2)])], [T, { ...P, unit: undefined }], WORDS);
+    expect(bare.unit).toBeNull();
+    expect(bare.series.map((s) => s.legendName)).toEqual(['Temperature (°C)', 'Pressure']);
+    // A key with only text plots nothing, so °C is the one unit and the axis names it.
+    const text = comparisonModel([row('a', [measured(21), raw('RUN')])], [T, { ...P, unit: undefined }], WORDS);
+    expect(text.unit).toBe('°C');
+    expect(text.series.map((s) => s.legendName)).toEqual(['Temperature', 'Pressure']);
+  });
+
+  it('a key NO drawn instrument has sent is not drawn as an empty series, and is named in key order (M5)', () => {
+    const V: WidgetKey = { source: 'telemetry', key: 'Voltage', label: 'Voltage' };
+    const W: WidgetKey = { source: 'telemetry', key: 'Power' };
+    const never = (key: string): LatestKeyValue => ({ ...raw(null, { ts: null }), key });
+    const m = comparisonModel([row('a', [never('Voltage'), measured(21), never('Power')])], [V, T, W], WORDS);
+    expect(m.series.map((s) => s.name)).toEqual(['Temperature']);
+    expect(m.unsent).toEqual(['Voltage', 'Power']);
+    // The colour stays the KEY's own: Temperature is the second key, so its slot is 1.
+    expect(m.series[0].color).toBe(SERIES_HEX[1]);
+    expect(comparisonModel([row('a', [measured(21)])], [T], WORDS).unsent).toEqual([]);
+  });
+});
+
+describe('noReadingsFor — the ONE wording for keys nobody has sent (the bar chart reuses it)', () => {
+  it('names them in order; nothing to say is null', () => {
+    expect(noReadingsFor(['Voltage'])).toBe('No readings for Voltage');
+    expect(noReadingsFor(['Voltage', 'Power'])).toBe('No readings for Voltage, Power');
+    expect(noReadingsFor([])).toBeNull();
+  });
 });
 
 describe('comparisonTooltip — what the value card would say, escaped', () => {
@@ -151,10 +194,11 @@ describe('buildComparisonOption', () => {
     expect((buildComparisonOption(comparisonModel(rows, [T], WORDS)) as any).yAxis.name).toBe('°C');
   });
 
-  it('turned codes are rotated and thinned; level codes are every one, none hidden', () => {
+  it('the code axis it is given is the one it draws', () => {
     const m = comparisonModel(rows, [T], WORDS);
-    expect((buildComparisonOption(m, true) as any).xAxis.axisLabel).toMatchObject({ rotate: 45, interval: 'auto' });
-    expect((buildComparisonOption(m, false) as any).xAxis.axisLabel).toMatchObject({ rotate: 0, interval: 0 });
+    expect((buildComparisonOption(m, { rotate: 90, interval: 2 }) as any).xAxis.axisLabel).toMatchObject({ rotate: 90, interval: 2 });
+    expect((buildComparisonOption(m, { rotate: 45, interval: 0 }) as any).xAxis.axisLabel).toMatchObject({ rotate: 45, interval: 0 });
+    expect((buildComparisonOption(m, { rotate: 0, interval: 0 }) as any).xAxis.axisLabel).toMatchObject({ rotate: 0, interval: 0 });
   });
 
   it('leaves room over the plot for the legend and for the unit over the value axis', () => {
@@ -167,23 +211,51 @@ describe('buildComparisonOption', () => {
   });
 });
 
-describe('labelsTurn — measured against the width each bar group gets', () => {
+describe('codeAxis — the codes are never a block: level, turned 45°, or upright with a stride (M3)', () => {
   const codes = (n: number) => Array.from({ length: n }, (_, k) => `CWH/RDU/${String(100 + k)}-01`);
+  /** Code labels shown ECharts-style: index 0, then every (interval + 1)th. */
+  const shown = (n: number, interval: number) => Array.from({ length: n }, (_, k) => k).filter((k) => k % (interval + 1) === 0).length;
 
   it('three codes in a wide card stay level; in a quarter-width card they turn (render check: one was hidden)', () => {
-    expect(labelsTurn(codes(3), 1140)).toBe(false);
-    expect(labelsTurn(codes(3), 260)).toBe(true);
+    expect(codeAxis(codes(3), 1140)).toEqual({ rotate: 0, interval: 0 });
+    expect(codeAxis(codes(3), 260)).toEqual({ rotate: 45, interval: 0 });
   });
 
-  it('a dozen codes at full width turn; eight do not', () => {
-    expect(labelsTurn(codes(12), 1140)).toBe(true);
-    expect(labelsTurn(codes(8), 1140)).toBe(false);
+  it('a dozen codes at full width turn 45°, every one shown; eight stay level', () => {
+    expect(codeAxis(codes(12), 1140)).toEqual({ rotate: 45, interval: 0 });
+    expect(codeAxis(codes(8), 1140)).toEqual({ rotate: 0, interval: 0 });
+  });
+
+  it('fifty in a half-width card stand upright with a stride, so neighbours sit a full line apart', () => {
+    const width = 562;
+    const a = codeAxis(codes(50), width);
+    expect(a.rotate).toBe(90);
+    expect(typeof a.interval).toBe('number');
+    const per = (width - 56) / 50;
+    // Upright, the gap across the text between two shown codes is (interval + 1) bars.
+    expect(((a.interval as number) + 1) * per).toBeGreaterThanOrEqual(16);
+    // …and no wider stride than that needs: one fewer would collide.
+    expect((a.interval as number) * per).toBeLessThan(16);
+    expect(shown(50, a.interval as number)).toBeGreaterThanOrEqual(20);
+  });
+
+  it('fifty in a quarter-width card: a longer stride, still a line apart', () => {
+    const a = codeAxis(codes(50), 260);
+    expect(a.rotate).toBe(90);
+    expect(((a.interval as number) + 1) * ((260 - 56) / 50)).toBeGreaterThanOrEqual(16);
+  });
+
+  it('turned 45° only while neighbours stay a line apart across the text; tighter than that, upright', () => {
+    // 20 codes in 520 px: 23.2 px a bar, 16.4 across the text at 45° — still 45°.
+    expect(codeAxis(codes(20), 520).rotate).toBe(45);
+    // 30 codes in 520 px: 15.5 px a bar, 10.9 across — upright.
+    expect(codeAxis(codes(30), 520).rotate).toBe(90);
   });
 
   it('before the width is known, the count decides', () => {
-    expect(labelsTurn(codes(8), null)).toBe(false);
-    expect(labelsTurn(codes(9), null)).toBe(true);
-    expect(labelsTurn(codes(9), 0)).toBe(true);
-    expect(labelsTurn([], 100)).toBe(false);
+    expect(codeAxis(codes(8), null)).toEqual({ rotate: 0, interval: 0 });
+    expect(codeAxis(codes(9), null)).toEqual({ rotate: 45, interval: 'auto' });
+    expect(codeAxis(codes(9), 0)).toEqual({ rotate: 45, interval: 'auto' });
+    expect(codeAxis([], 100)).toEqual({ rotate: 0, interval: 0 });
   });
 });

@@ -2,7 +2,7 @@ import type { ReactElement, ReactNode } from 'react';
 import { Check, Clock, Minus, TriangleAlert } from 'lucide-react';
 import { formatDecimals, type InstrumentStatus } from '@digilog/shared';
 import { formatSetPoint, quantityVerdict } from '@/routes/dashboard/set-point';
-import { statusClasses } from '@/routes/dashboard/status';
+import { FAULT_INK, statusClasses } from '@/routes/dashboard/status';
 import { bandGaugeState, finite } from './band-gauge-state';
 
 /**
@@ -379,7 +379,7 @@ export function BandGauge({
                   that is measuring nothing. */}
               <p
                 data-testid="band-reading"
-                className={`mt-2 whitespace-nowrap font-extrabold leading-none tracking-tight tabular-nums ${fault ? 'text-red-600' : 'text-slate-900'} ${valueSize}`}
+                className={`mt-2 whitespace-nowrap font-extrabold leading-none tracking-tight tabular-nums ${fault ? FAULT_INK : 'text-slate-900'} ${valueSize}`}
               >
                 <span data-testid="band-value">{valueText}</span>
                 {showUnit && <span className="ml-2 text-2xl font-semibold text-slate-400">{unit}</span>}

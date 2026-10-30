@@ -15,7 +15,11 @@
  *   colour is the verdict's — `STATUS_HEX[keyCell(…).tone]`, never re-judged here.
  * - **A measured key with no usable band** (no bound, one bound, high <= low) is
  *   `value-only`, coloured by the same verdict: neutral "Not assessed" when no
- *   bound is in force, exactly as `keyCell`.
+ *   bound is in force, exactly as `keyCell`. It draws NO arc: an arc means "a
+ *   place inside an administered band", and there is none — the whole track is
+ *   tinted in the verdict instead (a solid ring read as "at the high limit").
+ * - **Out of limit**, either side, banded or not: the track is stronger than an
+ *   in-limit one, so a low breach (no arc to see) reads red, not pale pink.
  * - **A raw key** (and every attribute) is NEUTRAL, always — offline included:
  *   amber is a status colour, and the status WORD already says "Offline". With
  *   the widget's own scale (`options.min` / `max`) it is `scaled` (placed by the
@@ -57,6 +61,8 @@ export interface GaugeModel {
   position: number | null;
   /** A measured reading outside its band; never set for a raw key. */
   breach: 'low' | 'high' | null;
+  /** The verdict is Out of limit (`keyCell`'s tone) — banded or value-only; never for a raw key. */
+  outOfLimit: boolean;
   /** What prints in the middle — `keyCell`'s text: the number, NA, a fault word or text as received. */
   text: string;
   unit: string | null;
@@ -75,6 +81,12 @@ export const GAUGE_SIZE = { height: 128, outerRadius: 60, stroke: 10 } as const;
 
 /** band-gauge.tsx draws its track in the arc's colour at this opacity. */
 const TRACK_ALPHA = 0.18;
+/**
+ * An out-of-limit track. At 0.18 a low breach (no arc) was a pale pink ring
+ * beside the solid red of a high breach; chosen by looking at the two side by
+ * side (fix round 1, M2).
+ */
+const BREACH_TRACK_ALPHA = 0.45;
 /**
  * The neutral is pale already: at 0.18 its track would vanish on white, and at
  * 0.5 it sat too close to the neutral arc to read the arc's end (render check).
@@ -105,6 +117,8 @@ export function gaugeModel(
 ): GaugeModel {
   const cell = keyCell(v, reporting, key, words);
   const said = { text: cell.text, unit: cell.unit, fault: cell.fault, label: cell.label, classes: cell.classes };
+  // keyCell's tone is a verdict ONLY for a measured key (its doc); a raw cell's STALE is not one.
+  const outOfLimit = cell.judged && cell.tone === 'OUT_OF_SPEC';
 
   if (v && v.judged && cell.judged) {
     const { limitMin: lo, limitMax: hi, limitMinText, limitMaxText } = v.judged;
@@ -117,9 +131,9 @@ export function gaugeModel(
       || boundText(hi, limitMaxText, decimals) !== boundText(hi, null, decimals);
     const line = limits === NOT_AVAILABLE ? null : { label: 'Limits' as const, text: limits, unit: texted ? null : v.unit };
     if (usableBand(lo, hi)) {
-      return { kind: 'banded', min: lo!, max: hi!, value, ...placed(value, lo!, hi!, decimals), color, scale: line, ...said };
+      return { kind: 'banded', min: lo!, max: hi!, value, ...placed(value, lo!, hi!, decimals), outOfLimit, color, scale: line, ...said };
     }
-    return { kind: 'value-only', min: null, max: null, value, position: null, breach: null, color, scale: line, ...said };
+    return { kind: 'value-only', min: null, max: null, value, position: null, breach: null, outOfLimit, color, scale: line, ...said };
   }
 
   const value = coerceReading(v?.value);
@@ -131,12 +145,13 @@ export function gaugeModel(
       // Off the widget's scale is clamped to its end — never a breach: nothing judges a raw key.
       position: placed(value, min, max, 0).position,
       breach: null,
+      outOfLimit: false,
       color: NEUTRAL_HEX,
       scale: { label: 'Scale', text: `${end(min)} - ${end(max)}`, unit: key.unit ?? null },
       ...said,
     };
   }
-  return { kind: 'value-only', min: null, max: null, value, position: null, breach: null, color: NEUTRAL_HEX, scale: null, ...said };
+  return { kind: 'value-only', min: null, max: null, value, position: null, breach: null, outOfLimit: false, color: NEUTRAL_HEX, scale: null, ...said };
 }
 
 function withAlpha(hex: string, alpha: number): string {
@@ -146,17 +161,24 @@ function withAlpha(hex: string, alpha: number): string {
 
 /**
  * The ring — and ONLY the ring: the number, unit, title and words are the page's
- * (Inter, tabular figures, truncation, testable), drawn over its centre. A full
- * circle swept clockwise from 12 o'clock, as the trend page's latest-value card
- * draws its band. A value-only gauge is the ring alone, in its colour.
+ * (Inter, tabular figures, testable), drawn over its centre. A full circle swept
+ * clockwise from 12 o'clock, as the trend page's latest-value card draws its band.
  *
- * Reads only `kind`, `position` and `color`: the widget memoises the option on
- * exactly those, so a poll that changes nothing drawn does not redraw.
+ * - An ARC only where there is a band or a scale to place the value in.
+ * - Nothing judges it (neutral): a scaled track behind a neutral arc, or — with
+ *   no scale — the neutral ring itself (Review Focus 5).
+ * - A verdict: the track tinted in it, stronger when out of limit; a value-only
+ *   measured key has the tinted track and no arc (ruling M2/M7).
+ *
+ * Reads only `kind`, `position`, `color` and `outOfLimit`: the widget memoises
+ * the option on exactly those, so a poll that changes nothing drawn does not redraw.
  */
-export function buildGaugeOption(m: Pick<GaugeModel, 'kind' | 'position' | 'color'>): EChartsCoreOption {
+export function buildGaugeOption(m: Pick<GaugeModel, 'kind' | 'position' | 'color' | 'outOfLimit'>): EChartsCoreOption {
   const ring = m.kind === 'value-only';
   const sweep = !ring && m.position !== null && m.position > 0;
-  const track = ring ? m.color : withAlpha(m.color, m.color === NEUTRAL_HEX ? NEUTRAL_TRACK_ALPHA : TRACK_ALPHA);
+  const track = m.color === NEUTRAL_HEX
+    ? (ring ? NEUTRAL_HEX : withAlpha(NEUTRAL_HEX, NEUTRAL_TRACK_ALPHA))
+    : withAlpha(m.color, m.outOfLimit ? BREACH_TRACK_ALPHA : TRACK_ALPHA);
   return {
     color: [m.color],
     textStyle: { fontFamily: CHART_FONT_FAMILY },
@@ -200,33 +222,4 @@ export function gaugePairs(rows: readonly LatestValuesRow[], keys: readonly Widg
     const value = valueOf(row, key);
     return value && value.ts != null ? [{ row, key, value }] : [];
   }));
-}
-
-/**
- * The widest the value may be, in px: the ring's hole (2 x (outer radius -
- * stroke) = 100) less a little air. Px, not rem, because the ring is px.
- */
-export const READING_BOX_PX = 2 * (GAUGE_SIZE.outerRadius - GAUGE_SIZE.stroke) - 6;
-
-/**
- * The value's size in the ring, stepped down by length so it is never CLIPPED —
- * the band gauge's rule ("neither wraps the line nor clips digits off a §11
- * reading"), at a ring's size. The longest a reading gets is a measured key at
- * the 10-decimal ceiling (`21.4567891234`) or a float as a device sent it
- * (`1013.2500000001`); a fault word may be 24 characters
- * (`RS485_FAILURE_TEXT_MAX`). Those take the last step and, in the widget, may
- * break onto a second line — a reading is broken, never cut. Each step holds
- * its length inside READING_BOX_PX.
- *
- * PX, deliberately, against the app's rem rule: the root size grows to 16 px on
- * a wide screen (`app.css`) but the ring is a fixed 120 px, so rem text would
- * outgrow its hole and break readings mid-digit (render check at a 16 px root).
- */
-export function readingSize(text: string): string {
-  const n = text.length;
-  return n <= 5 ? 'text-[24px]'
-    : n <= 7 ? 'text-[19px]'
-      : n <= 9 ? 'text-[15px]'
-        : n <= 12 ? 'text-[12px]'
-          : 'text-[11px]';
 }

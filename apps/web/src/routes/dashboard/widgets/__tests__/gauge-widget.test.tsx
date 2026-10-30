@@ -32,6 +32,8 @@ vi.mock('../charts/lazy-echart', () => ({
 import { WidgetBody } from '../widget-panel';
 import { NEUTRAL_HEX, STATUS_HEX } from '../charts/chart-colors';
 import { GAUGE_SIZE } from '../gauge-model';
+import { GAUGE_TILE_PX, READING_BOX_PX, readingSize } from '../gauge-widget';
+import { FAULT_INK } from '../../status';
 
 const SEL = { directOnly: false };
 const widget = (over: Partial<CustomWidget> = {}): CustomWidget => ({
@@ -58,6 +60,19 @@ const setRows = (rows: LatestValuesRow[], ids = rows.map((r) => r.instrumentId))
   state.latest = { rows, loading: false, error: undefined };
 };
 const series = (n: number) => charts[n].option.series[0];
+/**
+ * Can a pointer reach this element (and so show its `title`)? The nearest
+ * pointer-events class on it or an ancestor decides — jsdom does no
+ * hit-testing, so the path is read off the classes the browser would apply.
+ */
+const hoverable = (el: Element | null): boolean => {
+  for (let e = el; e; e = e.parentElement) {
+    const cls = ` ${e.getAttribute('class') ?? ''} `;
+    if (cls.includes(' pointer-events-auto ')) return true;
+    if (cls.includes(' pointer-events-none ')) return false;
+  }
+  return true;
+};
 const VERDICT_HEXES = Object.entries(STATUS_HEX).filter(([k]) => k !== 'NOT_JUDGED').map(([, hex]) => hex.toLowerCase());
 
 beforeEach(() => {
@@ -122,7 +137,8 @@ describe('gauge widget', () => {
     render(<WidgetBody widget={widget({ keys: [{ source: 'telemetry', key: 't' }] })} selection={SEL} />);
     const value = screen.getByTestId('gauge-value');
     expect(value.textContent).toBe('OL');
-    expect(value.className).toContain('text-red-600');
+    // The ONE fault ink (status.ts), shared with the trend card and the value cards.
+    expect(value.className.split(/\s+/)).toContain(FAULT_INK);
     expect(screen.queryByTestId('gauge-unit')).toBeNull();
     expect(series(0).progress.show).toBe(false);
   });
@@ -152,6 +168,49 @@ describe('gauge widget', () => {
     expect(values[1].className).not.toContain('line-clamp');
     expect(values[2].className).not.toContain('line-clamp');
     expect(values[3].className).toContain('line-clamp-3');
+    // I1: the clamped device text is READABLE in full — its title is on an element a
+    // pointer can reach, though the overlay it sits in lets the pointer through.
+    expect(values[3].closest('.pointer-events-none')).not.toBeNull();
+    expect(hoverable(values[3])).toBe(true);
+    for (const v of values) expect(hoverable(v)).toBe(true);
+  });
+
+  it('a sensor failure on a gauge prints in the ONE fault ink (value cards: widget-renderers.test)', () => {
+    setRows([row('101-01', [measured('NA', { sensorError: true }), raw(2.5)])]);
+    render(<WidgetBody widget={widget({ keys: [{ source: 'telemetry', key: 't' }] })} selection={SEL} />);
+    const gaugeFault = screen.getByTestId('gauge-value');
+    expect(gaugeFault.textContent).toBe('Error');
+    expect(gaugeFault.className.split(/\s+/)).toContain(FAULT_INK);
+  });
+
+  it("a key no instrument has sent is SAID, in the widget's key order, not silently missing (M5)", () => {
+    const keys = [
+      { source: 'telemetry' as const, key: 'Voltage', label: 'Voltage' },
+      { source: 'telemetry' as const, key: 't', label: 'Temperature' },
+      { source: 'telemetry' as const, key: 'Power' },
+    ];
+    setRows([row('a', [{ ...raw(null), key: 'Voltage', ts: null }, measured(20), { ...raw(null), key: 'Power', ts: null }])]);
+    render(<WidgetBody widget={widget({ keys })} selection={SEL} />);
+    expect(screen.getAllByTestId('gauge')).toHaveLength(1);
+    expect(screen.getByTestId('widget-no-readings').textContent).toBe('No readings for Voltage, Power');
+  });
+
+  it('every key sent by someone: no note', () => {
+    setRows([row('a', [measured(20), raw(null, { ts: null })]), row('b', [measured(21), raw(3)])]);
+    render(<WidgetBody widget={widget()} selection={SEL} />);
+    expect(screen.queryByTestId('widget-no-readings')).toBeNull();
+  });
+
+  it('tiles spread over a wide panel with no empty track, and one tile never stretches (M10)', () => {
+    setRows([row('a', [measured(20)])]);
+    render(<WidgetBody widget={widget({ keys: [{ source: 'telemetry', key: 't' }] })} selection={SEL} />);
+    const grid = screen.getByTestId('gauge').parentElement!;
+    expect(grid.className).toContain(`[grid-template-columns:repeat(auto-fit,minmax(${GAUGE_TILE_PX.min}px,1fr))]`);
+    const tile = screen.getByTestId('gauge');
+    expect(tile.style.maxWidth).toBe(`${GAUGE_TILE_PX.max}px`);
+    expect(tile.className.split(/\s+/)).toContain('justify-self-center');
+    // The narrowest tile still holds the ring: two radii plus the tile's padding and border.
+    expect(GAUGE_TILE_PX.min).toBeGreaterThanOrEqual(2 * GAUGE_SIZE.outerRadius + 26);
   });
 
   it(`draws at most ${GAUGES_SHOWN_MAX} and says how many it did not`, () => {
@@ -205,5 +264,40 @@ describe('gauge widget', () => {
     rerender(<WidgetBody widget={w} selection={SEL} />);
     expect(charts.at(-1)!.option).not.toBe(first);
     expect(charts.at(-1)!.option.series[0].data[0].value).toBeCloseTo(7 / 9, 10);
+  });
+});
+
+describe('readingSize — the value steps down to the ring: never clipped, never broken mid-digit up to 20 characters', () => {
+  it("the box is the ring's hole, less a little air", () => {
+    expect(READING_BOX_PX).toBe(2 * (GAUGE_SIZE.outerRadius - GAUGE_SIZE.stroke) - 6);
+  });
+
+  it('a short reading is the big figure; each longer one a step smaller', () => {
+    expect(readingSize('21.5')).toBe('text-[24px]');
+    expect(readingSize('100.0')).toBe('text-[24px]');
+    expect(readingSize('1013.25')).toBe('text-[19px]');
+    expect(readingSize('1013.2500')).toBe('text-[15px]');
+    expect(readingSize('MAINTENANCE')).toBe('text-[12px]');
+    expect(readingSize('21.4567891234')).toBe('text-[11px]');
+  });
+
+  it('every length up to 20 has a step of its own size or smaller, and the steps only shrink (M6)', () => {
+    const px = (t: string) => Number(/text-\[(\d+)px\]/.exec(readingSize(t))![1]);
+    for (let n = 2; n <= 20; n += 1) expect(px('9'.repeat(n))).toBeLessThanOrEqual(px('9'.repeat(n - 1)));
+    // 0.55 em a character (tabular, extrabold, tight — measured off the render) holds each in the box.
+    for (let n = 1; n <= 20; n += 1) expect(n * 0.55 * px('9'.repeat(n))).toBeLessThanOrEqual(READING_BOX_PX);
+  });
+
+  it('a Modbus float (18), a 20-character value and a 16-character negative reading take the small steps', () => {
+    expect('1013.2500000000001').toHaveLength(18);
+    expect(readingSize('1013.2500000000001')).toBe('text-[9px]');
+    expect(readingSize('-1013.25000000000001')).toBe('text-[8px]');
+    expect(readingSize('-1234.5678901234')).toBe('text-[10px]');
+  });
+
+  it('past 20 characters the value wraps anyway, so it is set back at a readable 11 px, not the 8 px floor', () => {
+    expect('Probe disconnected (bus)').toHaveLength(24);
+    expect(readingSize('Probe disconnected (bus)')).toBe('text-[11px]');
+    expect(readingSize('MAINTENANCE MODE ACTIVE ON THE GATEWAY BUS')).toBe('text-[11px]');
   });
 });

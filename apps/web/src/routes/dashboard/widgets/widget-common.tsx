@@ -54,6 +54,33 @@ export function WidgetMessage({ children, tone = 'muted' }: { children: string; 
   );
 }
 
+/**
+ * The widget keys none of these instruments has SENT — said by the widget
+ * (`NoReadingsNote`) rather than drawn as nothing, or silently left out.
+ */
+export function keysNotSent(rows: readonly LatestValuesRow[], keys: readonly WidgetKey[]): WidgetKey[] {
+  return keys.filter((key) => !rows.some((row) => valueOf(row, key)?.ts != null));
+}
+
+/**
+ * "No readings for Voltage, Power" — the ONE wording for keys nobody has sent,
+ * labels in the widget's key order (the gauge, the comparison bars and the bar
+ * chart all say it this way). Null when there is nothing to say.
+ */
+export function noReadingsFor(labels: readonly string[]): string | null {
+  return labels.length === 0 ? null : `No readings for ${labels.join(', ')}`;
+}
+
+export function NoReadingsNote({ labels }: { labels: readonly string[] }) {
+  const text = noReadingsFor(labels);
+  if (text === null) return null;
+  return (
+    <p className="text-xs font-medium text-amber-700" data-testid="widget-no-readings">
+      {text}
+    </p>
+  );
+}
+
 /** "Showing X of Y <things>" — every cap says what it did not draw. */
 export function CapNote({ shown, total, noun }: { shown: number; total: number; noun: string }) {
   if (shown >= total) return null;

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { RS485_FAILURE_TEXT_DEFAULT, SENSOR_RANGE_TEXT_DEFAULT } from '@digilog/shared';
 import { BandGauge, bandGaugeState, READING_SIZE } from '../band-gauge';
+import { FAULT_INK } from '@/routes/dashboard/status';
 
 /**
  * The latest-value card is the one element on the trend page that says
@@ -443,6 +444,9 @@ describe('BandGauge render', () => {
       expect(screen.queryByText(/No readings in this instrument/)).toBeNull();
       // Nor the empty-slot note, which says the opposite: something DID arrive.
       expect(screen.queryByText(/nothing has arrived for this slot/)).toBeNull();
+      // In the ONE fault ink, shared with the dashboard gauge and value cards.
+      expect(screen.getByTestId('band-reading').className.split(/\s+/)).toContain(FAULT_INK);
+      expect(FAULT_INK).toBe('text-red-600');
     });
 
     it('shows the administered out-of-range word for a saturated probe', () => {
