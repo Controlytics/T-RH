@@ -327,7 +327,9 @@ rulings: `docs/feature-notes.md` DASHBOARDS. What a page must not get wrong:
 - **Edit / Settings / Assign are SUPER_ADMIN presentation; the route's 403 is the control.** Every
   write is `reauth.execute('UPDATE_DASHBOARD', …)` with all three outcomes. Save sends the WHOLE
   document with `expectedUpdatedAt` = the `updatedAt` captured when editing BEGAN (R10), adopts the
-  whole PUT response, and a 409 keeps the draft until Reload. `use-dashboard-draft.ts` holds the draft
+  whole PUT response, and a 409 keeps the draft until Reload. Settings captures `{updatedAt, document}`
+  when it opens and Rename uses the row it opened on (a 409 re-seeds its fields from the fresh row) —
+  never the live prop / list copy. `use-dashboard-draft.ts` holds the draft
   (placement = the home `addWidget`'s rule — it is a second copy; keep them in step).
 - **One widget's failure stays in its card**: a failed request prints `LOAD_FAILED`; a renderer that
   THROWS is caught by `RenderBoundary` (per card, and around `WidgetDialog`, whose live preview runs the

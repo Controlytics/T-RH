@@ -25,7 +25,7 @@ import { DESCRIPTION_MAX, TITLE_MAX } from './name-dialog';
  *
  * Save is ONE `PUT /api/dashboards/:id` carrying the WHOLE stored document with
  * `source` and `timeWindow` replaced, and the `updatedAt` the dialog was opened
- * on. Everything is checked by the SAME shared schemas the server applies, and
+ * on (both captured at open, ruling R10). Everything is checked by the SAME shared schemas the server applies, and
  * their own words are shown in place. The page offers Settings outside edit
  * mode only, so the stored document IS the current one; a draft is never
  * merged here.
@@ -65,7 +65,12 @@ function SettingsBody({ dashboard, onClose, onSaved, onReload }: {
   onSaved: (saved: DashboardDetail) => void;
   onReload?: () => Promise<unknown>;
 }) {
-  const stored = dashboard.document.source;
+  // Captured ONCE, when the dialog opens (this body mounts per open): the
+  // `updatedAt` and document the form is seeded from. Save sends THESE, never the
+  // live prop, which a focus revalidation can replace with another editor's save
+  // while the form still holds this editor's fields (ruling R10).
+  const [base] = useState(() => ({ updatedAt: dashboard.updatedAt, document: dashboard.document }));
+  const stored = base.document.source;
   const [title, setTitle] = useState(dashboard.title);
   const [description, setDescription] = useState(dashboard.description ?? '');
   const [mode, setMode] = useState<Mode | null>(stored?.mode ?? null);
@@ -73,7 +78,7 @@ function SettingsBody({ dashboard, onClose, onSaved, onReload }: {
   const [locationId, setLocationId] = useState(stored?.mode === 'location' ? stored.functionalLocationId : '');
   const [directOnly, setDirectOnly] = useState(stored?.mode === 'location' ? stored.directOnly : false);
   const [picked, setPicked] = useState<string[]>(stored?.mode === 'instruments' ? stored.ids : []);
-  const [timeWindow, setTimeWindow] = useState<DashboardTimeWindow>(dashboard.document.timeWindow);
+  const [timeWindow, setTimeWindow] = useState<DashboardTimeWindow>(base.document.timeWindow);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [conflict, setConflict] = useState(false);
@@ -112,8 +117,8 @@ function SettingsBody({ dashboard, onClose, onSaved, onReload }: {
     const body = {
       title: trimmed,
       description: description.trim() || null,
-      document: { ...dashboard.document, source: src.data, timeWindow: win.data },
-      expectedUpdatedAt: dashboard.updatedAt,
+      document: { ...base.document, source: src.data, timeWindow: win.data },
+      expectedUpdatedAt: base.updatedAt,
     };
     let saved: DashboardDetail | undefined;
     setBusy(true);

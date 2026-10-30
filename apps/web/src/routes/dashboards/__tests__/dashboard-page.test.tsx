@@ -68,7 +68,7 @@ vi.mock('@/routes/dashboard/widgets/widget-dialog', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/routes/dashboard/widgets/widget-dialog')>();
   return {
     WidgetDialog: (p: Parameters<typeof actual.WidgetDialog>[0]) => (DIALOG.real ? <actual.WidgetDialog {...p} /> : (
-      <div data-testid="widget-dialog" data-follow={p.followLabel}>
+      <div data-testid="widget-dialog" data-follow={p.followLabel} data-period-follow={p.periodFollowLabel}>
         <button type="button" onClick={() => p.onSubmit(NEW_WIDGET)}>Submit widget</button>
       </div>
     )),
@@ -299,6 +299,7 @@ describe('DashboardPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /Edit/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
     expect(screen.getByTestId('widget-dialog')).toHaveAttribute('data-follow', 'Follow the dashboard');
+    expect(screen.getByTestId('widget-dialog')).toHaveAttribute('data-period-follow', 'Dashboard window');
     fireEvent.click(screen.getByRole('button', { name: 'Submit widget' }));
     expect(await screen.findByRole('heading', { name: 'Freshly added' })).toBeInTheDocument();
 

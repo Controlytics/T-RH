@@ -332,6 +332,28 @@ describe('/api/dashboards', () => {
     expect(back.sourceSummary).toEqual({ mode: 'profile', label: PROFILE });
   });
 
+  it('an unchanged save of an item with a multi-key style writes nothing, whatever order the database keeps the keys in', async () => {
+    const d = await create(`Style order ${S}`);
+    const w = widgetSet();
+    const sent = doc([w.cards]);
+    // Sent in the reverse of the canonical order; JSONB then keeps its own (length, then alphabet).
+    (sent.items[0] as Record<string, unknown>).style = { title: 'Custom', pad: 'tight', size: 'large', tint: 'sky' };
+    const first = await put(d.id, { document: sent, expectedUpdatedAt: d.updatedAt });
+    expect(first.statusCode, first.body).toBe(200);
+    const saved = first.json() as Detail;
+    expect(Object.keys((saved.document.items[0] as { style: object }).style)).toHaveLength(4);
+    const rowBefore = await prisma.dashboard.findUniqueOrThrow({ where: { id: d.id }, select: { layout: true, updatedAt: true } });
+    const auditBefore = (await rowsFor(d.id)).length;
+
+    // The editor sends back what it loaded: the same document, the same keys.
+    const again = await put(d.id, { document: (await detail(d.id)).document, expectedUpdatedAt: saved.updatedAt });
+    expect(again.statusCode, again.body).toBe(200);
+    expect((again.json() as Detail).updatedAt).toBe(saved.updatedAt);
+    expect((await rowsFor(d.id)).length).toBe(auditBefore);
+    const rowAfter = await prisma.dashboard.findUniqueOrThrow({ where: { id: d.id }, select: { layout: true, updatedAt: true } });
+    expect(rowAfter.updatedAt.getTime()).toBe(rowBefore.updatedAt.getTime());
+  });
+
   it('a bad document is a 400 and nothing is stored', async () => {
     const w = widgetSet();
     const d = await create(`Bad doc ${S}`, doc([w.cards]));

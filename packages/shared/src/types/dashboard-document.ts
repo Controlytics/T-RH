@@ -112,6 +112,9 @@ export function parseDashboardDocument(
   const o = v as Record<string, unknown>;
   if (o.version !== DASHBOARD_DOCUMENT_VERSION || !Array.isArray(o.items)) return bad(UNSTORABLE);
 
+  // `null` is what the reader returns for a stored scope it could not read, and
+  // the page sends the document back as it holds it: say what to do about it.
+  if (o.source === null) return bad("Choose the dashboard's instruments again in Settings — the stored choice could not be read.");
   const s = dashboardSourceSchema.safeParse(o.source);
   if (!s.success) {
     const mode = typeof o.source === 'object' && o.source !== null ? (o.source as Record<string, unknown>).mode : undefined;

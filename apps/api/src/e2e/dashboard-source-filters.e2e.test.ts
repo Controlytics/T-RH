@@ -174,6 +174,12 @@ describe('GET /api/alarms filters', () => {
     expect(direct.json().total).toBe(1);
   });
 
+  it('direct-only with a non-uuid location is a 400 naming the field, not a 500', async () => {
+    const res = await alarms('functionalLocationId=nope&functionalLocationDirect=true');
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: 'VALIDATION_ERROR', field: 'functionalLocationId' });
+  });
+
   it('alarm filters stay inside scope', async () => {
     const res = await alarms(`instrumentIds=${A},${B}`, operator);
     expect(res.statusCode).toBe(200);

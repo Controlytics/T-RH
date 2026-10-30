@@ -22,7 +22,7 @@
 import { resolvePageSize } from '../../lib/page-size.js';
 import { parseUuidList } from '../../lib/uuid-list.js';
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The type vocabulary, derived from the enum pairs that actually define a type. */
 export const ALARM_TYPE_TOKENS = ['TEMP_HIGH', 'TEMP_LOW', 'RH_HIGH', 'RH_LOW', 'OFFLINE', 'RS485', 'RANGE'] as const;

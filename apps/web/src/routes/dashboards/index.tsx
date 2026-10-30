@@ -139,6 +139,8 @@ export function DashboardsPage() {
     done: (result: unknown) => void | Promise<void>,
     failTitle: string,
     inForm: boolean,
+    /** After a refused form write: the page's chance to show what the refusal means. */
+    onRefused?: (e: unknown) => void | Promise<void>,
   ) => {
     setBusy(true);
     setFormError(null);
@@ -152,9 +154,8 @@ export function DashboardsPage() {
         if (inForm) {
           setFormError(reason(e, 'Please try again.'));
           // A refusal (a 409 above all) usually means the row has moved on: read
-          // the list again, so the next attempt carries the CURRENT `updatedAt`
-          // instead of failing the same way forever.
-          void mutate();
+          // the list again so the page is current.
+          if (onRefused) void onRefused(e); else void mutate();
         } else { setDialog(null); toast.error(failTitle, reason(e, 'Please try again.')); }
       },
       onCancel: () => setBusy(false),
@@ -174,6 +175,7 @@ export function DashboardsPage() {
     true,
   );
 
+  /** `row` is the row the dialog was OPENED on: its `updatedAt` is the base of the edit (R10). */
   const rename = (row: DashboardSummary, v: NameValues) => write(
     (password) => saveDashboard(row.id, { title: v.title, description: v.description || null, expectedUpdatedAt: row.updatedAt }, password),
     async () => {
@@ -183,6 +185,17 @@ export function DashboardsPage() {
     },
     'Could not rename',
     true,
+    async (e) => {
+      const fresh = await mutate();
+      if ((e as { code?: string })?.code !== 'DASHBOARD_CHANGED') return;
+      // The form still holds THIS editor's words over the OLD row. Put the fresh
+      // row's values in it (and its `updatedAt` behind it), so the user sees what
+      // the other editor saved before deciding to save over it (ruling R10).
+      const current = fresh?.data?.find((r) => r.id === row.id);
+      if (!current) return;
+      setDialog({ kind: 'rename', row: current });
+      setFormError('This dashboard was changed by someone else. The form now shows their version; check it, then save again.');
+    },
   );
 
   const duplicate = (row: DashboardSummary) => !busy && write(
@@ -288,16 +301,17 @@ export function DashboardsPage() {
       <NameDialog
         open={dialog?.kind === 'new' || dialog?.kind === 'rename'}
         mode={dialog?.kind === 'rename' ? 'rename' : 'new'}
+        seedKey={dialog?.kind === 'rename' ? dialog.row.updatedAt : undefined}
         initial={dialog?.kind === 'rename' ? { title: dialog.row.title, description: dialog.row.description ?? '' } : undefined}
         busy={busy}
         error={formError}
         onClose={closeDialog}
         onSubmit={(v) => {
           if (dialog?.kind !== 'rename') { create(v); return; }
-          // The row as the list holds it NOW: after a refused attempt the list
-          // was re-read, and the dialog's own copy is the stale one.
-          const id = dialog.row.id;
-          rename(rows.find((r) => r.id === id) ?? dialog.row, v);
+          // The row the dialog was opened on (or re-seeded to after a 409), never
+          // the list's freshest copy: a focus refetch would otherwise carry
+          // another editor's `updatedAt` under this editor's older words.
+          rename(dialog.row, v);
         }}
       />
       <AssignDialog

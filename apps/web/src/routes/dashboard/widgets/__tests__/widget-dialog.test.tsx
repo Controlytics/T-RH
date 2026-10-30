@@ -174,3 +174,15 @@ describe('RoleDefaultDialog', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 });
+
+describe('WidgetDialog - the history widget default period', () => {
+  it('names "no period" as the SITE default on /, and as the dashboard window when told so', () => {
+    const { unmount } = render(<WidgetDialog open selection={SEL} onCancel={() => {}} onSubmit={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: /^Trend chart/ }));
+    expect((screen.getByLabelText('Default period') as HTMLSelectElement).options[0].textContent).toBe('Site default');
+    unmount();
+    render(<WidgetDialog open selection={SEL} onCancel={() => {}} onSubmit={() => {}} periodFollowLabel="Dashboard window" />);
+    fireEvent.click(screen.getByRole('button', { name: /^Trend chart/ }));
+    expect((screen.getByLabelText('Default period') as HTMLSelectElement).options[0].textContent).toBe('Dashboard window');
+  });
+});

@@ -381,6 +381,7 @@ function DashboardView({ dashboard, mutate }: {
             initial={widgetDialog.initial}
             selection={selection}
             followLabel="Follow the dashboard"
+            periodFollowLabel="Dashboard window"
             onCancel={() => setWidgetDialog(null)}
             onSubmit={(w) => {
               if (widgetDialog.initial) session.updateWidget(w); else session.addWidget(w);

@@ -16,11 +16,13 @@ export interface NameValues { title: string; description: string }
  * hands the outcome back as `busy` / `error`.
  */
 export function NameDialog({
-  open, mode, initial, busy, error, onSubmit, onClose,
+  open, mode, initial, seedKey, busy, error, onSubmit, onClose,
 }: {
   open: boolean;
   mode: 'new' | 'rename';
   initial?: NameValues;
+  /** Changes when the dialog must be re-seeded while open (a refused Rename shows the fresh row). */
+  seedKey?: string;
   busy: boolean;
   error: string | null;
   onSubmit: (v: NameValues) => void;
@@ -35,7 +37,7 @@ export function NameDialog({
       setTitle(initial?.title ?? '');
       setDescription(initial?.description ?? '');
     }
-  }, [open, initial?.title, initial?.description]);
+  }, [open, seedKey, initial?.title, initial?.description]);
 
   const trimmed = title.trim();
   const heading = mode === 'new' ? 'New dashboard' : 'Rename dashboard';

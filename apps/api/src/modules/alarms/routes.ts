@@ -16,7 +16,7 @@ import { loadLimitConfig, countWithoutLimits } from './load-limits.js';
 import { loadProfileMeasurements } from '../instruments/profile-measurements.js';
 import { slotConfigFromMeasurements } from '@digilog/shared';
 import {
-  ALARM_TYPE_TOKENS, ALARM_STATUS_TOKENS,
+  ALARM_TYPE_TOKENS, ALARM_STATUS_TOKENS, UUID_RE,
   parseAlarmListQuery, buildAlarmWhere, buildAlarmOrderBy, pageBounds,
 } from './list-query.js';
 
@@ -184,6 +184,13 @@ export default async function alarmRoutes(app: FastifyInstance) {
     if (askedLocation && direct) {
       // Pinned to this location itself: no Area expansion. Still ANDed with
       // visibility below, so a location the caller cannot see matches nothing.
+      // A non-uuid is a 400 here: the non-direct path resolves an unknown id to
+      // no rows, but this one reaches the query as it stands.
+      if (!UUID_RE.test(askedLocation)) {
+        return reply.code(400).send({
+          error: 'VALIDATION_ERROR', message: 'functionalLocationId must be a location id', field: 'functionalLocationId',
+        });
+      }
       locationIds = [askedLocation];
     } else if (askedLocation) {
       // resolveLocationIds, never a bare equality: an alarm on an instrument in a

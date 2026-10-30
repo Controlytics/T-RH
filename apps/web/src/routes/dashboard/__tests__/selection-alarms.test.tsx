@@ -124,12 +124,14 @@ vi.mock('@/lib/api-client', () => ({
 let alarmsKey: string | null = null;
 /** The SWR options the alarms fetch was made with — the drill-down rule lives there. */
 let alarmsOptions: Record<string, unknown> | undefined;
+/** Set to make the alarms request fail, as a 403 does for a viewer without ALARM_READ. */
+let alarmsError: unknown;
 vi.mock('swr', () => ({
   default: (key: string | null, opts?: Record<string, unknown>) => {
     if (typeof key === 'string' && key.startsWith('/api/alarms')) {
       alarmsKey = key;
       alarmsOptions = opts;
-      return { data: { data: alarmRows, total: alarmTotal }, error: undefined, mutate };
+      return { data: alarmsError ? undefined : { data: alarmRows, total: alarmTotal }, error: alarmsError, mutate };
     }
     if (key === '/api/config/alarm-limits/status-texts') return { data: statusTextsResponse };
     if (key === '/api/config/inactivity-alarms/display-texts') return { data: inactivityTextsResponse };
@@ -159,6 +161,7 @@ function renderWith(rows: unknown[] = [active], total = rows.length) {
 beforeEach(() => {
   alarmRows = [active];
   alarmTotal = 1;
+  alarmsError = undefined;
   statusTextsResponse = undefined;
   inactivityTextsResponse = undefined;
   canAcknowledge = true;
@@ -647,5 +650,22 @@ describe('SelectionAlarms — the lg size mode (2026-09-25)', () => {
     expect(cells[4].querySelector('.tv-chip')).toBeNull();
     const word = within(cells[4]).getByText('No data');
     expect(word.className).toMatch(/(^|\s)text-sm(\s|$)/);
+  });
+});
+
+describe('SelectionAlarms — a failed request is not an empty card', () => {
+  const forbidden = Object.assign(new Error('Forbidden'), { status: 403 });
+
+  it('a SCOPED table (a built dashboard) prints the load-failed message', () => {
+    alarmsError = forbidden;
+    alarmRows = []; alarmTotal = 0;
+    render(<MemoryRouter><SelectionAlarms scope={{ instrumentIds: ['i-1'] }} /></MemoryRouter>);
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not load this widget.');
+  });
+
+  it('the home panel (no scope) still renders nothing on an error', () => {
+    alarmsError = forbidden;
+    const { container } = render(<MemoryRouter><SelectionAlarms functionalLocationId="fl-1" /></MemoryRouter>);
+    expect(container).toBeEmptyDOMElement();
   });
 });

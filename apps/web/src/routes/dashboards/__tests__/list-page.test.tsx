@@ -80,15 +80,17 @@ function Where() {
   const l = useLocation();
   return <div data-testid="where">{l.pathname}{l.search}</div>;
 }
+const tree = () => (
+  <MemoryRouter initialEntries={['/dashboards']}>
+    <Routes>
+      <Route path="/dashboards" element={<DashboardsPage />} />
+      <Route path="/dashboards/:id" element={<Where />} />
+    </Routes>
+  </MemoryRouter>
+);
 function mount() {
-  return render(
-    <MemoryRouter initialEntries={['/dashboards']}>
-      <Routes>
-        <Route path="/dashboards" element={<DashboardsPage />} />
-        <Route path="/dashboards/:id" element={<Where />} />
-      </Routes>
-    </MemoryRouter>,
-  );
+  const view = render(tree());
+  return { ...view, revalidate: () => view.rerender(tree()) };
 }
 const headers = () => screen.getAllByRole('columnheader').map((h) => h.textContent);
 
@@ -224,12 +226,27 @@ describe('DashboardsPage', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('a refused Rename (409) re-reads the list, and the next attempt carries the FRESH updatedAt', async () => {
+  it('Rename sends the updatedAt and description it was OPENED on, though the list is revalidated meanwhile (R10)', async () => {
+    put.mockResolvedValue({});
+    const { revalidate } = mount();
+    fireEvent.click(within(screen.getAllByTestId('dashboard-row')[0]).getByRole('button', { name: 'Rename' }));
+    const dialog = screen.getByRole('dialog');
+    // Someone else saved and the list was refetched while the dialog was open.
+    state.list = { data: [{ ...rowA, title: 'Theirs', description: 'Their words', updatedAt: '2026-10-29T18:30:00.000Z' }, rowB] };
+    revalidate();
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /Title/ }), { target: { value: 'Mine' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    expect(put.mock.calls[0][1]).toEqual({ title: 'Mine', description: 'Dissolution rooms', expectedUpdatedAt: rowA.updatedAt });
+  });
+
+  it('a refused Rename (409) re-seeds the dialog from the fresh row, shows the conflict, and the retry carries the FRESH updatedAt', async () => {
     const FRESH = '2026-10-29T18:30:00.000Z';
+    const freshList = { data: [{ ...rowA, title: 'Theirs', description: 'Their words', updatedAt: FRESH }, rowB] };
     put.mockRejectedValueOnce(Object.assign(new Error('This dashboard was changed by someone else.'), { code: 'DASHBOARD_CHANGED' }));
     put.mockResolvedValue({});
-    // The re-read the page asks for is what changes the list the next render sees.
-    mutate.mockImplementation(async () => { state.list = { data: [{ ...rowA, updatedAt: FRESH }, rowB] }; });
+    // The re-read the page asks for is what changes the list; SWR's mutate resolves to it.
+    mutate.mockImplementation(async () => { state.list = freshList; return freshList; });
     mount();
     fireEvent.click(within(screen.getAllByTestId('dashboard-row')[0]).getByRole('button', { name: 'Rename' }));
     const dialog = screen.getByRole('dialog');
@@ -239,9 +256,13 @@ describe('DashboardsPage', () => {
     expect(mutate).toHaveBeenCalledTimes(1);
     expect((put.mock.calls[0][1] as { expectedUpdatedAt: string }).expectedUpdatedAt).toBe(rowA.updatedAt);
 
+    // Their values are now in the form, so the user sees them before retrying.
+    await waitFor(() => expect(within(dialog).getByRole('textbox', { name: /Title/ })).toHaveValue('Theirs'));
+    expect(within(dialog).getByRole('textbox', { name: /Description/ })).toHaveValue('Their words');
+
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(put).toHaveBeenCalledTimes(2));
-    expect((put.mock.calls[1][1] as { expectedUpdatedAt: string }).expectedUpdatedAt).toBe(FRESH);
+    expect(put.mock.calls[1][1]).toEqual({ title: 'Theirs', description: 'Their words', expectedUpdatedAt: FRESH });
   });
 
   it('Duplicate cannot be repeated while it is in flight: the row actions are disabled and one copy is made', async () => {

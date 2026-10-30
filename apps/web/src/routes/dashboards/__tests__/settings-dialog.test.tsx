@@ -112,6 +112,22 @@ describe('SettingsDialog', () => {
     expect(reauthActions).toEqual(['UPDATE_DASHBOARD']);
   });
 
+  it('a revalidation while open does not change what Save sends: the OPEN-time updatedAt and document (R10)', async () => {
+    const onClose = vi.fn(); const onSaved = vi.fn();
+    const { rerender } = render(<SettingsDialog open dashboard={DASH} onClose={onClose} onSaved={onSaved} />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), { target: { value: 'Mine' } });
+    // Someone else saved; SWR refetched on focus and the prop is now THEIR version.
+    const THEIRS: DashboardDetail = {
+      ...DASH, title: 'Theirs', updatedAt: '2026-10-29T10:30:00.000Z',
+      document: { ...DASH.document, items: [{ i: `w:${W1}`, x: 3, y: 3, w: 3, h: 3 }] },
+    };
+    rerender(<SettingsDialog open dashboard={THEIRS} onClose={onClose} onSaved={onSaved} />);
+    save();
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    expect(sent().expectedUpdatedAt).toBe(DASH.updatedAt);
+    expect(sent().document.items).toEqual(DASH.document.items);
+  });
+
   it('A profile sends {mode:profile, profileId}', async () => {
     mount();
     fireEvent.click(screen.getByRole('radio', { name: 'A profile' }));

@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { SkeletonRows } from '@/components/ui/skeleton';
 import { Pagination } from '@/components/ui/pagination';
 import { usePanelToolbarSlot } from './panel-card';
+import { LOAD_FAILED, WidgetMessage } from './widgets/widget-common';
 import {
   AlarmWidgetFilters, applyWidgetFilters, EMPTY_WIDGET_FILTERS,
   type AlarmWidgetFilterValue,
@@ -240,8 +241,11 @@ export function SelectionAlarms({ functionalLocationId: homeLocationId, scope }:
 
   // A permission error must not render as "no alarms" — that reads as "nothing is
   // wrong" to someone who simply cannot see them. Same reasoning as the count
-  // card's `canSeeAlarms` guard.
-  if (error) return null;
+  // card's `canSeeAlarms` guard. The HOME panel (no `scope`) is gated by its panel
+  // permission and keeps drawing nothing. On a BUILT dashboard assignment is the
+  // only gate, so a viewer without ALARM_READ gets the widgets' own failure
+  // message, not an empty card that reads as "no alarms".
+  if (error) return scope ? <WidgetMessage tone="error">{LOAD_FAILED}</WidgetMessage> : null;
   if (nothingInScope) {
     return <p role="status" className="py-6 text-center text-sm text-slate-500">No instruments in your view</p>;
   }

@@ -58,6 +58,11 @@ describe('parseDashboardDocument', () => {
     expect(refusal(doc([], { source: { mode: 'instruments', ids: [] } }))).toMatch(/^Dashboard instruments:/);
   });
 
+  it('a stored source that could not be read (null) says to choose the instruments again', () => {
+    expect(refusal(doc([], { source: null })))
+      .toBe("Choose the dashboard's instruments again in Settings — the stored choice could not be read.");
+  });
+
   it('refuses a fixed window that ends before it starts', () => {
     const m = refusal(doc([], { timeWindow: { mode: 'fixed', from: '2026-10-02T00:00:00.000Z', to: '2026-10-01T00:00:00.000Z' } }));
     expect(m).toBe('Time window: The window must end after it starts');

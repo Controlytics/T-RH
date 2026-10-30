@@ -42,6 +42,7 @@ const newId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto
 
 export function WidgetDialog({
   open, initial, selection, onCancel, onSubmit, followLabel = 'Follow the dashboard selection',
+  periodFollowLabel = 'Site default',
 }: {
   open: boolean;
   initial?: CustomWidget;
@@ -50,6 +51,8 @@ export function WidgetDialog({
   onSubmit: (w: CustomWidget) => void;
   /** What the follow radio says; a dashboard page says what it follows. */
   followLabel?: string;
+  /** What "no default period" means here: the site's period on `/`, the dashboard's window on a built one. */
+  periodFollowLabel?: string;
 }) {
   const [id] = useState(() => initial?.id ?? newId());
   const [type, setType] = useState<WidgetType>(initial?.type ?? 'value_cards');
@@ -207,7 +210,7 @@ export function WidgetDialog({
               <label className="text-sm">
                 <span className="mb-1 block font-medium text-slate-700">Default period</span>
                 <select aria-label="Default period" className="ctl ctl-sm" value={period ?? ''} onChange={(e) => setPeriod(e.target.value || undefined)}>
-                  <option value="">Site default</option>
+                  <option value="">{periodFollowLabel}</option>
                   {PERIOD_PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
                 </select>
               </label>

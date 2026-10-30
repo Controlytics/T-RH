@@ -31,7 +31,7 @@ plan `docs/superpowers/plans/2026-10-29-dashboard-builder-phase1.md`; feature no
   hook — a stale `DASHBOARD_*` grant opens nothing), re-auth `UPDATE_DASHBOARD`, ONE transaction with
   the eight existing `DASHBOARD_*` audit actions (each value names its target; an unchanged save
   writes nothing; widgets diffed by id; one row per role / user assigned or unassigned). `PUT /:id` is
-  conditional on `expectedUpdatedAt` (the `updatedAt` captured when editing began): a dashboard changed
+  conditional on `expectedUpdatedAt` (the `updatedAt` captured when editing began, by the page's Save, Settings and Rename alike): a dashboard changed
   since is a 409 that writes nothing, and the page keeps the draft until Reload. The document lives in
   the existing `dashboards.layout` (strict shared writer, forgiving shared reader); no migration;
   `dashboard_widgets` left in place, unused. `telemetry-overview` gained `profileId` + `instrumentIds`;
@@ -58,6 +58,12 @@ plan `docs/superpowers/plans/2026-10-29-dashboard-builder-phase1.md`; feature no
   `docs/superpowers/concepts/2026-10-29-dashboards/built-*.png`. **Not seen in the operator's browser.**
 - **Owed:** an AWS read-only count of `dashboards` / `dashboard_assignments` rows before the deploy
   (an unassigned dashboard becomes SUPER_ADMIN-only); the 2026-10-24 permission strip on AWS.
+- **Final whole-branch review fixes:** Settings and Rename keep the `updatedAt` they were opened on (a
+  Rename 409 re-seeds the form from the fresh row); a built dashboard's alarm table the viewer cannot
+  read prints `Could not load this widget.` instead of an empty card; the history widget's no-period
+  option reads "Dashboard window" there; `GET /api/alarms` with `functionalLocationDirect=true` and a
+  non-uuid location is a 400; a stored-unreadable source refuses a save with "Choose the dashboard's
+  instruments again in Settings"; `UPDATE_DASHBOARD` sits after `UPDATE_AUDIT_HARD_DELETE`.
 
 ## [Unreleased] - Widget data keys, phase 3: the trend page shows each profile's extra keys (2026-10-29)
 

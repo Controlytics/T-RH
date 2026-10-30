@@ -165,8 +165,9 @@ JSON export/import is what makes copying a dashboard between servers cheap.
   - The source and time window must be valid.
 - **One forgiving reader, `readDashboardDocument`,** for display. It drops a bad widget and its
   item, keeps everything else, and falls back to a default source and window.
-- **Built dashboards do NOT go through `normalizeLayout` / `resolveLayout` / `readItem`.** Those
-  admit panel keys and gate `w:` items on the `custom_widgets` panel. On a built dashboard,
+- **Built dashboards do NOT go through `normalizeLayout` / `resolveLayout`.** Those
+  admit panel keys and gate `w:` items on the `custom_widgets` panel. (The document does reuse
+  `readItem` for each item's geometry and style.) On a built dashboard,
   **assignment is the gate**. The home path is untouched.
 - **The per-widget routes retire** (POST/PUT/DELETE `/:id/widgets…`, PUT `/:id/layout`,
   GET `/:id/data/:widgetId`, GET `/widget-types`). A save sends the whole document.
