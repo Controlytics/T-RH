@@ -13,6 +13,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { formatKeyValue } from './key-value';
+import { widgetPageSize } from './type-switch';
 import { useWidgetTimeseries, type WidgetSelection } from './use-widget-data';
 import {
   CapNote, LOAD_FAILED, NO_INSTRUMENTS, PeriodSelect, WidgetMessage, useWidgetRange, useWidgetRows, valueOf,
@@ -23,7 +24,7 @@ export function TimeseriesTableWidget({ widget, selection }: { widget: CustomWid
   const { preset, setPreset, range } = useWidgetRange(widget.options.period, selection.window);
   const { formatDateTime } = useDatetimeFormat();
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(widget.options.pageSize ?? 25);
+  const [pageSize, setPageSize] = useState<number>(widgetPageSize(widget));
 
   const keys = widget.keys.filter((k) => k.source === 'telemetry');
   // Only instruments that have SENT one of the keys — the 50 must not be spent on

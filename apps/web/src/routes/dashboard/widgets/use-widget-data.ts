@@ -269,7 +269,9 @@ export function useTelemetryBuckets(
     (u: string) => apiClient.get<TelemetryBuckets>(u),
     { refreshInterval: chartRefreshMs, keepPreviousData: true },
   );
-  return { data, loading: isLoading, error };
+  // `keepPreviousData` hands a NULL key the last key's data: asking nothing must
+  // show nothing, never the previous selection's bars.
+  return url ? { data, loading: isLoading, error } : { data: undefined, loading: false, error: undefined };
 }
 
 /** `GET /api/alarms/counts`, as the server returns it. */
@@ -288,13 +290,18 @@ export interface AlarmCounts {
 export function useAlarmCounts(selection: AlarmScope): { data: AlarmCounts | undefined; loading: boolean; error: unknown } {
   const qs = new URLSearchParams();
   applyAlarmScope(qs, selection);
+  // The string, not `URLSearchParams.size`: `size` is undefined before Chrome 113
+  // / Safari 17, and there an empty-looking query would ask for everything in view.
+  const query = qs.toString();
   const url = alarmScopeSelectsNothing(selection)
     ? null
-    : qs.size > 0 ? `/api/alarms/counts?${qs.toString()}` : '/api/alarms/counts';
+    : query ? `/api/alarms/counts?${query}` : '/api/alarms/counts';
   const { data, error, isLoading } = useSWR<AlarmCounts>(
     url,
     (u: string) => apiClient.get<AlarmCounts>(u),
     { refreshInterval: ALARM_REFRESH_MS, keepPreviousData: true },
   );
-  return { data, loading: isLoading, error };
+  // `keepPreviousData` hands a NULL key the last key's data: an empty list must
+  // count nothing, never the previous selection's alarms.
+  return url ? { data, loading: isLoading, error } : { data: undefined, loading: false, error: undefined };
 }

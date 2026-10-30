@@ -10,6 +10,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useSensorWords } from '@/hooks/use-failure-text';
 import { keyCell } from './key-value';
+import { widgetPageSize } from './type-switch';
 import type { WidgetSelection } from './use-widget-data';
 import { LOAD_FAILED, NO_INSTRUMENTS, WidgetMessage, useWidgetRows, valueOf } from './widget-common';
 
@@ -18,7 +19,7 @@ export function LatestTableWidget({ widget, selection }: { widget: CustomWidget;
   const words = useSensorWords();
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(widget.options.pageSize ?? 25);
+  const [pageSize, setPageSize] = useState<number>(widgetPageSize(widget));
 
   const table = useMemo(() => rows.map((row) => ({
     row,

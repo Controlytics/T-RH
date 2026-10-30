@@ -2,8 +2,10 @@
  * Which alarms a dashboard surface asks about — the ONE builder of the scope
  * filters, shared by the alarm table (`GET /api/alarms`, `selection-alarms.tsx`)
  * and the alarm counts (`GET /api/alarms/counts`, `useAlarmCounts`), which accept
- * the same filter set. Two builders would let a counts widget and a table beside
- * it count different alarms for one selection.
+ * the same filter set: given the same scope, the two ask the same question.
+ * One difference is in the SCOPE, not the builder: the home dashboard's alarms
+ * panel passes its location alone and never sends `functionalLocationDirect`,
+ * while a built widget following a "direct" selection does.
  *
  * The SCOPE only: paging, search, type and status are the table's own
  * (`applyWidgetFilters`).

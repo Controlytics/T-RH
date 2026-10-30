@@ -193,10 +193,13 @@ export function useTelemetryOverview(opts?: string | {
   // an empty dashboard and the whole estate.
   const noInstruments = o.instrumentIds !== undefined && o.instrumentIds.length === 0;
   if (o.instrumentIds && o.instrumentIds.length > 0) qs.set('instrumentIds', o.instrumentIds.join(','));
+  // The string, not `URLSearchParams.size`: `size` is undefined before Chrome 113
+  // / Safari 17, so a scoped query was sent as the bare, UNSCOPED route there.
+  const query = qs.toString();
   const url = noInstruments
     ? null
-    : qs.size
-      ? `/api/instruments/telemetry-overview?${qs.toString()}`
+    : query
+      ? `/api/instruments/telemetry-overview?${query}`
       : '/api/instruments/telemetry-overview';
 
   const { data, error, isLoading } = useSWR<{ data: OverviewRow[] }>(url, {
@@ -218,8 +221,14 @@ export function useTelemetryOverview(opts?: string | {
   // asked anyway. The "updates every 5s" captions that `refreshMs` fed went the
   // same way, from the table and then the floorplan, leaving it with no consumer.
   // The POLL itself is unchanged — only the captions announcing it are gone.
-  return { rows: data?.data ?? [], isLoading, error };
+  // `keepPreviousData` hands a NULL key (an empty list) the last key's rows; an
+  // empty list is NO instruments, so it reads as none.
+  if (url === null) return { rows: NO_ROWS, isLoading: false, error: undefined };
+  return { rows: data?.data ?? NO_ROWS, isLoading, error };
 }
+
+/** One stable empty array: a fresh `[]` per render would re-run every effect keyed on the rows. */
+const NO_ROWS: OverviewRow[] = [];
 
 /**
  * "22.4 °C", or an em dash when the slot has no reading.

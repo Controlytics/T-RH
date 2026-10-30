@@ -3,6 +3,9 @@
  * type — so a widget can never be saved with a key or an option its type refuses
  * (the strict layout writer would 400 on the leftover). Read from the shared
  * registry, `WIDGET_TYPE_SPECS`; nothing here restates a type's rules.
+ *
+ * Also the ONE page-size default of a paged widget, read by the dialog's Rows per
+ * page AND by the renderer, so the two cannot drift.
  */
 import {
   WIDGET_TYPE_SPECS,
@@ -25,6 +28,18 @@ const PHASE1_OFFERED: Partial<Record<WidgetType, readonly WidgetOptionName[]>> =
   timeseries_table: ['period', 'pageSize'],
   alarm_table: ['status'],
 };
+
+/** Rows per page when a paged widget stores none. */
+export const WIDGET_PAGE_SIZE_DEFAULT: Readonly<Partial<Record<WidgetType, number>>> = {
+  latest_table: 25,
+  timeseries_table: 25,
+  instrument_list: 10,
+};
+
+/** The rows per page a paged widget shows: its stored choice, else its type's default. */
+export function widgetPageSize(widget: Pick<CustomWidget, 'type' | 'options'>): number {
+  return widget.options.pageSize ?? WIDGET_PAGE_SIZE_DEFAULT[widget.type] ?? 25;
+}
 
 export function offeredOptions(type: WidgetType): readonly WidgetOptionName[] {
   return PHASE1_OFFERED[type] ?? WIDGET_TYPE_SPECS[type].options;

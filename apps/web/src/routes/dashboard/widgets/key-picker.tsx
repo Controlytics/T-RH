@@ -19,8 +19,8 @@ const NO_HISTORY: Partial<Record<WidgetType, string>> = {
   timeseries_table: 'Attributes have no history to list',
   bar_chart: 'Attributes have no history to plot',
 };
-/** Charts that plot a number: a key with no numeric reading lately is flagged (never refused). */
-const PLOTS_NUMBERS: readonly WidgetType[] = ['trend_chart', 'bar_chart'];
+/** Widgets that DRAW a number: a key with no numeric reading lately is flagged (never refused). */
+const PLOTS_NUMBERS: readonly WidgetType[] = ['trend_chart', 'bar_chart', 'gauge', 'comparison_bar'];
 
 /** Why an attribute cannot go on this type, or undefined when it can. */
 function attributeRefusal(type: WidgetType): string | undefined {

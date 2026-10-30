@@ -25,6 +25,7 @@ class StubResizeObserver {
 }
 
 import EChart from '../echart';
+import { NEUTRAL_HEX } from '../chart-colors';
 
 const OPTION_A = { series: [{ type: 'bar', data: [1, 2] }] };
 const OPTION_B = { series: [{ type: 'bar', data: [3] }] };
@@ -79,6 +80,14 @@ describe('EChart', () => {
   it('an option that asks for animation still gets none', () => {
     render(<EChart option={{ ...OPTION_A, animation: true }} height={240} ariaLabel="c" />);
     expect(ec.instance.setOption.mock.calls[0][0]).toMatchObject({ animation: false });
+  });
+
+  it("a builder that forgets its colours draws NEUTRAL - never ECharts' default palette; its own colours win", () => {
+    const { rerender } = render(<EChart option={OPTION_A} height={240} ariaLabel="c" />);
+    expect(ec.instance.setOption.mock.calls[0][0].color).toEqual([NEUTRAL_HEX]);
+    const coloured = { ...OPTION_B, color: ['#2a78d6', '#eb6834'] };
+    rerender(<EChart option={coloured} height={240} ariaLabel="c" />);
+    expect(ec.instance.setOption.mock.calls[1][0].color).toEqual(['#2a78d6', '#eb6834']);
   });
 
   it('resizes when its box is resized', () => {

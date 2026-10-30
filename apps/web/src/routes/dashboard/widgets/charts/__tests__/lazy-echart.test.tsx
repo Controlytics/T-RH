@@ -12,7 +12,13 @@ vi.mock('../echart', () => ({
   },
 }));
 
-import { LazyEChart } from '../lazy-echart';
+import { ChartBoundary, ChartChunkError, LazyEChart } from '../lazy-echart';
+
+/** Throws `error` while drawing, else draws a marker. */
+function Child({ error }: { error?: Error }) {
+  if (error) throw error;
+  return <p data-testid="drawn">drawn</p>;
+}
 
 const OPTION = { series: [] };
 
@@ -46,5 +52,43 @@ describe('LazyEChart', () => {
     expect(failed.style.minHeight).toBe('180px');
     expect(screen.getByText('the rest of the card')).toBeTruthy();
     expect(error.mock.calls.some((c) => String(c[0]).includes('[chart]'))).toBe(true);
+  });
+
+  it('a chart that failed to DRAW is tried again with the next option, and draws', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    state.fail = true;
+    const { rerender } = render(<LazyEChart option={OPTION} height={180} ariaLabel="c" />);
+    expect(await screen.findByTestId('echart-failed')).toBeTruthy();
+    state.fail = false;
+    // The same option object again is not a reason to retry.
+    rerender(<LazyEChart option={OPTION} height={180} ariaLabel="c" />);
+    expect(screen.getByTestId('echart-failed')).toBeTruthy();
+    rerender(<LazyEChart option={{ series: [] }} height={180} ariaLabel="c" />);
+    expect(await screen.findByTestId('echart')).toBeTruthy();
+    expect(screen.queryByTestId('echart-failed')).toBeNull();
+  });
+});
+
+describe('ChartBoundary', () => {
+  it('a drawing failure resets when resetKey changes', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { rerender } = render(<ChartBoundary height={100} resetKey="a"><Child error={new Error('bad data')} /></ChartBoundary>);
+    expect(screen.getByTestId('echart-failed')).toBeTruthy();
+    rerender(<ChartBoundary height={100} resetKey="b"><Child /></ChartBoundary>);
+    expect(screen.getByTestId('drawn')).toBeTruthy();
+  });
+
+  it('a chunk that could not load stays failed whatever the resetKey', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { rerender } = render(
+      <ChartBoundary height={100} resetKey="a"><Child error={new ChartChunkError(new Error('404'))} /></ChartBoundary>,
+    );
+    expect(screen.getByTestId('echart-failed')).toBeTruthy();
+    const logged = error.mock.calls.length;
+    rerender(<ChartBoundary height={100} resetKey="b"><Child /></ChartBoundary>);
+    expect(screen.getByTestId('echart-failed')).toBeTruthy();
+    expect(screen.queryByTestId('drawn')).toBeNull();
+    // Not re-thrown, so not re-logged on every poll.
+    expect(error.mock.calls.length).toBe(logged);
   });
 });

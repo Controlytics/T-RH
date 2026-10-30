@@ -11,6 +11,10 @@
  * `notMerge` on every new option, `resize` from a ResizeObserver on the box,
  * `disconnect` + `dispose` on unmount. Every option is drawn with `animation:
  * false` whatever the builder said: a poll that re-draws must not replay a sweep.
+ * And every option starts from `color: [NEUTRAL_HEX]`, which the builder's own
+ * `color` replaces: a builder that forgets its colours draws neutral grey, never
+ * ECharts' default palette (whose entries include a green that would read as
+ * "in limit").
  */
 import { useEffect, useRef } from 'react';
 import { init, use, type EChartsType } from 'echarts/core';
@@ -18,6 +22,7 @@ import { BarChart, GaugeChart, PieChart } from 'echarts/charts';
 import { GridComponent, LegendComponent, MarkLineComponent, TooltipComponent } from 'echarts/components';
 import { SVGRenderer } from 'echarts/renderers';
 import type { EChartProps } from './lazy-echart';
+import { NEUTRAL_HEX } from './chart-colors';
 
 use([GaugeChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, MarkLineComponent, SVGRenderer]);
 
@@ -43,7 +48,7 @@ export default function EChart({ option, height, ariaLabel }: EChartProps) {
   }, []);
 
   useEffect(() => {
-    chart.current?.setOption({ ...option, animation: false }, { notMerge: true });
+    chart.current?.setOption({ color: [NEUTRAL_HEX], ...option, animation: false }, { notMerge: true });
   }, [option]);
 
   return <div ref={box} role="img" aria-label={ariaLabel} style={{ height, width: '100%' }} />;

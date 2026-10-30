@@ -50,6 +50,7 @@ vi.mock('@/hooks/use-toast', () => ({ useToast: () => TOAST }));
 import { WidgetDialog, WIDGET_OPTION_SECTIONS, type WidgetOptionSectionProps } from '../widget-dialog';
 import { RoleDefaultDialog } from '../role-default-dialog';
 import { KeyPicker } from '../key-picker';
+import { WIDGET_PAGE_SIZE_DEFAULT, widgetPageSize } from '../type-switch';
 
 const SEL = { functionalLocationId: 'fl1', directOnly: false };
 
@@ -266,6 +267,19 @@ describe('WidgetDialog - the widget-type registry', () => {
     expect((onSubmit.mock.calls[0][0] as CustomWidget).options).toEqual({ period: '7d' });
   });
 
+  it("Rows per page names the renderer's own default - the ONE constant both read", () => {
+    render(<WidgetDialog open selection={SEL} onCancel={() => {}} onSubmit={() => {}} />);
+    for (const [name, type] of [[/^Latest values table/, 'latest_table'], [/^Time series table/, 'timeseries_table'], [/^Instrument list/, 'instrument_list']] as const) {
+      fireEvent.click(screen.getByRole('button', { name }));
+      const select = screen.getByLabelText('Rows per page') as HTMLSelectElement;
+      expect(select.options[0].textContent).toBe(String(WIDGET_PAGE_SIZE_DEFAULT[type]));
+      expect(widgetPageSize({ type, options: {} })).toBe(WIDGET_PAGE_SIZE_DEFAULT[type]);
+      expect(widgetPageSize({ type, options: { pageSize: 50 } })).toBe(50);
+    }
+    expect(WIDGET_PAGE_SIZE_DEFAULT.instrument_list).toBe(10);
+    expect(WIDGET_PAGE_SIZE_DEFAULT.latest_table).toBe(25);
+  });
+
   it('a type that shows the present offers no period', () => {
     render(<WidgetDialog open selection={SEL} onCancel={() => {}} onSubmit={() => {}} />);
     for (const name of [/^Gauge/, /^Comparison bars/, /^Pie chart/, /^Alarm counts/, /^Instrument list/, /^Text card/, /^Floor plan/]) {
@@ -347,6 +361,20 @@ describe('KeyPicker - the type decides', () => {
     render(<KeyPicker catalogue={MANY} chosen={chosen(GAUGE_KEYS_MAX)} onChange={() => {}} type="value_cards" />);
     expect(screen.getByRole('checkbox', { name: 'k6 (k6)' })).toHaveProperty('disabled', false);
     expect(screen.queryByText(/^At most/)).toBeNull();
+  });
+
+  it.each(['trend_chart', 'bar_chart', 'gauge', 'comparison_bar'] as const)(
+    'a %s flags a key with no numeric reading lately, and still offers it',
+    (type) => {
+      render(<KeyPicker catalogue={CATALOGUE.keys} chosen={[]} onChange={() => {}} type={type} />);
+      expect(screen.getByText('No numeric reading lately')).toBeTruthy();
+      expect(screen.getByRole('checkbox', { name: 'state (state)' })).toHaveProperty('disabled', false);
+    },
+  );
+
+  it('a table does not flag a text key', () => {
+    render(<KeyPicker catalogue={CATALOGUE.keys} chosen={[]} onChange={() => {}} type="latest_table" />);
+    expect(screen.queryByText('No numeric reading lately')).toBeNull();
   });
 
   it('a bar chart refuses an attribute, with the reason', () => {

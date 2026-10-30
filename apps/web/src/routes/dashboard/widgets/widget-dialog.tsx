@@ -24,7 +24,7 @@ import { Button } from '@/components/ui/button';
 import { useHistoryScope } from '@/routes/data-report/use-history-scope';
 import { KeyDisplayRows } from './key-display-rows';
 import { KeyPicker } from './key-picker';
-import { keysForType, offeredOptions, optionsForType, type WidgetOptions } from './type-switch';
+import { WIDGET_PAGE_SIZE_DEFAULT, keysForType, offeredOptions, optionsForType, type WidgetOptions } from './type-switch';
 import { useKeyCatalogue, type CatalogueSelector, type WidgetSelection } from './use-widget-data';
 import { WidgetBody } from './widget-panel';
 
@@ -45,13 +45,6 @@ const TYPES: { type: WidgetType; label: string; blurb: string }[] = [
   { type: 'text_card', label: 'Text card', blurb: 'A note in your own words' },
   { type: 'floorplan', label: 'Floor plan', blurb: 'A drawn floor plan with its live readings' },
 ];
-
-/** What "no page size" means in Rows per page: the renderer's own default (keep in step with it). */
-const PAGE_SIZE_DEFAULT: Partial<Record<WidgetType, number>> = {
-  latest_table: 25,
-  timeseries_table: 25,
-  instrument_list: 10,
-};
 
 /** What a type's option section is given. */
 export interface WidgetOptionSectionProps {
@@ -290,7 +283,7 @@ export function WidgetDialog({
                   value={options.pageSize ?? ''}
                   onChange={(e) => patchOptions({ pageSize: e.target.value ? Number(e.target.value) as WidgetOptions['pageSize'] : undefined })}
                 >
-                  <option value="">{PAGE_SIZE_DEFAULT[type] ?? 25}</option>
+                  <option value="">{WIDGET_PAGE_SIZE_DEFAULT[type]}</option>
                   {WIDGET_PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
                 </select>
               </label>

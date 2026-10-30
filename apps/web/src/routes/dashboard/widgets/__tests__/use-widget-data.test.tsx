@@ -172,6 +172,17 @@ describe('useTelemetryBuckets', () => {
     expect(noKeys.current.data).toBeUndefined();
   });
 
+  it("moving to no instruments drops the previous selection's buckets (keepPreviousData must not leak)", async () => {
+    get.mockResolvedValue(BUCKETS);
+    const { result, rerender } = renderHook(
+      ({ ids }: { ids: string[] }) => useTelemetryBuckets(ids, ['p'], range, 'hour', 'avg', 'all'),
+      { wrapper, initialProps: { ids: ['a'] } },
+    );
+    await waitFor(() => expect(result.current.data).toEqual(BUCKETS));
+    rerender({ ids: [] });
+    expect(result.current).toEqual({ data: undefined, loading: false, error: undefined });
+  });
+
   it('a refused request is the error, not an empty chart', async () => {
     const refused = Object.assign(new Error('That window holds more than 1,000 hours'), { status: 400 });
     get.mockRejectedValue(refused);
@@ -211,6 +222,18 @@ describe('useAlarmCounts', () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(get).not.toHaveBeenCalled();
     expect(result.current).toEqual({ data: undefined, loading: false, error: undefined });
+  });
+
+  it("moving to an EMPTY list drops the previous selection's counts (keepPreviousData must not leak)", async () => {
+    get.mockResolvedValue(COUNTS);
+    const { result, rerender } = renderHook(
+      ({ scope }: { scope: { directOnly: boolean; instrumentIds?: string[] } }) => useAlarmCounts(scope),
+      { wrapper, initialProps: { scope: { directOnly: false, instrumentIds: ['a'] } } },
+    );
+    await waitFor(() => expect(result.current.data).toEqual(COUNTS));
+    rerender({ scope: { directOnly: false, instrumentIds: [] } });
+    expect(result.current).toEqual({ data: undefined, loading: false, error: undefined });
+    expect(get).toHaveBeenCalledTimes(1);
   });
 
   it('a refused request (no ALARM_READ) is the error', async () => {
