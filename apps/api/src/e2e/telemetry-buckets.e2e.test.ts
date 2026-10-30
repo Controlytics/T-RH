@@ -133,7 +133,12 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  // FIRST, on its own guard: hand back the config even while failing.
+  // FIRST, on its own guard: hand back the config even while failing. A failed
+  // restore is COLLECTED, the rest of the teardown still runs, and then it is
+  // rethrown so the run fails: a restore that only logged would exit 0 and leave
+  // the shared test DB holding a zone this file wrote, which the next run would
+  // snapshot as its "before" (the 2026-08-31 ratchet in apps/api/CLAUDE.md).
+  let restoreError: unknown = null;
   try {
     if (datetimeTouched) {
       if (datetimeBefore) {
@@ -146,7 +151,7 @@ afterAll(async () => {
       }
     }
   } catch (err) {
-    console.error('telemetry-buckets: could NOT restore the datetime config', err);
+    restoreError = err;
   }
   const ids = [A, B].filter(Boolean);
   await prisma.$executeRaw`DELETE FROM instrument_telemetry_history WHERE instrument_id = ANY(${ids}::text[])`.catch(() => {});
@@ -160,7 +165,17 @@ afterAll(async () => {
   await prisma.user.deleteMany({ where: { id: { in: userIds } } }).catch(() => {});
   await prisma.role.deleteMany({ where: { name: ROLE } }).catch(() => {});
   invalidateRolePermsCache(ROLE);
-  await app.close();
+  try {
+    await app.close();
+  } finally {
+    if (restoreError) {
+      throw new Error(
+        'telemetry-buckets: could NOT restore the `datetime` config in compliance_core_db_test — '
+        + 'it may still hold a zone this file wrote; restore it by hand before the next run',
+        { cause: restoreError },
+      );
+    }
+  }
 });
 
 const buckets = (qs: string, headers = sa) =>
