@@ -30,7 +30,7 @@ vi.mock('../charts/lazy-echart', () => ({
 }));
 
 import { WidgetBody } from '../widget-panel';
-import { NEUTRAL_HEX, SERIES_HEX, STATUS_HEX } from '../charts/chart-colors';
+import { ALARM_SERIES_HEX, NEUTRAL_HEX, STATUS_HEX } from '../charts/chart-colors';
 import { PIE_HEIGHT } from '../pie-model';
 
 const SEL = { functionalLocationId: 'fl-1', directOnly: false };
@@ -86,6 +86,12 @@ describe('pie chart widget — instrument status', () => {
     expect(color).not.toBe(STATUS_HEX.NO_DATA);
   });
 
+  it('M-1: one instrument is "1 instrument" in the chart\'s label', () => {
+    state.overview = { rows: [row('a', 'OK')], loading: false, error: undefined };
+    render(<WidgetBody widget={pie('status')} selection={SEL} />);
+    expect(charts.at(-1)!.ariaLabel).toBe('Health: 1 instrument — In limit 1');
+  });
+
   it('Review Focus 1: not reporting, it is an "Offline" slice', () => {
     state.overview = { rows: [row('p', 'NO_DATA', { judged: false, reporting: false })], loading: false, error: undefined };
     render(<WidgetBody widget={pie('status')} selection={SEL} />);
@@ -117,8 +123,8 @@ describe('pie chart widget — active alarms by type', () => {
   it('draws each type with an active alarm, named as administered, in series colours', () => {
     render(<WidgetBody widget={pie('alarm_types')} selection={SEL} />);
     expect(slicesOf(charts.at(-1)!)).toEqual([
-      ['Room too warm', 4, SERIES_HEX[0]],
-      ['Inactivity', 1, SERIES_HEX[1]],
+      ['Room too warm', 4, ALARM_SERIES_HEX[0]],
+      ['Inactivity', 1, ALARM_SERIES_HEX[1]],
     ]);
     expect(charts.at(-1)!.option.legend.selectedMode).toBe(false);
   });
@@ -143,6 +149,14 @@ describe('pie chart widget — active alarms by type', () => {
     render(<WidgetBody widget={pie('alarm_types')} selection={SEL} />);
     expect(screen.getByRole('alert').textContent).toBe('Could not load this widget.');
     expect(charts).toHaveLength(0);
+  });
+
+  it('M-2: a failed refresh keeps the slices and says so in ALARM words, not readings', () => {
+    state.counts = { data: COUNTS, loading: false, error: Object.assign(new Error('HTTP 502'), { status: 502 }) };
+    render(<WidgetBody widget={pie('alarm_types')} selection={SEL} />);
+    expect(charts).not.toHaveLength(0);
+    expect(screen.getByTestId('widget-refresh-failed').textContent)
+      .toBe('These alarms could not be refreshed. Showing the last ones that loaded.');
   });
 
   it('an empty instrument list asks nothing and says so', () => {

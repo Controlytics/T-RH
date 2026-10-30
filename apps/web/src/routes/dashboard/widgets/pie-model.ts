@@ -12,12 +12,16 @@
  *   (R7-3), never the series palette.
  * - **Active alarms by type** (`alarmTypePieModel`): the `byType` counts of
  *   `GET /api/alarms/counts`, a slice per type with an active alarm, in the
- *   server's order, each the next `SERIES_HEX` colour, named with the ADMINISTERED
- *   names (`alarmTypeOptions`, the Alarms page's own). More types than colours
- *   (R7-2): the largest keep a colour each and the rest share ONE neutral
- *   "Other" slice whose tooltip lists them — a colour never repeats in a pie.
- *   A slice's colour is its POSITION among the active types, so a type's colour
- *   can change as other types go to zero (the brief's "in SERIES_HEX order").
+ *   server's order, each the next `ALARM_SERIES_HEX` colour — the series
+ *   palette less its greens (R7-8: every slice is an alarm, and green reads "in
+ *   limit") — named with the ADMINISTERED names (`alarmTypeOptions`, the Alarms
+ *   page's own). More types than colours (R7-2): the largest keep a colour each
+ *   and the rest share ONE neutral "Other" slice whose tooltip lists them — a
+ *   colour never repeats in a pie. A slice's colour is its POSITION among the
+ *   active types, so a type's colour can change as other types go to zero.
+ * - "Partial data" and "Offline" share the status amber (STALE and PARTIAL share
+ *   one dot app-wide); the Partial slice is STRIPED — on the ring, its legend
+ *   icon and its tooltip swatch — so the two never read as one (R7-10).
  *
  * The legend is a key, not a filter (R7-1). Every option is built with the
  * app's colours passed explicitly.
@@ -27,11 +31,11 @@ import type { AlarmTypeNames } from '@digilog/shared';
 import type { EChartsCoreOption } from 'echarts/core';
 import { alarmTypeOptions } from '@/routes/alarms/alarm-display';
 import type { OverviewRow } from '../use-telemetry';
-import { groupDigits } from './bar-chart-model';
-import { CHART_FONT_FAMILY, CHART_INK, NEUTRAL_HEX, SERIES_HEX, STATUS_HEX } from './charts/chart-colors';
+import { ALARM_SERIES_HEX, CHART_FONT_FAMILY, CHART_INK, NEUTRAL_HEX, STATUS_HEX } from './charts/chart-colors';
 import { escapeHtml } from './comparison-model';
 import { instrumentLook, type InstrumentLookKey } from './instrument-look';
 import type { AlarmCounts } from './use-widget-data';
+import { groupDigits } from './widget-common';
 
 export interface PieSlice {
   /** The `instrumentLook` key, the server's type token, or `OTHER`. */
@@ -40,12 +44,20 @@ export interface PieSlice {
   label: string;
   count: number;
   hex: string;
+  /** Drawn over the colour, so a slice that shares its colour stays told apart (R7-10). */
+  pattern?: 'stripes';
   /** Only on "Other": each type it holds, and that type's count. */
   merged?: readonly { label: string; count: number }[];
 }
 
 /** The status slices' order: the worst first, "In limit" last. */
 export const STATUS_PIE_ORDER: readonly InstrumentLookKey[] = ['OUT_OF_SPEC', 'PARTIAL', 'STALE', 'NO_DATA', 'NOT_JUDGED', 'OK'];
+
+/**
+ * The looks drawn striped (R7-10): PARTIAL shares STALE's amber, and the two sit
+ * side by side in the fixed order.
+ */
+const STRIPED: ReadonlySet<InstrumentLookKey> = new Set(['PARTIAL']);
 
 /** How many instruments read each way. The word and colour are `instrumentLook`'s; nothing is judged here. */
 export function statusPieModel(rows: readonly Pick<OverviewRow, 'status' | 'reporting' | 'judged'>[]): PieSlice[] {
@@ -58,7 +70,9 @@ export function statusPieModel(rows: readonly Pick<OverviewRow, 'status' | 'repo
   }
   return STATUS_PIE_ORDER.flatMap((key) => {
     const held = seen.get(key);
-    return held ? [{ key, label: held.label, count: held.count, hex: STATUS_HEX[key] }] : [];
+    if (!held) return [];
+    const slice: PieSlice = { key, label: held.label, count: held.count, hex: STATUS_HEX[key] };
+    return [STRIPED.has(key) ? { ...slice, pattern: 'stripes' } : slice];
   });
 }
 
@@ -87,18 +101,19 @@ export function alarmTypePieModel(byType: AlarmCounts['byType'], names: AlarmTyp
   const active = byType
     .filter((t) => t.active > 0)
     .map((t) => ({ key: t.type, label: alarmTypeLabel(t.type, names), count: t.active }));
-  if (active.length <= SERIES_HEX.length) {
-    return distinctLabels(active.map((s, n) => ({ ...s, hex: SERIES_HEX[n] })));
+  const colours = ALARM_SERIES_HEX;
+  if (active.length <= colours.length) {
+    return distinctLabels(active.map((s, n) => ({ ...s, hex: colours[n] })));
   }
   // R7-2: the largest keep a colour each (a tie goes to the server's earlier type).
   const keep = new Set(
     active
       .map((s, n) => ({ count: s.count, n }))
       .sort((a, b) => b.count - a.count || a.n - b.n)
-      .slice(0, SERIES_HEX.length - 1)
+      .slice(0, colours.length - 1)
       .map((x) => x.n),
   );
-  const kept = active.filter((_, n) => keep.has(n)).map((s, n) => ({ ...s, hex: SERIES_HEX[n] }));
+  const kept = active.filter((_, n) => keep.has(n)).map((s, n) => ({ ...s, hex: colours[n] }));
   const rest = active.filter((_, n) => !keep.has(n));
   return distinctLabels([
     ...kept,
@@ -187,12 +202,32 @@ export function piePlan(slices: readonly PieSlice[], width: number | null): PieP
 
 export type PieSubject = { subject: 'status'; total: number } | { subject: 'alarm_types' };
 
-const plural = (n: number, one: string, many: string) => `${groupDigits(n)} ${n === 1 ? one : many}`;
+/** "1 instrument", "1,380 instruments" — the count grouped, the noun agreeing with it. */
+export const plural = (n: number, one: string, many: string) => `${groupDigits(n)} ${n === 1 ? one : many}`;
+
+/**
+ * The stripes over a striped slice (R7-10): white, diagonal, over the slice's own
+ * colour, so the status amber stays the status amber. ECharts draws a `decal` on
+ * the slice and, given the same on its legend entry, on its legend icon.
+ */
+export const STRIPE_DECAL = {
+  symbol: 'rect',
+  symbolSize: 1,
+  dashArrayX: [1, 0],
+  // 1 px of white in every 4: thin enough that the 10 px legend icon still reads
+  // as an amber square, striped (2 px read as an amber slash: render check).
+  dashArrayY: [1, 3],
+  rotation: -Math.PI / 4,
+  color: 'rgba(255, 255, 255, 0.85)',
+} as const;
+
+/** The same stripes in CSS, for the tooltip's swatch. */
+const STRIPE_CSS = 'background-image:repeating-linear-gradient(-45deg,rgba(255,255,255,0.85) 0 1px,transparent 1px 4px);';
 
 /** One slice's tooltip: its name, then what it counts — "3 of 12 instruments", "4 active alarms" — and, for "Other", each type it holds. */
 export function pieTooltip(slice: PieSlice, about: PieSubject): string {
   const head = '<div style="display:flex;align-items:center;gap:8px">'
-    + `<span style="flex:none;width:8px;height:8px;border-radius:2px;background:${slice.hex}"></span>`
+    + `<span style="flex:none;width:8px;height:8px;border-radius:2px;background-color:${slice.hex};${slice.pattern ? STRIPE_CSS : ''}"></span>`
     + `<b style="color:${CHART_INK.strong}">${escapeHtml(slice.label)}</b></div>`;
   const what = about.subject === 'status'
     ? `${groupDigits(slice.count)} of ${plural(about.total, 'instrument', 'instruments')}`
@@ -216,7 +251,8 @@ export function buildPieOption(slices: readonly PieSlice[], about: PieSubject, p
       padding: 0,
       // A key, not a filter (R7-1): a hidden slice would still be in the counts.
       selectedMode: false,
-      data: slices.map((s) => s.label),
+      // The striped slice's legend icon wears its stripes too (R7-10).
+      data: slices.map((s) => (s.pattern ? { name: s.label, itemStyle: { decal: STRIPE_DECAL } } : { name: s.label })),
       formatter: (name: string) => textOf.get(name) ?? name,
       // A shortened name, in full.
       tooltip: { show: true },
@@ -260,7 +296,11 @@ export function buildPieOption(slices: readonly PieSlice[], about: PieSubject, p
       itemStyle: { borderColor: '#ffffff', borderWidth: 2, borderRadius: 3 },
       // One instrument of hundreds is still a slice you can see and point at.
       minAngle: 3,
-      data: slices.map((s) => ({ name: s.label, value: s.count, itemStyle: { color: s.hex } })),
+      data: slices.map((s) => ({
+        name: s.label,
+        value: s.count,
+        itemStyle: s.pattern ? { color: s.hex, decal: STRIPE_DECAL } : { color: s.hex },
+      })),
     }],
   };
 }

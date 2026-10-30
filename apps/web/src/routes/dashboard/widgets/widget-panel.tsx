@@ -123,7 +123,10 @@ export function WidgetPanel({
         </>
       )}
     >
-      <WidgetBody widget={widget} selection={selection} trail={trail} />
+      {/* While the dashboard is being EDITED a widget is handed no trail, so a
+          status tile is inert, as in the Add widget preview: a click there would
+          leave a page holding an unsaved draft (R7-9). */}
+      <WidgetBody widget={widget} selection={selection} trail={editing ? undefined : trail} />
     </PanelCard>
   );
 }

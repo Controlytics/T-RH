@@ -172,7 +172,15 @@ export function useTelemetrySettings(): TelemetrySettings {
 export function useTelemetryOverview(opts?: string | {
   floorplanId?: string; functionalLocationId?: string; directOnly?: boolean;
   profileId?: string; instrumentIds?: string[];
-}) {
+}, hold: {
+  /**
+   * Hand back the PREVIOUS query's rows while a new one has none (the default,
+   * the readings table's choice — see below). The dashboard's status widgets
+   * pass `false`: they must never draw another scope's rows as this one's
+   * (Task 7 fix round 1, I-1). The SWR key is the same either way.
+   */
+  keepPreviousData?: boolean;
+} = {}) {
   const { overviewRefreshMs } = useTelemetrySettings();
   // A bare string stays supported so existing callers (floorplan-view) are
   // unchanged; the object form adds the functional-location scope.
@@ -211,7 +219,7 @@ export function useTelemetryOverview(opts?: string | {
     // to a skeleton on every drill-down and the auto-height grid shrank, then
     // grew again — "widgets take 2-3 sec to align" (operator). Rows carry
     // their own instrument codes, so a brief stale set is not mislabeled.
-    keepPreviousData: true,
+    keepPreviousData: hold.keepPreviousData ?? true,
   });
 
   // Neither `mutate` NOR `refreshMs` is exported, and both absences are deliberate.

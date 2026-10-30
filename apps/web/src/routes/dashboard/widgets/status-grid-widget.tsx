@@ -8,8 +8,10 @@
  * A tile opens the instrument's trend page carrying the dashboard's origin AND
  * its breadcrumb trail (`from: 'dashboard'`, `trail`) — the rule every way from
  * the dashboard into the trend page follows (apps/web/CLAUDE.md). The host hands
- * the trail; with none (the Add widget dialog's live preview) a tile is not a
- * link, so a click cannot leave the dialog and drop the draft.
+ * the trail; with none — the Add widget dialog's live preview, and a dashboard
+ * being edited (`WidgetPanel` withholds it, R7-9) — a tile is not a link, so a
+ * click cannot leave a page holding an unsaved draft. The rows are only ever the
+ * current request's (`useWidgetOverview`, fix round 1, I-1).
  */
 import { Link } from 'react-router-dom';
 import type { CustomWidget } from '@digilog/shared';

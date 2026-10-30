@@ -41,6 +41,38 @@ export const STATUS_HEX: Readonly<Record<InstrumentStatus | 'NOT_JUDGED', string
 /** A value nothing judges (a raw key's gauge ring): the "Not judged" colour, never a status one. */
 export const NEUTRAL_HEX = STATUS_HEX.NOT_JUDGED;
 
+/** A `#rrggbb` colour's hue, in degrees (0..360); a grey reads 0. */
+export function hueOf(hex: string): number {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b);
+  const span = max - Math.min(r, g, b);
+  if (span === 0) return 0;
+  const sector = max === r ? ((g - b) / span) % 6 : max === g ? (b - r) / span + 2 : (r - g) / span + 4;
+  return (sector * 60 + 360) % 360;
+}
+
+/**
+ * The hues that read as "in limit" — lime through green and emerald to teal
+ * (`emerald-500`, the OK dot, is 160°). Decided by HUE, not by a palette index,
+ * so a re-ordered or re-coloured series palette cannot slip a green back in.
+ */
+const GREEN_HUES = { from: 70, to: 175 } as const;
+
+/** `palette` without its greens, in its order (R7-8). */
+export function withoutGreens(palette: readonly string[]): string[] {
+  return palette.filter((hex) => {
+    const h = hueOf(hex);
+    return h < GREEN_HUES.from || h > GREEN_HUES.to;
+  });
+}
+
+/**
+ * The colours an ALARM-TYPE pie draws its slices in (R7-8): the series palette
+ * less its greens. Every slice there is an alarm, and green reads "in limit".
+ * Only the alarm pie uses it; bars, comparison and trend keys keep `SERIES_HEX`.
+ */
+export const ALARM_SERIES_HEX: readonly string[] = withoutGreens(SERIES_HEX);
+
 /**
  * The page's own greys, for a chart's axes, gridlines, legend and tooltip — so a
  * chart's chrome is the app's slate, never ECharts' own. Tailwind v4.1 slate

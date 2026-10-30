@@ -7,16 +7,20 @@
  * asked with `widgetAlarmScope` (the alarm table's scope).
  *
  * An empty pie is said in words ("Nothing to show"), never drawn as an empty
- * ring; no instruments in view is said as every widget says it.
+ * ring; no instruments in view is said as every widget says it. The data is only
+ * ever the current request's (`THIS_REQUEST_ONLY`), so a drill-down never draws
+ * the previous scope's ring (fix round 1, I-1).
  */
 import { useMemo, useState } from 'react';
 import type { CustomWidget } from '@digilog/shared';
 import { useAlarmTypeNames } from '@/hooks/use-failure-text';
 import { alarmScopeSelectsNothing, widgetAlarmScope } from '../alarm-scope';
 import { LazyEChart } from './charts/lazy-echart';
-import { alarmTypePieModel, buildPieOption, piePlan, statusPieModel, type PieSlice, type PieSubject } from './pie-model';
+import { alarmTypePieModel, buildPieOption, piePlan, plural, statusPieModel, type PieSlice, type PieSubject } from './pie-model';
 import { useAlarmCounts, useWidgetOverview, type WidgetSelection } from './use-widget-data';
-import { LOAD_FAILED, NO_INSTRUMENTS, WidgetMessage, WidgetNotes, answerState, useBoxWidth } from './widget-common';
+import {
+  LOAD_FAILED, NO_INSTRUMENTS, WidgetMessage, WidgetNotes, answerState, useBoxWidth, type RefreshNoun,
+} from './widget-common';
 
 export const NOTHING_TO_SHOW = 'Nothing to show';
 
@@ -38,8 +42,9 @@ function StatusPie({ widget, selection }: { widget: CustomWidget; selection: Wid
     <Ring
       slices={slices}
       about={{ subject: 'status', total: rows.length }}
-      ariaLabel={`${widget.title}: ${rows.length} instruments`}
+      ariaLabel={`${widget.title}: ${plural(rows.length, 'instrument', 'instruments')}`}
       refreshFailed={answer === 'stale'}
+      refreshNoun="readings"
     />
   );
 }
@@ -58,15 +63,17 @@ function AlarmTypePie({ widget, selection }: { widget: CustomWidget; selection: 
       about={{ subject: 'alarm_types' }}
       ariaLabel={`${widget.title}: active alarms by type`}
       refreshFailed={answer === 'stale'}
+      refreshNoun="alarms"
     />
   );
 }
 
-function Ring({ slices, about, ariaLabel, refreshFailed }: {
+function Ring({ slices, about, ariaLabel, refreshFailed, refreshNoun }: {
   slices: PieSlice[];
   about: PieSubject;
   ariaLabel: string;
   refreshFailed: boolean;
+  refreshNoun: RefreshNoun;
 }) {
   const [box, setBox] = useState<HTMLDivElement | null>(null);
   const width = useBoxWidth(box);
@@ -80,7 +87,7 @@ function Ring({ slices, about, ariaLabel, refreshFailed }: {
   if (slices.length === 0) return <WidgetMessage>{NOTHING_TO_SHOW}</WidgetMessage>;
   return (
     <div className="space-y-2">
-      <WidgetNotes refreshFailed={refreshFailed} />
+      <WidgetNotes refreshFailed={refreshFailed} refreshNoun={refreshNoun} />
       <div ref={setBox}>
         <LazyEChart
           option={option}

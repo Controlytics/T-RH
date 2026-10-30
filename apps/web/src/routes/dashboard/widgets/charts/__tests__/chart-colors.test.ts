@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { SERIES_COLORS } from '../../../time-series-chart';
 import { statusClasses } from '../../../status';
 import { UNJUDGED_CLASSES } from '../../key-value';
-import { CHART_FONT_FAMILY, CHART_INK, NEUTRAL_HEX, SERIES_HEX, STATUS_HEX } from '../chart-colors';
+import { ALARM_SERIES_HEX, CHART_FONT_FAMILY, CHART_INK, NEUTRAL_HEX, SERIES_HEX, STATUS_HEX, hueOf, withoutGreens } from '../chart-colors';
 
 describe('SERIES_HEX', () => {
   it("is the series palette's own literal fallbacks, in its order", () => {
@@ -13,6 +13,30 @@ describe('SERIES_HEX', () => {
       expect(hex).toMatch(/^#[0-9a-f]{6}$/i);
       expect(SERIES_COLORS[n]).toContain(hex);
     });
+  });
+});
+
+describe('hueOf / withoutGreens — an alarm is never drawn in a green (R7-8)', () => {
+  it("reads a colour's hue in degrees", () => {
+    expect(hueOf('#ff0000')).toBe(0);
+    expect(hueOf('#00ff00')).toBe(120);
+    expect(hueOf('#0000ff')).toBe(240);
+    // r 27, g 175, b 122: (122 - 27) / (175 - 27) + 2 sectors = 158.5 degrees.
+    expect(hueOf('#1baf7a')).toBeCloseTo(158.5, 0);
+    // A grey has no hue: never "green".
+    expect(hueOf('#cad5e2')).toBeGreaterThan(200);
+  });
+
+  it('drops the greens by HUE — lime, green, emerald, teal — keeping the rest in order', () => {
+    const palette = ['#2a78d6', '#84cc16', '#eda100', '#22c55e', '#00bc7d', '#14b8a6', '#e87ba4', '#0ea5e9'];
+    expect(withoutGreens(palette)).toEqual(['#2a78d6', '#eda100', '#e87ba4', '#0ea5e9']);
+  });
+
+  it("the alarm palette is the series palette less its one green (#1baf7a), in order — not an index", () => {
+    expect(ALARM_SERIES_HEX).toEqual(SERIES_HEX.filter((h) => h !== '#1baf7a'));
+    expect(ALARM_SERIES_HEX).not.toContain('#1baf7a');
+    expect(ALARM_SERIES_HEX).not.toContain(STATUS_HEX.OK);
+    expect(ALARM_SERIES_HEX).toHaveLength(SERIES_HEX.length - 1);
   });
 });
 

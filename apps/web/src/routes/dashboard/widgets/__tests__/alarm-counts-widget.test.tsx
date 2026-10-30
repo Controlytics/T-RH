@@ -15,6 +15,7 @@ const NAMES: { current: Record<string, string> | undefined } = { current: { limi
 vi.mock('@/hooks/use-failure-text', () => ({ useAlarmTypeNames: () => NAMES.current }));
 
 import { WidgetBody } from '../widget-panel';
+import { WIDGET_START_HEIGHT } from '@/hooks/use-dashboard-layout';
 
 const SEL = { functionalLocationId: 'fl-1', directOnly: true };
 const widget = (source: CustomWidget['source'] = { mode: 'selection' }): CustomWidget => ({
@@ -108,11 +109,44 @@ describe('alarm counts widget', () => {
     setCounts(COUNTS, down);
     const a = view();
     expect(within(figure('active')).getByTestId('alarm-figure-value').textContent).toBe('8');
-    expect(screen.getByTestId('widget-refresh-failed')).toBeTruthy();
+    // M-2: the note says what it could not refresh — alarms, not readings.
+    expect(screen.getByTestId('widget-refresh-failed').textContent)
+      .toBe('These alarms could not be refreshed. Showing the last ones that loaded.');
     a.unmount();
     setCounts(undefined, down);
     view();
     expect(screen.getByRole('alert').textContent).toBe('Could not load this widget.');
+  });
+
+  it('M-5: a figure is in its alarm tone above zero and the "ok" tone at zero — never an alarm tint on a zero', () => {
+    view();
+    expect(figure('active').getAttribute('data-tone')).toBe('danger');
+    expect(figure('unacknowledged').getAttribute('data-tone')).toBe('warn');
+    // The tone reaches the drawing: the figure's ink and rail are the tone's tokens.
+    expect(within(figure('active')).getByTestId('alarm-figure-value').className).toContain('--status-danger-ink');
+    expect(within(figure('unacknowledged')).getByTestId('alarm-figure-value').className).toContain('--status-warn-ink');
+    setCounts({ quadrants: { activeUnack: 0, activeAck: 0, clearedUnack: 0, clearedAck: 4 }, byType: BY_TYPE.map((t) => ({ ...t, active: 0 })) });
+    view();
+    const zeros = screen.getAllByTestId(/^alarm-figure-(active|unacknowledged)$/).slice(2);
+    expect(zeros.map((f) => f.getAttribute('data-tone'))).toEqual(['ok', 'ok']);
+    for (const f of zeros) expect(within(f).getByTestId('alarm-figure-value').className).toContain('--status-ok-ink');
+  });
+
+  it('M-7/M-8: the types read as a LIST — flowing down a column first, one or two columns by the card\'s width', () => {
+    view();
+    const list = screen.getByRole('list', { name: 'Active alarms by type' });
+    const cls = list.className.split(/\s+/);
+    expect(cls).toEqual(expect.arrayContaining(['columns-1', '@lg:columns-2']));
+    // Never a grid: a grid flows across a row first, which read as a ragged table.
+    expect(cls.some((c) => c.includes('grid'))).toBe(false);
+    for (const li of typeRows()) expect(li.className.split(/\s+/)).toContain('break-inside-avoid');
+  });
+
+  it('M-7: a new alarm counts card starts 7 rows tall: its figures and all seven types fit at every width, w=12 down to w=3', () => {
+    // Found by the render check (fix round 1): at 6 rows the list ran past the
+    // card's bottom at w=4 and w=3; at 7 it fits with the longest administered
+    // names (built-p2-counts-grid.png).
+    expect(WIDGET_START_HEIGHT.alarm_counts).toBe(7);
   });
 
   it('loading is said; an empty instrument list asks nothing and says so', () => {

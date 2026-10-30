@@ -47,7 +47,7 @@ import { CHART_FONT_FAMILY, CHART_INK, SERIES_HEX } from './charts/chart-colors'
 import { CODE_PX_PER_CHAR, VALUE_AXIS_PX, codeAxis, escapeHtml, type CodeAxis } from './comparison-model';
 import { decimalsSeen, isMeasured } from './key-value';
 import type { BarAgg, BarBucket, BarGroup, BucketRequest, TelemetryBuckets } from './use-widget-data';
-import { LOAD_FAILED, keyColorSlots, valueOf } from './widget-common';
+import { LOAD_FAILED, groupDigits, keyColorSlots, valueOf } from './widget-common';
 
 /**
  * What a bar chart shows when its options do not say — the server's own
@@ -83,9 +83,11 @@ export function barCaption(bucket: BarBucket, agg: BarAgg): string {
  * The ONE way a bar chart groups a whole number's digits — the value axis's
  * labels and the tooltip both (m-3): ECharts' own axis formatting groups in
  * thousands whatever the browser, so an en-IN tooltip said "5,04,000" beside an
- * axis of "500,000". Now both say it the browser's way.
+ * axis of "500,000". Now both say it the browser's way. The formatter itself
+ * lives in `widget-common.tsx` since Task 7 fix round 1 (M-6), so every count on
+ * the widgets is grouped by it; re-exported here for this file's callers.
  */
-export const groupDigits = (n: number): string => Math.round(n).toLocaleString();
+export { groupDigits };
 
 const counted = (n: number, one: string, many: string) => `${groupDigits(n)} ${n === 1 ? one : many}`;
 

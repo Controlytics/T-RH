@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 
 vi.mock('../use-widget-data', () => ({}));
 
-import { REFRESH_FAILED, WidgetNotes, answerState, keyColorSlots } from '../widget-common';
+import { REFRESH_FAILED, WidgetNotes, answerState, keyColorSlots, refreshFailedText } from '../widget-common';
 
 describe('WidgetNotes — ONE note row for every widget (fix round 1, m-6)', () => {
   it('says nothing when there is nothing to say', () => {
@@ -26,6 +26,22 @@ describe('WidgetNotes — ONE note row for every widget (fix round 1, m-6)', () 
     const row = screen.getByTestId('widget-notes');
     expect([...row.children].map((c) => c.getAttribute('data-testid'))).toEqual(['widget-more-note', 'widget-refresh-failed']);
     expect(screen.getByTestId('widget-more-note').textContent).toBe('200 more not shown');
+  });
+
+  it('M-6: the count beside "more not shown" is grouped like every other count on these widgets', () => {
+    render(<WidgetNotes more={1380} />);
+    expect(screen.getByTestId('widget-more-note').textContent).toBe(`${(1380).toLocaleString()} more not shown`);
+    expect(screen.getByTestId('widget-more-note').textContent).not.toBe('1380 more not shown');
+  });
+
+  it('M-2: a failed refresh names what could not be refreshed — readings by default, alarms on the alarm widgets', () => {
+    const { unmount } = render(<WidgetNotes refreshFailed />);
+    expect(screen.getByTestId('widget-refresh-failed').textContent).toBe(REFRESH_FAILED);
+    unmount();
+    render(<WidgetNotes refreshFailed refreshNoun="alarms" />);
+    expect(screen.getByTestId('widget-refresh-failed').textContent)
+      .toBe('These alarms could not be refreshed. Showing the last ones that loaded.');
+    expect(refreshFailedText('alarms')).not.toContain('readings');
   });
 
   it('none hidden says nothing', () => {

@@ -73,6 +73,24 @@ export function widgetPolling(refreshMs: number): SWRConfiguration {
   };
 }
 
+/**
+ * THE rule that a present-state widget's data is THIS request's answer (Task 7
+ * fix round 1, I-1). SWR's `keepPreviousData` hands a key with nothing cached the
+ * PREVIOUS key's data — together with the NEW key's error when its first request
+ * fails — and a drill-down from Block A to Block B whose request failed drew
+ * Block A's alarm counts, pies and tiles as Block B's, "Showing the last ones
+ * that loaded". With it off, a hook returns only the current key's own data, and
+ * the key (the URL) IS the whole request — scope, instruments — so the answer a
+ * widget holds always answers the request it makes now: a new scope loading
+ * shows the widget's loading state, a new scope failing "Could not load this
+ * widget.", and a failed REFRESH of the same scope keeps its last answer, said
+ * (`answerState`). Used by `useAlarmCounts` and `useWidgetOverview` — the alarm
+ * counts, both pies and the status grid. The bar chart keeps `keepPreviousData`:
+ * its rolling window is a new key every minute, so it compares requests itself
+ * (`heldAnswers`) and hands the result to the same `answerState`.
+ */
+export const THIS_REQUEST_ONLY = { keepPreviousData: false } as const;
+
 /** The dashboard's current drill-down — `nav.functionalLocationId` / `nav.directOnly`. */
 export interface WidgetSelection {
   functionalLocationId?: string;
@@ -122,7 +140,8 @@ export function useWidgetInstrumentIds(
  * extra request); over picked instruments it asks for exactly those ids, as
  * `widgetAlarmScope` does, and never the selection's rows (the same rule). One
  * call with its arguments chosen, never a conditional hook. The overview hook's
- * own polling and retry are the readings table's, unchanged.
+ * own polling and retry are the readings table's, unchanged; only
+ * `THIS_REQUEST_ONLY` differs — the rows are always this request's (I-1).
  */
 export function useWidgetOverview(
   source: CustomWidget['source'],
@@ -135,7 +154,7 @@ export function useWidgetOverview(
       directOnly: selection.directOnly,
       profileId: selection.profileId,
       instrumentIds: selection.instrumentIds,
-    });
+    }, THIS_REQUEST_ONLY);
   return { rows, loading: isLoading && rows.length === 0, error };
 }
 
@@ -400,7 +419,8 @@ export interface AlarmCounts {
  * table sends (`applyAlarmScope`), so the two cannot count different alarms. A
  * `WidgetSelection` is a scope as it stands; a widget with its own instruments
  * passes `widgetAlarmScope(widget.source, selection)`. An empty fixed list asks
- * nothing. A viewer without ALARM_READ gets the 403 as `error`.
+ * nothing. A viewer without ALARM_READ gets the 403 as `error`. The data is only
+ * ever THIS request's answer (`THIS_REQUEST_ONLY`, I-1).
  */
 export function useAlarmCounts(selection: AlarmScope): { data: AlarmCounts | undefined; loading: boolean; error: unknown } {
   const polling = widgetPolling(ALARM_REFRESH_MS);
@@ -415,9 +435,8 @@ export function useAlarmCounts(selection: AlarmScope): { data: AlarmCounts | und
   const { data, error, isLoading } = useSWR<AlarmCounts>(
     url,
     (u: string) => apiClient.get<AlarmCounts>(u),
-    polling,
+    { ...polling, ...THIS_REQUEST_ONLY },
   );
-  // `keepPreviousData` hands a NULL key the last key's data: an empty list must
-  // count nothing, never the previous selection's alarms.
+  // An empty list counts nothing, never the previous selection's alarms.
   return url ? { data, loading: isLoading, error } : { data: undefined, loading: false, error: undefined };
 }

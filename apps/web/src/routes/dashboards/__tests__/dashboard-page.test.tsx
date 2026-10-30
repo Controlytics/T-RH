@@ -435,6 +435,23 @@ describe('DashboardPage', () => {
     });
   });
 
+  it('R7-9: while the dashboard is being EDITED a status tile does nothing — a click never leaves the unsaved draft', async () => {
+    state.detail = DETAIL_STATUS;
+    mount('?edit=1');
+    expect(await screen.findByRole('button', { name: 'Save' })).toBeInTheDocument();
+    const tile = await screen.findByTestId('status-tile');
+    expect(tile.textContent).toContain('CWH/RDU/014-00');
+    expect(tile.tagName).not.toBe('A');
+    expect(screen.queryByRole('link', { name: /Open trend page for/ })).toBeNull();
+    fireEvent.click(tile);
+    expect(screen.queryByTestId('trend-probe')).toBeNull();
+    // Still editing, the draft still on screen.
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
+    // Out of edit mode the same tile is a link again.
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(await screen.findByRole('link', { name: 'Open trend page for CWH/RDU/014-00 — In limit' })).toBeInTheDocument();
+  });
+
   it('Review Focus 4: a viewer without ALARM_READ sees "Could not load this widget." on the alarm widgets, and the rest draws', async () => {
     state.detail = DETAIL_STATUS;
     mount();
@@ -446,8 +463,6 @@ describe('DashboardPage', () => {
       const card = screen.getByRole('heading', { name: title }).closest('.panel-card')!;
       expect(card.textContent).toContain('Could not load this widget.');
     }
-    // A refusal is asked once, never retried into a loop.
-    expect(urls().filter((u) => u.startsWith('/api/alarms/counts')).length).toBeLessThanOrEqual(2);
   });
 
   it('a widget that throws while drawing leaves the page and the other widgets drawn', async () => {

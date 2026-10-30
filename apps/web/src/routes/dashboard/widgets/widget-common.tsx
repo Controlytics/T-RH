@@ -98,6 +98,13 @@ export function useBoxWidth(el: HTMLElement | null): number | null {
   return width;
 }
 
+/**
+ * A count as the widgets print one: grouped in the browser's locale ("1,380"),
+ * a whole number. ONE formatter for every count on the widgets (the bar chart's
+ * tooltip and axis, the pie, the alarm counts, "N more not shown").
+ */
+export const groupDigits = (n: number): string => Math.round(n).toLocaleString();
+
 /** "Showing X of Y <things>" — every cap says what it did not draw. */
 export function CapNote({ shown, total, noun }: { shown: number; total: number; noun: string }) {
   if (shown >= total) return null;
@@ -108,12 +115,19 @@ export function CapNote({ shown, total, noun }: { shown: number; total: number; 
   );
 }
 
+/** What a failed refresh could not refresh: readings, or — on the alarm widgets — alarms (one word, one meaning). */
+export type RefreshNoun = 'readings' | 'alarms';
+
+/** A widget still drawing what it last loaded after a refresh failed, in the words for what it draws. */
+export function refreshFailedText(noun: RefreshNoun): string {
+  return `These ${noun} could not be refreshed. Showing the last ones that loaded.`;
+}
+
 /**
- * A widget still drawing what it last loaded after a refresh failed. The trend
- * page's own words (`trend.tsx`'s chart panel imports this), so the app says it
- * one way.
+ * The readings widgets' wording, and the trend page's own (`trend.tsx`'s chart
+ * panel imports this), so the app says it one way.
  */
-export const REFRESH_FAILED = 'These readings could not be refreshed. Showing the last ones that loaded.';
+export const REFRESH_FAILED = refreshFailedText('readings');
 
 /**
  * The notes a widget prints above what it draws — the cap, the tiles beyond a
@@ -121,12 +135,14 @@ export const REFRESH_FAILED = 'These readings could not be refreshed. Showing th
  * refresh — on ONE wrapping row, so each widget says them the same way and the
  * drawing keeps its room (fix round 1, m-6). Nothing to say → nothing rendered.
  */
-export function WidgetNotes({ cap, more = 0, unsent = [], refreshFailed = false }: {
+export function WidgetNotes({ cap, more = 0, unsent = [], refreshFailed = false, refreshNoun = 'readings' }: {
   cap?: { shown: number; total: number; noun: string };
   /** How many the widget did not draw, said as "N more not shown". */
   more?: number;
   unsent?: readonly string[];
   refreshFailed?: boolean;
+  /** What the widget draws, for the failed-refresh note (M-2): the alarm widgets say "alarms". */
+  refreshNoun?: RefreshNoun;
 }) {
   const capped = cap !== undefined && cap.shown < cap.total;
   if (!capped && more <= 0 && unsent.length === 0 && !refreshFailed) return null;
@@ -134,33 +150,44 @@ export function WidgetNotes({ cap, more = 0, unsent = [], refreshFailed = false 
     <div className="flex flex-wrap gap-x-4 gap-y-1" data-testid="widget-notes">
       {capped && <CapNote shown={cap.shown} total={cap.total} noun={cap.noun} />}
       {more > 0 && (
-        <p className="text-xs font-medium text-amber-700" data-testid="widget-more-note">{more} more not shown</p>
+        <p className="text-xs font-medium text-amber-700" data-testid="widget-more-note">{groupDigits(more)} more not shown</p>
       )}
       <NoReadingsNote labels={unsent} />
       {refreshFailed && (
-        <p className="text-xs font-medium text-amber-700" data-testid="widget-refresh-failed">{REFRESH_FAILED}</p>
+        <p className="text-xs font-medium text-amber-700" data-testid="widget-refresh-failed">{refreshFailedText(refreshNoun)}</p>
       )}
     </div>
   );
 }
 
 /**
- * Whether a present-state widget draws the answer it holds — the bar chart's
- * held-answer rule (fix round 1, I-1) for a query with no window to compare:
- * - `fresh`: an answer, no failure;
- * - `stale`: an answer held through a failed REFRESH — drawn, and said
+ * THE held-answer rule of the widgets (Task 7 fix round 1, I-1): whether a
+ * widget draws the answer it holds.
+ *
+ * `answersCurrent` is true only when the held answer ANSWERS THE REQUEST THE
+ * WIDGET MAKES NOW — never a previous scope's: SWR's `keepPreviousData` hands a
+ * key with nothing cached the previous key's data, and a drill-down whose request
+ * failed drew Block A's alarm counts as Block B's. Each widget says it its way:
+ * - the present-state widgets (alarm counts, both pies, the status grid) read
+ *   hooks that return ONLY the current request's answer (`THIS_REQUEST_ONLY`
+ *   in `use-widget-data.ts`), so "an answer is held" IS "it answers";
+ * - the bar chart, whose rolling window is a NEW request every minute, compares
+ *   the request its answer came from with the one it makes now (`heldAnswers`).
+ *
+ * - `fresh`: a current answer, no failure;
+ * - `stale`: a current answer held through a failed REFRESH — drawn, and said
  *   (`WidgetNotes refreshFailed`). The widget data hooks keep retrying at their
  *   cadence (`widgetPolling`); the status widgets' overview is the readings
  *   table's own hook (`useWidgetOverview`), with that hook's polling and retry;
  * - `failed`: a REFUSAL (a 403 for a viewer without ALARM_READ) never keeps what
- *   it holds, and a failure with nothing held is a failure — "Could not load
- *   this widget.";
- * - `none`: nothing yet, nothing failed.
+ *   it holds, and a failure with no current answer is a failure — "Could not
+ *   load this widget.", as the readings table says on the same key;
+ * - `none`: no current answer yet, nothing failed — the widget's loading state.
  */
-export function answerState(held: boolean, error: unknown): 'fresh' | 'stale' | 'failed' | 'none' {
+export function answerState(answersCurrent: boolean, error: unknown): 'fresh' | 'stale' | 'failed' | 'none' {
   const failed = error !== undefined && error !== null;
-  if (failed) return isRefusal(error) || !held ? 'failed' : 'stale';
-  return held ? 'fresh' : 'none';
+  if (failed) return isRefusal(error) || !answersCurrent ? 'failed' : 'stale';
+  return answersCurrent ? 'fresh' : 'none';
 }
 
 /**

@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import type { InstrumentStatus } from '@digilog/shared';
-import { NEUTRAL_HEX, SERIES_HEX, STATUS_HEX } from '../charts/chart-colors';
+import { init, setPlatformAPI, use } from 'echarts/core';
+import { PieChart } from 'echarts/charts';
+import { LegendComponent, TooltipComponent } from 'echarts/components';
+import { SVGRenderer } from 'echarts/renderers';
+import { ALARM_SERIES_HEX, NEUTRAL_HEX, SERIES_HEX, STATUS_HEX } from '../charts/chart-colors';
 import { statusClasses } from '../../status';
 import {
   LEGEND_BOTTOM_PX, OTHER_LABEL, PIE_HEIGHT, PIE_RING_MIN_PX, STATUS_PIE_ORDER,
@@ -13,6 +17,25 @@ const row = (status: InstrumentStatus, reporting = true, judged?: boolean): Row 
 /** The server's seven type tokens, in the server's order (`ALARM_TYPE_TOKENS`). */
 const TOKENS = ['TEMP_HIGH', 'TEMP_LOW', 'RH_HIGH', 'RH_LOW', 'OFFLINE', 'RS485', 'RANGE'] as const;
 const byType = (active: number[]) => TOKENS.map((type, n) => ({ type, active: active[n] ?? 0, unacknowledged: 0 }));
+
+/** An INDEPENDENT hue reading (not the helper under test): degrees, 0..360. */
+function hue(hex: string): number {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b);
+  const d = max - Math.min(r, g, b);
+  if (d === 0) return 0;
+  const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return (h * 60 + 360) % 360;
+}
+/** R7-8: no alarm slice is green — the "in limit" colour family. */
+const expectNoGreen = (slices: PieSlice[]) => {
+  for (const s of slices) {
+    expect(s.hex).not.toBe('#1baf7a');
+    expect(s.hex).not.toBe(STATUS_HEX.OK);
+    const h = hue(s.hex);
+    expect(h >= 80 && h <= 170).toBe(false);
+  }
+};
 
 describe('statusPieModel — one slice per instrumentLook key, the server decides every one', () => {
   it('counts each look, in the fixed order, labelled and coloured from instrumentLook / STATUS_HEX', () => {
@@ -70,14 +93,23 @@ describe('alarmTypeLabel — the Alarms page\'s administered names, never a lite
 });
 
 describe('alarmTypePieModel — active alarms by type', () => {
-  it('only types with an active alarm, in the server\'s order, each the next series colour', () => {
+  it('only types with an active alarm, in the server\'s order, each the next non-green series colour', () => {
     const slices = alarmTypePieModel(byType([4, 0, 2, 0, 1]), { limitHumidityHigh: 'Wet room' });
     expect(slices.map((s) => [s.key, s.label, s.count])).toEqual([
       ['TEMP_HIGH', 'High Temperature', 4],
       ['RH_HIGH', 'Wet room', 2],
       ['OFFLINE', 'Inactivity', 1],
     ]);
-    expect(slices.map((s) => s.hex)).toEqual([SERIES_HEX[0], SERIES_HEX[1], SERIES_HEX[2]]);
+    // R7-8: the THIRD type no longer lands on the series green (SERIES_HEX[2]).
+    expect(slices.map((s) => s.hex)).toEqual([ALARM_SERIES_HEX[0], ALARM_SERIES_HEX[1], ALARM_SERIES_HEX[2]]);
+    expect(slices[2].hex).not.toBe(SERIES_HEX[2]);
+    expectNoGreen(slices);
+  });
+
+  it('R7-8: however many types are active, no slice is ever green', () => {
+    for (let n = 1; n <= TOKENS.length; n += 1) {
+      expectNoGreen(alarmTypePieModel(byType(Array.from({ length: n }, (_, k) => k + 1)), undefined));
+    }
   });
 
   it('nothing active is no slice (the widget then says "Nothing to show")', () => {
@@ -85,29 +117,32 @@ describe('alarmTypePieModel — active alarms by type', () => {
     expect(alarmTypePieModel([], undefined)).toEqual([]);
   });
 
-  it('R7-2: more types than colours keeps the largest five in series order and merges the rest into "Other", neutral', () => {
-    // All seven active, distinct counts: RS485 (1) and TEMP_LOW (2) are the two smallest.
+  it('R7-2 + R7-8: more types than (non-green) colours keeps the largest (colours - 1) and merges the rest into "Other", neutral', () => {
+    // All seven active, distinct counts: RANGE (3), TEMP_LOW (2) and RS485 (1) are the three smallest.
     const slices = alarmTypePieModel(byType([7, 2, 6, 5, 4, 1, 3]), undefined);
-    expect(slices.map((s) => s.key)).toEqual(['TEMP_HIGH', 'RH_HIGH', 'RH_LOW', 'OFFLINE', 'RANGE', 'OTHER']);
-    expect(slices.slice(0, 5).map((s) => s.hex)).toEqual(SERIES_HEX.slice(0, 5));
-    const other = slices[5];
+    expect(ALARM_SERIES_HEX).toHaveLength(5);
+    expect(slices.map((s) => s.key)).toEqual(['TEMP_HIGH', 'RH_HIGH', 'RH_LOW', 'OFFLINE', 'OTHER']);
+    expect(slices.slice(0, 4).map((s) => s.hex)).toEqual(ALARM_SERIES_HEX.slice(0, 4));
+    const other = slices[4];
     expect(other.label).toBe(OTHER_LABEL);
     expect(OTHER_LABEL).toBe('Other');
     expect(other.hex).toBe(NEUTRAL_HEX);
-    expect(other.count).toBe(3);
+    expect(other.count).toBe(6);
     expect(other.merged).toEqual([
       { label: 'Low Temperature', count: 2 },
       { label: 'RS485 Temperature Failure / RS485 Humidity Failure', count: 1 },
+      { label: 'Temperature Failure / Humidity Failure', count: 3 },
     ]);
-    // Never a colour twice in one pie.
+    // Never a colour twice in one pie, and never a green.
     expect(new Set(slices.map((s) => s.hex)).size).toBe(slices.length);
+    expectNoGreen(slices);
   });
 
   it('exactly as many types as colours: no "Other", every colour once', () => {
-    const slices = alarmTypePieModel(byType([1, 1, 1, 1, 1, 1, 0]), undefined);
-    expect(slices).toHaveLength(SERIES_HEX.length);
+    const slices = alarmTypePieModel(byType([1, 1, 1, 1, 1, 0, 0]), undefined);
+    expect(slices).toHaveLength(ALARM_SERIES_HEX.length);
     expect(slices.some((s) => s.key === 'OTHER')).toBe(false);
-    expect(slices.map((s) => s.hex)).toEqual([...SERIES_HEX]);
+    expect(slices.map((s) => s.hex)).toEqual([...ALARM_SERIES_HEX]);
   });
 
   it('two types administered the same name stay two legend entries', () => {
@@ -144,7 +179,7 @@ describe('buildPieOption — the app\'s colours, explicitly; a key, not a filter
   it('R7-1: the legend is a key, not a filter', () => {
     const o: any = buildPieOption(STATUS_SLICES, { subject: 'status', total: 12 }, plan);
     expect(o.legend.selectedMode).toBe(false);
-    expect(o.legend.data).toEqual(['Out of limit', 'Not judged', 'In limit']);
+    expect(o.legend.data.map((d: any) => d.name)).toEqual(['Out of limit', 'Not judged', 'In limit']);
     expect(o.legend.formatter('Not judged')).toBe('Not judged  1');
     // Room under the last row, or the SVG's edge cuts its descenders (render check).
     expect(o.legend.bottom).toBe(LEGEND_BOTTOM_PX);
@@ -168,11 +203,64 @@ describe('buildPieOption — the app\'s colours, explicitly; a key, not a filter
   it('"Other"\'s tooltip lists each merged type and its count', () => {
     const slices = alarmTypePieModel(byType([7, 2, 6, 5, 4, 1, 3]), undefined);
     const o: any = buildPieOption(slices, { subject: 'alarm_types' }, piePlan(slices, 600));
-    const tip: string = o.tooltip.formatter({ dataIndex: 5 });
+    const tip: string = o.tooltip.formatter({ dataIndex: 4 });
     expect(tip).toContain('Other');
     expect(tip).toContain('Low Temperature');
     expect(tip).toContain('RS485 Temperature Failure / RS485 Humidity Failure');
     expect(tip).toMatch(/Low Temperature<\/span>\s*<b[^>]*>2</);
+  });
+});
+
+describe('R7-10: "Partial data" is striped, so it never reads as the Offline slice beside it', () => {
+  const rows = [row('PARTIAL'), row('PARTIAL'), row('STALE', false), row('OK')];
+
+  it('the model marks PARTIAL, and only PARTIAL, as striped; its colour stays the status amber', () => {
+    const slices = statusPieModel(rows);
+    const partial = slices.find((s) => s.key === 'PARTIAL')!;
+    const offline = slices.find((s) => s.key === 'STALE')!;
+    expect(partial.hex).toBe(STATUS_HEX.PARTIAL);
+    expect(partial.hex).toBe(offline.hex);
+    expect(partial.pattern).toBe('stripes');
+    expect(slices.filter((s) => s.pattern !== undefined).map((s) => s.key)).toEqual(['PARTIAL']);
+  });
+
+  it('the option draws the stripes on the slice AND its legend icon, and on nothing else', () => {
+    const slices = statusPieModel(rows);
+    const o: any = buildPieOption(slices, { subject: 'status', total: 4 }, piePlan(slices, 600));
+    const data = o.series[0].data;
+    const at = (key: string) => slices.findIndex((s) => s.key === key);
+    expect(data[at('PARTIAL')].itemStyle.decal).toEqual(expect.objectContaining({ symbol: 'rect' }));
+    expect(data[at('STALE')].itemStyle.decal).toBeUndefined();
+    const legend = o.legend.data;
+    expect(legend[at('PARTIAL')].itemStyle.decal).toEqual(data[at('PARTIAL')].itemStyle.decal);
+    expect(legend[at('STALE')].itemStyle?.decal).toBeUndefined();
+    // The tooltip's swatch is striped too.
+    expect(o.tooltip.formatter({ dataIndex: at('PARTIAL') })).toContain('repeating-linear-gradient');
+    expect(o.tooltip.formatter({ dataIndex: at('STALE') })).not.toContain('repeating-linear-gradient');
+  });
+
+  it('drawn by real ECharts, the two amber slices and their legend icons do NOT look the same', () => {
+    use([PieChart, LegendComponent, TooltipComponent, SVGRenderer]);
+    // jsdom has no canvas to measure text with; the legend only needs a width.
+    setPlatformAPI({ measureText: (text: string) => ({ width: text.length * 7 }) });
+    const slices = statusPieModel(rows);
+    const draw = (s: PieSlice[]) => {
+      const chart = init(null, null, { renderer: 'svg', ssr: true, width: 560, height: 336 });
+      chart.setOption({ ...buildPieOption(s, { subject: 'status', total: 4 }, piePlan(s, 560)), animation: false });
+      const svg = chart.renderToSVGString();
+      chart.dispose();
+      return svg;
+    };
+    const svg = draw(slices);
+    // The stripes are an SVG pattern; the plain amber is a flat fill.
+    const patterned = svg.match(/fill="url\(#[^)]+\)"/g) ?? [];
+    expect(svg).toContain('<pattern');
+    // One on the slice, one on its legend icon.
+    expect(patterned.length).toBeGreaterThanOrEqual(2);
+    // Without the PARTIAL slice there is no pattern at all: Offline stays flat amber.
+    const noPartial = draw(slices.filter((s) => s.key !== 'PARTIAL'));
+    expect(noPartial).not.toContain('<pattern');
+    expect(noPartial.toLowerCase()).toContain(STATUS_HEX.STALE);
   });
 });
 

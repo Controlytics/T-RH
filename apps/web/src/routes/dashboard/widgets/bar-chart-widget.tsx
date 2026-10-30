@@ -26,11 +26,10 @@ import {
   BAR_DEFAULTS, BAR_HEIGHT, barAxis, barCaption, barLoadProblem, barModel, barPlan, buildBarOption, drawnDefinition,
   heldAnswers, legendRows, tooManyBarsText,
 } from './bar-chart-model';
-import { isRefusal } from './refusal';
 import { useTelemetryBuckets, type BucketRequest, type WidgetSelection } from './use-widget-data';
 import {
   LOAD_FAILED, NO_INSTRUMENTS, NO_KEY_YET, PeriodSelect, WidgetMessage, WidgetNotes,
-  useBoxWidth, useWidgetRange, useWidgetRows,
+  answerState, useBoxWidth, useWidgetRange, useWidgetRows,
 } from './widget-common';
 
 export function BarChartWidget({ widget, selection }: { widget: CustomWidget; selection: WidgetSelection }) {
@@ -75,8 +74,10 @@ export function BarChartWidget({ widget, selection }: { widget: CustomWidget; se
     instrumentIds: askedIds, keys: keys.map((k) => k.key), from: range.from, to: range.to, bucket, agg, groupBy,
   };
   const failed = buckets.error !== undefined && buckets.error !== null;
-  // A refusal never keeps bars; a failed refresh keeps them only for the widget as it stands.
-  const holding = failed && !isRefusal(buckets.error) && buckets.request !== undefined && heldAnswers(buckets.request, current, rolling);
+  // THE held-answer rule (answerState, shared with every widget): a refusal never
+  // keeps bars; a failed refresh keeps them only when the held answer answers the
+  // widget as it stands (heldAnswers: a rolling window's minute shift is the same).
+  const holding = answerState(buckets.request !== undefined && heldAnswers(buckets.request, current, rolling), buckets.error) === 'stale';
   const drawing = model !== null && option !== null && !plan.tooMany && (!failed || holding);
   // The caption describes the DRAWN bars (m-4); with none, what is being asked.
   const caption = drawing ? barCaption(model.bucket, model.agg) : barCaption(bucket, agg);
