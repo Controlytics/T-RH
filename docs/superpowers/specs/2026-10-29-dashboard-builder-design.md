@@ -266,13 +266,32 @@ permissions and scope.
 - **`text_card`** — a heading and plain text, for labels and instructions. No HTML.
 - **`floorplan`** — the existing floor-plan drawing for one chosen layout (`FloorplanView` gains a
   `planId` prop).
-- **Chart rendering [my call, settled in the phase 2 plan]:** phase 2 adds four new chart shapes
-  (gauge, bars over time, comparison bars, pie).
-  - Recommendation: **ECharts**, tree-shaken (`echarts/core`), bundled (works offline),
-    lazy-loaded with the widget chunk, version pinned. ThingsBoard itself draws its charts with
-    ECharts.
-  - The alternative is hand-built SVG in the style of `TimeSeriesChart`.
-  - `TimeSeriesChart` and the band gauge stay as they are either way.
+- **Chart rendering — OPERATOR DECISION 2026-10-30: "start phase 2 with echarts".** The four new
+  chart shapes (gauge, bars over time, comparison bars, pie) draw with **ECharts**:
+  - pinned to an exact version (`6.1.0`, released 2026-05-19), tree-shaken through `echarts/core`,
+    bundled (works offline, and the chunk must land in the service worker's precache);
+  - lazy-loaded, so the main bundle every login downloads does not carry it;
+  - fed the app's own series and status colours explicitly, never ECharts' default palette,
+    because a raw key drawn in a default green would read as a verdict;
+  - animation off: the widgets poll, and a redraw must not replay an animation.
+  - `TimeSeriesChart` and the band gauge stay as they are.
+- **Phase 2 rulings (settled in its plan, `docs/superpowers/plans/2026-10-30-dashboard-builder-phase2.md`):**
+  - **Instruments the status rule cannot judge.** The server's instrument status reads only the
+    temperature and humidity slots, so a reporting pressure-only instrument is `NO_DATA` today.
+    The overview row gains a server-decided `judged` flag (does this instrument's profile measure
+    temperature or humidity?) and `lastSeenAt`. The status grid, instrument list and status pie
+    show an unjudged instrument as **"Not judged"** (neutral) while it reports and **"Offline"**
+    when it does not, never "No data". The existing table and floor plan are unchanged.
+  - **Bucket edges follow the site timezone** (the `datetime` config's `timezone`, default
+    `Asia/Kolkata`), so a "day" bar is a local day and hourly edges fall on the local hour; weeks
+    start on Monday.
+  - **A bar is labelled as computed** ("Hourly average", "Daily maximum", "Weekly reading count").
+    Every bar value is derived, never a stored reading.
+  - **Gates on `/`:** the alarm counts widget and an alarm-type pie need the `dashboard_alarms`
+    panel, as the alarm table does; the floor-plan widget needs `telemetry_floorplan`. On a built
+    dashboard, assignment stays the only gate.
+  - **Bars and gauges take series colours, not verdicts**, except the gauge of a MEASURED key, which
+    takes the server's limits and the `quantityVerdict` colour exactly as the band gauge does.
 
 ### Phase 3 — instrument dashboards
 
@@ -387,7 +406,8 @@ existed, so any rows are expected to be zero.
    dropped.
 6. One widget contract and one library for the home dashboard and built dashboards.
 7. The alarm table comes in phase 1; the rest of the library in phase 2.
-8. ECharts is recommended for phase 2's new chart shapes (settled in that plan).
+8. ~~ECharts is recommended for phase 2's new chart shapes~~ — the operator chose ECharts on
+   2026-10-30 ("start phase 2 with echarts"); no longer my call.
 9. Re-auth action `UPDATE_DASHBOARD`, off by default; no remarks.
 10. Instrument dashboards (phase 3) never replace the trend page or its reports.
 11. Excluded: control widgets, custom HTML/JS, public dashboards, internet maps.
@@ -401,6 +421,6 @@ existed, so any rows are expected to be zero.
 
 ## 12. Open questions for the operator (none blocks phase 1)
 
-1. Should the unused, empty `dashboard_widgets` table be dropped? (This needs AWS's row count
-   checked first.)
-2. ECharts for the phase 2 charts, or hand-built SVG?
+1. Should the unused, empty `dashboard_widgets` table be dropped? AWS's row count was checked
+   read-only on 2026-10-30: 0 rows, so nothing would be lost. Still the operator's call.
+2. ~~ECharts for the phase 2 charts, or hand-built SVG?~~ **Answered 2026-10-30: ECharts.**
