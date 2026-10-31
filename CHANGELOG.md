@@ -23,6 +23,44 @@ Tests: 4 new cases in `hooks/__tests__/use-reauth.test.tsx` (both entry points, 
 server-demanded path, clearing on cancel / success, the registry lookup); the two Audit Trail tests'
 hook mocks keep the real label helper. Web typecheck clean. **Not committed.**
 
+## [Unreleased] - Dashboard builder, phase 2: gauges, bars, comparison, pies, alarm counts, status grid, instrument list, text and floor plan widgets (2026-10-31)
+
+Operator: "start phase 2 with echarts" (2026-10-30). Plan
+`docs/superpowers/plans/2026-10-30-dashboard-builder-phase2.md` (rulings P1–P9); the rules and every
+ruling made while building are in the DASHBOARDS note, `docs/feature-notes.md` (PHASE 2).
+**Built, not pushed, not deployed.**
+
+- **Nine new widget types**, on built dashboards and on `/`: **gauge** (a measured key judged as the
+  value cards judge it; a raw key on an administered scale, never green), **bar chart** (readings
+  binned into LOCAL hours, days or weeks and computed on the server — average, minimum, maximum or
+  reading count — labelled "Hourly average" etc., the reading count in each bar's tooltip; it follows
+  the dashboard window), **comparison bars** (each instrument's latest value of each key, side by
+  side), **pie** (instrument status, or active alarms by type), **alarm counts** (active /
+  unacknowledged, by type), **status grid** (a tile per instrument), **instrument list** (ID, Area,
+  Location, Status, Last seen; a row opens the trend page), **text card** (plain text, 2,000
+  characters) and **floor plan** (a chosen plan, drawn as the home floor panel draws it). A pressure-only
+  instrument that is reporting reads "Not judged", never "No data".
+- **Charts are ECharts `6.1.0`** (exact), loaded lazily in their own chunk (in the PWA precache, so an
+  install with no internet route still draws them), SVG, the app's own colours only.
+- **Server:** `GET /api/alarms/counts` (the alarm list's filters → state quadrants + counts by type,
+  `ALARM_READ`) and `GET /api/instruments/telemetry-buckets` (local-time buckets in the configured
+  timezone, at most 1,000, `INSTRUMENT_READ`); `telemetry-overview` rows gained `judged` and
+  `lastSeenAt`. A widget's title and a text card's text are HTML-stripped on every write path.
+- **On `/` a built widget never widens Panels:** alarm counts and an alarm-type pie need the alarms
+  panel, a floor plan the floor plan panel (as the alarm table already did).
+- **Changed for phase 1's widgets too:** every widget data hook now retries a failure at its refresh
+  cadence until the server answers, and reports an outage once — the latest-values widgets used to
+  freeze after an outage until the window was focused.
+- **No migration, no new model, enum, permission, re-auth action, audit action, config def, sidebar
+  item or route page.** One new web dependency (`echarts`).
+- **Seen with the built stylesheet** at 1240 px, real ECharts and Inter in headless Chrome
+  (`docs/superpowers/concepts/2026-10-29-dashboards/built-p2-*.png`); the comparison's legend ran onto
+  its plot with four keys in a quarter-width card — fixed (`0b31baf`).
+- **Open (parked):** the readings table, floor plan and alarms panel still stop polling after an outage
+  until the window is focused; a narrow default gauge panel scrolls; third-width panels staircase at
+  the `md` breakpoint (react-grid-layout's own derivation, `/` too); palette slot 3 is a green a raw key
+  can take.
+
 ## [Unreleased] - Dashboard builder, phase 1: many named dashboards a super admin builds and assigns (2026-10-29)
 
 Operator: "… like in thingsboard i need same feature like different dashboards creation and different

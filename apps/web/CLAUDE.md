@@ -132,12 +132,10 @@ the legend under the plan, so do not remove that bar (the same day's correction:
 100 instruments had never reported and their tiles printed the code over
 nothing). Legend entry **Sensor error**. **The instrument ID is small and
 FIXED** (`TILE_CODE_FONT` 10 in a `CODE_LINE_H` 12 strip; it was 0.85 of the
-reading font and "looking so large"). **The plan is CONTAINED in its panel**
-(flex column, SVG `h-full w-full` with `xMidYMin meet`; it was `w-full
-h-auto` and a portrait plan scrolled at ~1,500px) — enlarge the panel to
-enlarge the plan, or press the title bar's **Full screen** button (fixed
-overlay, Escape leaves; `data-fullscreen` on the view's root) to see the
-whole layout at the screen's size. The chip geometry constants are exported from
+reading font and "looking so large"). **The plan is WIDTH-fitted and the card body scrolls — NOT contained**
+(`PanelCard`'s content wrapper has no height; verified 2026-10-31). Containing it
+would shrink readings ~13 → ~7–8 px: do not "fix" it unasked. **Full screen**
+(Escape leaves) shows it whole; the floor-plan widget draws the same way. The chip geometry constants are exported from
 `room-geometry.ts` and imported by the renderer and the tests; do not copy
 the literals again. Tests: `floorplan-values.test.ts`, `tile-font.test.ts`,
 both mutation-checked. Not seen on screen.
@@ -319,7 +317,9 @@ sent is not in the picker, and Remove is its only way out (review fix pass 2026-
 
 `/dashboards` (`index.tsx`, the list — concept A) and `/dashboards/:id` (`dashboard-page.tsx` — header
 concept C), both `RequireRole DASHBOARD_VIEW`; sidebar item `dashboards`, appended LAST. Rules and
-rulings: `docs/feature-notes.md` DASHBOARDS. What a page must not get wrong:
+rulings: `docs/feature-notes.md` DASHBOARDS (phase 2, 2026-10-31: nine more types on `echarts`
+6.1.0 exact, imported only by `widgets/charts/echart.tsx`, lazy via `lazy-echart.tsx`; its rulings and
+the bundle check). What a page must not get wrong:
 - **Everything shown is the server's.** The list is `GET /api/dashboards` as returned (`assignments`
   only for a SUPER_ADMIN); a 404 is "This dashboard is not available to you."; `source: null` is NO
   instruments plus a banner, never all. `selectionForSource()` (`widgets/selection.ts`) is the ONE
@@ -1780,11 +1780,9 @@ automatically."* So a panel ends at its pagination bar and a page-size change
 resizes it with no drag. `routes/dashboard/panel-auto-height.ts` holds the maths.
 
 - **Only `telemetry_table` and `dashboard_alarms` are in `AUTO_HEIGHT_PANELS`.**
-  `telemetry_floorplan` is deliberately out (operator's call): a drawn plan has no
-  natural height — it SCALES to the box it is given — so "fit the content" is
-  undefined for it and a bigger box genuinely shows the rooms bigger. It keeps its
-  corner handle and its Height dropdown, and is the one panel here where dragging
-  taller does something.
+  `telemetry_floorplan` is out (operator's call): its plan is WIDTH-fitted and the
+  body scrolls, so a taller box shows more of the plan, not a bigger one. It keeps
+  its corner handle and its Height dropdown.
 - **OBSERVE THE CONTENT WRAPPER, NEVER THE CARD OR THE SCROLL REGION.** This is
   the whole feature and it fails silently. Both of those have their border box
   pinned by the grid cell, so going 25 → 50 rows grows `scrollHeight` without

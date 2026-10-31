@@ -1,5 +1,31 @@
 # tasks/todo.md
 
+## 2026-10-31 — Dashboard builder, phase 2 (nine ECharts widget types)
+
+Operator: "start phase 2 with echarts" (2026-10-30). Plan
+`docs/superpowers/plans/2026-10-30-dashboard-builder-phase2.md` (rulings P1–P9); every ruling made
+while building is in the DASHBOARDS note, `docs/feature-notes.md` (PHASE 2). Commits `cc1cce7..` on
+`data-layer` after the plan `ba954f1` (the other session's `cee35d5` sits between `85f26fc` and
+`fb95540` and is not part of this work). **Built, not pushed, not deployed.**
+
+- [x] T1 shared — widget-type registry `WIDGET_TYPE_SPECS`, the nine types, `widgetPanelGate` (`cc1cce7`, `5c20232`)
+- [x] T2 API — overview `judged` / `lastSeenAt`; `GET /api/alarms/counts` (`2a59a63`, `d295349`)
+- [x] T3 API — `GET /api/instruments/telemetry-buckets`, local-time buckets (`67ea527`, `91cc3b6`, `de9f452`); `echarts` 6.1.0 installed (`667421c`)
+- [x] T4 web — ECharts foundation (lazy, SVG), `instrumentLook`, registry wiring (`83c3d65`, `172393e`)
+- [x] T5 web — gauge and comparison bars (`b448fb1`, `e2d5114`, `870a613`, `9f1e124`)
+- [x] T6 web — bar chart; ONE retry policy for every widget data hook (`503f393`, `e136334`, `e5ada55`)
+- [x] T7 web — pie, alarm counts, status grid; ONE held-answer rule (`85f26fc`, `fb95540`)
+- [x] T8 web + API — instrument list, text card, floor plan; widget text stripped on every write path (`e2c13fa`, `c003bb8`)
+- [x] T9 — one built dashboard with every new type over a profile, real ECharts + Inter in headless Chrome (`built-p2-dashboard.png`); the comparison legend's rows fixed (`0b31baf`); the `/` gates pinned over HTTP (`38ef8d4`); docs; gates (shared 40 files / 600 tests; web 76 files / 1,050 tests one per process; API 19 files / 291 tests one at a time; `npm run lint` in shared, API and web; `vite build` + the bundle check PASS)
+- [ ] Final whole-branch review (controller) — then push / deploy only on the operator's word; the push must name the other session's commits on the branch too
+- [ ] Parked R7-11: the readings table, floor plan and alarms panel on `/` and `/dashboards/:id` are not on `widgetPolling` — they still stop polling after an outage until the window is focused
+- [ ] Parked: series palette slot 3 is a green a raw key can take (app-wide since phase 1, distinct from the OK green)
+- [ ] Parked M9: a gauge widget at its default size in a narrow panel shows a sliver and its body scrolls
+- [ ] Parked: widget titles stored with markup before the stripping are not backfilled (they print as text)
+- [ ] Operator decision: at `md` (a 900–1,200 px container — a 1240 px window) react-grid-layout's own derivation staircases third-width panels down the page, `/` included; a half-scale `md` layout is the candidate fix
+- [ ] Two loading behaviours on a drill-down: the status widgets show "Loading…" while the readings table keeps its old rows (final review to judge)
+- [ ] Render-check method gap: the built CSS names its fonts `/assets/…`, which a `file://` page cannot load — Chrome PNGs before 2026-10-31 were probably in a fallback face; inline the fonts (Task 9's `shoot9.py` does)
+
 ## 2026-10-29 — Dashboard builder, phase 1 (many named dashboards, alarm table)
 
 Operator: "… like in thingsboard i need same feature like different dashboards creation and different
@@ -24,9 +50,9 @@ Commits `6a4ddf1..796d218` on `data-layer` (base `6ec4de5`).
 - [x] **Pushed + DEPLOYED 2026-10-30** (operator: "push and deploy in aws"): `trh/data-layer` `e46b57d..656725b`; the box's own script over SSM → `/root/deploy-20261030.log`: lockfile unchanged, 4 builds, no pending migrations, `DEPLOYED 656725b`, health 200. Post-checks on the box: `GET /api/dashboards` without a token → 401, the built chunks carry "New dashboard" and `alarm_table`. Re-verified first on the final tree: shared 571, API 3287 / 253 files, exit 0.
 - [x] **AWS, read-only, BEFORE the deploy (2026-10-30, `BEGIN READ ONLY`):** `dashboards` 0, `dashboard_assignments` 0, `dashboard_widgets` 0 — nothing became SUPER_ADMIN-only; dropping `dashboard_widgets` would lose no AWS rows.
 - [ ] **AWS, still owed from 2026-10-24:** `scripts/strip-unused-permissions.ts --apply` (operator) — the dashboard write routes no longer read `DASHBOARD_*` grants, so this is no longer a dashboard risk, but it is still owed.
-- [ ] Operator questions (spec §12): drop the unused `dashboard_widgets` table? (AWS row count first); ECharts or hand-built SVG for phase 2?
+- [ ] Operator questions (spec §12): drop the unused `dashboard_widgets` table? (AWS row count first); ECharts or hand-built SVG for phase 2? — ECharts (operator 2026-10-30: "start phase 2 with echarts").
 - [ ] Operator decision (seen in the built render): the alarm table's 11 columns at the large type scroll sideways in a full-width card at 1240 and the sticky Acknowledge column covers "Acknowledged by" (same as the home panel) — trim columns / Compact size?
-- [ ] Phase 2 — the rest of the widget library: gauge, bar chart over time (`GET /api/instruments/telemetry-buckets`), comparison bars, pie (server-decided distributions only), alarm counts (`GET /api/alarms/counts`), status grid, instrument list, text card, floor plan; chart library settled in that plan
+- [x] Phase 2 (built 2026-10-31 — the section above) — the rest of the widget library: gauge, bar chart over time (`GET /api/instruments/telemetry-buckets`), comparison bars, pie (server-decided distributions only), alarm counts (`GET /api/alarms/counts`), status grid, instrument list, text card, floor plan; chart library settled in that plan
 - [ ] Phase 3 — instrument dashboards: `kind` `INSTRUMENT` bound to a profile (migration), instrument picker, drill-down from fleet widgets, "Start from this profile"; the trend page stays the governed record view
 - [ ] Phase 4 (separate approval) — JSON export / import; governed widget downloads via a `REPORT_KINDS` entry
 - [ ] Deferred minors (from the ledger; none blocks phase 1):
