@@ -37,7 +37,7 @@ import { decimalsFor, annotateAttribute } from './decimals.js';
 import { slotConfigForProfile, allOffsetKeys, measurementsForProfile, loadMeasurementTypes } from './profile-measurements.js';
 import { loadAttributeAccess, refuseAttributeWrite, needsReauth, attributeAccessRefusal } from './attribute-access.js';
 import {
-  ATTRIBUTE_REMARK_MAX, lttb, isInstrumentReporting,
+  ATTRIBUTE_REMARK_MAX, lttb, isInstrumentReporting, effectiveExpectedIntervalSec,
   parseInstrumentAttributeKeys, coerceAttributeLabels, ATTRIBUTE_LABELS_CONFIG_KEY,
   isMktOn, mktFromExpMean, measurementsEquivalent,
   WIDGET_INSTRUMENTS_MAX, WIDGET_BAR_BUCKETS, WIDGET_BAR_AGGS, WIDGET_BAR_GROUPS,
@@ -884,7 +884,11 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const [rows, activeWindowMinutes] = await Promise.all([
       prisma.instrument.findMany({
         where: withVisibility({}, visibility) as never,
-        select: { lastSeenAt: true, expectedIntervalSec: true },
+        select: {
+          lastSeenAt: true,
+          expectedIntervalSec: true,
+          profile: { select: { connection: true, modbusIntervalSec: true } },
+        },
       }),
       loadActiveWindowMinutes(),
     ]);
@@ -892,7 +896,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const now = new Date();
     let active = 0;
     for (const r of rows) {
-      if (isInstrumentReporting(r.lastSeenAt, r.expectedIntervalSec, activeWindowMinutes, now)) {
+      if (isInstrumentReporting(r.lastSeenAt, effectiveExpectedIntervalSec(r, r.profile), activeWindowMinutes, now)) {
         active += 1;
       }
     }

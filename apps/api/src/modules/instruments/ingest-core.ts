@@ -193,8 +193,15 @@ export async function ingestPayload(args: {
    * itself before calling here. Omitted on MQTT, judged at CONNECT.
    */
   certificateVerified?: boolean;
+  /**
+   * How the instrument ITSELF is recorded as seen: 'direct' (it sent this
+   * payload; the default) or 'polled' (the server read it). Gateway CHILDREN
+   * are always 'gateway'.
+   */
+  lastSeenVia?: 'direct' | 'polled';
 }): Promise<IngestOutcome> {
   const { identity, raw, transport } = args;
+  const lastSeenVia = args.lastSeenVia ?? 'direct';
 
   const parsed = parsePayload(raw);
   if (!parsed.ok) {
@@ -312,7 +319,7 @@ export async function ingestPayload(args: {
     // gateway authenticated and delivered a well-formed payload, so it is
     // demonstrably alive — its dead-letters are what shows the payload was
     // wrong, not its last-seen column.
-    await stampLastSeen([identity.id], 'direct');
+    await stampLastSeen([identity.id], lastSeenVia);
 
     // ok, not a partial-failure code: the request was handled correctly and
     // every accepted reading is stored. `rejected` tells an integrator about
@@ -376,7 +383,7 @@ export async function ingestPayload(args: {
   // credential's lastUsedAt (spec D9) — a gateway-reported child never
   // presents a credential of its own. Throttled and never allowed to fail an
   // accepted reading.
-  await stampLastSeen([identity.id], 'direct');
+  await stampLastSeen([identity.id], lastSeenVia);
   // Same as the gateway path above: enqueue an evaluation so an excursion is raised
   // (or cleared) within seconds of the reading rather than on the next minute tick.
   await enqueueAlarmEvaluation();

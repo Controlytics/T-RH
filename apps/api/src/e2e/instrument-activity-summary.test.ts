@@ -170,3 +170,71 @@ describe('functional-location counts use the same definition', () => {
     expect(block.activeCount).toBe(1);
   });
 });
+
+/**
+ * A TCP/IP (Modbus) instrument is READ by the server every profile interval,
+ * so silence is judged against that interval, not the site fallback window
+ * (1440 min by default). A push instrument with the same last-seen is unchanged.
+ */
+describe('TCP/IP instrument reporting follows the read interval', () => {
+  let app: FastifyInstance;
+  let token: string;
+  let tcpProfileId: string;
+  let pushProfileId: string;
+  let blockId: string;
+  const created: string[] = [];
+  const tag = Date.now();
+
+  beforeAll(async () => {
+    app = await buildApp();
+    token = await loginAs(app);
+    const tcp = await prisma.instrumentProfile.create({
+      data: { name: `ZZ tcp ${tag}`, connection: 'MODBUS_TCP', modbusIntervalSec: 60, modbusUnitId: 1 },
+    });
+    tcpProfileId = tcp.id;
+    const push = await prisma.instrumentProfile.create({ data: { name: `ZZ push ${tag}` } });
+    pushProfileId = push.id;
+    blockId = (await prisma.functionalLocation.create({
+      data: { name: `ZZTcpBlock ${tag}`, type: 'BLOCK' },
+    })).id;
+    const threeMinAgo = new Date(Date.now() - 3 * 60 * 1000);
+    const specs = [
+      { code: `ZZTCP-a-${tag}`, profileId: tcpProfileId, extra: { modbusHost: '10.254.1.1', modbusPort: 502 } },
+      { code: `ZZTCP-b-${tag}`, profileId: pushProfileId, extra: {} },
+    ];
+    for (const sp of specs) {
+      const row = await prisma.instrument.create({
+        data: {
+          code: sp.code, name: sp.code, profileId: sp.profileId, isActive: true, lastSeenAt: threeMinAgo,
+          functionalLocationId: blockId, ...sp.extra,
+        },
+      });
+      created.push(row.id);
+    }
+  });
+
+  afterAll(async () => {
+    await prisma.instrument.deleteMany({ where: { id: { in: created } } });
+    await prisma.functionalLocation.deleteMany({ where: { id: blockId } });
+    await prisma.instrumentProfile.deleteMany({ where: { id: { in: [tcpProfileId, pushProfileId] } } });
+    await app.close();
+  });
+
+  it('the FL counts: TCP/IP silent 3 min is not active, the push one still is', async () => {
+    const res = await authGet(app, '/api/functional-locations', token);
+    const body = JSON.parse(res.body);
+    const list = Array.isArray(body) ? body : body.data ?? [];
+    const block = list.find((n: any) => n.id === blockId);
+    expect(block.totalCount).toBe(2);
+    expect(block.activeCount).toBe(1);
+  });
+
+  it('the activity summary does not count the silent TCP/IP instrument', async () => {
+    const res = await authGet(app, '/api/instruments/activity-summary', token);
+    const before = JSON.parse(res.body) as { total: number; active: number };
+    // Make the TCP/IP one fresh: active rises by exactly one.
+    await prisma.instrument.update({ where: { id: created[0] }, data: { lastSeenAt: new Date() } });
+    const after = JSON.parse((await authGet(app, '/api/instruments/activity-summary', token)).body) as { active: number };
+    expect(after.active).toBe(before.active + 1);
+  });
+});

@@ -7,7 +7,7 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { validateFlDraft, type FlType } from './validation.js';
 import { buildTree, locationPath, resolveLocationIds, type FlNode, type LocationCount } from './tree.js';
-import { isInstrumentReporting } from '@digilog/shared';
+import { isInstrumentReporting, effectiveExpectedIntervalSec } from '@digilog/shared';
 import { loadActiveWindowMinutes } from '../instruments/telemetry-overview.js';
 import { resolveVisibility, withVisibility, type ScopeWhere } from '../instruments/visibility.js';
 import { roleHasPermission } from '../../plugins/rbac.js';
@@ -128,6 +128,7 @@ async function loadOwnCounts(visibility?: ScopeWhere): Promise<Map<string, Locat
         functionalLocationId: true,
         lastSeenAt: true,
         expectedIntervalSec: true,
+        profile: { select: { connection: true, modbusIntervalSec: true } },
       },
     }),
     loadActiveWindowMinutes(),
@@ -142,7 +143,7 @@ async function loadOwnCounts(visibility?: ScopeWhere): Promise<Map<string, Locat
     const id = r.functionalLocationId as string;
     const cur = counts.get(id) ?? { total: 0, active: 0 };
     cur.total += 1;
-    if (isInstrumentReporting(r.lastSeenAt, r.expectedIntervalSec, activeWindowMinutes, now)) {
+    if (isInstrumentReporting(r.lastSeenAt, effectiveExpectedIntervalSec(r, r.profile), activeWindowMinutes, now)) {
       cur.active += 1;
     }
     counts.set(id, cur);

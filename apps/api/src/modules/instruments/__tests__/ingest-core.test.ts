@@ -246,3 +246,21 @@ describe('ingestPayload — a reading older than every partition does not sink t
   });
 });
 
+describe('ingestPayload - lastSeenVia', () => {
+  it("stamps 'direct' by default (flat path)", async () => {
+    await ingestPayload({ identity: plain, raw: buf({ temperature: 21.5 }), transport: 'http' });
+    expect(stampLastSeen).toHaveBeenCalledWith(['i1'], 'direct');
+  });
+
+  it("stamps 'polled' on the flat path when the server read the device", async () => {
+    await ingestPayload({ identity: plain, raw: buf({ temperature: 21.5 }), transport: 'modbus', lastSeenVia: 'polled' });
+    expect(stampLastSeen).toHaveBeenCalledWith(['i1'], 'polled');
+    expect(stampLastSeen).not.toHaveBeenCalledWith(['i1'], 'direct');
+  });
+
+  it("stamps a gateway itself 'polled' but its children stay 'gateway'", async () => {
+    await ingestPayload({ identity: gw, raw: buf({ devices: { 'CH-A': { t: 1 } } }), transport: 'modbus', lastSeenVia: 'polled' });
+    expect(stampLastSeen).toHaveBeenCalledWith(['g1'], 'polled');
+    expect(stampLastSeen).toHaveBeenCalledWith(['a1'], 'gateway');
+  });
+});

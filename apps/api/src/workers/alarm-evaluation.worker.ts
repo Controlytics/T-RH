@@ -29,7 +29,7 @@ import {
   type Rs485Metric, type Rs485Snapshot,
   describeRangeFault, formatDecimals, SENSOR_RANGE_TYPE_LABEL,
   alarmTypeKeyFor, alarmTypeName, coerceReading,
-  type RangeMetric, type SensorRangeSnapshot,
+  type RangeMetric, type SensorRangeSnapshot, effectiveExpectedIntervalSec,
 } from '@digilog/shared';
 import type { LimitBound } from '@digilog/shared';
 import { logger } from '../lib/logger.js';
@@ -569,7 +569,12 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
       // `reporting` is NOT recomputed from these — that comes from the overview,
       // which carries the ONE definition. These two are for the GRACE period and
       // for the frozen snapshot, neither of which the overview holds.
-      prisma.instrument.findMany({ select: { id: true, lastSeenAt: true, expectedIntervalSec: true } }),
+      prisma.instrument.findMany({
+        select: {
+          id: true, lastSeenAt: true, expectedIntervalSec: true,
+          profile: { select: { connection: true, modbusIntervalSec: true } },
+        },
+      }),
     ]);
     const seenById = new Map(seen.map((i) => [i.id, i]));
     const openById = new Map(openInactivity.map((a) => [a.instrumentId, a]));
@@ -599,7 +604,9 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
           // "offline" means tomorrow, and an inspector asking why this fired must
           // get the threshold as it stood, not as it stands.
           activeWindowMinutes,
-          expectedIntervalSec: inst?.expectedIntervalSec ?? null,
+          // The interval the overview judged `reporting` against: a TCP/IP
+          // instrument's is its profile's read interval.
+          expectedIntervalSec: inst ? effectiveExpectedIntervalSec(inst, inst.profile) : null,
           lastSeenAt: inst?.lastSeenAt?.toISOString() ?? null,
           description: condition,
           snapshotAt: now.toISOString(),

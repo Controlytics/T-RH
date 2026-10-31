@@ -299,3 +299,29 @@ describe('clearing', () => {
     await prisma.instrument.update({ where: { id: instrumentId }, data: { isActive: true } });
   });
 });
+
+describe('a TCP/IP instrument', () => {
+  it('is judged against its read interval: raises after the grace, while a push one with the same last-seen does not', async () => {
+    await setConfig(KEY, { enabled: true, graceMinutes: 1, severity: 'MAJOR' });
+    const tcp = await prisma.instrumentProfile.create({
+      data: { name: `INACT-TCP-${STAMP}`, connection: 'MODBUS_TCP', modbusIntervalSec: 60, modbusUnitId: 1 },
+    });
+    // 2.1 min silent: past 2 x 60 s read interval and past the 1 min grace, but
+    // INSIDE... no: the pinned fallback window is 3 min, so the push instrument
+    // (same last-seen) is still "reporting" and must not raise.
+    const silentSince = new Date(Date.now() - 2.1 * 60_000);
+    const t = await prisma.instrument.create({
+      data: { code: `INACT-TCP-${STAMP}`, name: 'tcp', profileId: tcp.id, lastSeenAt: silentSince, modbusHost: '10.254.3.1', modbusPort: 502 },
+    });
+    try {
+      await lastSeen(2.1);
+      await evaluateAlarms();
+      expect(await prisma.alarm.findFirst({ where: { instrumentId: t.id, source: 'INACTIVITY', state: 'ACTIVE' } })).toBeTruthy();
+      expect(await openAlarm()).toBeNull();
+    } finally {
+      await prisma.alarm.deleteMany({ where: { instrumentId: t.id } });
+      await prisma.instrument.delete({ where: { id: t.id } }).catch(() => {});
+      await prisma.instrumentProfile.delete({ where: { id: tcp.id } }).catch(() => {});
+    }
+  });
+});

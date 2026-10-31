@@ -14,7 +14,7 @@ export function resetLastSeenThrottle(): void { lastStamped.clear(); }
 
 export async function stampLastSeen(
   instrumentIds: string[],
-  via: 'direct' | 'gateway',
+  via: 'direct' | 'gateway' | 'polled',
 ): Promise<void> {
   const now = Date.now();
   // A source change is stamped immediately even inside the window: "is this

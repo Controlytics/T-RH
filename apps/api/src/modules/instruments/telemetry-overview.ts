@@ -24,6 +24,7 @@ import {
   type RangeBound,
   computeInstrumentStatus,
   isInstrumentReporting,
+  effectiveExpectedIntervalSec,
   INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN,
   type InstrumentStatus,
   type RoomLimits,
@@ -418,6 +419,8 @@ export async function buildTelemetryOverview(
     select: {
       id: true, code: true, name: true, isActive: true,
       expectedIntervalSec: true, lastSeenAt: true, profileId: true,
+      // A TCP/IP instrument is expected at its profile's read interval.
+      profile: { select: { connection: true, modbusIntervalSec: true } },
       // Two string columns per instrument, for the rows already being returned.
       //
       // The alarm evaluator calls this function AND separately loads the whole
@@ -494,7 +497,7 @@ export async function buildTelemetryOverview(
     // the instrument's own declared interval (times its slack) where it has one,
     // else the site-wide fallback window. Do not restate it here.
     const reporting = isInstrumentReporting(
-      inst.lastSeenAt, inst.expectedIntervalSec, activeWindowMinutes, now,
+      inst.lastSeenAt, effectiveExpectedIntervalSec(inst, inst.profile), activeWindowMinutes, now,
     );
 
     // An unplaced instrument has no ROOM, but it may still carry its own limits

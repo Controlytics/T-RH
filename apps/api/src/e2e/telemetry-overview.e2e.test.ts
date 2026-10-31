@@ -420,3 +420,29 @@ describe('telemetry-overview placement columns (Area and Location)', () => {
     expect(row.locationAttribute).toBeNull();
   });
 });
+
+describe('telemetry-overview - TCP/IP reporting', () => {
+  it('reads a TCP/IP instrument silent past its read interval as NOT reporting; a push one is unchanged', async () => {
+    const tcp = await prisma.instrumentProfile.create({
+      data: { name: `TOV-TCP-${s}`, connection: 'MODBUS_TCP', modbusIntervalSec: 60, modbusUnitId: 1 },
+    });
+    const threeMinAgo = new Date(Date.now() - 3 * 60 * 1000);
+    const a = await prisma.instrument.create({
+      data: { code: `TOV-TCPA-${s}`, name: `TOV-TCPA-${s}`, profileId: tcp.id, lastSeenAt: threeMinAgo, modbusHost: '10.254.2.1', modbusPort: 502 },
+    });
+    const b = await prisma.instrument.create({
+      data: { code: `TOV-PUSHB-${s}`, name: `TOV-PUSHB-${s}`, profileId: await fixtureProfileId('fixture:telemetry-overview'), lastSeenAt: threeMinAgo },
+    });
+    try {
+      const rows = await overview();
+      expect(rowFor(rows, a.id)!.reporting).toBe(false);
+      expect(rowFor(rows, b.id)!.reporting).toBe(true);
+      // Fresh again: reporting.
+      await prisma.instrument.update({ where: { id: a.id }, data: { lastSeenAt: new Date() } });
+      expect(rowFor(await overview(), a.id)!.reporting).toBe(true);
+    } finally {
+      await prisma.instrument.deleteMany({ where: { id: { in: [a.id, b.id] } } });
+      await prisma.instrumentProfile.delete({ where: { id: tcp.id } });
+    }
+  });
+});
