@@ -192,6 +192,19 @@ describe('SelectionAlarms — it renders the SHARED alarm table, not a bespoke l
     expect(alarmsOptions).toMatchObject({ keepPreviousData: true });
   });
 
+  it('polls on THE dashboards retry policy (R7-11): a failure is retried, a refusal is not, and only the policy reports', () => {
+    renderWith();
+    const opts = alarmsOptions as {
+      refreshInterval?: number; shouldRetryOnError?: (e: unknown) => boolean; onErrorRetry?: unknown; onError?: () => void;
+    };
+    expect(opts.refreshInterval).toBe(30_000);
+    expect(typeof opts.onErrorRetry).toBe('function');
+    expect(opts.shouldRetryOnError?.(Object.assign(new Error('down'), { status: 500 }))).toBe(true);
+    expect(opts.shouldRetryOnError?.(Object.assign(new Error('Forbidden'), { status: 403 }))).toBe(false);
+    // The per-hook onError is silent: the policy reports once per key, not the app handler per failure.
+    expect(opts.onError?.()).toBeUndefined();
+  });
+
   it('renders a real table with the shared banner, not the old <ul>', () => {
     const { container } = renderWith();
     expect(container.querySelector('table')).not.toBeNull();

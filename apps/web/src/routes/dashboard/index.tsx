@@ -17,6 +17,9 @@ import { useDashboardLayout } from '@/hooks/use-dashboard-layout';
 import { CUSTOM_WIDGETS_PANEL, widgetIdOf, type CustomWidget, type LayoutItem } from '@digilog/shared';
 import { WidgetPanel } from './widgets/widget-panel';
 import { WidgetDialog } from './widgets/widget-dialog';
+import { answerState } from './widgets/widget-common';
+import { useTelemetrySettings } from './use-telemetry';
+import { widgetPolling } from '@/lib/polling';
 import { RoleDefaultDialog } from './widgets/role-default-dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Button } from '@/components/ui/button';
@@ -92,19 +95,35 @@ export function DashboardPage() {
   // days. `/activity-summary` applies `isInstrumentReporting` — the same rule
   // Configuration → Instrument Activity describes and the Block/Area cards use
   // — so the headline and the cards beneath it cannot disagree.
-  const { data: activitySummary } = useSWR<{ total?: number; active?: number }>(
+  //
+  // Both landing summaries POLL at the overview's cadence on THE dashboards'
+  // retry policy (R7-11): they were read once at page load, so on an unattended
+  // screen the Alarms card sat on its page-load figure beside an alarm-counts
+  // widget refreshing every 30 s.
+  const { overviewRefreshMs } = useTelemetrySettings();
+  const { data: activitySummary, error: activityError } = useSWR<{ total?: number; active?: number }>(
     '/api/instruments/activity-summary',
+    widgetPolling(overviewRefreshMs),
   );
   // Alarm counts for the overview card. Fetched only when the viewer may read alarms —
   // the endpoint 403s otherwise, and a card showing 0 because of a permission error
-  // would read as "nothing wrong" to someone who simply cannot see it.
+  // would read as "nothing wrong" to someone who simply cannot see it. For the same
+  // reason a count NOT IN HAND (loading, or a failed request) is a dash and words,
+  // never `?? 0` — the held-answer rule the widgets use (`answerState`).
   const canSeeAlarms = can('alarms.view');
-  const { data: alarmSummary } = useSWR<{ active: number; unacknowledged: number }>(
+  const { data: alarmSummary, error: alarmSummaryError } = useSWR<{ active: number; unacknowledged: number }>(
     canSeeAlarms ? '/api/alarms/summary' : null,
+    widgetPolling(overviewRefreshMs),
   );
+  const alarmCard = answerState(alarmSummary !== undefined, alarmSummaryError);
+  // A failed active count is SAID on the card (`null`), never replaced by the
+  // tree's placed-only sum.
+  const activeInstruments = answerState(activitySummary !== undefined, activityError) === 'failed'
+    ? null
+    : activitySummary?.active;
   const nav = useMemo(
-    () => resolveNav(selected, tree?.data ?? [], allInstruments?.total, activitySummary?.active),
-    [selected, tree, allInstruments?.total, activitySummary?.active],
+    () => resolveNav(selected, tree?.data ?? [], allInstruments?.total, activeInstruments),
+    [selected, tree, allInstruments?.total, activeInstruments],
   );
 
   const go = (fl: string | null) => {
@@ -320,10 +339,13 @@ export function DashboardPage() {
           cards={nav.cards}
           onSelect={go}
           alarms={selected === null && canSeeAlarms
-            ? {
-                active: alarmSummary?.active ?? 0,
-                unacknowledged: alarmSummary?.unacknowledged ?? 0,
-              }
+            ? alarmSummary !== undefined && (alarmCard === 'fresh' || alarmCard === 'stale')
+              ? {
+                  active: alarmSummary.active,
+                  unacknowledged: alarmSummary.unacknowledged,
+                  refreshFailed: alarmCard === 'stale',
+                }
+              : alarmCard === 'failed' ? 'failed' : 'loading'
             : null}
           onOpenAlarms={() => navigate('/alarms')}
           // The same component lists Blocks at the top and one Block's Areas a

@@ -43,6 +43,11 @@ export interface NavCard {
    * than showing a wrong one.
    */
   activeCount?: number;
+  /**
+   * The active count could not be loaded (`/activity-summary` failed, R7-11):
+   * the card SAYS so rather than printing a figure from somewhere else.
+   */
+  activeFailed?: boolean;
 }
 
 export interface NavCrumb {
@@ -89,7 +94,8 @@ export function resolveNav(
   selected: string | null,
   tree: NavNode[],
   totalInstruments?: number,
-  activeInstruments?: number,
+  /** `null` = the active count could not be loaded: no split, and the card says why. */
+  activeInstruments?: number | null,
 ): Nav {
   const topLevel = (): Nav => ({
     level: 0,
@@ -102,7 +108,11 @@ export function resolveNav(
         // Same reasoning as `count` above: the tree only sums PLACED
         // instruments, so an unplaced one would be missing from the split and
         // "active + inactive" would not equal the total on the same card.
-        activeCount: activeInstruments ?? tree.reduce((sum, b) => sum + b.activeCount, 0),
+        // A FAILED count is said, never filled in from the tree (whose sum leaves
+        // the unplaced instruments out, so it would misstate the split).
+        ...(activeInstruments === null
+          ? { activeFailed: true }
+          : { activeCount: activeInstruments ?? tree.reduce((sum, b) => sum + b.activeCount, 0) }),
       },
       ...tree.map((b) => ({
         id: b.id,

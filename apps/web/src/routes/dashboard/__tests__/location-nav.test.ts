@@ -106,6 +106,16 @@ describe('resolveNav — a Block', () => {
     expect(all?.activeCount).toBe(12);
   });
 
+  it('a FAILED active count (null) is said, never filled in from the tree (R7-11)', () => {
+    const nav = resolveNav(null, tree, 20, null);
+    const all = nav.cards.find((c) => c.id === ALL_INSTRUMENTS);
+    expect(all?.count).toBe(20);
+    expect(all?.activeCount).toBeUndefined();
+    expect(all?.activeFailed).toBe(true);
+    // Still loading (undefined) keeps the tree's figure until the summary lands.
+    expect(resolveNav(null, tree, 20).cards.find((c) => c.id === ALL_INSTRUMENTS)?.activeFailed).toBeUndefined();
+  });
+
   it('breadcrumbs back to the top', () => {
     expect(resolveNav('cwh', tree).breadcrumb.map((b) => b.label)).toEqual(['Dashboard', 'CWH']);
   });

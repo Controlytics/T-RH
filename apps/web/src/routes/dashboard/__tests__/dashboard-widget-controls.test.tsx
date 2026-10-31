@@ -22,11 +22,24 @@ const LAYOUT: Record<string, unknown> & { editing: boolean; widgets: unknown[] }
 vi.mock('@/hooks/use-dashboard-layout', () => ({ useDashboardLayout: () => LAYOUT }));
 const EMPTY = { data: undefined };
 const TREE = { data: { data: [] } };
-vi.mock('swr', () => ({ default: (key: string | null) => (key === '/api/functional-locations' ? TREE : EMPTY) }));
+// The SWR options each key was asked with, and per-key answers a test sets.
+const swrOptions = new Map<string, Record<string, unknown> | undefined>();
+const ANSWERS = new Map<string, unknown>();
+vi.mock('swr', () => ({
+  default: (key: string | null, opts?: Record<string, unknown>) => {
+    if (key) swrOptions.set(key, opts);
+    if (key && ANSWERS.has(key)) return ANSWERS.get(key);
+    return key === '/api/functional-locations' ? TREE : EMPTY;
+  },
+}));
 vi.mock('../telemetry-table', () => ({ TelemetryTable: () => null }));
 vi.mock('../floorplan-view', () => ({ FloorplanView: () => null }));
 vi.mock('../selection-alarms', () => ({ SelectionAlarms: () => null }));
-vi.mock('../entry-cards', () => ({ EntryCards: () => null }));
+// The props the landing cards were handed (the Alarms card's count, or why there is none).
+const entryProps: { alarms?: unknown; cards?: { id: string; activeCount?: number; activeFailed?: boolean }[] }[] = [];
+vi.mock('../entry-cards', () => ({
+  EntryCards: (p: { alarms?: unknown; cards?: { id: string }[] }) => { entryProps.push(p); return null; },
+}));
 vi.mock('../widgets/widget-dialog', () => ({ WidgetDialog: () => null }));
 vi.mock('../widgets/role-default-dialog', () => ({ RoleDefaultDialog: () => null }));
 // jsdom measures nothing; the grid draws nothing at width 0.
@@ -174,6 +187,66 @@ describe('a built widget on the home dashboard', () => {
     LAYOUT.items = [{ i: 'telemetry_table', x: 0, y: 0, w: 12, h: 9 }];
     LAYOUT.widgets = [];
     delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+  });
+});
+
+/**
+ * R7-11 (final fix wave): the landing's two summaries were read once at page
+ * load; they POLL now, on the dashboards' retry policy, at the overview's
+ * cadence. And a count not in hand is never `?? 0`.
+ */
+describe('the landing summaries', () => {
+  const renderLanding = () => render(<MemoryRouter initialEntries={['/']}><DashboardPage /></MemoryRouter>);
+  const down = Object.assign(new Error('Server down'), { status: 500 });
+  const FAILED = { data: undefined, error: down };
+  const HELD = { data: { active: 4, unacknowledged: 1 }, error: down };
+  const ACTIVITY = { data: { total: 20, active: 7 }, error: undefined };
+
+  it('both poll on the dashboards retry policy, at the overview cadence', () => {
+    swrOptions.clear();
+    renderLanding();
+    for (const key of ['/api/alarms/summary', '/api/instruments/activity-summary']) {
+      const opts = swrOptions.get(key) as { refreshInterval?: number; onErrorRetry?: unknown; shouldRetryOnError?: (e: unknown) => boolean };
+      expect(opts?.refreshInterval).toBe(5_000);
+      expect(typeof opts?.onErrorRetry).toBe('function');
+      expect(opts?.shouldRetryOnError?.(Object.assign(new Error('Forbidden'), { status: 403 }))).toBe(false);
+    }
+  });
+
+  it('a FAILED alarm summary reaches the card as failed, never a 0', () => {
+    ANSWERS.set('/api/alarms/summary', FAILED);
+    entryProps.length = 0;
+    renderLanding();
+    expect(entryProps.at(-1)?.alarms).toBe('failed');
+    ANSWERS.clear();
+  });
+
+  it('a summary still loading reaches the card as loading, never a 0', () => {
+    entryProps.length = 0;
+    renderLanding();
+    expect(entryProps.at(-1)?.alarms).toBe('loading');
+  });
+
+  it('a held summary after a failed refresh is drawn with its note', () => {
+    ANSWERS.set('/api/alarms/summary', HELD);
+    entryProps.length = 0;
+    renderLanding();
+    expect(entryProps.at(-1)?.alarms).toEqual({ active: 4, unacknowledged: 1, refreshFailed: true });
+    ANSWERS.clear();
+  });
+
+  it('a FAILED active count is said on the All Instruments card, never the tree sum', () => {
+    ANSWERS.set('/api/instruments/activity-summary', FAILED);
+    entryProps.length = 0;
+    renderLanding();
+    const all = entryProps.at(-1)?.cards?.find((c) => c.id === ALL_INSTRUMENTS);
+    expect(all?.activeFailed).toBe(true);
+    expect(all?.activeCount).toBeUndefined();
+    ANSWERS.set('/api/instruments/activity-summary', ACTIVITY);
+    entryProps.length = 0;
+    renderLanding();
+    expect(entryProps.at(-1)?.cards?.find((c) => c.id === ALL_INSTRUMENTS)?.activeCount).toBe(7);
+    ANSWERS.clear();
   });
 });
 

@@ -6,6 +6,7 @@ import { useSensorWords, useAlarmTypeNames } from '@/hooks/use-failure-text';
 import { useCan } from '@/hooks/use-can';
 import { useToast } from '@/hooks/use-toast';
 import { apiClient } from '@/lib/api-client';
+import { widgetPolling } from '@/lib/polling';
 import { Button } from '@/components/ui/button';
 import { SkeletonRows } from '@/components/ui/skeleton';
 import { Pagination } from '@/components/ui/pagination';
@@ -180,7 +181,12 @@ export function SelectionAlarms({ functionalLocationId: homeLocationId, scope }:
   const { data, error, mutate } = useSWR<{ data: AlarmRow[]; total: number }>(
     nothingInScope ? null : `/api/alarms?${qs.toString()}`,
     {
-      refreshInterval: ALARM_REFRESH_MS,
+      // THE dashboards' polling and retry policy (R7-11), for the home panel and
+      // the alarm table widget alike: a failure is retried at the panel's cadence
+      // until it succeeds and polling resumes (SWR stops polling a key that holds
+      // an error); a refusal is not retried. SPREAD FIRST — the hook's own
+      // options below win.
+      ...widgetPolling(ALARM_REFRESH_MS),
     // Drilling into a location changes this key. Keep the previous rows until
     // the new ones land (2026-09-16): with SWR's default the panel collapsed
     // to a skeleton on every drill-down and the auto-height grid shrank, then

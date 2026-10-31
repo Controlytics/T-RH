@@ -52,6 +52,9 @@ const KIND_ACCENTS: Record<EntryCardKind, { from: string; to: string; wave: stri
 const ALARM_TONES = {
   danger: { from: '#e11d48', to: '#9f1239' },
   ok: { from: '#047857', to: '#065f46' },
+  // No count in hand (loading, or the request failed): neither green nor red,
+  // because the card cannot say either. slate-600 → slate-800, white text 7.6:1.
+  unknown: { from: '#475569', to: '#1e293b' },
 } as const;
 
 /** One diagonal, the same on every card, so the row reads as one set. */
@@ -103,12 +106,25 @@ function Sheen() {
  * reader. On the coloured ground the two are white chips: the words carry
  * the meaning, the dot only echoes it.
  */
-function ActiveSplit({ total, active, large = false }: { total: number; active?: number; large?: boolean }) {
+function ActiveSplit({ total, active, failed = false, large = false }: {
+  total: number; active?: number; failed?: boolean; large?: boolean;
+}) {
+  const size = large ? 'text-[0.875rem]' : 'text-[0.75rem]';
+  // The active count could not be loaded (R7-11): SAID, never replaced by a
+  // number from somewhere else or a 0.
+  if (failed) {
+    return (
+      <p className={`mt-3 ${size}`}>
+        <span role="alert" className="inline-flex items-center rounded-full bg-white/15 px-2.5 py-1 font-bold text-white ring-1 ring-white/20">
+          Active count could not be loaded
+        </span>
+      </p>
+    );
+  }
   // No split available (the "directly linked" card) — say nothing rather than
   // implying everything is active.
   if (active === undefined) return null;
   const inactive = Math.max(0, total - active);
-  const size = large ? 'text-[0.875rem]' : 'text-[0.75rem]';
   return (
     <p className={`mt-3 flex flex-wrap items-center gap-2 ${size}`}>
       <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 font-bold text-white ring-1 ring-white/20">
@@ -173,8 +189,13 @@ export interface EntryCardsProps {
   /** nav.cards — [0] is All Instruments, the rest are Blocks. */
   cards: NavCard[];
   onSelect: (id: string) => void;
-  /** Null when the viewer cannot see alarms; the Alarms card is then omitted. */
-  alarms: { active: number; unacknowledged: number } | null;
+  /**
+   * Null when the viewer cannot see alarms; the Alarms card is then omitted.
+   * `'loading'` / `'failed'` when there is no count in hand: the card prints a
+   * dash in a neutral tone, never a green 0 (R7-11). `refreshFailed`: the count
+   * is the last one that loaded, and the card says so.
+   */
+  alarms: { active: number; unacknowledged: number; refreshFailed?: boolean } | 'loading' | 'failed' | null;
   onOpenAlarms: () => void;
   /**
    * Names what the lower section is listing. Required because the same
@@ -202,8 +223,9 @@ export function EntryCards({
 }: EntryCardsProps) {
   const all = cards.find((c) => c.id === ALL_INSTRUMENTS);
   const blocks = cards.filter((c) => c.id !== ALL_INSTRUMENTS);
-  const activeAlarms = alarms?.active ?? 0;
-  const alarmTone = activeAlarms > 0 ? 'danger' : 'ok';
+  const counts = alarms !== null && typeof alarms === 'object' ? alarms : null;
+  const activeAlarms = counts?.active ?? 0;
+  const alarmTone = counts === null ? 'unknown' : activeAlarms > 0 ? 'danger' : 'ok';
   const accent = KIND_ACCENTS[cardKind];
 
   return (
@@ -235,7 +257,7 @@ export function EntryCards({
             <p className="mt-2 text-[0.8125rem] font-bold uppercase tracking-[0.14em] text-white/80">
               Instruments
             </p>
-            <ActiveSplit total={all.count} active={all.activeCount} large />
+            <ActiveSplit total={all.count} active={all.activeCount} failed={all.activeFailed} large />
 
             <div className="mt-auto flex justify-end pt-4">
               <ViewDetails large />
@@ -246,32 +268,43 @@ export function EntryCards({
         {alarms && (
           <CardShell
             onClick={onOpenAlarms}
-            label={`Active alarms — ${activeAlarms}. View details.`}
+            label={counts
+              ? `Active alarms — ${activeAlarms}. View details.`
+              : `Active alarms — ${alarms === 'failed' ? 'could not be loaded' : 'loading'}. View details.`}
             background={gradient(ALARM_TONES[alarmTone].from, ALARM_TONES[alarmTone].to)}
             className="p-5 xl:p-6"
             data-tone={alarmTone}
           >
             <div className="min-w-0">
               <h3 className="text-[1.25rem] font-extrabold text-white xl:text-[1.5rem]">Active Alarms</h3>
-              <p className="mt-1 text-[0.9375rem] font-semibold text-white/85">
-                {/* Says what to DO, and stays honest at zero. */}
-                {activeAlarms > 0 ? 'Require your attention' : 'Nothing to attend to'}
+              <p className="mt-1 text-[0.9375rem] font-semibold text-white/85" role={alarms === 'failed' ? 'alert' : undefined}>
+                {/* Says what to DO, and stays honest at zero — and with no count
+                    in hand it says THAT, never "Nothing to attend to". */}
+                {counts === null
+                  ? (alarms === 'failed' ? 'The alarm count could not be loaded' : 'Loading…')
+                  : activeAlarms > 0 ? 'Require your attention' : 'Nothing to attend to'}
               </p>
             </div>
 
             {/* The CARD is green at zero and red otherwise (`data-tone`); the
-                figure is white on both so it never fights its ground. */}
+                figure is white on both so it never fights its ground. No count
+                in hand: a dash on a neutral card, never a 0. */}
             <p className="mt-5 text-[2.5rem] font-black leading-none tracking-tight text-white tabular-nums lg:text-[3rem] xl:text-[3.5rem]">
-              {activeAlarms.toLocaleString()}
+              {counts ? activeAlarms.toLocaleString() : '—'}
             </p>
             <p className="mt-2 text-[0.8125rem] font-bold uppercase tracking-[0.14em] text-white/80">
               Alarms
             </p>
+            {counts?.refreshFailed && (
+              <p data-testid="alarm-card-refresh-failed" className="mt-2 text-[0.8125rem] font-semibold text-white/90">
+                Could not be refreshed. Showing the last count that loaded.
+              </p>
+            )}
 
             <div className="mt-auto flex items-end justify-between gap-3 pt-4">
               <p className="text-[0.875rem] font-semibold text-white/85">
-                {(alarms.unacknowledged ?? 0) > 0
-                  ? `${alarms.unacknowledged} awaiting acknowledgement`
+                {(counts?.unacknowledged ?? 0) > 0
+                  ? `${counts?.unacknowledged} awaiting acknowledgement`
                   : ' '}
               </p>
               <ViewDetails large />

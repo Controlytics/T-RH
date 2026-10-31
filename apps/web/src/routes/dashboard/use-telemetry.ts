@@ -5,6 +5,7 @@ import {
   TELEMETRY_DECIMALS_FALLBACK,
   type InstrumentStatus,
 } from '@digilog/shared';
+import { widgetPolling } from '@/lib/polling';
 import type { RoomDoor, DoorKind } from './room-geometry';
 
 export interface SlotValue {
@@ -211,7 +212,12 @@ export function useTelemetryOverview(opts?: string | {
       : '/api/instruments/telemetry-overview';
 
   const { data, error, isLoading } = useSWR<{ data: OverviewRow[] }>(url, {
-    refreshInterval: overviewRefreshMs,
+    // THE dashboards' polling and retry policy (R7-11): a failure is retried at
+    // this cadence until it succeeds, and polling resumes — the readings table,
+    // the floor plan and every widget's instruments no longer freeze after an
+    // outage until the window is focused. SPREAD FIRST: it sets
+    // `keepPreviousData: true`, which the hold below must override.
+    ...widgetPolling(overviewRefreshMs),
     revalidateOnFocus: true,
     dedupingInterval: 1000,
     // Drilling into a location changes this key. Keep the previous rows until
@@ -388,6 +394,10 @@ export interface FloorplanShape {
  */
 export function useFloorplans() {
   const { data, error, isLoading } = useSWR<{ data: FloorplanShape[] }>('/api/floorplans', {
+    // Retried like every dashboard hook (R7-11) — a plan list that failed once at
+    // mount no longer says "could not be loaded" until a reload — but never
+    // POLLED: a cadence of 0 retries at `errorRetryInterval` and adds no refresh.
+    ...widgetPolling(0),
     revalidateOnFocus: false,
     dedupingInterval: 30000,
   });

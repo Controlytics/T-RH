@@ -142,6 +142,47 @@ describe('EntryCards — behaviour', () => {
   });
 });
 
+/**
+ * R7-11 (final fix wave): with no count in hand the card printed `?? 0` — a GREEN
+ * "0 · Nothing to attend to" on a failed request, the one thing a permission or
+ * outage must never read as. Now it is a dash on a neutral card, in words.
+ */
+describe('EntryCards — no count in hand is never a 0', () => {
+  const onlyAll = [card(ALL_INSTRUMENTS, 'All Instruments', 42, '')];
+
+  it('a FAILED alarm summary: a dash, neutral, and the failure in words', () => {
+    render(<EntryCards cards={onlyAll} onSelect={noop} alarms="failed" onOpenAlarms={noop} />);
+    const alarmCard = screen.getByRole('button', { name: /Active alarms — could not be loaded/i });
+    expect(alarmCard).toHaveAttribute('data-tone', 'unknown');
+    expect(alarmCard).toHaveTextContent('—');
+    expect(alarmCard).not.toHaveTextContent(/\b0\b/);
+    expect(screen.getByRole('alert')).toHaveTextContent('The alarm count could not be loaded');
+    expect(screen.queryByText('Nothing to attend to')).toBeNull();
+  });
+
+  it('a LOADING alarm summary: a dash, neutral, never "Nothing to attend to"', () => {
+    render(<EntryCards cards={onlyAll} onSelect={noop} alarms="loading" onOpenAlarms={noop} />);
+    const alarmCard = screen.getByRole('button', { name: /Active alarms — loading/i });
+    expect(alarmCard).toHaveAttribute('data-tone', 'unknown');
+    expect(alarmCard).toHaveTextContent('—');
+    expect(screen.queryByText('Nothing to attend to')).toBeNull();
+  });
+
+  it('a held count after a failed refresh is drawn and says so', () => {
+    render(<EntryCards cards={onlyAll} onSelect={noop} alarms={{ active: 3, unacknowledged: 1, refreshFailed: true }} onOpenAlarms={noop} />);
+    expect(screen.getByRole('button', { name: /Active alarms — 3/ })).toHaveAttribute('data-tone', 'danger');
+    expect(screen.getByTestId('alarm-card-refresh-failed')).toHaveTextContent('Could not be refreshed');
+  });
+
+  it('a FAILED active count is said on the All Instruments card, with no split', () => {
+    const failed: NavCard[] = [{ ...card(ALL_INSTRUMENTS, 'All Instruments', 42, ''), activeFailed: true }];
+    render(<EntryCards cards={failed} onSelect={noop} alarms={null} onOpenAlarms={noop} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Active count could not be loaded');
+    expect(screen.queryByText(/active$/)).toBeNull();
+    expect(screen.queryByText(/inactive/)).toBeNull();
+  });
+});
+
 describe('EntryCards — accessibility', () => {
   it('every card is a real button with a full label', () => {
     render(<EntryCards cards={FOUR} onSelect={noop} alarms={{ active: 5, unacknowledged: 1 }} onOpenAlarms={noop} />);
