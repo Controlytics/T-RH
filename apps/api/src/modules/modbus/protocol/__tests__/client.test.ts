@@ -102,6 +102,8 @@ describe('readDevice', () => {
       const s = await start({ behaviour });
       const r = await readDevice({ host: s.host, port: s.port, unitId: 1, map, responseTimeoutMs: 1000 });
       expect(r).toMatchObject({ ok: false, code: 'BAD_RESPONSE' });
+      if (r.ok) throw new Error('unreachable');
+      expect(r.message).toBe(`127.0.0.1 : ${s.port} answered, but the reply did not match the request (wrong transaction, unit, function code or length) — check the unit ID and the register map.`);
       expect(r).not.toHaveProperty('values');
       await waitFor(() => s.closedConnections() === 1);
       expect(s.closedConnections()).toBe(1);
@@ -124,6 +126,7 @@ describe('modbusErrorMessage', () => {
     expect(modbusErrorMessage('NO_ANSWER', { host: 'h', port: 1, connectTimeoutMs: 3000 })).toBe('h : 1 did not answer within 3 s — check the IP, the cable, and that the device is on.');
     expect(modbusErrorMessage('NO_ANSWER', { host: 'h', port: 1, connectTimeoutMs: 200 })).toContain('within 0.2 s');
     expect(modbusErrorMessage('BAD_RESPONSE', { host: 'h', port: 1, responseTimeoutMs: 1000 })).toContain('within 1 s.');
+    expect(modbusErrorMessage('BAD_RESPONSE', { host: 'h', port: 1, responseTimeoutMs: 1000, mismatch: true })).toBe('h : 1 answered, but the reply did not match the request (wrong transaction, unit, function code or length) — check the unit ID and the register map.');
   });
 
   it('names exception codes, and unknown ones by number', () => {

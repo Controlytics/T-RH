@@ -46,9 +46,17 @@ describe('decodeMap', () => {
     expect(nan.rejected).toHaveLength(1);
     expect(nan.rejected[0]!.key).toBe('v');
     expect(nan.rejected[0]!.reason).toMatch(/not a number/i);
+    expect(nan.rejected[0]!.reason).toContain('words 0x7FC0 0x0000');
     const inf = one('FLOAT32', [0x7f80, 0x0000], 'ABCD');
     expect(inf.values).not.toHaveProperty('v');
     expect(inf.rejected[0]!.reason).toMatch(/infinite/i);
+    expect(inf.rejected[0]!.reason).toContain('words 0x7F80 0x0000');
+    // CDAB: the words as received are 0x0000 0x7F80 — the reason prints them as received.
+    expect(one('FLOAT32', [0x0000, 0x7f80], 'CDAB').rejected[0]!.reason).toContain('words 0x0000 0x7F80');
+    // finite float32 whose scaled value overflows to Infinity
+    const ovf = one('FLOAT32', [0x7f7f, 0xffff], 'ABCD', 1e300);
+    expect(ovf.values).not.toHaveProperty('v');
+    expect(ovf.rejected[0]!.reason).toMatch(/scaled value is infinite, words 0x7F7F 0xFFFF/);
   });
 
   it('rounds FLOAT32 22.399999618 to 7 significant digits', () => {

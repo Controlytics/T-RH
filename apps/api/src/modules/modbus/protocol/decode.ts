@@ -1,6 +1,10 @@
 import { parseModiconRef, registersFor, type ModbusByteOrder, type ModbusRegisterMap } from '@digilog/shared';
 import { wordKey } from './plan.js';
 
+function hex4(w: number): string {
+  return `0x${(w & 0xffff).toString(16).toUpperCase().padStart(4, '0')}`;
+}
+
 export type Rejected = { key: string; reason: string };
 
 /** Fractional digits of a scale: 0.1 -> 1, 0.05 -> 2, 1e-7 -> 7, 10 -> 0. */
@@ -59,14 +63,15 @@ export function decodeMap(
       raw = r.dataType === 'UINT32' ? buf.readUInt32BE(0) : r.dataType === 'INT32' ? buf.readInt32BE(0) : buf.readFloatBE(0);
     }
 
+    const rawWords = n === 2 ? `${hex4(w1)} ${hex4(w2 as number)}` : hex4(w1);
     if (!Number.isFinite(raw)) {
-      rejected.push({ key: r.key, reason: Number.isNaN(raw) ? 'the device sent a value that is not a number (NaN)' : 'the device sent an infinite value' });
+      rejected.push({ key: r.key, reason: `${Number.isNaN(raw) ? 'the device sent a value that is not a number (NaN)' : 'the device sent an infinite value'}, words ${rawWords}` });
       continue;
     }
 
     const scaled = r.scale === 1 ? raw : raw * r.scale;
     if (!Number.isFinite(scaled)) {
-      rejected.push({ key: r.key, reason: 'the scaled value is infinite' });
+      rejected.push({ key: r.key, reason: `the scaled value is infinite, words ${rawWords}` });
       continue;
     }
     let v: number;

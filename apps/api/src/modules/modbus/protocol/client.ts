@@ -50,7 +50,7 @@ function isRefusal(err: NodeJS.ErrnoException): boolean {
  * Every failure of the device or network is a `ReadResult` with `ok: false`;
  * nothing partial is ever returned as a success. A device that answers wrongly
  * (wrong transaction id, unit id or function code, or the wrong number of
- * bytes) is `BAD_RESPONSE`. Only a programming error, or an abort through
+ * bytes) is `BAD_RESPONSE` with the "reply did not match" wording; silence is the "did not answer" wording. Only a programming error, or an abort through
  * `signal`, rejects (the abort rejects with an `AbortError`).
  */
 export function readDevice(opts: ReadDeviceOptions): Promise<ReadResult> {
@@ -124,7 +124,7 @@ export function readDevice(opts: ReadDeviceOptions): Promise<ReadResult> {
       if (buf.length < MBAP_LEN) return false;
       const lengthField = buf.readUInt16BE(4);
       if (buf.readUInt16BE(2) !== 0 || lengthField < 2 || lengthField > MAX_FRAME_LENGTH_FIELD) {
-        fail('BAD_RESPONSE');
+        fail('BAD_RESPONSE', { mismatch: true });
         return true;
       }
       const total = 6 + lengthField;
@@ -134,22 +134,22 @@ export function readDevice(opts: ReadDeviceOptions): Promise<ReadResult> {
       const req = requests[index]!;
 
       if (frame.readUInt16BE(0) !== txId || frame.readUInt8(6) !== unitId) {
-        fail('BAD_RESPONSE');
+        fail('BAD_RESPONSE', { mismatch: true });
         return true;
       }
       const fc = frame.readUInt8(7);
       if (fc === (req.functionCode | 0x80)) {
-        if (lengthField !== 3) { fail('BAD_RESPONSE'); return true; }
+        if (lengthField !== 3) { fail('BAD_RESPONSE', { mismatch: true }); return true; }
         fail('DEVICE_EXCEPTION', { range: rangeOf(req), exception: frame.readUInt8(8) });
         return true;
       }
       if (fc !== req.functionCode || lengthField < 3) {
-        fail('BAD_RESPONSE');
+        fail('BAD_RESPONSE', { mismatch: true });
         return true;
       }
       const byteCount = frame.readUInt8(8);
       if (byteCount !== req.quantity * 2 || lengthField !== 3 + byteCount) {
-        fail('BAD_RESPONSE');
+        fail('BAD_RESPONSE', { mismatch: true });
         return true;
       }
       const area = req.functionCode === 3 ? 'HOLDING' : 'INPUT';

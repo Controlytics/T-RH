@@ -13,6 +13,8 @@ export interface ModbusErrorContext {
   exception?: number;
   connectTimeoutMs?: number;
   responseTimeoutMs?: number;
+  /** BAD_RESPONSE only: the device DID answer, but the reply did not match the request. */
+  mismatch?: boolean;
 }
 
 export const DEFAULT_CONNECT_TIMEOUT_MS = 3000;
@@ -50,6 +52,9 @@ export function modbusErrorMessage(code: ModbusErrorCode, ctx: ModbusErrorContex
       return `The device refused registers ${ctx.range ?? 'unknown'} (exception ${hex2(n)}, ${name}) — the register map does not match it.`;
     }
     case 'BAD_RESPONSE':
+      if (ctx.mismatch) {
+        return `${host} : ${port} answered, but the reply did not match the request (wrong transaction, unit, function code or length) — check the unit ID and the register map.`;
+      }
       return `${host} : ${port} accepted the connection but did not answer the read within ${seconds(ctx.responseTimeoutMs ?? DEFAULT_RESPONSE_TIMEOUT_MS)} s.`;
   }
 }
