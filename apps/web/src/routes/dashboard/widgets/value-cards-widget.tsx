@@ -9,10 +9,10 @@ import { useSensorWords } from '@/hooks/use-failure-text';
 import { FAULT_INK } from '../status';
 import { keyCell } from './key-value';
 import type { WidgetSelection } from './use-widget-data';
-import { CapNote, LOAD_FAILED, NO_INSTRUMENTS, WidgetMessage, useWidgetRows, valueOf } from './widget-common';
+import { LOAD_FAILED, NO_INSTRUMENTS, WidgetMessage, WidgetNotes, useWidgetRows, valueOf } from './widget-common';
 
 export function ValueCardsWidget({ widget, selection }: { widget: CustomWidget; selection: WidgetSelection }) {
-  const { rows, loading, error, empty } = useWidgetRows(widget, selection);
+  const { rows, loading, error, empty, refreshFailed } = useWidgetRows(widget, selection);
   const { formatDateTime } = useDatetimeFormat();
   const words = useSensorWords();
 
@@ -25,7 +25,7 @@ export function ValueCardsWidget({ widget, selection }: { widget: CustomWidget; 
 
   return (
     <div className="space-y-2">
-      <CapNote shown={shown.length} total={cards.length} noun="cards" />
+      <WidgetNotes cap={{ shown: shown.length, total: cards.length, noun: 'cards' }} refreshFailed={refreshFailed} />
       <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(12.5rem,1fr))]">
         {shown.map(({ row, key }) => {
           const v = valueOf(row, key);

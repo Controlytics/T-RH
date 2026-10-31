@@ -59,7 +59,7 @@ export function readingSize(text: string): string {
 }
 
 export function GaugeWidget({ widget, selection }: { widget: CustomWidget; selection: WidgetSelection }) {
-  const { rows, loading, error, empty } = useWidgetRows(widget, selection);
+  const { rows, loading, error, empty, refreshFailed } = useWidgetRows(widget, selection);
   const words = useSensorWords();
 
   if (loading) return <WidgetMessage>Loading…</WidgetMessage>;
@@ -75,7 +75,8 @@ export function GaugeWidget({ widget, selection }: { widget: CustomWidget; selec
 
   return (
     <div className="space-y-2">
-      <WidgetNotes cap={{ shown: shown.length, total: pairs.length, noun: 'gauges' }} unsent={unsent} />
+      {/* A failed refresh is SAID: a held ring keeps its last verdict colour, never a silent "In limit" (F-I2). */}
+      <WidgetNotes cap={{ shown: shown.length, total: pairs.length, noun: 'gauges' }} unsent={unsent} refreshFailed={refreshFailed} />
       {/* A LITERAL class (Tailwind cannot see an interpolated one); its 160px is
           GAUGE_TILE_PX.min, and gauge-widget.test pins the two together. */}
       <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(160px,1fr))]">

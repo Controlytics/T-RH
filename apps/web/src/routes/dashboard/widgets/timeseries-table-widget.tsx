@@ -16,11 +16,11 @@ import { formatKeyValue } from './key-value';
 import { widgetPageSize } from './type-switch';
 import { useWidgetTimeseries, type WidgetSelection } from './use-widget-data';
 import {
-  CapNote, LOAD_FAILED, NO_INSTRUMENTS, PeriodSelect, WidgetMessage, useWidgetRange, useWidgetRows, valueOf,
+  LOAD_FAILED, NO_INSTRUMENTS, PeriodSelect, WidgetMessage, WidgetNotes, useWidgetRange, useWidgetRows, valueOf,
 } from './widget-common';
 
 export function TimeseriesTableWidget({ widget, selection }: { widget: CustomWidget; selection: WidgetSelection }) {
-  const { rows, loading, error, empty } = useWidgetRows(widget, selection);
+  const { rows, loading, error, empty, refreshFailed } = useWidgetRows(widget, selection);
   const { preset, setPreset, range } = useWidgetRange(widget.options.period, selection.window);
   const { formatDateTime } = useDatetimeFormat();
   const [page, setPage] = useState(1);
@@ -55,7 +55,7 @@ export function TimeseriesTableWidget({ widget, selection }: { widget: CustomWid
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         <PeriodSelect name={`widget-period-${widget.id}`} value={preset} onChange={setPreset} withDashboard={selection.window !== undefined} />
-        <CapNote shown={queried.length} total={carriers.length} noun="instruments" />
+        <WidgetNotes cap={{ shown: queried.length, total: carriers.length, noun: 'instruments' }} refreshFailed={refreshFailed} />
       </div>
       {/* The app's table (ruling R5, 2026-10-29) — see latest-table-widget. */}
       <Table data-testid="timeseries-table">

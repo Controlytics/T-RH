@@ -33,7 +33,7 @@ import {
 } from './widget-common';
 
 export function BarChartWidget({ widget, selection }: { widget: CustomWidget; selection: WidgetSelection }) {
-  const { rows, loading, error, empty } = useWidgetRows(widget, selection);
+  const { rows, loading, error, empty, refreshFailed: rowsHeld } = useWidgetRows(widget, selection);
   const { preset, setPreset, range, rolling } = useWidgetRange(widget.options.period, selection.window);
   const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
   const bucket = widget.options.bucket ?? BAR_DEFAULTS.bucket;
@@ -112,7 +112,7 @@ export function BarChartWidget({ widget, selection }: { widget: CustomWidget; se
       <WidgetNotes
         cap={plan.tooMany ? undefined : { shown: plan.asked.length, total: plan.total, noun: 'instruments' }}
         unsent={drawing ? model.unsent : []}
-        refreshFailed={holding}
+        refreshFailed={holding || rowsHeld}
       />
       {body}
     </div>

@@ -13,6 +13,8 @@ const state: {
 vi.mock('../use-widget-data', () => ({
   useWidgetInstrumentIds: () => state.ids,
   useLatestValues: () => state.latest,
+  // The real constant's value: `useWidgetRows` asks the latest values for THIS request only.
+  THIS_REQUEST_ONLY: { keepPreviousData: false },
 }));
 const WORDS = { failure: 'Error', outOfRange: 'OL' };
 vi.mock('@/hooks/use-failure-text', () => ({ useSensorWords: () => WORDS }));

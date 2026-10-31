@@ -18,6 +18,8 @@ const bucketCalls: unknown[][] = [];
 vi.mock('../use-widget-data', () => ({
   useWidgetInstrumentIds: () => state.ids,
   useLatestValues: () => state.latest,
+  // The real constant's value: `useWidgetRows` asks the latest values for THIS request only.
+  THIS_REQUEST_ONLY: { keepPreviousData: false },
   useTelemetryBuckets: (...a: unknown[]) => { bucketCalls.push(a); return state.buckets; },
 }));
 const WORDS = { failure: 'Error', outOfRange: 'OL' };

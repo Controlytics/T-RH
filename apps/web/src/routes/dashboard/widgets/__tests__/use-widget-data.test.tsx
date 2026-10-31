@@ -12,11 +12,14 @@ vi.mock('@/lib/api-client', () => ({
 
 // Module-level constants: a fresh object per call makes an effect keyed on it
 // re-run forever (the UI v3 vitest hang).
-const OVERVIEW = { rows: [{ instrumentId: 'i-3' }, { instrumentId: 'i-1' }, { instrumentId: 'i-2' }], isLoading: false, error: undefined };
+const OVERVIEW: { rows: { instrumentId: string }[]; isLoading: boolean; error: unknown } = {
+  rows: [{ instrumentId: 'i-3' }, { instrumentId: 'i-1' }, { instrumentId: 'i-2' }], isLoading: false, error: undefined,
+};
 const SETTINGS = { overviewRefreshMs: 0, chartRefreshMs: 0 };
 const overviewCalls: unknown[] = [];
+const overviewHolds: unknown[] = [];
 vi.mock('../../use-telemetry', () => ({
-  useTelemetryOverview: (opts: unknown) => { overviewCalls.push(opts); return OVERVIEW; },
+  useTelemetryOverview: (opts: unknown, hold?: unknown) => { overviewCalls.push(opts); overviewHolds.push(hold); return OVERVIEW; },
   useTelemetrySettings: () => SETTINGS,
 }));
 
@@ -35,6 +38,7 @@ beforeEach(() => {
   get.mockReset();
   post.mockReset();
   overviewCalls.length = 0;
+  overviewHolds.length = 0;
 });
 
 describe('chunk', () => {
@@ -90,6 +94,20 @@ describe('useWidgetInstrumentIds', () => {
       { wrapper },
     );
     expect(result.current.ids).toEqual(['x', 'y']);
+  });
+
+  it("F-I1: asks THIS request only and hands back the overview's error; a stored list never takes the overview's error", () => {
+    const failed = Object.assign(new Error('down'), { status: 502 });
+    OVERVIEW.error = failed;
+    try {
+      const sel = renderHook(() => useWidgetInstrumentIds({ mode: 'selection' }, { directOnly: false }), { wrapper });
+      expect(overviewHolds.at(-1)).toEqual({ keepPreviousData: false });
+      expect(sel.result.current.error).toBe(failed);
+      const own = renderHook(() => useWidgetInstrumentIds({ mode: 'instruments', ids: ['x'] }, { directOnly: false }), { wrapper });
+      expect(own.result.current.error).toBeUndefined();
+    } finally {
+      OVERVIEW.error = undefined;
+    }
   });
 });
 

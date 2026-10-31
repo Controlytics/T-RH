@@ -15,7 +15,7 @@ import {
 } from './widget-common';
 
 export function ComparisonBarWidget({ widget, selection }: { widget: CustomWidget; selection: WidgetSelection }) {
-  const { rows, loading, error, empty } = useWidgetRows(widget, selection);
+  const { rows, loading, error, empty, refreshFailed } = useWidgetRows(widget, selection);
   const words = useSensorWords();
   const model = comparisonModel(rows, widget.keys, words);
   // Keyed on the model's CONTENT, never on object identity: every poll (and, in
@@ -40,7 +40,11 @@ export function ComparisonBarWidget({ widget, selection }: { widget: CustomWidge
 
   return (
     <div className="space-y-2">
-      <WidgetNotes cap={{ shown: model.codes.length, total: model.total, noun: 'instruments' }} unsent={model.unsent} />
+      <WidgetNotes
+        cap={{ shown: model.codes.length, total: model.total, noun: 'instruments' }}
+        unsent={model.unsent}
+        refreshFailed={refreshFailed}
+      />
       <div ref={setBox}>
         <LazyEChart
           option={option}

@@ -22,7 +22,7 @@ import { TimeSeriesChart, seriesColor, type ChartSeries } from '../time-series-c
 import { decimalsSeen, isMeasured, keyCell } from './key-value';
 import { useWidgetHistory, type WidgetSelection } from './use-widget-data';
 import {
-  CapNote, LOAD_FAILED, NO_INSTRUMENTS, NO_KEY_YET, PeriodSelect, WidgetMessage, keyColorSlots, useWidgetRange, useWidgetRows, valueOf,
+  LOAD_FAILED, NO_INSTRUMENTS, NO_KEY_YET, PeriodSelect, WidgetMessage, WidgetNotes, keyColorSlots, useWidgetRange, useWidgetRows, valueOf,
 } from './widget-common';
 
 interface Plotted {
@@ -37,7 +37,7 @@ interface Plotted {
 }
 
 export function TrendChartWidget({ widget, selection }: { widget: CustomWidget; selection: WidgetSelection }) {
-  const { rows, loading, error, empty } = useWidgetRows(widget, selection);
+  const { rows, loading, error, empty, refreshFailed } = useWidgetRows(widget, selection);
   const { preset, setPreset, range, zoomed, zoomTo, resetZoom } = useWidgetRange(widget.options.period, selection.window);
   const words = useSensorWords();
 
@@ -128,7 +128,7 @@ export function TrendChartWidget({ widget, selection }: { widget: CustomWidget; 
             Reset zoom
           </button>
         )}
-        <CapNote shown={shownPairs.length} total={pairs.length} noun="series" />
+        <WidgetNotes cap={{ shown: shownPairs.length, total: pairs.length, noun: 'series' }} refreshFailed={refreshFailed} />
       </div>
       {historyLoading && plotted.length === 0 ? (
         <WidgetMessage>Loading…</WidgetMessage>

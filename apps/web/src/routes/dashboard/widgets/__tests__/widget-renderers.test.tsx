@@ -21,6 +21,8 @@ const seriesCalls: unknown[][] = [];
 vi.mock('../use-widget-data', () => ({
   useWidgetInstrumentIds: () => state.ids,
   useLatestValues: () => state.latest,
+  // The real constant's value: `useWidgetRows` asks the latest values for THIS request only.
+  THIS_REQUEST_ONLY: { keepPreviousData: false },
   useWidgetHistory: (...a: unknown[]) => { historyCalls.push(a); return state.history; },
   useWidgetTimeseries: (...a: unknown[]) => { seriesCalls.push(a); return state.series; },
 }));

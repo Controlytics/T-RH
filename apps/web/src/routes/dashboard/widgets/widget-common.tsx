@@ -9,7 +9,9 @@ import {
   type CustomWidget, type DashboardTimeWindow, type LatestKeyValue, type LatestValuesRow, type WidgetKey,
 } from '@digilog/shared';
 import { isRefusal } from '@/lib/refusal';
-import { useLatestValues, useWidgetInstrumentIds, type WidgetRange, type WidgetSelection } from './use-widget-data';
+import {
+  THIS_REQUEST_ONLY, useLatestValues, useWidgetInstrumentIds, type WidgetRange, type WidgetSelection,
+} from './use-widget-data';
 
 export const NO_INSTRUMENTS = 'No instruments in your view';
 export const LOAD_FAILED = 'Could not load this widget.';
@@ -25,22 +27,33 @@ export function valueOf(row: LatestValuesRow, key: WidgetKey): LatestKeyValue | 
  * A widget's instruments and their latest values, in the widget's order.
  *
  * An instrument the viewer may not see is absent from the server's answer and so
- * is simply not drawn; `empty` is the case where NONE of them is in view.
+ * is simply not drawn; `empty` is the case where NONE of them is in view — said
+ * only when both requests SUCCEEDED.
+ *
+ * On THE held-answer rule (`answerState`, F-I1 / F-I2): both requests are this
+ * request's only (`THIS_REQUEST_ONLY`), so the rows held always answer the
+ * widget as it stands. A first load or a drill-down that failed is `error`
+ * ("Could not load this widget."); a failed REFRESH keeps the rows, drawn, and
+ * `refreshFailed` says so (`WidgetNotes`) — no gauge keeps a silent "In limit".
  */
 export function useWidgetRows(widget: CustomWidget, selection: WidgetSelection) {
-  const { ids, loading: idsLoading } = useWidgetInstrumentIds(widget.source, selection);
-  const { rows, loading, error } = useLatestValues(ids, widget.keys);
+  const { ids, loading: idsLoading, error: idsError } = useWidgetInstrumentIds(widget.source, selection);
+  const { rows, loading, error: valuesError } = useLatestValues(ids, widget.keys, THIS_REQUEST_ONLY);
   const ordered = useMemo(() => {
     const byId = new Map(rows.map((r) => [r.instrumentId, r]));
     return ids.map((id) => byId.get(id)).filter((r): r is LatestValuesRow => r !== undefined);
   }, [rows, ids]);
   const settled = !idsLoading && !loading;
+  const error = idsError ?? valuesError;
+  const answer = answerState(ordered.length > 0, error);
   return {
     ids,
     rows: ordered,
-    loading: !settled && ordered.length === 0,
-    error: error && ordered.length === 0 ? error : undefined,
-    empty: settled && !error && ordered.length === 0,
+    loading: answer === 'none' && !settled,
+    error: answer === 'failed' ? error : undefined,
+    empty: answer === 'none' && settled,
+    /** Rows held through a failed refresh: drawn, and the widget says so. */
+    refreshFailed: answer === 'stale',
   };
 }
 
@@ -168,7 +181,9 @@ export function WidgetNotes({ cap, more = 0, unsent = [], refreshFailed = false,
  * WIDGET MAKES NOW — never a previous scope's: SWR's `keepPreviousData` hands a
  * key with nothing cached the previous key's data, and a drill-down whose request
  * failed drew Block A's alarm counts as Block B's. Each widget says it its way:
- * - the present-state widgets (alarm counts, both pies, the status grid) read
+ * - the present-state widgets (alarm counts, both pies, the status grid) and
+ *   every KEY widget's instruments and latest values (`useWidgetRows`, F-I1 —
+ *   gauges, comparison bars, value cards and the latest table among them) read
  *   hooks that return ONLY the current request's answer (`THIS_REQUEST_ONLY`
  *   in `use-widget-data.ts`), so "an answer is held" IS "it answers";
  * - the bar chart, whose rolling window is a NEW request every minute, compares
@@ -176,9 +191,8 @@ export function WidgetNotes({ cap, more = 0, unsent = [], refreshFailed = false,
  *
  * - `fresh`: a current answer, no failure;
  * - `stale`: a current answer held through a failed REFRESH — drawn, and said
- *   (`WidgetNotes refreshFailed`). The widget data hooks keep retrying at their
- *   cadence (`widgetPolling`); the status widgets' overview is the readings
- *   table's own hook (`useWidgetOverview`), with that hook's polling and retry;
+ *   (`WidgetNotes refreshFailed`). Every hook behind them keeps retrying at its
+ *   cadence (`widgetPolling`, the dashboards' one policy — the overview too);
  * - `failed`: a REFUSAL (a 403 for a viewer without ALARM_READ) never keeps what
  *   it holds, and a failure with no current answer is a failure — "Could not
  *   load this widget.", as the readings table says on the same key;

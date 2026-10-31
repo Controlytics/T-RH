@@ -39,7 +39,11 @@ export { widgetPolling };
  * shows the widget's loading state, a new scope failing "Could not load this
  * widget.", and a failed REFRESH of the same scope keeps its last answer, said
  * (`answerState`). Used by `useAlarmCounts` and `useWidgetOverview` — the alarm
- * counts, both pies and the status grid. The bar chart keeps `keepPreviousData`:
+ * counts, both pies and the status grid — and, since the final fix wave (F-I1),
+ * by every KEY widget's instruments and latest values (`useWidgetInstrumentIds`,
+ * and `useLatestValues` as `useWidgetRows` asks it): a drill-down failing drew
+ * the previous scope's instruments under the new one, and a drill UP drew the
+ * old scope's subset as the new one's. The bar chart keeps `keepPreviousData`:
  * its rolling window is a new key every minute, so it compares requests itself
  * (`heldAnswers`) and hands the result to the same `answerState`.
  */
@@ -69,20 +73,26 @@ export function chunk<T>(xs: readonly T[], n: number): T[][] {
  * "Follow the dashboard selection" reads the SAME overview query the readings
  * table makes for that selection — one SWR key, so no extra request — and takes
  * its ids in the server's order. The overview hook is called in both modes
- * (hooks cannot be conditional); in instruments mode its rows are unused.
+ * (hooks cannot be conditional); in instruments mode its rows — and its error,
+ * which is not this widget's — are unused.
+ *
+ * THIS request's ids only (`THIS_REQUEST_ONLY`, F-I1), with the overview's
+ * `error`: a first load that failed is a failure ("Could not load this
+ * widget."), never "No instruments in your view", and a failed drill-down never
+ * hands back the previous scope's instruments.
  */
 export function useWidgetInstrumentIds(
   source: CustomWidget['source'],
   selection: WidgetSelection,
-): { ids: string[]; loading: boolean } {
-  const { rows, isLoading } = useTelemetryOverview({
+): { ids: string[]; loading: boolean; error: unknown } {
+  const { rows, isLoading, error } = useTelemetryOverview({
     functionalLocationId: selection.functionalLocationId,
     directOnly: selection.directOnly,
     profileId: selection.profileId,
     instrumentIds: selection.instrumentIds,
-  });
-  if (source.mode === 'instruments') return { ids: source.ids, loading: false };
-  return { ids: rows.map((r) => r.instrumentId), loading: isLoading };
+  }, THIS_REQUEST_ONLY);
+  if (source.mode === 'instruments') return { ids: source.ids, loading: false, error: undefined };
+  return { ids: rows.map((r) => r.instrumentId), loading: isLoading, error };
 }
 
 /**
@@ -93,9 +103,10 @@ export function useWidgetInstrumentIds(
  * Following the selection it is the readings table's OWN query (one SWR key, no
  * extra request); over picked instruments it asks for exactly those ids, as
  * `widgetAlarmScope` does, and never the selection's rows (the same rule). One
- * call with its arguments chosen, never a conditional hook. The overview hook's
- * own polling and retry are the readings table's, unchanged; only
- * `THIS_REQUEST_ONLY` differs — the rows are always this request's (I-1).
+ * call with its arguments chosen, never a conditional hook. The overview hook
+ * polls and retries by the dashboards' one policy (`widgetPolling`, as the
+ * readings table does); only `THIS_REQUEST_ONLY` differs — the rows are always
+ * this request's (I-1).
  */
 export function useWidgetOverview(
   source: CustomWidget['source'],
@@ -132,13 +143,21 @@ export function overviewQueryFor(source: CustomWidget['source'], selection: Widg
 
 const refsOf = (keys: readonly (DataKeyRef | WidgetKey)[]): DataKeyRef[] => keys.map((k) => ({ source: k.source, key: k.key }));
 
-/** Each instrument's current value for each key — the server's verdict inputs included. */
+/**
+ * Each instrument's current value for each key — the server's verdict inputs
+ * included. `hold` as `useTelemetryOverview`'s: the key widgets pass
+ * `THIS_REQUEST_ONLY` (`useWidgetRows`, F-I1) — a new set of ids must never be
+ * answered with the previous set's values; the trend page's one instrument keeps
+ * the default.
+ */
 export function useLatestValues(
   ids: readonly string[],
   keys: readonly (DataKeyRef | WidgetKey)[],
+  hold: { keepPreviousData?: boolean } = {},
 ): { rows: LatestValuesRow[]; loading: boolean; error: unknown } {
   const { overviewRefreshMs } = useTelemetrySettings();
-  const polling = widgetPolling(overviewRefreshMs);
+  // The policy FIRST, then the hold (spread last it would turn the hold back on).
+  const polling = { ...widgetPolling(overviewRefreshMs), keepPreviousData: hold.keepPreviousData ?? true };
   const refs = refsOf(keys);
   const swrKey = ids.length > 0 && refs.length > 0
     ? ['widget-latest-values', ids.join(','), JSON.stringify(refs)]

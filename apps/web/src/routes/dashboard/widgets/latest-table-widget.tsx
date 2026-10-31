@@ -12,10 +12,10 @@ import { useSensorWords } from '@/hooks/use-failure-text';
 import { keyCell } from './key-value';
 import { widgetPageSize } from './type-switch';
 import type { WidgetSelection } from './use-widget-data';
-import { LOAD_FAILED, NO_INSTRUMENTS, WidgetMessage, useWidgetRows, valueOf } from './widget-common';
+import { LOAD_FAILED, NO_INSTRUMENTS, WidgetMessage, WidgetNotes, useWidgetRows, valueOf } from './widget-common';
 
 export function LatestTableWidget({ widget, selection }: { widget: CustomWidget; selection: WidgetSelection }) {
-  const { rows, loading, error, empty } = useWidgetRows(widget, selection);
+  const { rows, loading, error, empty, refreshFailed } = useWidgetRows(widget, selection);
   const words = useSensorWords();
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -45,6 +45,7 @@ export function LatestTableWidget({ widget, selection }: { widget: CustomWidget;
 
   return (
     <div className="space-y-2">
+      <WidgetNotes refreshFailed={refreshFailed} />
       <input
         type="search"
         name={`widget-search-${widget.id}`}
