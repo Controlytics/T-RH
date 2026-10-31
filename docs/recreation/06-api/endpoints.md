@@ -11,6 +11,8 @@ curl -sk https://localhost:3001/docs/json
 
 ## /config  — 35 paths
 
++1 path 2026-10-30 (dashboard builder phase 2: `GET /api/alarms/counts`, row below) — counts not re-derived.
+
 | Method(s) | Path | Summary |
 |---|---|---|
 | GET · PUT | `/api/config/access-matrix` | Get configuration access matrix |
@@ -21,7 +23,7 @@ curl -sk https://localhost:3001/docs/json
 | GET | `/api/instruments/telemetry-aggregate` | Min/mean/max across the instruments in a selection, bucketed. ALL VALUES DERIVED; limit bounds returned only when every instrument in the selection agrees |
 | GET | `/api/instruments/telemetry-history?instrumentIds=a,b&keys=&from=&to=&limit=&offset=` | (2026-09-05; `keys` 2026-10-28 — comma list ≤ 20, only those keys, `total` = instants carrying one of them) The merged, paged readings of SEVERAL instruments, newest first — the Instruments page's history widget. One row per (instrument, instant) with every key reported at it, pivoted in SQL so a page cannot split an instant; values RAW (the slot keys, limits and precision come from `telemetry-overview`). Visibility is applied to the id set: an out-of-scope id is absent, never 403. `total` counts instants. 400 on a malformed id or a reversed range. |
 | GET | `/api/alarms?search=&from=&to=&type=&status=&severity=&functionalLocationId=&functionalLocationDirect=&instrumentIds=&profileId=&page=&pageSize=&sort=&dir=` | Alarm list. (2026-10-29, dashboard builder) `instrumentIds` = a comma list of ≤ 200 uuids (present-but-EMPTY selects NOTHING; absent = no filter; a malformed or longer list is a 400 by field), `profileId` = one profile's instruments (uuid), `functionalLocationDirect=true` = the location itself without the Block → Areas expansion; all ANDed with the other filters inside visibility, the `counts` included. Filters, counts, sorts and pages SERVER-side (2026-08-31); returns `data`, `total` and `counts` (the four state counts, from one `groupBy`). `total` is DERIVED by summing `counts`, and `status` is excluded from the count query alone so choosing a state box does not zero the others. Every filter, the counts included, is ANDed INSIDE the caller's visibility scope — a location filter narrows within it and cannot escape it. A bad date or reversed range is a 400 by field; an unknown `sort` falls back. Legacy `state`/`acknowledged`/`instrumentId`/`limit` still accepted, `limit` being an alias for `pageSize` (ceiling 500). Rows carry `locationName` (the functional location); `roomLabel` was dropped 2026-08-31, though the room code remains searchable. Filter algebra: `modules/alarms/list-query.ts` |
-| GET | `/api/alarms/counts?<the list's filters>` | (2026-10-30, dashboard builder phase 2 — the alarm counts widget and the alarm-type pie) The list's query language through the SAME `resolveAlarmQuery` + `buildAlarmWhere` and visibility (`instrumentIds`, `profileId`, `functionalLocationId` / `functionalLocationDirect`, `search`, `from` / `to`, `type`, legacy `state` / `acknowledged` / `instrumentId`); `status`, paging and sort are accepted and IGNORED. Returns `quadrants` `{activeUnack, activeAck, clearedUnack, clearedAck}` and `byType` `[{type, active, unacknowledged}]` (the list's type tokens; a `type` filter narrows it to that type), every inner key declared. One RepeatableRead transaction, so the two halves reconcile; the e2e compares `quadrants` with the list's `counts` for the same query. `ALARM_READ` (a viewer without it gets 403 and the widget says "Could not load this widget.") |
+| GET | `/api/alarms/counts?<the list's filters>` | (2026-10-30, dashboard builder phase 2 — the alarm counts widget and the alarm-type pie) The list's query language through the SAME `resolveAlarmQuery` + `buildAlarmWhere` and visibility (`instrumentIds`, `profileId`, `functionalLocationId` / `functionalLocationDirect`, `search`, `from` / `to`, `type`, legacy `state` / `acknowledged` / `instrumentId`); `status`, paging and sort are accepted and IGNORED. Returns `quadrants` `{activeUnack, activeAck, clearedUnack, clearedAck}` and `byType` `[{type, active, unacknowledged}]` — EVERY type token (`ALARM_TYPE_TOKENS`) is always listed, in token order, zeros included; a `type` filter queries only that token and zeroes every other type, every inner key declared. One RepeatableRead transaction, so the two halves reconcile; the e2e compares `quadrants` with the list's `counts` for the same query. `ALARM_READ` (a viewer without it gets 403 and the widget says "Could not load this widget.") |
 | PUT · DELETE | `/api/config/my-dashboard-layout` | The caller's own dashboard arrangement. Authenticated only, NOT audited — a preference, not governance. (2026-10-28) `layout.widgets` = built widgets, strict (400); OMITTED keeps the stored; a change by a non-SUPER_ADMIN is 403 `WIDGETS_SUPER_ADMIN_ONLY` |
 | PUT | `/api/roles/dashboard-layout/role/:name` | A role's DEFAULT arrangement (ROLE_MANAGE + reauth, audited). (2026-10-28) carries `widgets` by the same rule as the caller's own layout — ROLE_MANAGE alone cannot change them (403) |
 | GET · PUT | `/api/config/audit-templates` | Get audit text templates |
@@ -281,6 +283,8 @@ node -e "const d=require('./docs.json');console.log(Object.keys(d.paths).length)
 # -> 149
 ```
 
++2 paths 2026-10-30 (dashboard builder phase 2: `telemetry-buckets`, `alarms/counts`) — the counts in this file were NOT re-derived for them.
+
 **150 addressable HTTP paths: 149 in the OpenAPI document, plus one it can never
 contain.** The decomposition, so the tables below add up to the headline:
 
@@ -316,6 +320,8 @@ already live but had never been added to this table, which is precisely why a
 number here should be re-derived and never carried forward.
 
 ### /instruments — 8 paths (registry; JWT + permission gated)
+
++1 path 2026-10-30 (dashboard builder phase 2: `GET /api/instruments/telemetry-buckets`) — counts not re-derived.
 
 | Method(s) | Path | Summary |
 |---|---|---|

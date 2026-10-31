@@ -10,6 +10,10 @@
  *   - only a SUPER_ADMIN changes widgets (operator 2026-10-28: "super admin only");
  *   - a role's widgets reach that role only with the `custom_widgets` panel, and
  *     still reach a user who holds a layout of their own;
+ *   - on `/` a built widget never widens Panels (phase 2): an alarm counts widget
+ *     and an alarm-type pie arrive (definition AND grid item) only with the
+ *     `dashboard_alarms` panel, a floor plan only with `telemetry_floorplan`, and a
+ *     status pie needs neither;
  *   - one bad stored widget leaves the rest of a dashboard where it was.
  *
  * Owns its roles and users; the seeded `admin` is the super admin, and its own

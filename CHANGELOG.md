@@ -53,9 +53,11 @@ ruling made while building are in the DASHBOARDS note, `docs/feature-notes.md` (
   freeze after an outage until the window was focused.
 - **No migration, no new model, enum, permission, re-auth action, audit action, config def, sidebar
   item or route page.** One new web dependency (`echarts`).
-- **Seen with the built stylesheet** at 1240 px, real ECharts and Inter in headless Chrome
-  (`docs/superpowers/concepts/2026-10-29-dashboards/built-p2-*.png`); the comparison's legend ran onto
-  its plot with four keys in a quarter-width card — fixed (`0b31baf`).
+- **Seen with the built stylesheet** at 1240 px, real ECharts and Inter in headless Chrome:
+  `docs/superpowers/concepts/2026-10-29-dashboards/built-p2-dashboard.png` ONLY. The per-widget
+  `built-p2-*.png` from Tasks 5–8 were laid out by ECharts in jsdom with estimated text widths and were
+  probably drawn in a fallback face (not re-shot). The comparison's legend ran onto its plot with four
+  keys in a quarter-width card — fixed (`0b31baf`).
 - **Open (parked):** the readings table, floor plan and alarms panel still stop polling after an outage
   until the window is focused; a narrow default gauge panel scrolls; third-width panels staircase at
   the `md` breakpoint (react-grid-layout's own derivation, `/` too); palette slot 3 is a green a raw key

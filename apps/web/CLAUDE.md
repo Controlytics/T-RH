@@ -318,8 +318,8 @@ sent is not in the picker, and Remove is its only way out (review fix pass 2026-
 `/dashboards` (`index.tsx`, the list — concept A) and `/dashboards/:id` (`dashboard-page.tsx` — header
 concept C), both `RequireRole DASHBOARD_VIEW`; sidebar item `dashboards`, appended LAST. Rules and
 rulings: `docs/feature-notes.md` DASHBOARDS (phase 2, 2026-10-31: nine more types on `echarts`
-6.1.0 exact, imported only by `widgets/charts/echart.tsx`, lazy via `lazy-echart.tsx`; its rulings and
-the bundle check). What a page must not get wrong:
+6.1.0 exact, value-imported only by `widgets/charts/echart.tsx`, lazy via `lazy-echart.tsx`; rulings,
+bundle check). What a page must not get wrong:
 - **Everything shown is the server's.** The list is `GET /api/dashboards` as returned (`assignments`
   only for a SUPER_ADMIN); a 404 is "This dashboard is not available to you."; `source: null` is NO
   instruments plus a banner, never all. `selectionForSource()` (`widgets/selection.ts`) is the ONE
