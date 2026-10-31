@@ -662,6 +662,15 @@ model InstrumentProfile {
   /// @digilog/shared; read ONLY through `coerceProfileDisplayKeys` (NULL or
   /// unreadable = no extra keys). Written by PUT /:id/display-keys, SUPER_ADMIN.
   displayKeys Json? @map("display_keys")
+  /// TCP/IP (MODBUS) INSTRUMENTS (2026-10-31): how this profile's devices reach
+  /// the platform. 'PUSH' = a Gateway sends readings in (today's behaviour);
+  /// 'MODBUS_TCP' = this server reads the device. A validated string, not a
+  /// Postgres enum (vocabulary: MODBUS_CONNECTIONS in @digilog/shared).
+  connection        String @default("PUSH")
+  /// Seconds between reads (10..3600) and the Modbus unit id (0..255). Both NULL
+  /// on a PUSH profile, both set on a MODBUS_TCP one.
+  modbusIntervalSec Int?   @map("modbus_interval_sec")
+  modbusUnitId      Int?   @map("modbus_unit_id")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
   createdBy   String?  @map("created_by")
@@ -1082,6 +1091,14 @@ model Instrument {
   deviceCertNotAfter    DateTime? @map("device_cert_not_after") @db.Timestamptz(3)
   deviceCertIssuedAt    DateTime? @map("device_cert_issued_at") @db.Timestamptz(3)
   deviceCertIssuedBy    String?   @map("device_cert_issued_by")
+
+  /// TCP/IP (MODBUS) (2026-10-31): where the server reads this device and which
+  /// registers. Set only when the profile's connection is MODBUS_TCP; the rules
+  /// (IPv4 only, allowed networks, one device per host:port) are enforced by the
+  /// instruments routes and the partial unique index on (host, port).
+  modbusHost      String? @map("modbus_host")
+  modbusPort      Int?    @map("modbus_port")
+  modbusRegisters Json?   @map("modbus_registers")
 
   // Every instrument belongs to exactly one profile. NOT NULL: rows predating
   // profiles were backfilled to "Default" by migration 20260808120000, so there
