@@ -5,7 +5,10 @@ import useSWR from 'swr';
 import {
   parseInstrumentAttributeKeys, placementColumnFor, ALL_RECORDS_PARAM,
   instrumentCreateFormSchema, formFieldErrors, type FormFieldErrors,
+  MODBUS_PORT_DEFAULT, createInstrumentSchema, modbusHostSchema, modbusRegisterMapSchema,
+  type ModbusRegisterMap,
 } from '@digilog/shared';
+import { ListOrdered, Network, PlugZap } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { useReauth } from '@/hooks/use-reauth';
@@ -14,11 +17,24 @@ import { useAttributeLabels } from '@/hooks/use-attribute-labels';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { FormSection } from '@/components/ui/form-section';
 import { TokenDialog } from './token-dialog';
 import { LocationPicker, NO_PLACEMENT, placedLocationId, usePlacementTree, type Placement } from './location-picker';
 import { PageHeader } from '@/components/ui/page-header';
+import { RegisterMapEditor, type JudgedAs } from './register-map-editor';
+import { TestConnectionPanel } from './test-connection-panel';
+import { intervalText } from './modbus-reading-fields';
 
-interface CreatedInstrument { id: string; code: string; token: string }
+/**
+ * The 201. `token` is ABSENT for an instrument of a TCP/IP (Modbus) profile —
+ * this server reads that device, nothing logs in as it, so no credential exists
+ * (spec §9). Whether to show the token dialog is decided by the response, not
+ * by the profile the form thinks it chose.
+ */
+interface CreatedInstrument { id: string; code: string; token?: string }
+
+/** The port as typed → a number; blank is NaN, which the shared schema names. */
+const portNumber = (raw: string): number => (raw.trim() === '' ? Number.NaN : Number(raw));
 
 /**
  * Register an instrument.
@@ -40,6 +56,16 @@ interface CreatedInstrument { id: string; code: string; token: string }
  * asked for cleanroom humidity limits. This form only collects VALUES. The list
  * is a prompt, not a constraint: the detail page still accepts any key
  * afterwards.
+ *
+ * ── A TCP/IP (Modbus) profile (2026-10-31, spec §12) ──
+ * The instrument carries its own IP address, port and register map, and this
+ * server reads it — so it is never a gateway nor behind one (Is Gateway and
+ * Reports through gateway are hidden, and never SENT, whatever was ticked
+ * before the profile changed), and it gets no token, so no token dialog: Create
+ * goes to the instrument. Test connection reads the device once and is the
+ * ONLY source of the map's Judged as column. Address allowed / in use, decoding
+ * and judgement are the server's; the form checks only the shared schemas'
+ * shape. A Gateway profile's form is exactly what it was.
  */
 export function InstrumentCreatePage() {
   const navigate = useNavigate();
@@ -51,7 +77,8 @@ export function InstrumentCreatePage() {
   // surfacing a raw REAUTH_REQUIRED toast. Ships OFF.
   const reauth = useReauth();
   const [saving, setSaving] = useState(false);
-  const [created, setCreated] = useState<CreatedInstrument | null>(null);
+  /** Set only when the server issued a token: it opens the token dialog. */
+  const [created, setCreated] = useState<{ id: string; code: string; token: string } | null>(null);
   const [form, setForm] = useState({ code: '' });
   // Field errors from the form schema (audit 2026-10-03, WEB-15) — named
   // beside the field, where a bare `required` attribute or a generic toast
@@ -84,7 +111,7 @@ export function InstrumentCreatePage() {
   // profile, and asking again would be a decision they have already taken.
   const [searchParams] = useSearchParams();
   const presetProfileId = searchParams.get('profileId');
-  const { data: profiles } = useSWR<{ data: { id: string; name: string }[] }>('/api/instrument-profiles');
+  const { data: profiles } = useSWR<{ data: { id: string; name: string; connection?: string }[] }>('/api/instrument-profiles');
   const [profileId, setProfileId] = useState(presetProfileId ?? '');
   const presetProfileName = profiles?.data?.find((p) => p.id === presetProfileId)?.name;
 
@@ -102,10 +129,29 @@ export function InstrumentCreatePage() {
    * below, which keep "failed" distinct from "asks for nothing".
    */
   const { data: profile, error: profileError, isLoading: profileLoading } =
-    useSWR<{ attributeKeys: string | null }>(
+    useSWR<{
+      attributeKeys: string | null;
+      connection?: string;
+      modbusIntervalSec?: number | null;
+      modbusUnitId?: number | null;
+    }>(
       profileId ? `/api/instrument-profiles/${profileId}` : null,
     );
   const attributeKeys = parseInstrumentAttributeKeys(profile?.attributeKeys);
+
+  /**
+   * The chosen profile's connection, as the SERVER returned it — the profile
+   * itself, else its row in the list (so a profile whose own read failed still
+   * shows the right form). Absent = Gateway, the form as it always was.
+   */
+  const connection = profile?.connection
+    ?? profiles?.data?.find((p) => p.id === profileId)?.connection;
+  const tcpip = connection === 'MODBUS_TCP';
+  const [modbusHost, setModbusHost] = useState('');
+  const [modbusPort, setModbusPort] = useState(String(MODBUS_PORT_DEFAULT));
+  const [registerMap, setRegisterMap] = useState<ModbusRegisterMap>([]);
+  /** Test connection's `judgedAs` per key — the map's Judged as column, and nothing else. */
+  const [judged, setJudged] = useState<Record<string, JudgedAs>>({});
 
   /**
    * Values are not carried across profiles — a different profile asks different
@@ -120,6 +166,9 @@ export function InstrumentCreatePage() {
       'The attributes you have filled in do not apply to a different profile and will be cleared. Continue?',
     )) return;
     setAttrs({});
+    // Judgement is per profile: a different profile's measurements may judge
+    // other keys, so nothing a test said under this one carries over.
+    setJudged({});
     setProfileId(next);
   };
 
@@ -133,10 +182,24 @@ export function InstrumentCreatePage() {
     // Named beside the picker rather than left to the server's 400: the server
     // still refuses, this only says so before the round trip.
     const placementMissing = placementTree.required && !functionalLocationId;
-    if (!parsed.success || placementMissing) {
+    // TCP/IP: the address and the map against the SHARED schemas the API runs,
+    // so the words are the server's and a malformed map is named here rather
+    // than as a bare VALIDATION_ERROR. Allowed networks and address-in-use need
+    // the database: the server answers those.
+    const host = modbusHost.trim();
+    const hostCheck = tcpip ? modbusHostSchema.safeParse(host) : null;
+    const portCheck = tcpip ? createInstrumentSchema.shape.modbusPort.safeParse(portNumber(modbusPort)) : null;
+    const mapCheck = tcpip ? modbusRegisterMapSchema.safeParse(registerMap) : null;
+    const tcpipErrors: FormFieldErrors = {
+      ...(hostCheck && !hostCheck.success ? { modbusHost: [hostCheck.error.issues[0]!.message] } : {}),
+      ...(portCheck && !portCheck.success ? { modbusPort: [portCheck.error.issues[0]!.message] } : {}),
+      ...(mapCheck && !mapCheck.success ? { modbusRegisters: ['The register map has errors — see the rows marked.'] } : {}),
+    };
+    if (!parsed.success || placementMissing || Object.keys(tcpipErrors).length > 0) {
       setFieldErrors({
         ...(parsed.success ? {} : formFieldErrors(parsed.error)),
         ...(placementMissing ? { functionalLocationId: ['Choose a functional location.'] } : {}),
+        ...tcpipErrors,
       });
       return;
     }
@@ -147,11 +210,21 @@ export function InstrumentCreatePage() {
     // restriction popup") — see `codeSchema` in `@digilog/shared` for what
     // that costs on the wire. Sent as typed.
     const payload: Record<string, unknown> = { name: code, code, profileId };
-    if (isGateway) payload.isGateway = true;
-    // A gateway cannot itself sit behind a gateway — the backend rejects that
-    // as NESTED_GATEWAY — so the picker is hidden in gateway mode and the value
-    // is not sent even if one was chosen before the checkbox was ticked.
-    if (!isGateway && gatewayId) payload.gatewayId = gatewayId;
+    if (tcpip) {
+      // Its own address and map; never a gateway nor behind one (the server
+      // refuses both as NOT_FOR_TCPIP), so neither is sent even if Is Gateway
+      // was ticked under a Gateway profile before this one was chosen. An
+      // empty map is allowed: the instrument is not read until it has keys.
+      payload.modbusHost = host;
+      payload.modbusPort = portCheck!.data;
+      payload.modbusRegisters = mapCheck!.data;
+    } else {
+      if (isGateway) payload.isGateway = true;
+      // A gateway cannot itself sit behind a gateway — the backend rejects that
+      // as NESTED_GATEWAY — so the picker is hidden in gateway mode and the value
+      // is not sent even if one was chosen before the checkbox was ticked.
+      if (!isGateway && gatewayId) payload.gatewayId = gatewayId;
+    }
     if (functionalLocationId) payload.functionalLocationId = functionalLocationId;
 
     // Block / Area / Location are configured keys like any other, but they
@@ -176,6 +249,18 @@ export function InstrumentCreatePage() {
     let res: CreatedInstrument | null = null;
     const written = new Set<string>();
     const failed: string[] = [];
+    /**
+     * The instrument exists: show its token if the server issued one — the
+     * only moment it is knowable — else (a TCP/IP instrument has none) go to
+     * it. `reported` = a toast already said what happened.
+     */
+    const finish = (reported: boolean) => {
+      setSaving(false);
+      if (!res) return;
+      if (res.token) { setCreated({ id: res.id, code: res.code, token: res.token }); return; }
+      if (!reported) toast.success('Instrument created', res.code);
+      navigate(`/instruments/${res.id}`);
+    };
     /** The instrument exists but some attributes did not reach it. */
     const keepRegistered = () => {
       const unsaved = attributeEntries.map(([k]) => k).filter((k) => !written.has(k) || failed.includes(k));
@@ -183,8 +268,7 @@ export function InstrumentCreatePage() {
         'Instrument created, some attributes were not saved',
         `${unsaved.join(', ')} could not be saved. Add them from the instrument's Attributes panel.`,
       );
-      setCreated(res);
-      setSaving(false);
+      finish(true);
     };
     await reauth.execute('CREATE_INSTRUMENT', async (password?: string) => {
       if (!res) {
@@ -225,8 +309,7 @@ export function InstrumentCreatePage() {
             `${failed.join(', ')} could not be saved. Add them from the instrument's Attributes panel.`,
           );
         }
-        setCreated(res);
-        setSaving(false);
+        finish(failed.length > 0);
       },
       onError: (err: unknown) => {
         if (res) { keepRegistered(); return; }
@@ -284,15 +367,19 @@ export function InstrumentCreatePage() {
               <Input value={form.code} onChange={set('code')} aria-invalid={fieldErrors.code ? true : undefined} />
               {fieldErrors.code && <p className="mt-1 text-xs text-red-600">{fieldErrors.code[0]}</p>}
             </label>
-            <label className="flex items-start gap-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                className="ctl-check mt-0.5"
-                checked={isGateway}
-                onChange={(e) => setIsGateway(e.target.checked)}
-              />
-              <span className="font-medium">Is Gateway</span>
-            </label>
+            {/* A TCP/IP instrument is read by this server: it is never a
+                gateway nor behind one (NOT_FOR_TCPIP), so neither is offered. */}
+            {!tcpip && (
+              <label className="flex items-start gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  className="ctl-check mt-0.5"
+                  checked={isGateway}
+                  onChange={(e) => setIsGateway(e.target.checked)}
+                />
+                <span className="font-medium">Is Gateway</span>
+              </label>
+            )}
 
             <LocationPicker
               tree={placementTree.tree}
@@ -305,7 +392,7 @@ export function InstrumentCreatePage() {
             {/* Hidden in gateway mode: a gateway behind a gateway is rejected
                 server-side (NESTED_GATEWAY), so offering the control would be
                 offering a guaranteed error. */}
-            {!isGateway && (
+            {!tcpip && !isGateway && (
               <label className="block space-y-1">
                 <span className="text-sm font-medium text-slate-700">Reports through gateway</span>
                 <select
@@ -325,6 +412,58 @@ export function InstrumentCreatePage() {
             )}
           </CardContent>
         </Card>
+
+        {tcpip && (
+          <>
+            <FormSection title="TCP/IP connection" icon={<Network className="h-4 w-4" />}>
+              <label className="block space-y-1">
+                <span className="text-sm font-medium text-slate-700">IP address *</span>
+                <Input
+                  value={modbusHost}
+                  onChange={(e) => setModbusHost(e.target.value)}
+                  inputMode="decimal"
+                  autoComplete="off"
+                  aria-invalid={fieldErrors.modbusHost ? true : undefined}
+                />
+                {fieldErrors.modbusHost && <p className="mt-1 text-xs text-red-600">{fieldErrors.modbusHost[0]}</p>}
+              </label>
+              <label className="block space-y-1">
+                <span className="text-sm font-medium text-slate-700">Port *</span>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={65535}
+                  step={1}
+                  value={modbusPort}
+                  onChange={(e) => setModbusPort(e.target.value)}
+                  aria-invalid={fieldErrors.modbusPort ? true : undefined}
+                />
+                {fieldErrors.modbusPort && <p className="mt-1 text-xs text-red-600">{fieldErrors.modbusPort[0]}</p>}
+              </label>
+              {typeof profile?.modbusIntervalSec === 'number' && typeof profile?.modbusUnitId === 'number' && (
+                <p className="text-xs text-slate-500 md:col-span-2">
+                  Read every {intervalText(profile.modbusIntervalSec)} · unit ID {profile.modbusUnitId} — set once on the profile.
+                </p>
+              )}
+            </FormSection>
+
+            <FormSection title="Register map" icon={<ListOrdered className="h-4 w-4" />} columns={1}>
+              <RegisterMapEditor value={registerMap} onChange={setRegisterMap} judged={judged} />
+              {fieldErrors.modbusRegisters && <p className="text-xs text-red-600">{fieldErrors.modbusRegisters[0]}</p>}
+            </FormSection>
+
+            <FormSection title="Test connection" icon={<PlugZap className="h-4 w-4" />} columns={1}>
+              <TestConnectionPanel
+                profileId={profileId}
+                host={modbusHost.trim()}
+                port={portNumber(modbusPort)}
+                map={registerMap}
+                onJudged={setJudged}
+              />
+            </FormSection>
+          </>
+        )}
 
         <Card>
           <CardHeader><CardTitle>Attributes</CardTitle></CardHeader>
