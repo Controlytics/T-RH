@@ -607,6 +607,41 @@ describe('/api/dashboards', () => {
     expect(longCopy.json().title.endsWith(' (copy)')).toBe(true);
   });
 
+  it('a duplicate is a NEW write: legacy markup is stripped from the copy and its audit row, the source untouched (fix round 1, M-8)', async () => {
+    // A row stored before widget text was stripped on write, seeded directly.
+    const note = {
+      id: randomUUID(), type: 'text_card', title: '<b>Legacy</b> note', source: sel, keys: [],
+      options: { text: '<i>Hand over</i> at 06:00' },
+    } satisfies CustomWidget;
+    const legacy = doc([note]);
+    const src = await prisma.dashboard.create({ data: { title: `Legacy ${S}`, layout: legacy as never, createdBy: id.sa } });
+    made.push(src.id);
+
+    const res = await duplicate(src.id);
+    expect(res.statusCode, res.body).toBe(201);
+    const copyId = (res.json() as Detail).id;
+    made.push(copyId);
+    const [copied] = (await detail(copyId)).document.widgets;
+    expect(copied).toMatchObject({ type: 'text_card', title: 'Legacy note', options: { text: 'Hand over at 06:00' } });
+    expect(copied.id).not.toBe(note.id);
+    const widgetRow = (await rowsFor(copyId)).find((r) => r.action === 'DASHBOARD_WIDGET_CREATED')!;
+    expect(widgetRow.afterValue.name).toBe('Legacy note');
+    expect(widgetRow.afterValue.widget.options.text).toBe('Hand over at 06:00');
+    // The source keeps exactly what it had.
+    const srcRow = await prisma.dashboard.findUniqueOrThrow({ where: { id: src.id }, select: { layout: true } });
+    expect((srcRow.layout as { widgets: CustomWidget[] }).widgets).toEqual([note]);
+
+    // A legacy widget that is nothing but markup cannot be copied: a 400, and nothing is created.
+    const bad = await prisma.dashboard.create({
+      data: { title: `Legacy bad ${S}`, layout: doc([{ ...note, id: randomUUID(), title: '<b></b>' }]) as never, createdBy: id.sa },
+    });
+    made.push(bad.id);
+    const refused = await duplicate(bad.id);
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json()).toMatchObject({ error: 'VALIDATION_ERROR', message: 'Widget "#1": A widget needs a title' });
+    expect(await prisma.dashboard.count({ where: { title: `Legacy bad ${S} (copy)` } })).toBe(0);
+  });
+
   it('a source naming a deleted profile is summarised as gone', async () => {
     const temp = await prisma.instrumentProfile.create({ data: { name: `DBM_TMP_${S}` } });
     profiles.push(temp.id);

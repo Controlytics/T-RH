@@ -44,6 +44,13 @@ describe('useDashboardDraft', () => {
     expect(result.current.dirty).toBe(false);
   });
 
+  it('a floor plan starts at the home floor panel\'s size, full width and 16 rows (fix round 1, I-1)', () => {
+    const { result } = renderHook(() => useDashboardDraft(STORED));
+    act(() => result.current.start());
+    act(() => result.current.addWidget({ ...widget(W3, 'floorplan'), keys: [], options: { planId: W1 } }));
+    expect(result.current.draft.items.find((it) => it.i === widgetItemId(W3))).toEqual({ i: widgetItemId(W3), x: 0, y: 9, w: 12, h: 16 });
+  });
+
   it('add places the widget at the bottom, full width, at the home start height, paired with its item', () => {
     const { result } = renderHook(() => useDashboardDraft(STORED));
     act(() => result.current.start());

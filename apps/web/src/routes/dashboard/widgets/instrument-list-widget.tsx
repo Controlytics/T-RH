@@ -8,9 +8,14 @@
  * Paged on screen by the widget's page size (`widgetPageSize`, ten unless
  * stored) with the shared pager; the count is the server's whole answer. A row
  * opens its trend page as a status tile does (`trendLinkFor`): the whole row
- * on a click, the ID as a real link for the keyboard — and neither without the
- * host's trail (R7-9). The rows are only ever the current request's
- * (`useWidgetOverview`, I-1).
+ * on a plain click, the ID as a real link for the keyboard and for a new tab —
+ * and neither without the host's trail (R7-9). The rows are only ever the
+ * current request's (`useWidgetOverview`, I-1).
+ *
+ * Compact cells (`CELL`) and no minimum widths, so a half-width card (w=6,
+ * ~560 px of table) shows every column: Area and Location wrap and clamp to two
+ * lines with the whole text on hover, Last seen stacks its date over its time
+ * when it must. Below that the shared table's sideways scroll is the safety net.
  */
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -24,6 +29,30 @@ import { trendLinkFor, type TrendLink, type WidgetTrail } from './trend-link';
 import { widgetPageSize } from './type-switch';
 import { useWidgetOverview, type WidgetSelection } from './use-widget-data';
 import { LOAD_FAILED, NO_INSTRUMENTS, WidgetMessage, WidgetNotes, answerState } from './widget-common';
+
+/** The list's cell padding: tighter than the shared table's `px-4` (fix round 1, M-1). */
+const CELL = 'px-2.5';
+const BODY_CELL = `${CELL} py-2.5`;
+
+/**
+ * The server's text, with every hyphenated word kept whole: a narrow column
+ * wraps "Module-F staging area" between words, never as "Module- / F".
+ * Presentation only — the text is exactly the server's.
+ */
+function KeepHyphens({ text }: { text: string }) {
+  return <>{text.split(/(\S*-\S*)/).map((part, n) => (part.includes('-') ? <span key={n} className="whitespace-nowrap">{part}</span> : part))}</>;
+}
+
+/**
+ * Whether a click on a row is a plain one, to be followed in this tab: not a
+ * Ctrl / ⌘ / Shift / Alt click or another button (the ID link serves those —
+ * a new tab, a new window), and not the release of a drag that selected text
+ * (M-9).
+ */
+function plainClick(e: React.MouseEvent): boolean {
+  if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return false;
+  return !(window.getSelection()?.toString() ?? '');
+}
 
 export function InstrumentListWidget({ widget, selection, trail }: {
   widget: CustomWidget;
@@ -51,11 +80,11 @@ export function InstrumentListWidget({ widget, selection, trail }: {
       <Table data-testid="instrument-list" aria-label={`${widget.title}: instruments`}>
         <TableHeader>
           <tr>
-            <TableHead scope="col">Instrument ID</TableHead>
-            <TableHead scope="col">Area</TableHead>
-            <TableHead scope="col">Location</TableHead>
-            <TableHead scope="col">Status</TableHead>
-            <TableHead scope="col">Last seen</TableHead>
+            <TableHead scope="col" className={CELL}>Instrument ID</TableHead>
+            <TableHead scope="col" className={CELL}>Area</TableHead>
+            <TableHead scope="col" className={CELL}>Location</TableHead>
+            <TableHead scope="col" className={CELL}>Status</TableHead>
+            <TableHead scope="col" className={CELL}>Last seen</TableHead>
           </tr>
         </TableHeader>
         <TableBody>
@@ -66,7 +95,7 @@ export function InstrumentListWidget({ widget, selection, trail }: {
                 key={row.instrumentId}
                 row={row}
                 link={link}
-                onOpen={link ? () => navigate(link.to, { state: link.state }) : undefined}
+                onOpen={link ? (e) => { if (plainClick(e)) navigate(link.to, { state: link.state }); } : undefined}
                 // The administered date, then time (`formatDateTime` is exactly the
                 // two joined by a space); kept as two pieces so a narrow card
                 // breaks the cell between them, never inside a date.
@@ -90,7 +119,7 @@ export function InstrumentListWidget({ widget, selection, trail }: {
 function ListRow({ row, link, onOpen, lastSeen }: {
   row: OverviewRow;
   link: TrendLink | null;
-  onOpen?: () => void;
+  onOpen?: (e: React.MouseEvent) => void;
   /** [date, time], or null when the instrument never reported. */
   lastSeen: [string, string] | null;
 }) {
@@ -98,7 +127,7 @@ function ListRow({ row, link, onOpen, lastSeen }: {
   const c = look.classes;
   return (
     <TableRow data-testid="instrument-list-row" onClick={onOpen} className={link ? 'cursor-pointer' : undefined}>
-      <TableCell className="whitespace-nowrap font-semibold text-slate-800">
+      <TableCell className={`${BODY_CELL} whitespace-nowrap font-semibold text-slate-800`}>
         {link ? (
           <Link
             to={link.to}
@@ -115,13 +144,13 @@ function ListRow({ row, link, onOpen, lastSeen }: {
       {/* Two lines at most, the whole text on hover — the readings table's
           rule for the same two columns, so a long Location in a narrow card
           does not make every row five lines tall. */}
-      <TableCell>
-        <span className="line-clamp-2 min-w-[6rem]" title={row.functionalLocationName ?? undefined}>{row.functionalLocationName ?? '—'}</span>
+      <TableCell className={BODY_CELL}>
+        <span className="line-clamp-2" title={row.functionalLocationName ?? undefined}><KeepHyphens text={row.functionalLocationName ?? '—'} /></span>
       </TableCell>
-      <TableCell>
-        <span className="line-clamp-2 min-w-[10rem]" title={row.locationAttribute ?? undefined}>{row.locationAttribute ?? '—'}</span>
+      <TableCell className={BODY_CELL}>
+        <span className="line-clamp-2" title={row.locationAttribute ?? undefined}><KeepHyphens text={row.locationAttribute ?? '—'} /></span>
       </TableCell>
-      <TableCell className="whitespace-nowrap">
+      <TableCell className={`${BODY_CELL} whitespace-nowrap`}>
         <span
           data-testid="instrument-list-status"
           data-look={look.key}
@@ -131,7 +160,7 @@ function ListRow({ row, link, onOpen, lastSeen }: {
           {c.label}
         </span>
       </TableCell>
-      <TableCell className="tabular-nums">
+      <TableCell className={`${BODY_CELL} tabular-nums`}>
         {lastSeen
           ? <><span className="whitespace-nowrap">{lastSeen[0]}</span> <span className="whitespace-nowrap">{lastSeen[1]}</span></>
           : '—'}

@@ -19,7 +19,7 @@ import {
 import { apiClient } from '@/lib/api-client';
 import { useTelemetryOverview, useTelemetrySettings, type OverviewRow } from '../use-telemetry';
 import { ALARM_REFRESH_MS, alarmScopeSelectsNothing, applyAlarmScope, type AlarmScope } from '../alarm-scope';
-import { isRefusal } from './refusal';
+import { isRefusal } from '@/lib/refusal';
 
 /** Retries pending, per SWR cache: one retry chain per key, however many failures arrive. */
 const PENDING_RETRIES = new WeakMap<object, Set<string>>();

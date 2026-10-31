@@ -202,12 +202,15 @@ function PieSubjectSection({ widgetId, options, onChange }: WidgetOptionSectionP
 
 /**
  * A text card's words. The count is against the schema's own `TEXT_CARD_MAX`,
- * and the box itself has no cap: a paste past the limit is shown as past it and
- * refused on Add in the schema's words, never cut silently.
+ * of the TRIMMED text, as the schema counts it (fix round 1, M-3) — so spaces
+ * or a newline past the end never turn it red while Add would accept it. The
+ * box itself has no cap: a paste past the limit is shown as past it and refused
+ * on Add in the schema's words, never cut silently.
  */
 function TextSection({ options, onChange }: WidgetOptionSectionProps) {
   const text = options.text ?? '';
-  const over = text.length > TEXT_CARD_MAX;
+  const length = text.trim().length;
+  const over = length > TEXT_CARD_MAX;
   return (
     <div className="text-sm">
       <label htmlFor="widget-text" className="mb-1 block font-medium text-slate-700">Card text</label>
@@ -226,7 +229,7 @@ function TextSection({ options, onChange }: WidgetOptionSectionProps) {
         data-testid="widget-text-count"
         className={`mt-1 text-right text-xs tabular-nums ${over ? 'font-semibold text-red-700' : 'text-slate-500'}`}
       >
-        {text.length} / {TEXT_CARD_MAX}
+        {length} / {TEXT_CARD_MAX}
       </p>
     </div>
   );
@@ -509,9 +512,10 @@ export function WidgetDialog({
 
         <section aria-label="Preview" className="space-y-2">
           <h3 className="text-sm font-bold text-slate-800">Preview</h3>
-          {/* A floor plan scales to the box it is given (as in its card), so its
-              preview gets a box of its own height rather than its natural one. */}
-          <div className={`rounded-[var(--radius-card)] border border-dashed border-slate-300 p-3 ${type === 'floorplan' && parsed.success ? 'h-[30rem]' : ''}`}>
+          {/* A floor plan is drawn at its box's WIDTH and scrolls, as in its card
+              (one floor-plan behaviour, fix round 1 I-1); the box is positioned,
+              with room, so "not available" centres in it as it does in a card. */}
+          <div className={`rounded-[var(--radius-card)] border border-dashed border-slate-300 p-3 ${type === 'floorplan' && parsed.success ? 'relative max-h-[30rem] min-h-[12rem] overflow-y-auto' : ''}`}>
             {parsed.success
               ? <WidgetBody widget={parsed.data} selection={selection} />
               : <p className="text-xs text-slate-500">Choose a type, instruments, at least one key and a title to see a preview.</p>}

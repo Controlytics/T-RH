@@ -8,7 +8,7 @@ import {
   DEFAULT_PERIOD, PERIOD_PRESETS, WIDGET_COLOR_COUNT,
   type CustomWidget, type DashboardTimeWindow, type LatestKeyValue, type LatestValuesRow, type WidgetKey,
 } from '@digilog/shared';
-import { isRefusal } from './refusal';
+import { isRefusal } from '@/lib/refusal';
 import { useLatestValues, useWidgetInstrumentIds, type WidgetRange, type WidgetSelection } from './use-widget-data';
 
 export const NO_INSTRUMENTS = 'No instruments in your view';

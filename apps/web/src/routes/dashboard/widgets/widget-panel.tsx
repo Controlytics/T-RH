@@ -98,8 +98,6 @@ export function WidgetPanel({
       onSizeChange={onSizeChange}
       autoHeight={autoHeight}
       onNaturalHeight={onNaturalHeight}
-      // A floor plan scales to the card it is given: contained, never scrolled.
-      fill={widget.type === 'floorplan'}
       menu={(
         <>
           <button

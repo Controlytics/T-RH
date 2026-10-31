@@ -13,11 +13,17 @@ const NO_WIDGETS: CustomWidget[] = [];
  * value cards short, the charts and tables medium, a floor plan tall. Exported
  * for the built dashboards' draft (`routes/dashboards/use-dashboard-draft.ts`),
  * so a widget added there starts at the same size.
+ *
+ * A floor plan starts at the HOME floor panel's default size (w 12 — every new
+ * widget is placed full width — and h 16, `DEFAULT_DASHBOARD_LAYOUT`'s
+ * `telemetry_floorplan`): one floor-plan behaviour app-wide (Task 8 fix round
+ * 1, I-1). The plan is drawn at the card's WIDTH, so the height sets how much of
+ * it shows, not how large it is drawn.
  */
 export const WIDGET_START_HEIGHT: Record<CustomWidget['type'], number> = {
   value_cards: 5, latest_table: 9, trend_chart: 9, timeseries_table: 9, alarm_table: 9,
   gauge: 7, bar_chart: 9, comparison_bar: 9, pie_chart: 8, alarm_counts: 7,
-  status_grid: 8, instrument_list: 9, text_card: 4, floorplan: 12,
+  status_grid: 8, instrument_list: 9, text_card: 4, floorplan: 16,
 };
 
 /**

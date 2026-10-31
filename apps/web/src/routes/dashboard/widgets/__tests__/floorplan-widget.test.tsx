@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation, useParams } from 'react-router-dom';
-import type { CustomWidget } from '@digilog/shared';
+import { DEFAULT_DASHBOARD_LAYOUT, type CustomWidget } from '@digilog/shared';
 import type { FloorplanShape, OverviewRow } from '../../use-telemetry';
 
 /**
@@ -51,7 +51,9 @@ vi.mock('../../use-telemetry', async (orig) => ({
 }));
 
 const { WidgetBody, WidgetPanel } = await import('../widget-panel');
-const { FloorplanView, FLOORPLAN_NOT_AVAILABLE } = await import('../../floorplan-view');
+const { FloorplanView, FLOORPLAN_NOT_AVAILABLE, fixedPlanState } = await import('../../floorplan-view');
+const { WIDGET_START_HEIGHT } = await import('@/hooks/use-dashboard-layout');
+const tokens = (el: Element) => (el.getAttribute('class') ?? '').split(/\s+/).filter(Boolean);
 
 const SEL = { functionalLocationId: 'fl-1', directOnly: false };
 const TRAIL = [{ label: 'Dashboard', to: '/' }, { label: 'QC Block', to: '/?fl=fl-1' }];
@@ -101,6 +103,18 @@ describe('FloorplanView without the new props', () => {
   });
 });
 
+describe('fixedPlanState — the ONE decision about a fixed plan (M-4)', () => {
+  it('found is ok; a refused list or a plan not in it is gone; a server failure is an error; nothing yet is loading', () => {
+    expect(fixedPlanState([QC, FIRST], false, undefined, QC.id)).toBe('ok');
+    expect(fixedPlanState([QC, FIRST], false, undefined, GONE)).toBe('gone');
+    expect(fixedPlanState([], true, undefined, QC.id)).toBe('loading');
+    expect(fixedPlanState([], false, Object.assign(new Error('no'), { status: 403 }), QC.id)).toBe('gone');
+    expect(fixedPlanState([], false, Object.assign(new Error('no'), { status: 404 }), QC.id)).toBe('gone');
+    expect(fixedPlanState([QC], false, Object.assign(new Error('down'), { status: 502 }), QC.id)).toBe('error');
+    expect(fixedPlanState([], false, new Error('network'), QC.id)).toBe('error');
+  });
+});
+
 describe('floor plan widget', () => {
   it('draws ITS plan, named, with no plan picker and no floor switch', () => {
     view(widget(FIRST.id), { trail: TRAIL });
@@ -132,10 +146,42 @@ describe('floor plan widget', () => {
     expect(screen.getByRole('alert').textContent).not.toMatch(/Tabular/);
   });
 
-  it('nothing is said about the plan while the plan list is still loading', () => {
+  it('nothing is said about the plan while the plan list is still loading: it is loading', () => {
     state.plans = { plans: [], isLoading: true, error: undefined };
     view(widget(GONE), { trail: TRAIL });
     expect(screen.queryByText(FLOORPLAN_NOT_AVAILABLE)).toBeNull();
+    expect(screen.getByText('Loading…')).toBeTruthy();
+  });
+
+  it('M-4: the plan is decided FIRST — a gone plan says so with an empty selection, failed rows or rows on their way', () => {
+    for (const overview of [
+      { rows: [], isLoading: false, error: undefined },
+      { rows: [], isLoading: false, error: Object.assign(new Error('500'), { status: 500 }) },
+      { rows: [], isLoading: true, error: undefined },
+    ]) {
+      state.overview = overview;
+      const v = view(widget(GONE), { trail: TRAIL });
+      expect(screen.getByText(FLOORPLAN_NOT_AVAILABLE)).toBeTruthy();
+      expect(screen.queryByText('No instruments in your view')).toBeNull();
+      expect(screen.queryByText('Could not load this widget.')).toBeNull();
+      expect(screen.queryByText('Loading…')).toBeNull();
+      v.unmount();
+    }
+  });
+
+  it('M-4: an empty selection draws the fixed plan with no readings — never "No instruments in your view"', () => {
+    state.overview = { rows: [], isLoading: false, error: undefined };
+    view(widget(QC.id), { trail: TRAIL });
+    expect(document.querySelector('g[aria-label^="CWH-I/216"]')).not.toBeNull();
+    expect(document.querySelector('g[aria-label^="CWH-I/217"]')).not.toBeNull();
+    expect(screen.queryAllByTestId('fp-card')).toHaveLength(0);
+    expect(screen.queryByText('No instruments in your view')).toBeNull();
+  });
+
+  it('M-5: "not available" is centred in the card, not pinned to its top', () => {
+    view(widget(GONE), { trail: TRAIL });
+    const box = screen.getByTestId('fp-not-available');
+    expect(tokens(box)).toEqual(expect.arrayContaining(['absolute', 'top-1/2', '-translate-y-1/2', 'inset-x-4']));
   });
 
   it('follows the dashboard\'s selection: the view asks for the selection\'s instruments, the same query as every widget', () => {
@@ -211,29 +257,36 @@ describe('floor plan widget', () => {
     expect(document.querySelector('[data-fullscreen="true"]')).toBeNull();
   });
 
-  it('in its card the plan is CONTAINED: the card hands the widget its height, and only a floor plan\'s card does', () => {
+  it('I-1: ONE floor-plan behaviour — in its card the widget is drawn as the home panel is: fitted to the width, the body scrolling', () => {
     const noop = () => {};
-    const card = (w: CustomWidget) => render(
+    render(
       <MemoryRouter>
         <WidgetPanel
-          widget={w} item={{ i: `w:${w.id}`, x: 0, y: 0, w: 12, h: 12 }} selection={SEL} trail={TRAIL}
+          widget={widget(QC.id)} item={{ i: `w:${QC.id}`, x: 0, y: 0, w: 12, h: 16 }} selection={SEL} trail={TRAIL}
           editing={false} onEdit={noop} onRemove={noop} onStyleChange={noop} onSizeChange={noop}
           autoHeight={false} onNaturalHeight={noop}
         />
       </MemoryRouter>,
     );
-    const a = card(widget(QC.id));
-    // The content wrapper is the floor widget's parent; the view is a flex column inside a flex-1 box.
-    const root = screen.getByTestId('floorplan-view').parentElement!.parentElement!;
-    expect(root.className.split(/\s+/)).toEqual(expect.arrayContaining(['flex', 'h-full', 'min-h-0', 'flex-col']));
-    expect(root.parentElement!.className.split(/\s+/)).toContain('h-full');
-    a.unmount();
-    const note: CustomWidget = { ...widget(QC.id), type: 'text_card', options: { text: 'Hello' } };
-    card(note);
-    expect(screen.getByText('Hello').parentElement!.className.split(/\s+/)).not.toContain('h-full');
+    // view root → the widget's root → the card's content wrapper: none of them is
+    // handed the card's height, so the view's own `h-full` is auto — as on home.
+    const widgetRoot = screen.getByTestId('floorplan-view').parentElement!;
+    const contentWrapper = widgetRoot.parentElement!;
+    for (const el of [widgetRoot, contentWrapper]) {
+      expect(tokens(el)).not.toContain('h-full');
+      expect(tokens(el)).not.toContain('flex-1');
+    }
+    // And the card's body is the scroll region, as on home.
+    expect(tokens(contentWrapper.parentElement!)).toEqual(expect.arrayContaining(['min-h-0', 'flex-1', 'overflow-auto']));
   });
 
-  it('loading, a failed load, nothing in view, and a failed refresh are each said', () => {
+  it('I-1: a new floor plan starts at the home floor panel\'s size', () => {
+    const home = DEFAULT_DASHBOARD_LAYOUT.items.find((it) => it.i === 'telemetry_floorplan')!;
+    expect(home).toMatchObject({ w: 12, h: 16 });
+    expect(WIDGET_START_HEIGHT.floorplan).toBe(home.h);
+  });
+
+  it('loading, a failed load and a failed refresh are each said', () => {
     state.overview = { rows: [], isLoading: true, error: undefined };
     const a = view(widget(QC.id), { trail: TRAIL });
     expect(screen.getByText('Loading…')).toBeTruthy();
@@ -242,11 +295,6 @@ describe('floor plan widget', () => {
     const b = view(widget(QC.id), { trail: TRAIL });
     expect(screen.getByRole('alert').textContent).toBe('Could not load this widget.');
     b.unmount();
-    state.overview = { rows: [], isLoading: false, error: undefined };
-    const c = view(widget(QC.id), { trail: TRAIL });
-    expect(screen.getByText('No instruments in your view')).toBeTruthy();
-    expect(screen.queryByTestId('floorplan-view')).toBeNull();
-    c.unmount();
     state.overview = { rows: [row('216-00', 'q1', QC.id)], isLoading: false, error: Object.assign(new Error('502'), { status: 502 }) };
     view(widget(QC.id), { trail: TRAIL });
     expect(screen.getByTestId('fp-card')).toBeTruthy();

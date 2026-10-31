@@ -34,7 +34,7 @@ import {
   CODE_LINE_H, TILE_CODE_FONT, LOCATION_LINE_H, TILE_LOCATION_FONT, TILE_HEADER_H, avoidDoorSwings, avoidObstacles, placeCard, placeRoomName, NAME_LINE, swingSquare, MAX_TILE_FONT,
   type PixelBox,
 } from './room-geometry';
-import { isRefusal } from './widgets/refusal';
+import { isRefusal } from '@/lib/refusal';
 
 /**
  * The base code of a continuation piece — `CWH-I/217 (2)` → `CWH-I/217` —
@@ -887,9 +887,41 @@ interface RoomView {
 /** A fixed plan (the floor plan widget) that is gone, or that the viewer may not see. */
 export const FLOORPLAN_NOT_AVAILABLE = 'This floor plan is not available.';
 
-function PlanNotAvailable() {
+/**
+ * THE decision about a FIXED plan (the floor plan widget), made once, from the
+ * plan list as the server answered it — read by `FloorplanView` and by the
+ * widget, which says it BEFORE anything about its readings (fix round 1, M-4):
+ * - `gone`: not in the list, or the list was REFUSED (a 4xx — a plan the
+ *   viewer may not see is not available to them);
+ * - `error`: the list failed for another reason (it is a failure, said as one);
+ * - `loading`: no list yet;
+ * - `ok`: the plan is in the list.
+ */
+export function fixedPlanState(
+  plans: readonly { id: string }[],
+  loading: boolean,
+  error: unknown,
+  planId: string,
+): 'ok' | 'gone' | 'error' | 'loading' {
+  if (error) return isRefusal(error) ? 'gone' : 'error';
+  if (plans.some((p) => p.id === planId)) return 'ok';
+  return loading ? 'loading' : 'gone';
+}
+
+/**
+ * Centred in the CARD (fix round 1, M-5): absolutely placed against the
+ * nearest positioned box — the panel card (`.panel-card` is `position:
+ * relative`), the Add widget preview (`relative`). It cannot be centred in
+ * flow: a floor plan is drawn at its card's WIDTH and the card does not hand
+ * its height down (I-1, one behaviour with the home panel).
+ */
+export function FloorplanNotAvailable() {
   return (
-    <div role="status" data-testid="fp-not-available" className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
+    <div
+      role="status"
+      data-testid="fp-not-available"
+      className="absolute inset-x-4 top-1/2 -translate-y-1/2 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center"
+    >
       <p className="text-sm font-medium text-slate-700">{FLOORPLAN_NOT_AVAILABLE}</p>
     </div>
   );
@@ -1061,11 +1093,12 @@ export function FloorplanView({ functionalLocationId, directOnly, trail, planId:
   // and not something it could act on. Say the layouts could not be loaded,
   // with the server's reason, and never the empty state.
   //
-  // A FIXED plan the viewer is refused (a 4xx on the list) is a plan they
-  // cannot see: not available, the same as a plan that is gone. A failure is
-  // still a failure, said as one — with no Tabular view to point at, since a
-  // fixed plan is a widget's and a widget has none.
-  if (plansError && fixed && isRefusal(plansError)) return <PlanNotAvailable />;
+  // A FIXED plan is decided by `fixedPlanState`: gone (not in the list, or the
+  // list refused — a plan the viewer cannot see) is "not available", never
+  // another plan; a failure is still a failure, said as one — with no Tabular
+  // view to point at, since a fixed plan is a widget's and a widget has none.
+  const fixedState = fixedPlanId !== undefined ? fixedPlanState(plans, plansLoading, plansError, fixedPlanId) : null;
+  if (fixedState === 'gone') return <FloorplanNotAvailable />;
   if (plansError) {
     const reason = (plansError as { message?: string } | null)?.message;
     const hint = `${reason ? `${reason}. ` : ''}${fixed ? '' : 'The Tabular view shows the same readings.'}`;
@@ -1076,10 +1109,6 @@ export function FloorplanView({ functionalLocationId, directOnly, trail, planId:
       </div>
     );
   }
-
-  // A fixed plan that is not in the list — deleted since the widget was built —
-  // is never replaced by another plan. Not while the list is on its way.
-  if (fixed && !plansLoading && !plan) return <PlanNotAvailable />;
 
   if (!plansLoading && plans.length === 0) {
     return (

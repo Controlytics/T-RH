@@ -377,6 +377,16 @@ describe('WidgetDialog - the text card', () => {
     expect((onSubmit.mock.calls[0][0] as CustomWidget).options.text).toHaveLength(TEXT_CARD_MAX);
   });
 
+  it('M-3: the count is the TRIMMED length, as the schema counts — trailing spaces past the cap are no problem', () => {
+    const onSubmit = openText();
+    fireEvent.change(screen.getByLabelText('Card text'), { target: { value: `  ${'x'.repeat(TEXT_CARD_MAX)}   \n` } });
+    expect(counter().textContent).toBe(`${TEXT_CARD_MAX} / ${TEXT_CARD_MAX}`);
+    expect(counter().className).not.toContain('text-red-700');
+    expect(screen.getByLabelText('Card text').getAttribute('aria-invalid')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
+    expect((onSubmit.mock.calls[0][0] as CustomWidget).options.text).toHaveLength(TEXT_CARD_MAX);
+  });
+
   it('no text is refused in the schema\'s words', () => {
     const onSubmit = openText();
     fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
@@ -416,8 +426,10 @@ describe('WidgetDialog - the floor plan', () => {
     expect(onSubmit).not.toHaveBeenCalled();
     expect(screen.getByRole('alert').textContent).toBe('Choose a floor plan');
     fireEvent.change(select, { target: { value: PLAN_MF } });
-    // The preview gives the plan a box of its own height to scale into.
-    expect(screen.getByTestId('widget-preview').parentElement!.className.split(/\s+/)).toContain('h-[30rem]');
+    // The preview scrolls a width-fitted plan as its card does, and is the
+    // positioned box a "not available" message centres in.
+    expect(screen.getByTestId('widget-preview').parentElement!.className.split(/\s+/))
+      .toEqual(expect.arrayContaining(['relative', 'max-h-[30rem]', 'min-h-[12rem]', 'overflow-y-auto']));
     fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
     const w = onSubmit.mock.calls[0][0] as CustomWidget;
     expect(w).toMatchObject({ type: 'floorplan', keys: [], options: { planId: PLAN_MF } });

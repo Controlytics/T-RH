@@ -143,6 +143,49 @@ describe('instrument list widget', () => {
     expect(JSON.parse(probe.textContent!)).toEqual({ from: 'dashboard', trail: TRAIL });
   });
 
+  it('M-9: a Ctrl / ⌘ / Shift / Alt or middle click, or a click that ends a text selection, leaves the tab where it is', () => {
+    setRows([row(1, { instrumentId: 'inst-7' })]);
+    view(W, TRAIL);
+    const cell = within(bodyRows()[0]).getByText('Room 1');
+    for (const init of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }, { button: 1 }]) {
+      fireEvent.click(cell, init);
+      expect(screen.queryByTestId('trend-probe')).toBeNull();
+    }
+    const selection = vi.spyOn(window, 'getSelection').mockReturnValue({ toString: () => 'Room 1' } as unknown as Selection);
+    try {
+      fireEvent.click(cell);
+      expect(screen.queryByTestId('trend-probe')).toBeNull();
+    } finally {
+      selection.mockRestore();
+    }
+    // A plain click still opens it.
+    fireEvent.click(cell);
+    expect(screen.getByTestId('trend-probe').getAttribute('data-id')).toBe('inst-7');
+  });
+
+  it('M-1: compact cells and no minimum widths, so a half-width card has room for every column', () => {
+    setRows([row(1)]);
+    view(W, TRAIL);
+    const table = screen.getByTestId('instrument-list');
+    for (const el of [...within(table).getAllByRole('columnheader'), ...within(table).getAllByRole('cell')]) {
+      expect(tokens(el)).toContain('px-2.5');
+      expect(tokens(el)).not.toContain('px-4');
+    }
+    expect(table.innerHTML).not.toMatch(/min-w-\[/);
+  });
+
+  it('M-1: a narrow column wraps between words, never at a hyphen; the text is exactly the server text', () => {
+    setRows([row(1, { functionalLocationName: 'Module-F', locationAttribute: 'Module-E staging area' })]);
+    view(W, TRAIL);
+    const [, area, location] = within(bodyRows()[0]).getAllByRole('cell');
+    expect(area.textContent).toBe('Module-F');
+    expect(location.textContent).toBe('Module-E staging area');
+    expect(tokens(within(area).getByText('Module-F'))).toContain('whitespace-nowrap');
+    expect(tokens(within(location).getByText('Module-E'))).toContain('whitespace-nowrap');
+    // Between words it may still wrap.
+    expect(location.innerHTML).toContain('</span> staging area');
+  });
+
   it('the ID link itself carries the same state', () => {
     setRows([row(1, { instrumentId: 'inst-7' })]);
     view(W, TRAIL);

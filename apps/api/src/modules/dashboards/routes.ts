@@ -200,7 +200,7 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Dashboards'],
       summary: 'Copy a dashboard (SUPER_ADMIN)',
-      description: 'Titled "<title> (copy)". Every widget gets a new id and its item is re-pointed. Assignments are NOT copied. Re-auth action UPDATE_DASHBOARD.',
+      description: 'Titled "<title> (copy)". Every widget gets a new id and its item is re-pointed; its title and text are stripped of HTML like any write (a widget that is nothing but markup is a 400 and nothing is created). Assignments are NOT copied. Re-auth action UPDATE_DASHBOARD.',
       params: idParams,
       response: createdResponse,
     },
@@ -210,14 +210,21 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     const { ok } = await enforceReauth(REAUTH_ACTION, req, reply);
     if (!ok) return;
 
-    const row = await prisma.$transaction(async (tx) => {
+    const outcome = await prisma.$transaction(async (tx) => {
       const source = await findVisibleDashboard(req.user, id, tx);
-      if (!source) return null;
+      if (!source) return { kind: 'gone' } as const;
       const was = readDashboardDocument(source.layout);
-      const newIds = new Map(was.widgets.map((w) => [w.id, randomUUID()]));
+      // A copy is a NEW write (fix round 1, M-8): its widgets' title and text
+      // are cleaned like any write, so markup a row stored before the rule
+      // existed is not carried into a new one. Nothing is "stored" for the
+      // copy, so every widget is cleaned; one that is nothing but markup is a
+      // 400 and nothing is created. The source row is not touched.
+      const cleaned = cleanWidgetText(was.widgets, undefined);
+      if (!cleaned.ok) return { kind: 'invalid', message: cleaned.message } as const;
+      const newIds = new Map(cleaned.widgets.map((w) => [w.id, randomUUID()]));
       const copy: StoredDashboardDocument = {
         ...was,
-        widgets: was.widgets.map((w) => ({ ...w, id: newIds.get(w.id)! })),
+        widgets: cleaned.widgets.map((w) => ({ ...w, id: newIds.get(w.id)! })),
         items: was.items.map((it) => {
           const old = widgetIdOf(it.i);
           return old && newIds.has(old) ? { ...it, i: widgetItemId(newIds.get(old)!) } : it;
@@ -233,10 +240,11 @@ export default async function dashboardRoutes(app: FastifyInstance) {
         signatureMeaning: meaning(`Dashboard "${title}" created as a copy of "${source.title}"`),
       }, tx);
       await auditWidgetsCreated(tx, req, created.id, title, copy.widgets);
-      return created;
+      return { kind: 'created', row: created } as const;
     }, WRITE_TX);
-    if (!row) return notFound(reply);
-    return reply.code(201).send(await presentDetail(row, true));
+    if (outcome.kind === 'gone') return notFound(reply);
+    if (outcome.kind === 'invalid') return invalid(reply, outcome.message);
+    return reply.code(201).send(await presentDetail(outcome.row, true));
   });
 
   // ─── SAVE ──────────────────────────────────────────────

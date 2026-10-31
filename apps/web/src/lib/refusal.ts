@@ -6,8 +6,11 @@
  * worth retrying.
  *
  * The ONE rule, read by the widget data hooks' retry policy (a refusal is never
- * retried and never reported) and by the bar chart (a refusal never keeps the
- * bars it holds) — fix round 1, I-1 / I-3.
+ * retried and never reported), by the held-answer rule (`answerState`: a
+ * refusal never keeps what it holds) — fix round 1, I-1 / I-3 — and by the
+ * floor plan's fixed-plan decision (`fixedPlanState`: a refused plan list is a
+ * plan the viewer cannot see). It lives here, not beside the widgets, because
+ * the dashboard's own floor view reads it too.
  */
 export function isRefusal(error: unknown): boolean {
   const status = (error as { status?: unknown } | null | undefined)?.status;

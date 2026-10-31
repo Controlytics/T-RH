@@ -252,4 +252,16 @@ describe('built widgets on the layout routes', () => {
     expect(echoed.statusCode, echoed.body).toBe(200);
     await prisma.userConfig.updateMany({ where: { userId: viewerId }, data: { dashboardLayout: Prisma.DbNull } });
   });
+
+  it("a role default's widget title and text card text are stored with their HTML stripped (R8-1, the role route)", async () => {
+    const note = {
+      id: uuid(6), type: 'text_card', title: '<b>Role</b> note', source: { mode: 'selection' }, keys: [],
+      options: { text: '<script>alert(1)</script>Shift <i>handover</i>' },
+    } satisfies CustomWidget;
+    const res = await putRole(sa, VIEW, withWidgets([note]));
+    expect(res.statusCode, res.body).toBe(200);
+    const row = await prisma.roleConfig.findUniqueOrThrow({ where: { role: VIEW }, select: { dashboardLayout: true } });
+    expect((row.dashboardLayout as { widgets: CustomWidget[] }).widgets)
+      .toEqual([{ ...note, title: 'Role note', options: { text: 'Shift handover' } }]);
+  });
 });
