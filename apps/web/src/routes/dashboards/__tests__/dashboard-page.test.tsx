@@ -298,6 +298,15 @@ describe('DashboardPage', () => {
       .toHaveAttribute('aria-pressed', 'true');
   });
 
+  it('a FAILED overview never prints "0 in your view": the source alone, and the widgets say they could not load', async () => {
+    get.mockImplementation((url: string) => (url.startsWith('/api/instruments/telemetry-overview')
+      ? Promise.reject(failure(502)) : route(url)));
+    mount();
+    expect((await screen.findAllByText('Could not load this widget.')).length).toBeGreaterThan(0);
+    expect(screen.getByTestId('dashboard-source')).toHaveTextContent('Pressure Sensors');
+    expect(screen.getByTestId('dashboard-source')).not.toHaveTextContent('in your view');
+  });
+
   it('a profile source makes the overview ask for that profile', async () => {
     mount();
     await waitFor(() => expect(urls()).toContain(`/api/instruments/telemetry-overview?profileId=${PROFILE}`));

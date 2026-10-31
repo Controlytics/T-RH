@@ -209,7 +209,12 @@ function DashboardView({ dashboard, mutate }: {
   const visibleItems = applyAutoHeights(draft.items, autoRows, autoIds);
 
   const atMax = draft.widgets.length >= WIDGETS_PER_LAYOUT_MAX;
-  const count = overview.isLoading && overview.rows.length === 0 ? null : overview.rows.length;
+  // No count in hand — still loading, or the overview FAILED with nothing held —
+  // prints the source alone, never "0 in your view" (the final fix wave's rule:
+  // a number the page does not have is never printed; the widgets state the failure).
+  const count = overview.rows.length === 0 && (overview.isLoading || overview.error !== undefined)
+    ? null
+    : overview.rows.length;
   const empty = draft.items.length === 0;
 
   return (
