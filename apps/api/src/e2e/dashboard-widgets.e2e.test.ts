@@ -264,4 +264,37 @@ describe('built widgets on the layout routes', () => {
     expect((row.dashboardLayout as { widgets: CustomWidget[] }).widgets)
       .toEqual([{ ...note, title: 'Role note', options: { text: 'Shift handover' } }]);
   });
+
+  it('on / a built widget never widens Panels: alarm counts and an alarm-type pie need dashboard_alarms, a floor plan telemetry_floorplan (phase 2, Review Focus 3)', async () => {
+    const sel = { mode: 'selection' } as const;
+    const counts = { id: uuid(7), type: 'alarm_counts', title: 'Alarms now', source: sel, keys: [], options: {} } satisfies CustomWidget;
+    const alarmPie = { id: uuid(8), type: 'pie_chart', title: 'Alarms by type', source: sel, keys: [], options: { of: 'alarm_types' } } satisfies CustomWidget;
+    const statusPie = { id: uuid(9), type: 'pie_chart', title: 'Instrument status', source: sel, keys: [], options: { of: 'status' } } satisfies CustomWidget;
+    const floor = {
+      id: '0000000a-0000-4000-8000-00000000000a', type: 'floorplan', title: 'QC floor', source: sel, keys: [],
+      options: { planId: 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff' },
+    } satisfies CustomWidget;
+    // Placed through the layout PUT — the role default, the only way a widget reaches a role.
+    const res = await putRole(sa, VIEW, withWidgets([counts, alarmPie, statusPie, floor], ['telemetry_table', 'dashboard_alarms', 'telemetry_floorplan']));
+    expect(res.statusCode, res.body).toBe(200);
+    // The role's default is what this viewer gets.
+    await prisma.userConfig.updateMany({ where: { userId: viewerId }, data: { dashboardLayout: Prisma.DbNull } });
+
+    const shown = async (cards: string[]) => {
+      await prisma.roleConfig.update({ where: { role: VIEW }, data: { dashboardCards: cards } });
+      const layout = await myLayout(viewer);
+      const ids = (layout.widgets ?? []).map((w) => w.id);
+      // A widget is drawn only when its definition AND its grid item both arrive.
+      expect(layout.items.filter((i) => i.i.startsWith('w:')).map((i) => i.i).sort())
+        .toEqual(ids.map((id) => widgetItemId(id)).sort());
+      return ids.sort();
+    };
+
+    // Built widgets, but no alarms or floor plan panel: only the status pie is drawn.
+    expect(await shown(['telemetry_table', 'custom_widgets'])).toEqual([statusPie.id]);
+    // With the alarms panel, the alarm counts and the alarm-type pie are drawn too.
+    expect(await shown(['telemetry_table', 'custom_widgets', 'dashboard_alarms'])).toEqual([counts.id, alarmPie.id, statusPie.id].sort());
+    // With the floor plan panel instead, the floor plan — and still no alarm widget.
+    expect(await shown(['telemetry_table', 'custom_widgets', 'telemetry_floorplan'])).toEqual([statusPie.id, floor.id].sort());
+  });
 });
