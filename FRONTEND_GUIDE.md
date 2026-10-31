@@ -7,8 +7,9 @@
 > `docs/archive/OFFLINE_SYNC_ARCHITECTURE.md`. Rewritten below from `apps/web/src/main.tsx`,
 > `routes/`, `hooks/`, and `lib/` directly. Root `CLAUDE.md` System Stats is
 > the live inventory and is re-derived whenever a count moves; as of
-> 2026-10-29 it reads **26** hooks, **22** lib modules and **56** routes (routes 53 → 54 on
-> 2026-10-24, 54 → 56 on 2026-10-29 with `/dashboards` and `/dashboards/:id`)
+> 2026-10-31 it reads **26** hooks, **24** lib modules and **56** routes (routes 53 → 54 on
+> 2026-10-24, 54 → 56 on 2026-10-29 with `/dashboards` and `/dashboards/:id`; lib 22 → 24 on
+> 2026-10-31 with `lib/refusal.ts` and `lib/polling.ts`, dashboard builder phase 2)
 > (`ls apps/web/src/hooks/ | wc -l`, `ls apps/web/src/lib/ | wc -l`,
 > `grep -cE "<Route" apps/web/src/main.tsx`). The paragraph that stood here
 > until then quoted three earlier generations of those numbers as "stale" and

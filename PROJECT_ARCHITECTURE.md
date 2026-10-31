@@ -94,7 +94,7 @@ that assumes any of those is describing upstream DigiLog, not this repository.
 | Sidebar items | **12** |
 | Config defs / config pages | **35 / 22**² (re-derived 2026-10-05) |
 | Frontend `<Route>`s | **51** (31 lazy) |
-| Web hooks / lib modules | **26 / 22** (re-derived 2026-10-05: `use-row-keys.ts`, `safe-storage.ts` landed that day) |
+| Web hooks / lib modules | **26 / 24** (re-derived 2026-10-31: `lib/refusal.ts` and `lib/polling.ts` landed with dashboard builder phase 2; 2026-10-05: `use-row-keys.ts`, `safe-storage.ts`) |
 | graphile-worker tasks | **6** |
 | Test files | **~220** |
 
@@ -154,8 +154,8 @@ grep -cE "^\s+[A-Z_]+:"     packages/shared/src/types/audit-actions.ts  # 97
 ls apps/api/src/modules/config/defs/*.def.ts | wc -l               # 35 (2026-10-05)
 ls apps/web/src/routes/config/*.tsx | wc -l                        # 24
 grep -cE "<Route" apps/web/src/main.tsx                            # 51
-ls apps/web/src/hooks/ | wc -l                                     # 20
-ls apps/web/src/lib/   | wc -l                                     # 19
+ls apps/web/src/hooks/ | wc -l                                     # 26 (2026-10-31)
+ls apps/web/src/lib/   | wc -l                                     # 24 (2026-10-31)
 ```
 
 ## See also

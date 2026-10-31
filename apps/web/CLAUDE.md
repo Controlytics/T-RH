@@ -318,7 +318,7 @@ sent is not in the picker, and Remove is its only way out (review fix pass 2026-
 `/dashboards` (`index.tsx`, the list — concept A) and `/dashboards/:id` (`dashboard-page.tsx` — header
 concept C), both `RequireRole DASHBOARD_VIEW`; sidebar item `dashboards`, appended LAST. Rules and
 rulings: `docs/feature-notes.md` DASHBOARDS (phase 2, 2026-10-31: nine more types on `echarts`
-6.1.0 exact, value-imported only by `widgets/charts/echart.tsx`, lazy via `lazy-echart.tsx`; rulings,
+6.1.0 exact, its only value import in the build `widgets/charts/echart.tsx`, lazy via `lazy-echart.tsx`; rulings,
 bundle check). What a page must not get wrong:
 - **Everything shown is the server's.** The list is `GET /api/dashboards` as returned (`assignments`
   only for a SUPER_ADMIN); a 404 is "This dashboard is not available to you."; `source: null` is NO
@@ -332,8 +332,8 @@ bundle check). What a page must not get wrong:
   never the live prop / list copy. `use-dashboard-draft.ts` holds the draft
   (placement = the home `addWidget`'s rule — it is a second copy; keep them in step).
 - **One widget's failure stays in its card**: a failed request prints `LOAD_FAILED`; a renderer that
-  THROWS is caught by `RenderBoundary` (per card, and around `WidgetDialog`, whose live preview runs the
-  renderer) and keeps Edit widget / Remove while editing.
+  THROWS is caught by `RenderBoundary` (`widgets/widget-boundary.tsx`, on `/` too: per card, and around
+  `WidgetDialog`, whose live preview runs the renderer) and keeps Edit widget / Remove while editing.
 - The header window is session state (`time-window-picker.tsx`); Settings (`settings-dialog.tsx`) owns
   the stored default and the source; Assign (`assign-dialog.tsx`: `/api/roles/active` minus
   SUPER_ADMIN, `/api/users?…&status=ENABLED`) replaces the whole set.
@@ -1850,10 +1850,9 @@ resizes it with no drag. `routes/dashboard/panel-auto-height.ts` holds the maths
   (ruling R9, 2026-10-29 — `interactive = canArrange && editing && breakpoint === 'lg'`, the
   breakpoint being the library's own `getBreakpointFromWidth(BREAKPOINTS, width)`; `lg` is a
   container WIDER than 1200 px). Below it edit mode shows "Widen the window (or collapse the
-  sidebar) to move and resize cards — the arrangement is saved in the 12-column layout." Until
-  then a drag at `md` (a 1240 px window with the sidebar open) moved the card and was silently
-  discarded, and the breakpoint was `onBreakpointChange` state that never left `lg` for a grid
-  mounted at `md`. Pinned by `__tests__/panel-grid-breakpoint.test.tsx`. Optional `resetLabel` /
+  sidebar) to move and resize cards — the arrangement is saved in the 12-column layout." `md` (a
+  1240 px window with the sidebar open) has the SAME 12 columns (F-I5), so it draws the stored
+  arrangement; a 6-column `md` staircased it. Pinned by `__tests__/panel-grid-breakpoint.test.tsx`. Optional `resetLabel` /
   `saveLabel` name the edit row's buttons (a built dashboard: "Discard changes" / "Save").
 - Cleaning-profile pipeline editor uses a custom hand-rolled canvas (the
   `reactflow` + `@monaco-editor/react` deps were removed 2026-05-30 — 0 imports

@@ -24,8 +24,8 @@ import 'react-resizable/css/styles.css';
  *
  * `md` (a 900–1,200 px container — a 1,240 px window with the sidebar open, the
  * operator's own) has the SAME 12 columns, so it draws the stored arrangement
- * exactly, only up to 25 % narrower (ruling F-I5; a quarter is still ~213 px at
- * 900, above the gauge tile's 160 px minimum). It was 6 columns until the final
+ * exactly, only up to 25 % narrower (ruling F-I5; a quarter card is still ~205 px
+ * wide at 900, above the gauge tile's 160 px minimum). It was 6 columns until the final
  * fix wave: the library clamped every card past column 6 and pushed the
  * collisions down — a row of four quarters became a staircase with holes. Only
  * `sm` (a phone) is derived: one column, the cards stacked in order.

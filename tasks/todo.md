@@ -17,13 +17,14 @@ while building is in the DASHBOARDS note, `docs/feature-notes.md` (PHASE 2). Com
 - [x] T7 web — pie, alarm counts, status grid; ONE held-answer rule (`85f26fc`, `fb95540`)
 - [x] T8 web + API — instrument list, text card, floor plan; widget text stripped on every write path (`e2c13fa`, `c003bb8`)
 - [x] T9 — one built dashboard with every new type over a profile, real ECharts + Inter in headless Chrome (`built-p2-dashboard.png`); the comparison legend's rows fixed (`0b31baf`); the `/` gates pinned over HTTP (`38ef8d4`); docs; gates (shared 40 files / 600 tests — 39 at HEAD + the other session's untracked `permission-implication.test.ts`; web 76 files / 1,050 tests one per process, then a second sweep of the 65 test files of phase-2 modules outside those folders: 789 tests, 0 failed (`trend-chart-strip` exited 1 only at teardown when the low-memory kill hit it — re-run alone in review: 3/3, exit 0); API 19 files / 291 tests one at a time; `npm run lint` in shared, API and web; `vite build` + the bundle check PASS)
-- [ ] Final whole-branch review (controller) — then push / deploy only on the operator's word; the push must name the other session's commits on the branch too
-- [ ] Parked R7-11: the readings table, floor plan and alarms panel on `/` and `/dashboards/:id` are not on `widgetPolling` — they still stop polling after an outage until the window is focused
-- [ ] Parked: series palette slot 3 is a green a raw key can take (app-wide since phase 1, distinct from the OK green)
+- [x] Final whole-branch review (controller): 6 Important + 7 Minor, ruled F-I1..F-I6 (`.superpowers/sdd/2026-10-30-dashboard-builder-phase2/`)
+- [x] Final fix wave (`bcd3159`, `093802d`, `6fe4e7c`, `d9c89cc`, `f1077ea`, `bbc765d` + the docs commit): ONE retry policy for every polling hook on `/` and `/dashboards/:id` (R7-11, `lib/polling.ts`; the landing summaries poll, the Alarms card never prints a 0 it does not have); the key widgets on the one held-answer rule; per-widget render boundaries on `/`; `md` = 12 columns (no staircase); no dashboard chart series is green (brown `#6b4423` in place of slot 3); a built dashboard never prints "0 in your view" for a failed overview (found while listing the overview's callers)
+- [ ] Push / deploy only on the operator's word; the push must name the other session's commits on the branch too
+- [ ] Parked (operator's call): the trend page's and the PDF reports' third series colour is still the green — an app-wide swap changes how approved reports render
 - [ ] Parked M9: a gauge widget at its default size in a narrow panel shows a sliver and its body scrolls
 - [ ] Parked: widget titles stored with markup before the stripping are not backfilled (they print as text)
-- [ ] Operator decision: at `md` (a 900–1,200 px container — a 1240 px window) react-grid-layout's own derivation staircases third-width panels down the page, `/` included; a half-scale `md` layout is the candidate fix
-- [ ] Two loading behaviours on a drill-down: the status widgets show "Loading…" while the readings table keeps its old rows (final review to judge)
+- [ ] Parked (accepted, F-I1): on a drill-down the status AND key widgets show "Loading…" while the readings table keeps its old rows — tell the operator
+- [ ] Parked M-6 / M-7: no "markup is removed at save" hint in the widget dialog; a bar chart on a fixed past window re-asks the same aggregate every refresh
 - [ ] Render-check method gap: the built CSS names its fonts `/assets/…`, which a `file://` page cannot load — Chrome PNGs before 2026-10-31 were probably in a fallback face; inline the fonts (Task 9's `shoot9.py` does)
 
 ## 2026-10-29 — Dashboard builder, phase 1 (many named dashboards, alarm table)

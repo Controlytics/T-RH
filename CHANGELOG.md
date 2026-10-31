@@ -49,19 +49,48 @@ ruling made while building are in the DASHBOARDS note, `docs/feature-notes.md` (
 - **On `/` a built widget never widens Panels:** alarm counts and an alarm-type pie need the alarms
   panel, a floor plan the floor plan panel (as the alarm table already did).
 - **Changed for phase 1's widgets too:** every widget data hook now retries a failure at its refresh
-  cadence until the server answers, and reports an outage once — the latest-values widgets used to
-  freeze after an outage until the window was focused.
+  cadence until the server answers — the latest-values widgets used to freeze after an outage until
+  the window was focused. A failure is reported once per REQUEST, not once per outage: a widget on a
+  rolling period asks a new request every minute, so it reports again each minute of an outage, and N
+  widgets report N times at its start. Two deliberate render changes: a one-instrument trend chart's
+  default colours now follow each key's slot among ALL the widget's telemetry keys (they followed the
+  keys that instrument had sent), and a value card prints a fault word in the one fault ink, red
+  (`FAULT_INK`; it was slate).
 - **No migration, no new model, enum, permission, re-auth action, audit action, config def, sidebar
   item or route page.** One new web dependency (`echarts`).
 - **Seen with the built stylesheet** at 1240 px, real ECharts and Inter in headless Chrome:
-  `docs/superpowers/concepts/2026-10-29-dashboards/built-p2-dashboard.png` ONLY. The per-widget
+  `docs/superpowers/concepts/2026-10-29-dashboards/built-p2-dashboard.png` ONLY (re-shot in the final fix wave,
+  with `built-p2-md-narrow.png` beside it). The per-widget
   `built-p2-*.png` from Tasks 5–8 were laid out by ECharts in jsdom with estimated text widths and were
   probably drawn in a fallback face (not re-shot). The comparison's legend ran onto its plot with four
   keys in a quarter-width card — fixed (`0b31baf`).
-- **Open (parked):** the readings table, floor plan and alarms panel still stop polling after an outage
-  until the window is focused; a narrow default gauge panel scrolls; third-width panels staircase at
-  the `md` breakpoint (react-grid-layout's own derivation, `/` too); palette slot 3 is a green a raw key
-  can take.
+- **Final fix wave (2026-10-31, after the whole-branch review):**
+  - **ONE retry policy for every polling hook on `/` and `/dashboards/:id`** (`lib/polling.ts`): the
+    overview behind the readings table, the floor plan and every widget's instruments; the alarms panel
+    and the alarm table widget; the landing's `/api/alarms/summary` and `/api/instruments/activity-summary`,
+    which now POLL at the overview's cadence (they were read once at page load); and the floor plans
+    (retried, never polled). None of them stops polling after an outage any more. **The toasts change
+    with it:** the readings table, the alarms panel, the floor plan, and the trend page and the Data
+    Report (which read the same overview) raise the global "Load Error" once per request instead of on
+    every failure, and a refusal (a 4xx other than 408 / 429) is neither retried nor toasted.
+  - **The landing's Alarms card never prints a count it does not have:** loading or failed is a dash on
+    a neutral card, in words — never a green "0 · Nothing to attend to"; a count held through a failed
+    refresh says so; a failed active count is said on the All Instruments card; a built dashboard's
+    header never prints "0 in your view" for a failed overview.
+  - **The key widgets are on the one held-answer rule** (gauge, comparison bars, bar chart, value cards,
+    latest table, trend chart, time series table): a failed first load reads "Could not load this
+    widget." (never "No instruments in your view"), a drill-down never draws the previous scope's
+    instruments (they show "Loading…" meanwhile, as the status widgets do), and a failed refresh keeps
+    the last values WITH "These readings could not be refreshed" — no gauge keeps a silent "In limit".
+  - **`/` has the built dashboard's per-widget render boundary**, and one around the Add widget dialog.
+  - **`md` has 12 columns:** a 900–1,200 px container (a 1,240 px window) draws the stored arrangement
+    exactly — no staircase.
+  - **No dashboard chart series is green:** the comparison and bar charts draw the series palette with
+    its green (slot 3, the OK emerald) replaced by a brown, `#6b4423`; the colour swatches show it. The
+    trend page, the dashboard's trend widget and every PDF keep the palette as it is.
+- **Open (parked):** a narrow default gauge panel scrolls; the trend page's and the PDF reports' third
+  series colour is still the green (an app-wide swap would change how approved reports render — the
+  operator's call).
 
 ## [Unreleased] - Dashboard builder, phase 1: many named dashboards a super admin builds and assigns (2026-10-29)
 
