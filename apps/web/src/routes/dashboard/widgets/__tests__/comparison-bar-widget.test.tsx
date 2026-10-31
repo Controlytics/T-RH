@@ -30,7 +30,7 @@ vi.mock('../charts/lazy-echart', () => ({
 
 import { WidgetBody } from '../widget-panel';
 import { SERIES_HEX } from '../charts/chart-colors';
-import { COMPARISON_HEIGHT } from '../comparison-model';
+import { COMPARISON_HEIGHT, LEGEND_ROW_PX } from '../comparison-model';
 
 const SEL = { directOnly: false };
 const widget = (over: Partial<CustomWidget> = {}): CustomWidget => ({
@@ -153,6 +153,37 @@ describe('comparison bar widget', () => {
       const label = charts.at(-1)!.option.xAxis.axisLabel;
       expect(label.rotate).toBe(90);
       expect(label.interval).toBeGreaterThanOrEqual(1);
+    } finally {
+      globalThis.ResizeObserver = Original;
+    }
+  });
+
+  it("four keys in a quarter-width card: the plot starts below the legend's MEASURED rows (render check 2026-10-31)", () => {
+    const observers: ResizeObserverCallback[] = [];
+    const Original = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      constructor(cb: ResizeObserverCallback) { observers.push(cb); }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+    try {
+      const keys = [
+        ...widget().keys,
+        { source: 'telemetry' as const, key: 'Power', unit: 'W' },
+        { source: 'telemetry' as const, key: 'Voltage', unit: 'V' },
+      ];
+      setRows([row('101-01', [measured(21), raw(101.7), raw(1380, { key: 'Power' }), raw(231, { key: 'Voltage' })])]);
+      render(<WidgetBody widget={widget({ keys })} selection={SEL} />);
+      const resize = (width: number) => act(() => {
+        observers.at(-1)!([{ contentRect: { width } } as ResizeObserverEntry], {} as ResizeObserver);
+      });
+      // "Temperature (°C)", "Pressure (kPa)", "Power (W)", "Voltage (V)" — mixed units, so no axis
+      // name and 14 px over the plot: three rows at the narrowest card, one at full width.
+      resize(262);
+      expect(charts.at(-1)!.option.grid.top).toBe(3 * LEGEND_ROW_PX + 14);
+      resize(1140);
+      expect(charts.at(-1)!.option.grid.top).toBe(LEGEND_ROW_PX + 14);
     } finally {
       globalThis.ResizeObserver = Original;
     }

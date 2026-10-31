@@ -44,7 +44,7 @@ import {
 // Type-only, and erased from the build: nothing here pulls ECharts in statically.
 import type { EChartsCoreOption } from 'echarts/core';
 import { CHART_FONT_FAMILY, CHART_INK, SERIES_HEX } from './charts/chart-colors';
-import { CODE_PX_PER_CHAR, VALUE_AXIS_PX, codeAxis, escapeHtml, type CodeAxis } from './comparison-model';
+import { CODE_PX_PER_CHAR, LEGEND_ROW_PX, VALUE_AXIS_PX, codeAxis, escapeHtml, legendRows, type CodeAxis } from './comparison-model';
 import { decimalsSeen, isMeasured } from './key-value';
 import type { BarAgg, BarBucket, BarGroup, BucketRequest, TelemetryBuckets } from './use-widget-data';
 import { LOAD_FAILED, groupDigits, keyColorSlots, valueOf } from './widget-common';
@@ -381,41 +381,9 @@ export function barTooltip(m: BarModel, index: number): string {
   return head + partial + lines.join('');
 }
 
-/**
- * One legend row's height, in px: a 12 px label measured as ECharts measures a
- * line (about 12 px) and the legend's 16 px item gap between rows (m-1). The
- * legend is drawn with `padding: 0`, so it wraps at the full chart width — the
- * width `legendRows` estimates against.
- */
-export const LEGEND_ROW_PX = 28;
-/** A legend label's width at 12 px semibold Inter, per character (an estimate, a little generous). */
-const LEGEND_PX_PER_CHAR = 12 * 0.62;
-/** Beside each label: its 10 px icon, the 5 px before the text, the 16 px to the next item. */
-const LEGEND_ITEM_EXTRA_PX = 10 + 5 + 16;
-
-/**
- * How many rows the legend wraps to at the chart's width — the plot starts below
- * the last of them. Each instrument's names are long ("CWH/RDU/101-01 ·
- * Temperature"), and three in a third-width card wrap to three rows that ran
- * into the plot (render check). One series has no legend; an unknown width (the
- * first frame) is one row.
- */
-export function legendRows(names: readonly string[], width: number | null): number {
-  if (names.length <= 1) return 0;
-  if (width === null || width <= 0) return 1;
-  let rows = 1;
-  let x = 0;
-  for (const name of names) {
-    const item = name.length * LEGEND_PX_PER_CHAR + LEGEND_ITEM_EXTRA_PX;
-    // The last item on a row needs no gap after it.
-    if (x > 0 && x + item - 16 > width) {
-      rows += 1;
-      x = 0;
-    }
-    x += item;
-  }
-  return rows;
-}
+// The legend's row estimate is ONE rule for both bar widgets; it lives beside
+// `codeAxis` in `comparison-model.ts` (that file cannot import this one).
+export { LEGEND_ROW_PX, legendRows };
 
 /** Hour strides that read as a clock: each below a day divides it, so a day's labels fall at the same times. */
 const HOUR_STRIDES = [1, 2, 3, 4, 6, 8, 12, 24, 48, 72, 168, 336, 720] as const;

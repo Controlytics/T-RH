@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { WIDGET_INSTRUMENTS_MAX, type LatestKeyValue, type LatestValuesRow, type WidgetKey } from '@digilog/shared';
 import { CHART_FONT_FAMILY, SERIES_HEX, STATUS_HEX } from '../charts/chart-colors';
-import { buildComparisonOption, codeAxis, comparisonModel, comparisonTooltip } from '../comparison-model';
+import { LEGEND_ROW_PX, buildComparisonOption, codeAxis, comparisonModel, comparisonTooltip, legendRows } from '../comparison-model';
+import { legendRows as barLegendRows } from '../bar-chart-model';
 import { noReadingsFor } from '../widget-common';
 
 const WORDS = { failure: 'Error', outOfRange: 'OL' };
@@ -232,6 +233,20 @@ describe('buildComparisonOption', () => {
     expect(two.yAxis.name).toBe('');
     expect(one.grid.top).toBeGreaterThan((buildComparisonOption(comparisonModel([row('a', [raw(1)])], [{ ...P, unit: undefined }], WORDS)) as any).grid.top);
     expect(two.grid.top).toBeGreaterThanOrEqual(28);
+  });
+
+  it("the plot starts below EVERY legend row (render check 2026-10-31: four keys in a quarter-width card wrapped to two rows over the plot's top label)", () => {
+    const m = comparisonModel([row('a', [measured(1), raw(2)])], [T, P], WORDS);
+    const top = (rows: number) => (buildComparisonOption(m, undefined, rows) as any).grid.top;
+    // Mixed units: no unit over the value axis, so 14 px above the plot.
+    expect(top(1)).toBe(LEGEND_ROW_PX + 14);
+    expect(top(3)).toBe(3 * LEGEND_ROW_PX + 14);
+    // One key has no legend, so nothing is reserved for one.
+    expect((buildComparisonOption(comparisonModel([row('a', [measured(1)])], [T], WORDS), undefined, 0) as any).grid.top).toBe(28);
+    // It wraps at the full chart width — the width `legendRows` estimates against.
+    expect((buildComparisonOption(m) as any).legend.padding).toBe(0);
+    // ONE estimate, shared with the bar chart.
+    expect(legendRows).toBe(barLegendRows);
   });
 });
 

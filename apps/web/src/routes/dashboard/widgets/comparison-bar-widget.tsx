@@ -8,7 +8,7 @@ import { useMemo, useState } from 'react';
 import type { CustomWidget } from '@digilog/shared';
 import { useSensorWords } from '@/hooks/use-failure-text';
 import { LazyEChart } from './charts/lazy-echart';
-import { COMPARISON_HEIGHT, buildComparisonOption, codeAxis, comparisonModel } from './comparison-model';
+import { COMPARISON_HEIGHT, buildComparisonOption, codeAxis, comparisonModel, legendRows } from './comparison-model';
 import type { WidgetSelection } from './use-widget-data';
 import {
   LOAD_FAILED, NO_INSTRUMENTS, NO_KEY_YET, WidgetMessage, WidgetNotes, useBoxWidth, useWidgetRows,
@@ -24,10 +24,14 @@ export function ComparisonBarWidget({ widget, selection }: { widget: CustomWidge
   const signature = JSON.stringify(model);
   const [box, setBox] = useState<HTMLDivElement | null>(null);
   const width = useBoxWidth(box);
-  // Only how the codes stand reaches the option, so a resize that does not
-  // change it does not redraw.
+  // Only how the codes stand and how many rows the legend takes reach the
+  // option, so a resize that changes neither does not redraw.
   const { rotate, interval } = codeAxis(model.codes, width);
-  const option = useMemo(() => buildComparisonOption(model, { rotate, interval }), [signature, rotate, interval]);
+  const legendRowCount = legendRows(model.series.map((s) => s.legendName), width);
+  const option = useMemo(
+    () => buildComparisonOption(model, { rotate, interval }, legendRowCount),
+    [signature, rotate, interval, legendRowCount],
+  );
 
   if (loading) return <WidgetMessage>Loading…</WidgetMessage>;
   if (error) return <WidgetMessage tone="error">{LOAD_FAILED}</WidgetMessage>;

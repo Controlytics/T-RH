@@ -79,6 +79,45 @@ export function codeAxis(codes: readonly string[], width: number | null): CodeAx
   return { rotate: 90, interval: Math.max(0, Math.ceil(CODE_LINE_PX / per) - 1) };
 }
 
+/**
+ * One legend row's height, in px: a 12 px label measured as ECharts measures a
+ * line (about 12 px) and the legend's 16 px item gap between rows (m-1). The
+ * legend is drawn with `padding: 0`, so it wraps at the full chart width — the
+ * width `legendRows` estimates against.
+ */
+export const LEGEND_ROW_PX = 28;
+/** A legend label's width at 12 px semibold Inter, per character (an estimate, a little generous). */
+const LEGEND_PX_PER_CHAR = 12 * 0.62;
+/** Beside each label: its 10 px icon, the 5 px before the text, the 16 px to the next item. */
+const LEGEND_ITEM_EXTRA_PX = 10 + 5 + 16;
+
+/**
+ * How many rows the legend wraps to at the chart's width — the plot starts below
+ * the last of them. ONE rule for both bar widgets (`bar-chart-model.ts`
+ * re-exports it). A bar chart's names are long ("CWH/RDU/101-01 · Temperature"),
+ * and three in a third-width card wrapped to three rows that ran into the plot;
+ * the comparison reserved one row whatever it drew, and four keys in a
+ * quarter-width card wrapped to two over the value axis's top label (render
+ * checks, Task 6 and 2026-10-31). One series has no legend; an unknown width
+ * (the first frame) is one row.
+ */
+export function legendRows(names: readonly string[], width: number | null): number {
+  if (names.length <= 1) return 0;
+  if (width === null || width <= 0) return 1;
+  let rows = 1;
+  let x = 0;
+  for (const name of names) {
+    const item = name.length * LEGEND_PX_PER_CHAR + LEGEND_ITEM_EXTRA_PX;
+    // The last item on a row needs no gap after it.
+    if (x > 0 && x + item - 16 > width) {
+      rows += 1;
+      x = 0;
+    }
+    x += item;
+  }
+  return rows;
+}
+
 export interface ComparisonPoint {
   /** The bar's length, or null — a gap. */
   value: number | null;
@@ -173,17 +212,23 @@ export function comparisonTooltip(m: ComparisonModel, index: number): string {
 
 type TooltipParams = { dataIndex: number } | { dataIndex: number }[];
 
-export function buildComparisonOption(m: ComparisonModel, axis: CodeAxis = codeAxis(m.codes, null)): EChartsCoreOption {
+export function buildComparisonOption(
+  m: ComparisonModel,
+  axis: CodeAxis = codeAxis(m.codes, null),
+  rows: number = m.series.length > 1 ? 1 : 0,
+): EChartsCoreOption {
   const legend = m.series.length > 1;
   return {
     color: m.series.map((s) => s.color),
     textStyle: { fontFamily: CHART_FONT_FAMILY },
-    // Room above the plot for the legend row, then for the unit's name over the value axis.
-    grid: { left: 4, right: 12, top: (legend ? 28 : 0) + (m.unit ? 28 : 14), bottom: 4, containLabel: true },
+    // Room above the plot for every legend row (`legendRows`), then for the unit's name over the value axis.
+    grid: { left: 4, right: 12, top: (legend ? rows * LEGEND_ROW_PX : 0) + (m.unit ? 28 : 14), bottom: 4, containLabel: true },
     legend: {
       show: legend,
       top: 0,
       left: 0,
+      // Wraps at the full chart width — the width `legendRows` estimates against.
+      padding: 0,
       // A key, not a filter (fix round 1, m-5): a hidden series would still be in the tooltip.
       selectedMode: false,
       icon: 'roundRect',
