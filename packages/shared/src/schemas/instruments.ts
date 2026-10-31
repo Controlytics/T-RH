@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { modbusHostSchema, modbusRegisterMapSchema } from '../types/modbus.js';
 
 /**
  * The seven transport values (four protocol families — http/https, mqtt/mqtts,
@@ -104,6 +105,13 @@ export const createInstrumentSchema = z.object({
    * them from the moment it existed).
    */
   functionalLocationId: z.string().uuid().nullish(),
+  // TCP/IP (Modbus) instruments (2026-10-31): this server reads host:port with
+  // the register map. Only the fields' own SHAPE is checked here; "only on a
+  // TCP/IP profile", allowed networks and address-in-use need the profile and
+  // the database, so the API decides them.
+  modbusHost: modbusHostSchema.nullish(),
+  modbusPort: z.number({ invalid_type_error: 'Port must be a number' }).int('Port must be a whole number').min(1, 'Port must be 1 to 65535').max(65535, 'Port must be 1 to 65535').nullish(),
+  modbusRegisters: modbusRegisterMapSchema.nullish(),
 });
 
 export const updateInstrumentSchema = z.object({
@@ -131,6 +139,15 @@ export const updateInstrumentSchema = z.object({
   // null is meaningful: it unlinks. `.nullish()` keeps "omitted" and
   // "explicitly cleared" distinguishable in the handler.
   gatewayId: z.string().uuid().nullish(),
+  // TCP/IP (Modbus) instruments (2026-10-31): this server reads host:port with
+  // the register map. Only the fields' own SHAPE is checked here; "only on a
+  // TCP/IP profile", allowed networks and address-in-use need the profile and
+  // the database, so the API decides them.
+  modbusHost: modbusHostSchema.nullish(),
+  modbusPort: z.number({ invalid_type_error: 'Port must be a number' }).int('Port must be a whole number').min(1, 'Port must be 1 to 65535').max(65535, 'Port must be 1 to 65535').nullish(),
+  modbusRegisters: modbusRegisterMapSchema.nullish(),
+  // The remark recorded when a register map / address is changed (2026-10-31).
+  reason: z.string().max(500).optional(),
 });
 
 /**
@@ -283,6 +300,8 @@ export const bulkCreateInstrumentsSchema = z.object({
   // Also chosen ONCE for the whole upload, for the same reason: the functional
   // location every row is born in (see `createInstrumentSchema`).
   functionalLocationId: z.string().uuid().nullish(),
+  // Copy the register map (and nothing else) from this TCP/IP instrument onto every created row.
+  copyRegisterMapFrom: z.string().uuid().optional(),
 });
 
 export type CreateInstrumentInput = z.infer<typeof createInstrumentSchema>;

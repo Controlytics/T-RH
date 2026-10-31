@@ -352,3 +352,20 @@ export function isInstrumentReporting(
     : activeWindowMinutes * 60_000;
   return age <= limit;
 }
+
+
+/**
+ * The interval a device is expected to report at, as the liveness check should
+ * see it (plan ruling P3 — the one resolver every caller imports). The
+ * instrument's own `expectedIntervalSec` wins; failing that a TCP/IP (Modbus)
+ * instrument is read at its profile's interval, so that is when it is expected;
+ * a Gateway instrument with no interval is exempt (null).
+ */
+export function effectiveExpectedIntervalSec(
+  inst: { expectedIntervalSec: number | null },
+  profile: { connection: string; modbusIntervalSec: number | null },
+): number | null {
+  if (inst.expectedIntervalSec) return inst.expectedIntervalSec;
+  if (profile.connection === 'MODBUS_TCP' && profile.modbusIntervalSec) return profile.modbusIntervalSec;
+  return null;
+}

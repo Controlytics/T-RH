@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { profileMeasurementsSchema } from '../types/profile-measurements.js';
+import { MODBUS_CONNECTIONS, MODBUS_INTERVAL, MODBUS_UNIT_ID } from '../types/modbus.js';
 
 /**
  * An instrument profile is a named container for instruments.
@@ -30,6 +31,34 @@ import { profileMeasurementsSchema } from '../types/profile-measurements.js';
 const attributeKeysField = z.string()
   .max(2000, 'Attribute keys must be 2000 characters or fewer');
 
+
+// TCP/IP (Modbus) profile settings (2026-10-31). `connection` absent = PUSH
+// ("Gateway", today's behaviour). The two modbus fields exist only on a
+// MODBUS_TCP profile and are NULL on a PUSH one.
+const connectionField = z.enum(MODBUS_CONNECTIONS);
+const modbusIntervalField = z.number({ invalid_type_error: 'Read interval must be a number' })
+  .int('Read interval must be a whole number of seconds')
+  .min(MODBUS_INTERVAL.min, `Read interval must be at least ${MODBUS_INTERVAL.min} seconds`)
+  .max(MODBUS_INTERVAL.max, `Read interval must be at most ${MODBUS_INTERVAL.max} seconds`);
+const modbusUnitField = z.number({ invalid_type_error: 'Unit ID must be a number' })
+  .int('Unit ID must be a whole number')
+  .min(MODBUS_UNIT_ID.min, `Unit ID must be ${MODBUS_UNIT_ID.min} to ${MODBUS_UNIT_ID.max}`)
+  .max(MODBUS_UNIT_ID.max, `Unit ID must be ${MODBUS_UNIT_ID.min} to ${MODBUS_UNIT_ID.max}`);
+
+function refuseModbusFieldsOnPush(
+  v: { connection?: string; modbusIntervalSec?: number | null; modbusUnitId?: number | null },
+  ctx: z.RefinementCtx,
+) {
+  if (v.connection !== 'PUSH' && v.connection !== undefined) return;
+  // On update an absent `connection` means "unchanged", which the route checks
+  // against the stored profile; only an explicit PUSH is refused here.
+  for (const f of ['modbusIntervalSec', 'modbusUnitId'] as const) {
+    if (v[f] !== undefined && v[f] !== null && (v.connection === 'PUSH')) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [f], message: 'Only a TCP/IP (Modbus) profile has a read interval and unit ID' });
+    }
+  }
+}
+
 export const createInstrumentProfileSchema = z.object({
   name: z.string().trim()
     .min(1, 'Profile name is required')
@@ -44,7 +73,19 @@ export const createInstrumentProfileSchema = z.object({
   // temperature + humidity defaults, written by the route. Only a super admin
   // may send anything else (the route enforces it).
   measurements: profileMeasurementsSchema.optional(),
-});
+  connection: connectionField.optional(),
+  modbusIntervalSec: modbusIntervalField.nullish(),
+  modbusUnitId: modbusUnitField.nullish(),
+}).superRefine((v, ctx) => {
+  // A create without `connection` is a Gateway profile, so the fields are refused there too.
+  for (const f of ['modbusIntervalSec', 'modbusUnitId'] as const) {
+    if (v.connection !== 'MODBUS_TCP' && v[f] !== undefined && v[f] !== null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [f], message: 'Only a TCP/IP (Modbus) profile has a read interval and unit ID' });
+    }
+  }
+}).transform((v) => (v.connection === 'MODBUS_TCP'
+  ? { ...v, modbusIntervalSec: v.modbusIntervalSec ?? MODBUS_INTERVAL.default, modbusUnitId: v.modbusUnitId ?? MODBUS_UNIT_ID.default }
+  : v));
 
 export const updateInstrumentProfileSchema = z.object({
   name: z.string().trim()
@@ -72,7 +113,10 @@ export const updateInstrumentProfileSchema = z.object({
   // connect with its own client certificate. A change is super-admin only,
   // needs `reason`, and ON is refused while the server has no device CA.
   requireDeviceCertificate: z.boolean().optional(),
-});
+  connection: connectionField.optional(),
+  modbusIntervalSec: modbusIntervalField.nullish(),
+  modbusUnitId: modbusUnitField.nullish(),
+}).superRefine(refuseModbusFieldsOnPush);
 
 export type CreateInstrumentProfileInput = z.infer<typeof createInstrumentProfileSchema>;
 export type UpdateInstrumentProfileInput = z.infer<typeof updateInstrumentProfileSchema>;

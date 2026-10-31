@@ -1,5 +1,5 @@
 /**
- * Payload parsing — PURE. No database, no imports.
+ * Payload parsing — PURE. No database; the only import is the shared reserved-key list.
  *
  * Three accepted shapes:
  *   flat     { "temp": 21.5, "rh": 45 }                          → one instrument
@@ -11,6 +11,8 @@
  * is how "0" becomes 0 becomes false — unacceptable in a system whose purpose is
  * faithful records.
  */
+
+import { PAYLOAD_META_KEYS } from '@digilog/shared';
 
 export type ValueType = 'boolean' | 'int' | 'float' | 'string' | 'json';
 
@@ -35,9 +37,6 @@ export interface ParsedPayload {
   /** Device-supplied timestamp, if it sent a valid one. */
   ts: Date | null;
 }
-
-/** Reserved top-level keys that carry metadata, not readings. */
-const META_KEYS = new Set(['ts', 'timestamp', 'quality', 'devices']);
 
 /**
  * Some loggers wrap their readings in an envelope — `{"values": {...}}` — instead
@@ -171,14 +170,14 @@ export function parsePayload(buf: Buffer): ParsedPayload {
   const envelope = obj[ENVELOPE_KEY];
   if (envelope && typeof envelope === 'object' && !Array.isArray(envelope)) {
     const otherReadingKeys = Object.keys(obj).filter(
-      (k) => k !== ENVELOPE_KEY && !META_KEYS.has(k),
+      (k) => k !== ENVELOPE_KEY && !PAYLOAD_META_KEYS.has(k),
     );
     if (otherReadingKeys.length === 0) {
       return { ok: true, devices: null, values: ownKeys(envelope as Record<string, unknown>), ts };
     }
   }
 
-  const values = ownKeys(obj, META_KEYS);
+  const values = ownKeys(obj, PAYLOAD_META_KEYS);
   return { ok: true, devices: null, values, ts };
 }
 
@@ -190,7 +189,7 @@ export function parsePayload(buf: Buffer): ParsedPayload {
  * fan-out has guarded this since it was written; the flat path did not
  * (audit 2026-10-03, INGEST-13). Do not tidy this back to `{}`.
  */
-function ownKeys(src: Record<string, unknown>, skip?: Set<string>): Record<string, unknown> {
+function ownKeys(src: Record<string, unknown>, skip?: ReadonlySet<string>): Record<string, unknown> {
   const out: Record<string, unknown> = Object.create(null);
   for (const [k, v] of Object.entries(src)) {
     if (!skip?.has(k)) out[k] = v;
