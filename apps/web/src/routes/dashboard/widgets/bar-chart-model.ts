@@ -28,7 +28,8 @@
  *   key count + key index), so a series that comes back empty moves no other
  *   series' colour. One instrument asked: the key's colour, as the trend chart.
  * - **No verdict (R6-8)**: no limit lines and no status colour — an aggregate is
- *   not a reading and is never judged. Series colours only.
+ *   not a reading and is never judged. Series colours only — the DASHBOARD
+ *   palette (`DASHBOARD_SERIES_HEX`), in which no series is green (ruling F-I6).
  * - **Decimals (R6-6)**: a count is a whole number. Otherwise a measured key
  *   prints at the server's decimals (the LARGEST of them when several
  *   instruments are combined — presentation precision of a computed number, not
@@ -43,7 +44,7 @@ import {
 } from '@digilog/shared';
 // Type-only, and erased from the build: nothing here pulls ECharts in statically.
 import type { EChartsCoreOption } from 'echarts/core';
-import { CHART_FONT_FAMILY, CHART_INK, SERIES_HEX } from './charts/chart-colors';
+import { CHART_FONT_FAMILY, CHART_INK, DASHBOARD_SERIES_HEX } from './charts/chart-colors';
 import { CODE_PX_PER_CHAR, LEGEND_ROW_PX, VALUE_AXIS_PX, codeAxis, escapeHtml, legendRows, type CodeAxis } from './comparison-model';
 import { decimalsSeen, isMeasured } from './key-value';
 import type { BarAgg, BarBucket, BarGroup, BucketRequest, TelemetryBuckets } from './use-widget-data';
@@ -319,7 +320,7 @@ export function barModel(
     const keyLabel = key.label ?? key.key;
     const series: Omit<BarSeries, 'legendName'> = {
       name: owner ? `${owner.code} · ${keyLabel}` : keyLabel,
-      color: SERIES_HEX[Math.min(position, SERIES_HEX.length - 1)],
+      color: DASHBOARD_SERIES_HEX[Math.min(position, DASHBOARD_SERIES_HEX.length - 1)],
       ...seriesNumbers(resp.agg, key, owner ? [owner] : asked, got.points.map((p) => p.value)),
       points,
     };

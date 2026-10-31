@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { WIDGET_INSTRUMENTS_MAX, type LatestKeyValue, type LatestValuesRow, type WidgetKey } from '@digilog/shared';
-import { CHART_FONT_FAMILY, SERIES_HEX, STATUS_HEX } from '../charts/chart-colors';
+import { CHART_FONT_FAMILY, DASHBOARD_SERIES_HEX, STATUS_HEX, isGreen } from '../charts/chart-colors';
 import { LEGEND_ROW_PX, buildComparisonOption, codeAxis, comparisonModel, comparisonTooltip, legendRows } from '../comparison-model';
 import { legendRows as barLegendRows } from '../bar-chart-model';
 import { noReadingsFor } from '../widget-common';
@@ -30,21 +30,32 @@ describe('comparisonModel', () => {
     const m = comparisonModel(rows, [T, { ...P, color: 4 }], WORDS);
     expect(m.codes).toEqual(['CWH/RDU/101-01', 'CWH/RDU/001-00']);
     expect(m.series.map((s) => s.name)).toEqual(['Temperature', 'Pressure']);
-    expect(m.series[0].color).toBe(SERIES_HEX[0]);
-    expect(m.series[1].color).toBe(SERIES_HEX[4]);
+    expect(m.series[0].color).toBe(DASHBOARD_SERIES_HEX[0]);
+    expect(m.series[1].color).toBe(DASHBOARD_SERIES_HEX[4]);
     expect(m.series[0].points.map((p) => p.value)).toEqual([21.46, 23]);
     expect(m.total).toBe(2);
   });
 
+  it('F-I6: a THIRD raw key (and a key that chose colour 3) is never drawn green', () => {
+    const V: WidgetKey = { source: 'telemetry', key: 'Voltage' };
+    const volt = (value: unknown): LatestKeyValue => ({ ...raw(value), key: 'Voltage' });
+    const m = comparisonModel([row('a', [measured(1), raw(2), volt(230)])], [T, P, V], WORDS);
+    expect(m.series.map((s) => s.name)).toEqual(['Temperature', 'Pressure', 'Voltage']);
+    for (const s of m.series) expect(isGreen(s.color), s.name).toBe(false);
+    const chose = comparisonModel([row('a', [raw(2)])], [{ ...P, color: 2 }], WORDS);
+    expect(isGreen(chose.series[0].color)).toBe(false);
+    expect(chose.series[0].color).toBe(DASHBOARD_SERIES_HEX[2]);
+  });
+
   it("a key with no colour takes its own position's palette slot", () => {
     const m = comparisonModel([row('a', [measured(1), raw(2)])], [T, P], WORDS);
-    expect(m.series.map((s) => s.color)).toEqual([SERIES_HEX[0], SERIES_HEX[1]]);
+    expect(m.series.map((s) => s.color)).toEqual([DASHBOARD_SERIES_HEX[0], DASHBOARD_SERIES_HEX[1]]);
   });
 
   it("m-7: a key without a colour never lands on the slot another key chose", () => {
     // Before: Temperature took slot 0 by position — the slot Pressure chose.
     const m = comparisonModel([row('a', [measured(1), raw(2)])], [T, { ...P, color: 0 }], WORDS);
-    expect(m.series.map((s) => s.color)).toEqual([SERIES_HEX[1], SERIES_HEX[0]]);
+    expect(m.series.map((s) => s.color)).toEqual([DASHBOARD_SERIES_HEX[1], DASHBOARD_SERIES_HEX[0]]);
   });
 
   it('m-5: the legend is a key, not a filter — no click hides a series the tooltip would still list', () => {
@@ -140,7 +151,7 @@ describe('comparisonModel', () => {
     expect(m.series.map((s) => s.name)).toEqual(['Temperature']);
     expect(m.unsent).toEqual(['Voltage', 'Power']);
     // The colour stays the KEY's own: Temperature is the second key, so its slot is 1.
-    expect(m.series[0].color).toBe(SERIES_HEX[1]);
+    expect(m.series[0].color).toBe(DASHBOARD_SERIES_HEX[1]);
     expect(comparisonModel([row('a', [measured(21)])], [T], WORDS).unsent).toEqual([]);
   });
 });
@@ -195,8 +206,8 @@ describe('buildComparisonOption', () => {
     expect(option.xAxis.data).toEqual(['CWH/RDU/101-01', 'CWH/RDU/001-00']);
     expect(option.series).toHaveLength(2);
     expect(option.series.map((s: any) => s.type)).toEqual(['bar', 'bar']);
-    expect(option.series.map((s: any) => s.itemStyle.color)).toEqual([SERIES_HEX[0], SERIES_HEX[1]]);
-    expect(option.color).toEqual([SERIES_HEX[0], SERIES_HEX[1]]);
+    expect(option.series.map((s: any) => s.itemStyle.color)).toEqual([DASHBOARD_SERIES_HEX[0], DASHBOARD_SERIES_HEX[1]]);
+    expect(option.color).toEqual([DASHBOARD_SERIES_HEX[0], DASHBOARD_SERIES_HEX[1]]);
     // 30 °C is out of limit — the bar does not say so.
     const json = JSON.stringify(option).toLowerCase();
     for (const hex of VERDICT_HEXES) expect(json).not.toContain(hex.toLowerCase());

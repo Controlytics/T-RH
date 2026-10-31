@@ -20,12 +20,18 @@ export function patchKeys(keys: WidgetKey[], index: number, patch: Partial<Widge
 }
 
 export function KeyDisplayRows({
-  keys, measured, onChange,
+  keys, measured, onChange, palette = SERIES_COLORS,
 }: {
   keys: WidgetKey[];
   /** Whether the SERVER measures this key (the catalogue said so). */
   measured: (k: WidgetKey) => boolean;
   onChange: (keys: WidgetKey[]) => void;
+  /**
+   * The colours the swatches SHOW — what the widget will draw each slot in
+   * (`keyPaletteFor`, ruling F-I6: a dashboard bar chart's slot 3 is not the
+   * trend page's green). The trend page's Keys dialog passes nothing.
+   */
+  palette?: readonly string[];
 }) {
   if (keys.length === 0) return null;
   const setKey = (index: number, patch: Partial<WidgetKey>) => onChange(patchKeys(keys, index, patch));
@@ -68,7 +74,7 @@ export function KeyDisplayRows({
             )}
             {!raw && <span className="self-center text-xs text-slate-500">Unit and decimals are the instrument&apos;s</span>}
             <span className="flex items-center gap-1" role="group" aria-label={`Colour for ${k.key}`}>
-              {SERIES_COLORS.map((c, ci) => (
+              {palette.map((c, ci) => (
                 <button
                   key={c}
                   type="button"

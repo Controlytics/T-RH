@@ -38,7 +38,7 @@ vi.mock('../charts/lazy-echart', () => ({
 
 import { WidgetBody } from '../widget-panel';
 import { BAR_HEIGHT, LEGEND_ROW_PX } from '../bar-chart-model';
-import { SERIES_HEX } from '../charts/chart-colors';
+import { DASHBOARD_SERIES_HEX } from '../charts/chart-colors';
 import { REFRESH_FAILED } from '../widget-common';
 
 const SEL = { directOnly: false };
@@ -122,7 +122,7 @@ describe('bar chart widget', () => {
     expect(screen.getByTestId('bar-caption').textContent).toBe('Daily maximum');
     expect(lastCall().slice(3)).toEqual(['day', 'max', 'all']);
     expect(charts.at(-1)!.height).toBe(BAR_HEIGHT);
-    expect(charts.at(-1)!.option.series[0].itemStyle.color).toBe(SERIES_HEX[0]);
+    expect(charts.at(-1)!.option.series[0].itemStyle.color).toBe(DASHBOARD_SERIES_HEX[0]);
   });
 
   it("follows the dashboard window when it has no period of its own, and its own period when it has one", () => {

@@ -31,7 +31,7 @@ vi.mock('../charts/lazy-echart', () => ({
 }));
 
 import { WidgetBody } from '../widget-panel';
-import { SERIES_HEX } from '../charts/chart-colors';
+import { DASHBOARD_SERIES_HEX } from '../charts/chart-colors';
 import { COMPARISON_HEIGHT, LEGEND_ROW_PX } from '../comparison-model';
 
 const SEL = { directOnly: false };
@@ -73,7 +73,7 @@ describe('comparison bar widget', () => {
     const { option, height, ariaLabel } = charts[0];
     expect(height).toBe(COMPARISON_HEIGHT);
     expect(option.xAxis.data).toEqual(['CWH/RDU/101-01', 'CWH/RDU/001-00']);
-    expect(option.series.map((s: any) => s.itemStyle.color)).toEqual([SERIES_HEX[0], SERIES_HEX[3]]);
+    expect(option.series.map((s: any) => s.itemStyle.color)).toEqual([DASHBOARD_SERIES_HEX[0], DASHBOARD_SERIES_HEX[3]]);
     expect(option.series[1].data).toEqual([2.5, null]);
     expect(ariaLabel).toBe('Side by side: Temperature, Pressure for 2 instruments');
     expect(screen.queryByTestId('widget-cap-note')).toBeNull();

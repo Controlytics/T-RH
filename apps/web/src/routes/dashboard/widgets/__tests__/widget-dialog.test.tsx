@@ -59,6 +59,7 @@ const TOAST = { toast: { success: vi.fn(), error: vi.fn() } };
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => TOAST }));
 
 import { WidgetDialog, WIDGET_OPTION_SECTIONS } from '../widget-dialog';
+import { DASHBOARD_SERIES_HEX, isGreen } from '../charts/chart-colors';
 import { RoleDefaultDialog } from '../role-default-dialog';
 import { KeyPicker } from '../key-picker';
 import { WIDGET_PAGE_SIZE_DEFAULT, widgetPageSize } from '../type-switch';
@@ -549,6 +550,15 @@ describe('WidgetDialog - the bar chart options', () => {
     fireEvent.change(screen.getByLabelText(label), { target: { value } });
     fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
     expect((onSubmit.mock.calls[0][0] as CustomWidget).options).toEqual(expected);
+  });
+
+  it('F-I6: its colour swatches show what a bar chart draws — the third is the dashboard palette, never the green', () => {
+    openBars();
+    const rgb = (hex: string) => `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`;
+    DASHBOARD_SERIES_HEX.forEach((hex, n) => {
+      expect((screen.getByRole('button', { name: `Colour ${n + 1} for t` }) as HTMLElement).style.background).toBe(rgb(hex));
+    });
+    expect(isGreen(DASHBOARD_SERIES_HEX[2])).toBe(false);
   });
 
   it('an untouched bar chart saves no options — the renderer reads the same defaults', () => {

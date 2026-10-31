@@ -58,20 +58,56 @@ export function hueOf(hex: string): number {
  */
 const GREEN_HUES = { from: 70, to: 175 } as const;
 
+/** Does this colour read as "in limit"? Its hue is in `GREEN_HUES` — the ONE green test. */
+export function isGreen(hex: string): boolean {
+  const h = hueOf(hex);
+  return h >= GREEN_HUES.from && h <= GREEN_HUES.to;
+}
+
 /** `palette` without its greens, in its order (R7-8). */
 export function withoutGreens(palette: readonly string[]): string[] {
-  return palette.filter((hex) => {
-    const h = hueOf(hex);
-    return h < GREEN_HUES.from || h > GREEN_HUES.to;
-  });
+  return palette.filter((hex) => !isGreen(hex));
 }
 
 /**
  * The colours an ALARM-TYPE pie draws its slices in (R7-8): the series palette
  * less its greens. Every slice there is an alarm, and green reads "in limit".
- * Only the alarm pie uses it; bars, comparison and trend keys keep `SERIES_HEX`.
  */
 export const ALARM_SERIES_HEX: readonly string[] = withoutGreens(SERIES_HEX);
+
+/**
+ * What stands in for the series palette's green on a DASHBOARD chart (ruling
+ * F-I6): a dark brown. `#1baf7a` (slot 3) is 158.5° — the OK dot's emerald
+ * (160°) — so a raw key drawn in it read as a verdict. Brown, not the teal-blue
+ * also weighed, because it is the farther from everything else on the chart:
+ * CIEDE2000 ≥ 30 from every other series colour and every `STATUS_HEX` colour
+ * (the palette's own closest pair is 23), and ≥ 27 under a deuteranopia
+ * simulation (the palette's own: 10), where a teal near 190° came within 17–19
+ * of the blue series and the No-data slate. By hue alone (27.5°) it sits 9–13°
+ * from the oranges and ambers; its lightness (L* 33 against their 60–75) is what
+ * parts them. It is not a status colour anywhere in the app.
+ */
+const DASHBOARD_NOT_GREEN = '#6b4423';
+
+/**
+ * The series palette of the DASHBOARD widget charts (comparison bars, bar
+ * chart): `SERIES_HEX` with its green replaced IN PLACE — same slots, so a
+ * stored key `color` index keeps its meaning, and still six distinct colours,
+ * so `TREND_SERIES_MAX` / `BAR_SERIES_MAX` / `keysMax` are unchanged. The
+ * instrument trend page, the PDF reports and the dashboard's trend widget (it
+ * draws through the shared `TimeSeriesChart`) keep `SERIES_COLORS`.
+ */
+export const DASHBOARD_SERIES_HEX: readonly string[] = SERIES_HEX.map((hex) => (isGreen(hex) ? DASHBOARD_NOT_GREEN : hex));
+
+/**
+ * The colours a widget of this type draws its keys in, slot by slot — what the
+ * widget dialog's colour swatches show, so a chosen swatch is the colour drawn.
+ * The two dashboard ECharts charts draw `DASHBOARD_SERIES_HEX`; every other type
+ * (the trend widget through the shared `TimeSeriesChart`) `SERIES_COLORS`.
+ */
+export function keyPaletteFor(type: string): readonly string[] {
+  return type === 'comparison_bar' || type === 'bar_chart' ? DASHBOARD_SERIES_HEX : SERIES_COLORS;
+}
 
 /**
  * The page's own greys, for a chart's axes, gridlines, legend and tooltip — so a

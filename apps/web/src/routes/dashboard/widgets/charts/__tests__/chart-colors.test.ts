@@ -4,7 +4,10 @@ import { join } from 'node:path';
 import { SERIES_COLORS } from '../../../time-series-chart';
 import { statusClasses } from '../../../status';
 import { UNJUDGED_CLASSES } from '../../key-value';
-import { ALARM_SERIES_HEX, CHART_FONT_FAMILY, CHART_INK, NEUTRAL_HEX, SERIES_HEX, STATUS_HEX, hueOf, withoutGreens } from '../chart-colors';
+import {
+  ALARM_SERIES_HEX, CHART_FONT_FAMILY, CHART_INK, DASHBOARD_SERIES_HEX, NEUTRAL_HEX, SERIES_HEX, STATUS_HEX,
+  hueOf, isGreen, keyPaletteFor, withoutGreens,
+} from '../chart-colors';
 
 describe('SERIES_HEX', () => {
   it("is the series palette's own literal fallbacks, in its order", () => {
@@ -37,6 +40,48 @@ describe('hueOf / withoutGreens — an alarm is never drawn in a green (R7-8)', 
     expect(ALARM_SERIES_HEX).not.toContain('#1baf7a');
     expect(ALARM_SERIES_HEX).not.toContain(STATUS_HEX.OK);
     expect(ALARM_SERIES_HEX).toHaveLength(SERIES_HEX.length - 1);
+  });
+});
+
+/**
+ * Ruling F-I6 (final fix wave): the series palette's slot 3 (#1baf7a, 158.5°) is
+ * the OK dot's emerald (160°), and a raw key on a comparison or bar chart took it
+ * by default — a raw key drawn in "in limit" green. The DASHBOARD charts draw a
+ * palette with that slot replaced, in place.
+ */
+describe('DASHBOARD_SERIES_HEX — no dashboard series is ever green (F-I6)', () => {
+  it('no colour passes the green test', () => {
+    for (const hex of DASHBOARD_SERIES_HEX) expect(isGreen(hex), hex).toBe(false);
+    // The test itself bites: the series palette it replaces has its green.
+    expect(SERIES_HEX.some(isGreen)).toBe(true);
+  });
+
+  it('six distinct colours, as many as the series caps allow', () => {
+    expect(DASHBOARD_SERIES_HEX).toHaveLength(6);
+    expect(new Set(DASHBOARD_SERIES_HEX.map((h) => h.toLowerCase())).size).toBe(6);
+  });
+
+  it("the green is replaced IN PLACE: every other slot is the series palette's, so a stored colour index keeps its meaning", () => {
+    DASHBOARD_SERIES_HEX.forEach((hex, n) => {
+      if (isGreen(SERIES_HEX[n])) expect(hex).not.toBe(SERIES_HEX[n]);
+      else expect(hex).toBe(SERIES_HEX[n]);
+    });
+  });
+
+  it('the substitute is no status colour and no other series colour, by hue as well as by value', () => {
+    const sub = DASHBOARD_SERIES_HEX.find((h, n) => h !== SERIES_HEX[n])!;
+    const others = [...DASHBOARD_SERIES_HEX.filter((h) => h !== sub), ...Object.values(STATUS_HEX)];
+    for (const o of others) expect(sub.toLowerCase()).not.toBe(o.toLowerCase());
+    // Not a hue the app reads as a verdict: not green, not the out-of-limit red (357°).
+    const d = Math.abs(hueOf(sub) - hueOf(STATUS_HEX.OUT_OF_SPEC));
+    expect(Math.min(d, 360 - d)).toBeGreaterThan(20);
+  });
+
+  it('the swatches a widget dialog shows are what that widget type draws', () => {
+    expect(keyPaletteFor('comparison_bar')).toBe(DASHBOARD_SERIES_HEX);
+    expect(keyPaletteFor('bar_chart')).toBe(DASHBOARD_SERIES_HEX);
+    // The trend widget draws through the shared TimeSeriesChart, as the trend page does.
+    expect(keyPaletteFor('trend_chart')).toBe(SERIES_COLORS);
   });
 });
 

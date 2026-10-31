@@ -7,7 +7,8 @@
  * - **Series colours, never verdicts, and no limit lines** (plan ruling P4): the
  *   bounds of several instruments may disagree, and one line or one red bar
  *   drawn for one of them would misstate the others. A bar is a length; the
- *   tooltip says what the value card would.
+ *   tooltip says what the value card would. The colours are the DASHBOARD series
+ *   palette (`DASHBOARD_SERIES_HEX`): no series is ever green (ruling F-I6).
  * - **A value that is not a number is a GAP (`null`), never 0** — text, true /
  *   false, a key never sent, and a FAULTED measured reading (a range fault arrives
  *   with its number, OL = 60, and that number is not a reading).
@@ -29,7 +30,7 @@ import { coerceReading, WIDGET_INSTRUMENTS_MAX, type LatestValuesRow, type Widge
 // Type-only, and erased from the build: nothing here pulls ECharts in statically.
 import type { EChartsCoreOption } from 'echarts/core';
 import type { SensorWords } from '@/hooks/use-failure-text';
-import { CHART_FONT_FAMILY, CHART_INK, SERIES_HEX } from './charts/chart-colors';
+import { CHART_FONT_FAMILY, CHART_INK, DASHBOARD_SERIES_HEX } from './charts/chart-colors';
 import { keyCell } from './key-value';
 import { keyColorSlots, keysNotSent, valueOf } from './widget-common';
 
@@ -161,7 +162,7 @@ export function comparisonModel(
   // never takes a slot another key chose (fix round 1, m-7).
   const slots = keyColorSlots(keys);
   const plotted = keys
-    .map((key, n) => ({ key, color: SERIES_HEX[Math.min(slots[n], SERIES_HEX.length - 1)] }))
+    .map((key, n) => ({ key, color: DASHBOARD_SERIES_HEX[Math.min(slots[n], DASHBOARD_SERIES_HEX.length - 1)] }))
     .filter(({ key }) => !undrawnKeys.includes(key))
     .map(({ key, color }) => ({
       name: key.label ?? key.key,

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { BAR_SERIES_MAX, WIDGET_INSTRUMENTS_MAX, type LatestKeyValue, type LatestValuesRow, type WidgetKey } from '@digilog/shared';
-import { SERIES_HEX, STATUS_HEX } from '../charts/chart-colors';
+import { DASHBOARD_SERIES_HEX, STATUS_HEX, isGreen } from '../charts/chart-colors';
 import { codeAxis } from '../comparison-model';
 import {
   BAR_DEFAULTS, LEGEND_ROW_PX, PARTIAL_NOTE, PARTIAL_OPACITY,
@@ -275,20 +275,30 @@ describe('barModel — colours by the ASKED position (R6-1), series colours only
     const asked = [row('a', [measured('t', 1), raw('Pressure'), measured('h', 1, '%RH')])];
     const m = barModel(resp([series('Pressure', [pt(day(1), 101)]), series('h', [pt(day(1), 40)])]), [T, P, H], asked, 'all', FMT);
     expect(m.series.map((s) => s.name)).toEqual(['Pressure', 'Humidity']);
-    expect(m.series.map((s) => s.color)).toEqual([SERIES_HEX[1], SERIES_HEX[2]]);
+    expect(m.series.map((s) => s.color)).toEqual([DASHBOARD_SERIES_HEX[1], DASHBOARD_SERIES_HEX[2]]);
     expect(m.unsent).toEqual(['Temperature']);
+  });
+
+  it('F-I6: the third series — raw or not — is never drawn green', () => {
+    const asked = [row('a', [measured('t', 1), raw('Pressure'), measured('h', 1, '%RH')])];
+    const m = barModel(
+      resp([series('t', [pt(day(1), 21)]), series('Pressure', [pt(day(1), 101)]), series('h', [pt(day(1), 40)])]),
+      [T, P, H], asked, 'all', FMT,
+    );
+    expect(m.series).toHaveLength(3);
+    for (const s of m.series) expect(isGreen(s.color), s.name).toBe(false);
   });
 
   it("all combined: a key's chosen colour is its own", () => {
     const m = barModel(resp([series('t', [pt(day(1), 21)])]), [{ ...T, color: 4 }], [row('a', [measured('t', 1)])], 'all', FMT);
-    expect(m.series[0].color).toBe(SERIES_HEX[4]);
+    expect(m.series[0].color).toBe(DASHBOARD_SERIES_HEX[4]);
   });
 
   it("m-7: a key without a colour never lands on the slot another key chose", () => {
     // Before: Temperature took slot 0 by position — the slot Humidity chose.
     const asked = [row('a', [measured('t', 1), measured('h', 1, '%RH')])];
     const m = barModel(resp([series('t', [pt(day(1), 21)]), series('h', [pt(day(1), 40)])]), [T, { ...H, color: 0 }], asked, 'all', FMT);
-    expect(m.series.map((s) => s.color)).toEqual([SERIES_HEX[1], SERIES_HEX[0]]);
+    expect(m.series.map((s) => s.color)).toEqual([DASHBOARD_SERIES_HEX[1], DASHBOARD_SERIES_HEX[0]]);
   });
 
   it('m-5: the legend is a key, not a filter — no click hides a series the tooltip would still list', () => {
@@ -308,7 +318,7 @@ describe('barModel — colours by the ASKED position (R6-1), series colours only
     expect(m.series.map((s) => s.name)).toEqual([
       'CWH/RDU/101-01 · Pressure', 'CWH/RDU/102-01 · Temperature', 'CWH/RDU/102-01 · Pressure',
     ]);
-    expect(m.series.map((s) => s.color)).toEqual([SERIES_HEX[1], SERIES_HEX[2], SERIES_HEX[3]]);
+    expect(m.series.map((s) => s.color)).toEqual([DASHBOARD_SERIES_HEX[1], DASHBOARD_SERIES_HEX[2], DASHBOARD_SERIES_HEX[3]]);
     // A key read by ANY asked instrument has readings.
     expect(m.unsent).toEqual([]);
   });
@@ -322,10 +332,10 @@ describe('barModel — colours by the ASKED position (R6-1), series colours only
   it('no limit lines, and every bar is a series colour — never a status colour', () => {
     const m = barModel(resp([series('t', everyDayBut(-1, 30))]), [T], [row('a', [measured('t', 1)])], 'all', FMT);
     const option = buildBarOption(m) as Record<string, any>;
-    expect(option.color).toEqual([SERIES_HEX[0]]);
+    expect(option.color).toEqual([DASHBOARD_SERIES_HEX[0]]);
     for (const s of option.series) {
       expect(s.markLine).toBeUndefined();
-      expect(SERIES_HEX).toContain(s.itemStyle.color);
+      expect(DASHBOARD_SERIES_HEX).toContain(s.itemStyle.color);
       expect(Object.values(STATUS_HEX)).not.toContain(s.itemStyle.color);
       for (const d of s.data) if (d && typeof d === 'object') expect(d.itemStyle.color).toBeUndefined();
     }

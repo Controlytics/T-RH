@@ -27,6 +27,7 @@ import { FLOORPLAN_NOT_AVAILABLE } from '../floorplan-view';
 import { useFloorplans } from '../use-telemetry';
 import { BAR_DEFAULTS } from './bar-chart-model';
 import { KeyDisplayRows } from './key-display-rows';
+import { keyPaletteFor } from './charts/chart-colors';
 import { KeyPicker } from './key-picker';
 import { WIDGET_PAGE_SIZE_DEFAULT, keysForType, offeredOptions, optionsForType, type WidgetOptions } from './type-switch';
 import { useKeyCatalogue, type CatalogueSelector, type WidgetSelection } from './use-widget-data';
@@ -507,7 +508,7 @@ export function WidgetDialog({
             )}
           </div>
           {OptionSection && <OptionSection widgetId={id} options={options} onChange={patchOptions} />}
-          {takesKeys && <KeyDisplayRows keys={keys} measured={measured} onChange={setKeys} />}
+          {takesKeys && <KeyDisplayRows keys={keys} measured={measured} onChange={setKeys} palette={keyPaletteFor(type)} />}
         </section>
 
         <section aria-label="Preview" className="space-y-2">
