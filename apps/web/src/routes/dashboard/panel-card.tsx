@@ -48,7 +48,7 @@ export function usePanelToolbarSlot(): HTMLElement | null {
 
 export function PanelCard({
   title, eyebrow, editing, style, width, height, onStyleChange, onSizeChange, children, menu,
-  autoHeight = false, onNaturalHeight,
+  autoHeight = false, onNaturalHeight, fill = false,
 }: {
   /** The panel's built-in heading, used when the operator has not renamed it. */
   title: string;
@@ -79,6 +79,15 @@ export function PanelCard({
   /** Called with the height this card would like to be, in pixels. MUST be
    *  referentially stable — it is an effect dependency. */
   onNaturalHeight?: (px: number) => void;
+  /**
+   * The content is given the card's HEIGHT to fill (a drawing that scales to
+   * its box — the floor plan widget), not left at its natural height: the
+   * content wrapper is `h-full`, so a child's `h-full` resolves. Without it a
+   * percentage height inside the card is `auto`, and a portrait plan runs past
+   * the card and scrolls. Never with `autoHeight`, whose whole point is that
+   * the card follows the content. Nothing else passes it.
+   */
+  fill?: boolean;
   /**
    * Extra header controls shown ONLY while arranging — a built widget's Edit and
    * Remove (2026-10-28). Nothing renders outside edit mode.
@@ -244,7 +253,7 @@ export function PanelCard({
         still measures the scaled content correctly.
       */}
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto" style={{ padding: pad.px }}>
-        <div ref={contentRef} style={size.zoom === 1 ? undefined : { zoom: size.zoom }}>
+        <div ref={contentRef} className={fill && !autoHeight ? 'h-full' : undefined} style={size.zoom === 1 ? undefined : { zoom: size.zoom }}>
           <PanelToolbarSlot.Provider value={toolbarEl}>
             {children}
           </PanelToolbarSlot.Provider>

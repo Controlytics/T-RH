@@ -226,4 +226,30 @@ describe('built widgets on the layout routes', () => {
     const after = await prisma.roleConfig.findUniqueOrThrow({ where: { role: VIEW }, select: { dashboardLayout: true } });
     expect((after.dashboardLayout as { widgets: CustomWidget[] }).widgets).toEqual([W.cards]);
   });
+
+  it("a widget's title and a text card's text are stored with their HTML stripped; a widget sent back as stored is kept (R8-1)", async () => {
+    const note = {
+      id: uuid(5), type: 'text_card', title: '<b>Shift</b> note', source: { mode: 'selection' }, keys: [],
+      options: { text: '<script>alert(1)</script>Hand over <i>at</i> 06:00\nLine 2' },
+    } satisfies CustomWidget;
+    const res = await putOwn(sa, withWidgets([note]));
+    expect(res.statusCode, res.body).toBe(200);
+    expect((await myLayout(sa)).widgets).toEqual([{ ...note, title: 'Shift note', options: { text: 'Hand over at 06:00\nLine 2' } }]);
+    // Nothing but markup is refused, in the schema's words, and nothing is stored.
+    const empty = await putOwn(sa, withWidgets([{ ...note, title: '<b></b>' }]));
+    expect(empty.statusCode).toBe(400);
+    expect((empty.json() as { message: string }).message).toBe('Widget "#1": A widget needs a title');
+
+    // A layout stored before this rule, with markup in a widget: its holder (not
+    // a super admin) saving it back unchanged is no widget change — never a 403.
+    const legacy = withWidgets([{ ...W.cards, title: '<i>Legacy</i>' }]);
+    await prisma.userConfig.upsert({
+      where: { userId: viewerId },
+      create: { userId: viewerId, dashboardLayout: legacy as never, updatedBy: 'test' },
+      update: { dashboardLayout: legacy as never },
+    });
+    const echoed = await putOwn(viewer, legacy);
+    expect(echoed.statusCode, echoed.body).toBe(200);
+    await prisma.userConfig.updateMany({ where: { userId: viewerId }, data: { dashboardLayout: Prisma.DbNull } });
+  });
 });

@@ -36,6 +36,12 @@ describe('built widgets and auto height', () => {
     expect(auto.has(widgetItemId(ids[1]))).toBe(true);
     expect(auto.has(widgetItemId(ids[2]))).toBe(false);
     expect(auto.has(widgetItemId(ids[3]))).toBe(false);
+    // The instrument list is a paged table too: it ends at its pager. A text card
+    // and a floor plan keep the height they are given (a long note scrolls).
+    const more = autoHeightIds([W(ids[0], 'instrument_list'), W(ids[1], 'text_card'), W(ids[2], 'floorplan')]);
+    expect(more.has(widgetItemId(ids[0]))).toBe(true);
+    expect(more.has(widgetItemId(ids[1]))).toBe(false);
+    expect(more.has(widgetItemId(ids[2]))).toBe(false);
     for (const k of AUTO_HEIGHT_PANELS) expect(auto.has(k)).toBe(true);
   });
 

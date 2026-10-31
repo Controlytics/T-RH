@@ -16,13 +16,15 @@
  */
 import { useState, type ComponentType } from 'react';
 import {
-  PERIOD_PRESETS, WIDGET_ALARM_STATUSES, WIDGET_BAR_AGGS, WIDGET_BAR_BUCKETS, WIDGET_BAR_GROUPS, WIDGET_INSTRUMENTS_MAX,
+  PERIOD_PRESETS, TEXT_CARD_MAX, WIDGET_ALARM_STATUSES, WIDGET_BAR_AGGS, WIDGET_BAR_BUCKETS, WIDGET_BAR_GROUPS, WIDGET_INSTRUMENTS_MAX,
   WIDGET_PAGE_SIZES, WIDGET_PIE_SUBJECTS, WIDGET_TYPE_SPECS, customWidgetSchema,
   type CustomWidget, type WidgetKey, type WidgetType,
 } from '@digilog/shared';
 import { Dialog, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useHistoryScope } from '@/routes/data-report/use-history-scope';
+import { FLOORPLAN_NOT_AVAILABLE } from '../floorplan-view';
+import { useFloorplans } from '../use-telemetry';
 import { BAR_DEFAULTS } from './bar-chart-model';
 import { KeyDisplayRows } from './key-display-rows';
 import { KeyPicker } from './key-picker';
@@ -199,15 +201,81 @@ function PieSubjectSection({ widgetId, options, onChange }: WidgetOptionSectionP
 }
 
 /**
+ * A text card's words. The count is against the schema's own `TEXT_CARD_MAX`,
+ * and the box itself has no cap: a paste past the limit is shown as past it and
+ * refused on Add in the schema's words, never cut silently.
+ */
+function TextSection({ options, onChange }: WidgetOptionSectionProps) {
+  const text = options.text ?? '';
+  const over = text.length > TEXT_CARD_MAX;
+  return (
+    <div className="text-sm">
+      <label htmlFor="widget-text" className="mb-1 block font-medium text-slate-700">Card text</label>
+      <textarea
+        id="widget-text"
+        name="widget-text"
+        rows={5}
+        className="ctl w-full resize-y"
+        value={text}
+        aria-invalid={over ? true : undefined}
+        aria-describedby="widget-text-count"
+        onChange={(e) => onChange({ text: e.target.value === '' ? undefined : e.target.value })}
+      />
+      <p
+        id="widget-text-count"
+        data-testid="widget-text-count"
+        className={`mt-1 text-right text-xs tabular-nums ${over ? 'font-semibold text-red-700' : 'text-slate-500'}`}
+      >
+        {text.length} / {TEXT_CARD_MAX}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Which drawn floor plan the widget shows — one of the plans the server lists.
+ * None is shown chosen until one is (the schema requires it: a select showing a
+ * plan over an unset option would be a decoy). A stored plan no longer in the
+ * list stays selected, and says it is not available, rather than reading as
+ * whichever plan happens to be first.
+ */
+function FloorplanSection({ widgetId, options, onChange }: WidgetOptionSectionProps) {
+  const { plans, isLoading, error } = useFloorplans();
+  const id = `widget-floorplan-${widgetId}`;
+  if (error) return <p role="alert" className="text-sm font-medium text-red-700">The floor layouts could not be loaded.</p>;
+  if (isLoading && plans.length === 0) return <p className="text-xs text-slate-500">Loading floor plans…</p>;
+  if (plans.length === 0) return <p className="text-xs text-slate-500">No floor layout yet. Draw one on Configuration → Layout Designer.</p>;
+  const gone = options.planId !== undefined && !plans.some((p) => p.id === options.planId);
+  return (
+    <div className="text-sm">
+      <label htmlFor={id} className="mb-1 block font-medium text-slate-700">Floor plan</label>
+      <select
+        id={id}
+        name={id}
+        className="ctl ctl-sm max-w-md"
+        value={options.planId ?? ''}
+        onChange={(e) => onChange({ planId: e.target.value || undefined })}
+      >
+        <option value="">Choose a floor plan</option>
+        {gone && <option value={options.planId} disabled>{FLOORPLAN_NOT_AVAILABLE}</option>}
+        {plans.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+    </div>
+  );
+}
+
+/**
  * A type's own option controls, drawn in the Display step. Each widget type's
  * task registers its section here (gauge scale, bar bucket / value / grouping,
- * pie subject; later text, floor plan). Only the options the type is offered are
+ * pie subject, text, floor plan). Only the options the type is offered are
  * saved, whatever a section sets.
  */
 export const WIDGET_OPTION_SECTIONS: Partial<Record<WidgetType, ComponentType<WidgetOptionSectionProps>>> = {
   gauge: GaugeScaleSection,
   bar_chart: BarOptionsSection,
   pie_chart: PieSubjectSection,
+  text_card: TextSection,
+  floorplan: FloorplanSection,
 };
 
 /** Options with every `undefined` left out, so a cleared option is gone, not present-and-empty. */
@@ -394,7 +462,7 @@ export function WidgetDialog({
           <h3 className="text-sm font-bold text-slate-800">4. Display</h3>
           <label className="block text-sm">
             <span className="mb-1 block font-medium text-slate-700">Title</span>
-            <input className="ctl w-full max-w-md" value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} />
+            <input name="widget-title" className="ctl w-full max-w-md" value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} />
           </label>
           <div className="flex flex-wrap gap-4">
             {offered.includes('status') && (
@@ -441,7 +509,9 @@ export function WidgetDialog({
 
         <section aria-label="Preview" className="space-y-2">
           <h3 className="text-sm font-bold text-slate-800">Preview</h3>
-          <div className="rounded-[var(--radius-card)] border border-dashed border-slate-300 p-3">
+          {/* A floor plan scales to the box it is given (as in its card), so its
+              preview gets a box of its own height rather than its natural one. */}
+          <div className={`rounded-[var(--radius-card)] border border-dashed border-slate-300 p-3 ${type === 'floorplan' && parsed.success ? 'h-[30rem]' : ''}`}>
             {parsed.success
               ? <WidgetBody widget={parsed.data} selection={selection} />
               : <p className="text-xs text-slate-500">Choose a type, instruments, at least one key and a title to see a preview.</p>}

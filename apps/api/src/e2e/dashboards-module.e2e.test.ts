@@ -384,6 +384,28 @@ describe('/api/dashboards', () => {
     expect((await put(d.id, { title: '   ', expectedUpdatedAt: d.updatedAt })).statusCode).toBe(400);
   });
 
+  it("a widget's title and a text card's text are stored with their HTML stripped (R8-1)", async () => {
+    const note = {
+      id: randomUUID(), type: 'text_card', title: '<b>Shift</b> note', source: sel, keys: [],
+      options: { text: '<script>alert(1)</script>Hand over <i>at</i> 06:00\nLine 2' },
+    } satisfies CustomWidget;
+    const clean = { ...note, title: 'Shift note', options: { text: 'Hand over at 06:00\nLine 2' } };
+    // A create carrying a document, and a save.
+    const made = await create(`Strip ${S}`, doc([note]));
+    expect((await detail(made.id)).document.widgets).toEqual([clean]);
+    const d = await create(`Strip save ${S}`);
+    const res = await put(d.id, { document: doc([note]), expectedUpdatedAt: d.updatedAt });
+    expect(res.statusCode, res.body).toBe(200);
+    expect((await detail(d.id)).document.widgets).toEqual([clean]);
+    // At the row too, so this cannot pass on what the response schema lets through.
+    const row = await prisma.dashboard.findUniqueOrThrow({ where: { id: d.id }, select: { layout: true } });
+    expect((row.layout as { widgets: CustomWidget[] }).widgets).toEqual([clean]);
+    // Nothing but markup is refused, in the schema's words.
+    const empty = await put(d.id, { document: doc([{ ...note, options: { text: '<b></b>' } }]), expectedUpdatedAt: res.json().updatedAt });
+    expect(empty.statusCode).toBe(400);
+    expect(empty.json()).toMatchObject({ error: 'VALIDATION_ERROR', message: 'Widget "Shift note": Write the card\'s text' });
+  });
+
   it('a stale expectedUpdatedAt is a 409', async () => {
     const d = await create(`Stale ${S}`);
     const first = await put(d.id, { title: `Stale A ${S}`, expectedUpdatedAt: d.updatedAt });

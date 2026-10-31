@@ -34,6 +34,7 @@ import {
   CODE_LINE_H, TILE_CODE_FONT, LOCATION_LINE_H, TILE_LOCATION_FONT, TILE_HEADER_H, avoidDoorSwings, avoidObstacles, placeCard, placeRoomName, NAME_LINE, swingSquare, MAX_TILE_FONT,
   type PixelBox,
 } from './room-geometry';
+import { isRefusal } from './widgets/refusal';
 
 /**
  * The base code of a continuation piece — `CWH-I/217 (2)` → `CWH-I/217` —
@@ -883,13 +884,43 @@ interface RoomView {
   status: InstrumentStatus;
 }
 
-export function FloorplanView({ functionalLocationId, directOnly, trail }: {
+/** A fixed plan (the floor plan widget) that is gone, or that the viewer may not see. */
+export const FLOORPLAN_NOT_AVAILABLE = 'This floor plan is not available.';
+
+function PlanNotAvailable() {
+  return (
+    <div role="status" data-testid="fp-not-available" className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
+      <p className="text-sm font-medium text-slate-700">{FLOORPLAN_NOT_AVAILABLE}</p>
+    </div>
+  );
+}
+
+export function FloorplanView({ functionalLocationId, directOnly, trail, planId: fixedPlanId, profileId, instrumentIds, interactive = true }: {
   functionalLocationId?: string;
   directOnly?: boolean;
   /** The dashboard's breadcrumb as links, carried to the trend page so its
    *  crumbs lead back to THIS selection (2026-10-03; the readings table's
    *  Trend arrow does the same). */
-  trail?: { label: string; to: string }[];
+  trail?: readonly { label: string; to: string }[];
+  /**
+   * ONE plan, fixed (the floor plan widget, dashboard builder phase 2): no plan
+   * switcher and no floor switch, the plan's own name in the title bar, and
+   * drawn WHOLE whatever the selection — the selection decides which
+   * instruments' readings are on it, not which plan is shown. A plan missing
+   * from the list, or a list the viewer is refused, is `FLOORPLAN_NOT_AVAILABLE`,
+   * never another plan.
+   */
+  planId?: string;
+  /** A dashboard over one profile, or a fixed list (`[]` is nothing): passed to the overview as given. */
+  profileId?: string;
+  instrumentIds?: string[];
+  /**
+   * `false`: nothing here leads off the page — no trend link on a room, tile or
+   * card, and no Full screen (its Escape would also close the Add widget dialog).
+   * The floor plan widget passes it with no host trail: the Add widget preview
+   * and a dashboard being edited (R7-9).
+   */
+  interactive?: boolean;
 } = {}) {
   const sensorWords = useSensorWords();
   const navigate = useNavigate();
@@ -901,8 +932,16 @@ export function FloorplanView({ functionalLocationId, directOnly, trail }: {
     navigate(`/instruments/${instrumentId}/trend`, { state: { from: 'dashboard', trail } });
   const { plans, isLoading: plansLoading, error: plansError } = useFloorplans();
   // Scoped server-side. When a functional location is selected the rows are only
-  // that location's instruments, so the rooms drawn below narrow with it.
-  const { rows, isLoading: rowsLoading } = useTelemetryOverview({ functionalLocationId, directOnly });
+  // that location's instruments, so the rooms drawn below narrow with it. The
+  // profile / list scopes ride along only when given, so a view without them
+  // asks exactly what it always asked.
+  const { rows, isLoading: rowsLoading } = useTelemetryOverview({
+    functionalLocationId,
+    directOnly,
+    ...(profileId !== undefined ? { profileId } : {}),
+    ...(instrumentIds !== undefined ? { instrumentIds } : {}),
+  });
+  const fixed = fixedPlanId !== undefined;
 
   const [planId, setPlanId] = useState<string>('');
 
@@ -921,11 +960,16 @@ export function FloorplanView({ functionalLocationId, directOnly, trail }: {
   // `plansForSelection`; a building of several floors is one entry — see
   // `planEntries`. The plan shown is the one picked while it is still offered,
   // else the first entry's lowest floor.
-  const scoped = !!functionalLocationId;
+  //
+  // A FIXED plan is looked up in the whole list, never in what a selection
+  // offers, and is never scoped: it is the plan, drawn whole.
+  const scoped = !fixed && !!functionalLocationId;
   const offered = useMemo(() => plansForSelection(plans, new Set(byRoom.keys()), scoped), [plans, byRoom, scoped]);
   const entries = useMemo(() => planEntries(offered), [offered]);
-  const plan = offered.find((p) => p.id === planId) ?? entries[0]?.floors[0] ?? null;
-  const entry = plan ? entries.find((e) => e.floors.some((p) => p.id === plan.id)) ?? null : null;
+  const plan = fixed
+    ? plans.find((p) => p.id === fixedPlanId) ?? null
+    : offered.find((p) => p.id === planId) ?? entries[0]?.floors[0] ?? null;
+  const entry = plan && !fixed ? entries.find((e) => e.floors.some((p) => p.id === plan.id)) ?? null : null;
 
   const roomViews: RoomView[] = useMemo(() => {
     if (!plan) return [];
@@ -1016,15 +1060,26 @@ export function FloorplanView({ functionalLocationId, directOnly, trail }: {
   // the plan list refused was told "No floor layout yet. Draw one…", false
   // and not something it could act on. Say the layouts could not be loaded,
   // with the server's reason, and never the empty state.
+  //
+  // A FIXED plan the viewer is refused (a 4xx on the list) is a plan they
+  // cannot see: not available, the same as a plan that is gone. A failure is
+  // still a failure, said as one — with no Tabular view to point at, since a
+  // fixed plan is a widget's and a widget has none.
+  if (plansError && fixed && isRefusal(plansError)) return <PlanNotAvailable />;
   if (plansError) {
     const reason = (plansError as { message?: string } | null)?.message;
+    const hint = `${reason ? `${reason}. ` : ''}${fixed ? '' : 'The Tabular view shows the same readings.'}`;
     return (
       <div role="alert" data-testid="fp-load-error" className="rounded-2xl border border-red-200 bg-red-50 p-10 text-center">
         <p className="text-sm font-medium text-red-800">The floor layouts could not be loaded.</p>
-        <p className="mt-1 text-xs text-red-700">{reason ? `${reason}. ` : ''}The Tabular view shows the same readings.</p>
+        {hint && <p className="mt-1 text-xs text-red-700">{hint}</p>}
       </div>
     );
   }
+
+  // A fixed plan that is not in the list — deleted since the widget was built —
+  // is never replaced by another plan. Not while the list is on its way.
+  if (fixed && !plansLoading && !plan) return <PlanNotAvailable />;
 
   if (!plansLoading && plans.length === 0) {
     return (
@@ -1277,7 +1332,9 @@ export function FloorplanView({ functionalLocationId, directOnly, trail }: {
                   // "when user click on room redirect to that instrument trends
                   // page") — the first instrument when a room holds several;
                   // each tile opens its own.
-                  {...(roomRows.length > 0
+                  // Not interactive (a widget preview, a dashboard being
+                  // edited): no room is a button.
+                  {...(roomRows.length > 0 && interactive
                     ? {
                       onClick: () => goTrend(roomRows[0].instrumentId),
                       style: { cursor: 'pointer' },
@@ -1440,15 +1497,17 @@ export function FloorplanView({ functionalLocationId, directOnly, trail }: {
                       return (
                         <g
                           key={row.instrumentId}
-                          onClick={(e) => { e.stopPropagation(); goTrend(row.instrumentId); }}
-                          role="button"
-                          tabIndex={0}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.stopPropagation();
-                              goTrend(row.instrumentId);
-                            }
-                          }}
+                          {...(interactive ? {
+                            onClick: (e: React.MouseEvent) => { e.stopPropagation(); goTrend(row.instrumentId); },
+                            role: 'button',
+                            tabIndex: 0,
+                            onKeyDown: (e: React.KeyboardEvent) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.stopPropagation();
+                                goTrend(row.instrumentId);
+                              }
+                            },
+                          } : {})}
                           aria-label={`${row.code}${
                             tempV !== null ? `, ${formatDecimals(tempV, row.decimals.temperature)} degrees${tempBad ? ' out of limit' : ''}` : ''
                           }${rhV !== null ? `, ${formatDecimals(rhV, row.decimals.humidity)} percent humidity${rhBad ? ' out of limit' : ''}` : ''}`}
@@ -1670,11 +1729,13 @@ export function FloorplanView({ functionalLocationId, directOnly, trail }: {
                         data-testid="fp-card"
                         data-tone={tone}
                         data-shape={placed?.shape ?? 'std'}
-                        onClick={(e) => { e.stopPropagation(); go(); }}
-                        role="button"
-                        tabIndex={0}
-                        style={{ cursor: 'pointer' }}
-                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); go(); } }}
+                        {...(interactive ? {
+                          onClick: (e: React.MouseEvent) => { e.stopPropagation(); go(); },
+                          role: 'button',
+                          tabIndex: 0,
+                          style: { cursor: 'pointer' },
+                          onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); go(); } },
+                        } : {})}
                         aria-label={`${row.code}${
                           tempV !== null ? `, ${formatDecimals(tempV, row.decimals.temperature)} degrees${t.bad ? ' out of limit' : ''}` : ''
                         }${rhV !== null ? `, ${formatDecimals(rhV, row.decimals.humidity)} percent humidity${h.bad ? ' out of limit' : ''}` : ''}`}
@@ -1879,6 +1940,7 @@ export function FloorplanView({ functionalLocationId, directOnly, trail }: {
           {floorSwitch}
         </div>
         <div className="flex flex-wrap items-center gap-1">
+          {interactive && (
           <Button
             variant="ghost"
             size="sm"
@@ -1890,10 +1952,12 @@ export function FloorplanView({ functionalLocationId, directOnly, trail }: {
           >
             <Maximize2 className="h-4 w-4" aria-hidden="true" />
           </Button>
+          )}
           {/* The OTHER layouts on offer — with a location selected, only that
               location's (see `plansForSelection`). A building of several floors
-              is one button; it opens on its lowest floor. */}
-          {entries.filter((e) => e !== entry).map((e) => (
+              is one button; it opens on its lowest floor. A FIXED plan offers
+              none: the widget shows its one plan. */}
+          {!fixed && entries.filter((e) => e !== entry).map((e) => (
             <Button
               variant="ghost"
               size="sm"

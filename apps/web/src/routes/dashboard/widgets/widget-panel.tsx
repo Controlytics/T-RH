@@ -12,14 +12,17 @@ import { AlarmCountsWidget } from './alarm-counts-widget';
 import { AlarmTableWidget } from './alarm-table-widget';
 import { BarChartWidget } from './bar-chart-widget';
 import { ComparisonBarWidget } from './comparison-bar-widget';
+import { FloorplanWidget } from './floorplan-widget';
 import { GaugeWidget } from './gauge-widget';
+import { InstrumentListWidget } from './instrument-list-widget';
 import { LatestTableWidget } from './latest-table-widget';
 import { PieChartWidget } from './pie-chart-widget';
-import { StatusGridWidget, type WidgetTrail } from './status-grid-widget';
+import { StatusGridWidget } from './status-grid-widget';
+import { TextCardWidget } from './text-card-widget';
 import { TimeseriesTableWidget } from './timeseries-table-widget';
 import { TrendChartWidget } from './trend-chart-widget';
+import type { WidgetTrail } from './trend-link';
 import { ValueCardsWidget } from './value-cards-widget';
-import { WidgetMessage } from './widget-common';
 import type { WidgetSelection } from './use-widget-data';
 
 export const WIDGET_EYEBROW: Record<WidgetType, string> = {
@@ -40,21 +43,13 @@ export const WIDGET_EYEBROW: Record<WidgetType, string> = {
 };
 
 /**
- * The body of a dashboard builder phase 2 type whose renderer has not landed
- * yet (each type's own task replaces its case below). Draws nothing it could be
- * mistaken for.
- */
-function PendingWidget() {
-  return <WidgetMessage>…</WidgetMessage>;
-}
-
-/**
  * The renderer for a widget's type — also the Add widget dialog's live preview.
  *
  * `trail` is the host dashboard's breadcrumb as links, carried by every way from
- * a widget into the trend page (the status grid's tiles); the home dashboard
- * passes `trailFor(nav.breadcrumb)`, a built dashboard its own two crumbs. The
- * dialog's preview passes none, and its tiles are not links.
+ * a widget into the trend page (the status grid's tiles, the instrument list's
+ * rows, the floor plan's rooms and cards); the home dashboard passes
+ * `trailFor(nav.breadcrumb)`, a built dashboard its own two crumbs. The
+ * dialog's preview passes none, and nothing in it is a link.
  */
 export function WidgetBody({ widget, selection, trail }: { widget: CustomWidget; selection: WidgetSelection; trail?: WidgetTrail }) {
   switch (widget.type) {
@@ -69,10 +64,9 @@ export function WidgetBody({ widget, selection, trail }: { widget: CustomWidget;
     case 'pie_chart': return <PieChartWidget widget={widget} selection={selection} />;
     case 'alarm_counts': return <AlarmCountsWidget widget={widget} selection={selection} />;
     case 'status_grid': return <StatusGridWidget widget={widget} selection={selection} trail={trail} />;
-    case 'instrument_list':
-    case 'text_card':
-    case 'floorplan':
-      return <PendingWidget />;
+    case 'instrument_list': return <InstrumentListWidget widget={widget} selection={selection} trail={trail} />;
+    case 'text_card': return <TextCardWidget widget={widget} />;
+    case 'floorplan': return <FloorplanWidget widget={widget} selection={selection} trail={trail} />;
   }
 }
 
@@ -104,6 +98,8 @@ export function WidgetPanel({
       onSizeChange={onSizeChange}
       autoHeight={autoHeight}
       onNaturalHeight={onNaturalHeight}
+      // A floor plan scales to the card it is given: contained, never scrolled.
+      fill={widget.type === 'floorplan'}
       menu={(
         <>
           <button
@@ -123,9 +119,9 @@ export function WidgetPanel({
         </>
       )}
     >
-      {/* While the dashboard is being EDITED a widget is handed no trail, so a
-          status tile is inert, as in the Add widget preview: a click there would
-          leave a page holding an unsaved draft (R7-9). */}
+      {/* While the dashboard is being EDITED a widget is handed no trail, so
+          nothing in it leads to the trend page, as in the Add widget preview: a
+          click there would leave a page holding an unsaved draft (R7-9). */}
       <WidgetBody widget={widget} selection={selection} trail={editing ? undefined : trail} />
     </PanelCard>
   );

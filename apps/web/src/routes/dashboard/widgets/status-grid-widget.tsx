@@ -5,26 +5,21 @@
  * state only: no period, no window. The tiles auto-fill the panel's width, at
  * most `STATUS_GRID_MAX`, and the widget says how many more it did not draw.
  *
- * A tile opens the instrument's trend page carrying the dashboard's origin AND
- * its breadcrumb trail (`from: 'dashboard'`, `trail`) — the rule every way from
- * the dashboard into the trend page follows (apps/web/CLAUDE.md). The host hands
- * the trail; with none — the Add widget dialog's live preview, and a dashboard
- * being edited (`WidgetPanel` withholds it, R7-9) — a tile is not a link, so a
- * click cannot leave a page holding an unsaved draft. The rows are only ever the
- * current request's (`useWidgetOverview`, fix round 1, I-1).
+ * A tile opens the instrument's trend page by `trendLinkFor` — the dashboard's
+ * origin and breadcrumb trail, and NO link without a trail (the Add widget
+ * preview, a dashboard being edited, R7-9). The rows are only ever the current
+ * request's (`useWidgetOverview`, fix round 1, I-1).
  */
 import { Link } from 'react-router-dom';
 import type { CustomWidget } from '@digilog/shared';
 import type { OverviewRow } from '../use-telemetry';
 import { instrumentLook } from './instrument-look';
+import { trendLinkFor, type WidgetTrail } from './trend-link';
 import { useWidgetOverview, type WidgetSelection } from './use-widget-data';
 import { LOAD_FAILED, NO_INSTRUMENTS, WidgetMessage, WidgetNotes, answerState } from './widget-common';
 
 /** Tiles drawn at most; the rest are counted ("N more not shown"), never dropped silently. */
 export const STATUS_GRID_MAX = 120;
-
-/** The dashboard's breadcrumb as links — what a way into the trend page carries back. */
-export type WidgetTrail = readonly { label: string; to: string }[];
 
 export function StatusGridWidget({ widget, selection, trail }: {
   widget: CustomWidget;
@@ -68,15 +63,16 @@ function StatusTile({ row, trail }: { row: OverviewRow; trail?: WidgetTrail }) {
     </>
   );
   const tile = `relative block min-w-0 overflow-hidden rounded-md border py-1.5 pl-3 pr-2 ${c.bg} ${c.border}`;
-  if (!trail) {
+  const link = trendLinkFor(row.instrumentId, trail);
+  if (!link) {
     return <div data-testid="status-tile" data-look={look.key} className={tile}>{face}</div>;
   }
   return (
     <Link
-      to={`/instruments/${row.instrumentId}/trend`}
+      to={link.to}
       // Where the reader came from, and the dashboard view they left, so the
       // trend page's crumbs lead back to it.
-      state={{ from: 'dashboard', trail }}
+      state={link.state}
       aria-label={`Open trend page for ${row.code} — ${c.label}`}
       data-testid="status-tile"
       data-look={look.key}

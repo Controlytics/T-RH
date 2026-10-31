@@ -171,13 +171,16 @@ export function carryStoredFields(
 
 /**
  * The auto-height set for THIS layout: the fixed panels plus every built TABLE
- * widget (`latest_table`, `timeseries_table`), which, like the readings table,
- * end at their pagination bar. Value cards and trend charts keep a dragged height.
+ * widget (`latest_table`, `timeseries_table`, `alarm_table`, `instrument_list`),
+ * which, like the readings table, end at their pagination bar. Value cards,
+ * charts, a text card (a long note scrolls) and a floor plan keep a dragged height.
  */
+const AUTO_HEIGHT_WIDGETS: ReadonlySet<CustomWidget['type']> = new Set(['latest_table', 'timeseries_table', 'alarm_table', 'instrument_list']);
+
 export function autoHeightIds(widgets: readonly CustomWidget[]): ReadonlySet<string> {
   const ids = new Set(AUTO_HEIGHT_PANELS);
   for (const w of widgets) {
-    if (w.type === 'latest_table' || w.type === 'timeseries_table' || w.type === 'alarm_table') ids.add(widgetItemId(w.id));
+    if (AUTO_HEIGHT_WIDGETS.has(w.type)) ids.add(widgetItemId(w.id));
   }
   return ids;
 }

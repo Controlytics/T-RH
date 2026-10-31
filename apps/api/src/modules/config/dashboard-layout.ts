@@ -2,6 +2,7 @@ import { prisma } from '../../lib/prisma.js';
 import {
   normalizeLayout, parseLayoutForWrite, resolveLayout, widgetsEqual, type DashboardLayout,
 } from '@digilog/shared';
+import { cleanWidgetText } from '../../lib/widget-text.js';
 import { resolvePanelsFor } from './panel-access.js';
 import { PANEL_KEYS } from '@digilog/shared';
 
@@ -84,6 +85,14 @@ export function checkLayoutWrite(
     const parsed = parseLayoutForWrite(layout, storedWidgets);
     if (!parsed.ok) return { ok: false, status: 400, error: 'VALIDATION_ERROR', message: parsed.message };
     next = parsed.layout;
+    // A widget's title and a text card's text, HTML stripped (R8-1); a widget
+    // left as stored is kept as stored, so the comparison below still sees
+    // "no change" for a save that changes none.
+    if (next.widgets) {
+      const cleaned = cleanWidgetText(next.widgets, storedWidgets);
+      if (!cleaned.ok) return { ok: false, status: 400, error: 'VALIDATION_ERROR', message: cleaned.message };
+      next = { ...next, widgets: cleaned.widgets };
+    }
   }
   if (callerRole !== 'SUPER_ADMIN' && !widgetsEqual(next?.widgets, storedWidgets)) {
     return { ok: false, status: 403, error: 'WIDGETS_SUPER_ADMIN_ONLY', message: WIDGETS_SUPER_ADMIN_ONLY };

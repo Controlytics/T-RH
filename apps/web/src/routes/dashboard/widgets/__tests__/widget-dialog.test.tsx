@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
-import { WIDGET_TYPES, WIDGET_TYPE_SPECS, customWidgetSchema, type CustomWidget, type DataKeyInfo } from '@digilog/shared';
+import { TEXT_CARD_MAX, WIDGET_TYPES, WIDGET_TYPE_SPECS, customWidgetSchema, type CustomWidget, type DataKeyInfo } from '@digilog/shared';
 
 /** The gauge's own cap, from the registry (GAUGE_KEYS_MAX is not in the barrel). */
 const GAUGE_KEYS_MAX = WIDGET_TYPE_SPECS.gauge.keysMax;
@@ -18,6 +18,17 @@ const CATALOGUE: { keys: DataKeyInfo[]; loading: boolean } = {
 const catalogueCalls: unknown[] = [];
 vi.mock('../use-widget-data', () => ({
   useKeyCatalogue: (sel: unknown) => { catalogueCalls.push(sel); return CATALOGUE; },
+}));
+const PLAN_QC = '11111111-aaaa-4aaa-8aaa-111111111111';
+const PLAN_MF = '22222222-aaaa-4aaa-8aaa-222222222222';
+const FLOORPLANS: { plans: { id: string; name: string }[]; isLoading: boolean; error: unknown } = {
+  plans: [{ id: PLAN_QC, name: 'CWH — QC' }, { id: PLAN_MF, name: 'CWH — Module-F — Ground Floor' }],
+  isLoading: false,
+  error: undefined,
+};
+vi.mock('../../use-telemetry', async (orig) => ({
+  ...(await orig<typeof import('../../use-telemetry')>()),
+  useFloorplans: () => FLOORPLANS,
 }));
 const SCOPE = {
   tree: [{ id: 'b1', name: 'Block 1', children: [{ id: 'a1', name: 'Area 1' }] }],
@@ -47,22 +58,12 @@ vi.mock('@/hooks/use-reauth', () => ({ useReauth: () => REAUTH }));
 const TOAST = { toast: { success: vi.fn(), error: vi.fn() } };
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => TOAST }));
 
-import { WidgetDialog, WIDGET_OPTION_SECTIONS, type WidgetOptionSectionProps } from '../widget-dialog';
+import { WidgetDialog, WIDGET_OPTION_SECTIONS } from '../widget-dialog';
 import { RoleDefaultDialog } from '../role-default-dialog';
 import { KeyPicker } from '../key-picker';
 import { WIDGET_PAGE_SIZE_DEFAULT, widgetPageSize } from '../type-switch';
 
 const SEL = { functionalLocationId: 'fl1', directOnly: false };
-
-/** A stand-in option section, registered by a test the way a later task registers its own. */
-function TestTextSection({ widgetId, options, onChange }: WidgetOptionSectionProps) {
-  return (
-    <label>
-      Card text
-      <textarea name={`widget-text-${widgetId}`} value={options.text ?? ''} onChange={(e) => onChange({ text: e.target.value || undefined })} />
-    </label>
-  );
-}
 
 beforeEach(() => {
   catalogueCalls.length = 0;
@@ -290,42 +291,32 @@ describe('WidgetDialog - the widget-type registry', () => {
 
   it('the text card has no instruments step, and is stored following the selection', () => {
     const onSubmit = vi.fn();
-    WIDGET_OPTION_SECTIONS.text_card = TestTextSection;
-    try {
-      render(<WidgetDialog open selection={SEL} onCancel={() => {}} onSubmit={onSubmit} />);
-      fireEvent.click(screen.getByRole('radio', { name: 'Pick instruments' }));
-      fireEvent.click(screen.getByRole('button', { name: /^Text card/ }));
-      expect(screen.queryByRole('region', { name: 'Instruments' })).toBeNull();
-      expect(screen.queryByRole('region', { name: 'Keys' })).toBeNull();
-      fireEvent.change(screen.getByLabelText('Card text'), { target: { value: 'Shift handover at 06:00' } });
-      fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Note' } });
-      fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
-      const w = onSubmit.mock.calls[0][0] as CustomWidget;
-      expect(w).toMatchObject({ type: 'text_card', source: { mode: 'selection' }, keys: [] });
-      expect(w.options).toEqual({ text: 'Shift handover at 06:00' });
-    } finally {
-      delete WIDGET_OPTION_SECTIONS.text_card;
-    }
+    render(<WidgetDialog open selection={SEL} onCancel={() => {}} onSubmit={onSubmit} />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Pick instruments' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Text card/ }));
+    expect(screen.queryByRole('region', { name: 'Instruments' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Keys' })).toBeNull();
+    fireEvent.change(screen.getByLabelText('Card text'), { target: { value: 'Shift handover at 06:00' } });
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Note' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
+    const w = onSubmit.mock.calls[0][0] as CustomWidget;
+    expect(w).toMatchObject({ type: 'text_card', source: { mode: 'selection' }, keys: [] });
+    expect(w.options).toEqual({ text: 'Shift handover at 06:00' });
   });
 
   it("a registered option section edits the widget's options; switching away drops what the new type refuses", () => {
     const onSubmit = vi.fn();
-    WIDGET_OPTION_SECTIONS.text_card = TestTextSection;
-    try {
-      render(<WidgetDialog open selection={SEL} onCancel={() => {}} onSubmit={onSubmit} />);
-      fireEvent.click(screen.getByRole('button', { name: /^Text card/ }));
-      fireEvent.change(screen.getByLabelText('Card text'), { target: { value: 'Hello' } });
-      fireEvent.click(screen.getByRole('button', { name: /^Status grid/ }));
-      expect(screen.queryByLabelText('Card text')).toBeNull();
-      fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Grid' } });
-      fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
-      expect((onSubmit.mock.calls[0][0] as CustomWidget).options).toEqual({});
-      // And it is gone, not hidden.
-      fireEvent.click(screen.getByRole('button', { name: /^Text card/ }));
-      expect((screen.getByLabelText('Card text') as HTMLTextAreaElement).value).toBe('');
-    } finally {
-      delete WIDGET_OPTION_SECTIONS.text_card;
-    }
+    render(<WidgetDialog open selection={SEL} onCancel={() => {}} onSubmit={onSubmit} />);
+    fireEvent.click(screen.getByRole('button', { name: /^Text card/ }));
+    fireEvent.change(screen.getByLabelText('Card text'), { target: { value: 'Hello' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Status grid/ }));
+    expect(screen.queryByLabelText('Card text')).toBeNull();
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Grid' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
+    expect((onSubmit.mock.calls[0][0] as CustomWidget).options).toEqual({});
+    // And it is gone, not hidden.
+    fireEvent.click(screen.getByRole('button', { name: /^Text card/ }));
+    expect((screen.getByLabelText('Card text') as HTMLTextAreaElement).value).toBe('');
   });
 
   it('editing a widget keeps its stored options (the switch rule runs on a click, not on open)', () => {
@@ -340,7 +331,109 @@ describe('WidgetDialog - the widget-type registry', () => {
   });
 
   it('registers exactly the option sections that have landed - each widget task adds its own', () => {
-    expect(Object.keys(WIDGET_OPTION_SECTIONS)).toEqual(['gauge', 'bar_chart', 'pie_chart']);
+    expect(Object.keys(WIDGET_OPTION_SECTIONS)).toEqual(['gauge', 'bar_chart', 'pie_chart', 'text_card', 'floorplan']);
+  });
+
+  it('the title box has a name of its own', () => {
+    render(<WidgetDialog open selection={SEL} onCancel={() => {}} onSubmit={() => {}} />);
+    expect(screen.getByLabelText('Title').getAttribute('name')).toBe('widget-title');
+  });
+});
+
+describe('WidgetDialog - the text card', () => {
+  const openText = (onSubmit = vi.fn()) => {
+    render(<WidgetDialog open selection={SEL} onCancel={() => {}} onSubmit={onSubmit} />);
+    fireEvent.click(screen.getByRole('button', { name: /^Text card/ }));
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Note' } });
+    return onSubmit;
+  };
+  const counter = () => screen.getByTestId('widget-text-count');
+
+  it(`a textarea named widget-text, its count against the schema's ${TEXT_CARD_MAX}`, () => {
+    openText();
+    const box = screen.getByLabelText('Card text') as HTMLTextAreaElement;
+    expect(box.tagName).toBe('TEXTAREA');
+    expect(box.getAttribute('name')).toBe('widget-text');
+    expect(counter().textContent).toBe(`0 / ${TEXT_CARD_MAX}`);
+    fireEvent.change(box, { target: { value: 'Shift handover\nat 06:00' } });
+    expect(counter().textContent).toBe(`23 / ${TEXT_CARD_MAX}`);
+    // No cap on the box itself: a paste over the limit is never cut silently.
+    expect(box.getAttribute('maxlength')).toBeNull();
+  });
+
+  it('over the limit the count says so and Add refuses in the schema\'s words', () => {
+    const onSubmit = openText();
+    fireEvent.change(screen.getByLabelText('Card text'), { target: { value: 'x'.repeat(TEXT_CARD_MAX + 1) } });
+    expect(counter().textContent).toBe(`${TEXT_CARD_MAX + 1} / ${TEXT_CARD_MAX}`);
+    expect(counter().className).toContain('text-red-700');
+    expect(screen.getByLabelText('Card text').getAttribute('aria-invalid')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert').textContent).toBe(`The text must be ${TEXT_CARD_MAX} characters or fewer`);
+    // At the limit it is accepted.
+    fireEvent.change(screen.getByLabelText('Card text'), { target: { value: 'x'.repeat(TEXT_CARD_MAX) } });
+    expect(counter().className).not.toContain('text-red-700');
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
+    expect((onSubmit.mock.calls[0][0] as CustomWidget).options.text).toHaveLength(TEXT_CARD_MAX);
+  });
+
+  it('no text is refused in the schema\'s words', () => {
+    const onSubmit = openText();
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert').textContent).toBe("Write the card's text");
+  });
+
+  it('editing a text card shows its stored text and keeps it', () => {
+    const onSubmit = vi.fn();
+    const initial: CustomWidget = {
+      id: '5a1c2d3e-4f50-4617-8a9b-0c1d2e3f4a5c', type: 'text_card', title: 'Note',
+      source: { mode: 'selection' }, keys: [], options: { text: 'Line 1\nLine 2' },
+    };
+    render(<WidgetDialog open initial={initial} selection={SEL} onCancel={() => {}} onSubmit={onSubmit} />);
+    expect((screen.getByLabelText('Card text') as HTMLTextAreaElement).value).toBe('Line 1\nLine 2');
+    fireEvent.click(screen.getByRole('button', { name: 'Save widget' }));
+    expect(onSubmit.mock.calls[0][0]).toEqual(initial);
+  });
+});
+
+describe('WidgetDialog - the floor plan', () => {
+  const openPlan = (onSubmit = vi.fn()) => {
+    render(<WidgetDialog open selection={SEL} onCancel={() => {}} onSubmit={onSubmit} />);
+    fireEvent.click(screen.getByRole('button', { name: /^Floor plan/ }));
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'QC floor' } });
+    return onSubmit;
+  };
+
+  it('picks one of the plans the server lists; none is chosen until one is', () => {
+    const onSubmit = openPlan();
+    const select = screen.getByLabelText('Floor plan') as HTMLSelectElement;
+    expect([...select.options].map((o) => [o.value, o.textContent])).toEqual([
+      ['', 'Choose a floor plan'], [PLAN_QC, 'CWH — QC'], [PLAN_MF, 'CWH — Module-F — Ground Floor'],
+    ]);
+    expect(select.value).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert').textContent).toBe('Choose a floor plan');
+    fireEvent.change(select, { target: { value: PLAN_MF } });
+    // The preview gives the plan a box of its own height to scale into.
+    expect(screen.getByTestId('widget-preview').parentElement!.className.split(/\s+/)).toContain('h-[30rem]');
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
+    const w = onSubmit.mock.calls[0][0] as CustomWidget;
+    expect(w).toMatchObject({ type: 'floorplan', keys: [], options: { planId: PLAN_MF } });
+    expect(customWidgetSchema.safeParse(w).success).toBe(true);
+  });
+
+  it('a stored plan that is gone is shown as gone, not as another plan', () => {
+    const gone = '33333333-aaaa-4aaa-8aaa-333333333333';
+    const initial: CustomWidget = {
+      id: '5a1c2d3e-4f50-4617-8a9b-0c1d2e3f4a5d', type: 'floorplan', title: 'Old floor',
+      source: { mode: 'selection' }, keys: [], options: { planId: gone },
+    };
+    render(<WidgetDialog open initial={initial} selection={SEL} onCancel={() => {}} onSubmit={() => {}} />);
+    const select = screen.getByLabelText('Floor plan') as HTMLSelectElement;
+    expect(select.value).toBe(gone);
+    expect(select.selectedOptions[0].textContent).toBe('This floor plan is not available.');
   });
 });
 

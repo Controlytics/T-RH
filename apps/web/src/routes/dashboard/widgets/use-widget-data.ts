@@ -147,15 +147,33 @@ export function useWidgetOverview(
   source: CustomWidget['source'],
   selection: WidgetSelection,
 ): { rows: OverviewRow[]; loading: boolean; error: unknown } {
-  const { rows, isLoading, error } = useTelemetryOverview(source.mode === 'instruments'
+  const { rows, isLoading, error } = useTelemetryOverview(overviewQueryFor(source, selection), THIS_REQUEST_ONLY);
+  return { rows, loading: isLoading && rows.length === 0, error };
+}
+
+/** What a widget asks the overview for — the one mapping from a widget's source and the dashboard's selection. */
+export interface OverviewQuery {
+  functionalLocationId?: string;
+  directOnly?: boolean;
+  profileId?: string;
+  instrumentIds?: string[];
+}
+
+/**
+ * The overview query of a widget: over picked instruments exactly those ids,
+ * else the dashboard's selection as it stands (the readings table's own query,
+ * so one SWR key). `useWidgetOverview` asks it; the floor plan widget hands the
+ * same query to `FloorplanView`, so the plan draws the rows the widget judged.
+ */
+export function overviewQueryFor(source: CustomWidget['source'], selection: WidgetSelection): OverviewQuery {
+  return source.mode === 'instruments'
     ? { instrumentIds: source.ids }
     : {
       functionalLocationId: selection.functionalLocationId,
       directOnly: selection.directOnly,
       profileId: selection.profileId,
       instrumentIds: selection.instrumentIds,
-    }, THIS_REQUEST_ONLY);
-  return { rows, loading: isLoading && rows.length === 0, error };
+    };
 }
 
 const refsOf = (keys: readonly (DataKeyRef | WidgetKey)[]): DataKeyRef[] => keys.map((k) => ({ source: k.source, key: k.key }));

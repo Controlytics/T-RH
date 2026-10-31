@@ -10,6 +10,7 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { stripHtml } from '../../lib/sanitize.js';
+import { cleanWidgetText } from '../../lib/widget-text.js';
 import {
   idParams, listResponse, detailResponse, createdResponse, assignmentsResponse, deleteResponse,
   createDashboardBody, updateDashboardBody, assignmentsBody, DASHBOARD_TITLE_MAX, DASHBOARD_DESCRIPTION_MAX,
@@ -173,7 +174,9 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     if (body.document !== undefined) {
       const parsed = parseDashboardDocument(body.document);
       if (!parsed.ok) return invalid(reply, parsed.message);
-      document = parsed.document;
+      const cleaned = cleanWidgetText(parsed.document.widgets, undefined);
+      if (!cleaned.ok) return invalid(reply, cleaned.message);
+      document = { ...parsed.document, widgets: cleaned.widgets };
     }
 
     const row = await prisma.$transaction(async (tx) => {
@@ -249,7 +252,8 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    if (!(await findVisibleDashboard(req.user, id))) return notFound(reply);
+    const current = await findVisibleDashboard(req.user, id);
+    if (!current) return notFound(reply);
     const { ok } = await enforceReauth(REAUTH_ACTION, req, reply);
     if (!ok) return;
 
@@ -265,7 +269,12 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     if (body.document !== undefined) {
       const parsed = parseDashboardDocument(body.document);
       if (!parsed.ok) return invalid(reply, parsed.message);
-      document = parsed.document;
+      // Compared with the widgets of the row just read: a widget sent back as
+      // stored is kept as stored, so it is neither rewritten nor audited. A row
+      // another save moved on since is a 409 below whatever this decides.
+      const cleaned = cleanWidgetText(parsed.document.widgets, readDashboardDocument(current.layout).widgets);
+      if (!cleaned.ok) return invalid(reply, cleaned.message);
+      document = { ...parsed.document, widgets: cleaned.widgets };
     }
     const expected = new Date(body.expectedUpdatedAt);
 
