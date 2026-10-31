@@ -184,6 +184,20 @@ const superAdminCards = [
     ),
   },
   {
+    // 2026-10-31, TCP/IP (Modbus) instruments: whether THIS server reads
+    // devices at all (default off) and the networks a device address must be
+    // in. A super admin card because it decides where the server connects.
+    // Listing it here also keeps it out of the auto-discovered section.
+    title: 'TCP/IP Reading',
+    description: 'Whether this server reads TCP/IP (Modbus) instruments, and the networks their IP addresses must be in',
+    href: '/config/dynamic/modbus-reader',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.737 5.1a3.375 3.375 0 012.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 01.9 2.7m0 0a3 3 0 01-3 3m0 3h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008zm-3 6h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008z" />
+      </svg>
+    ),
+  },
+  {
     title: 'Instrument Attributes',
     description: 'The attribute keys the New Instrument form asks for, per profile, and what each key is called on screen',
     href: '/config/instrument-attributes',

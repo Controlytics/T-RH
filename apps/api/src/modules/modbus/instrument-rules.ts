@@ -1,0 +1,137 @@
+import type { ZodError } from 'zod';
+import { coerceModbusRegisterMap, type ModbusConnection, type ModbusRegisterMap } from '@digilog/shared';
+
+/**
+ * The instrument-level TCP/IP (Modbus) rules the instruments routes apply —
+ * pure, so the create path, the update path and the bulk path (which shares
+ * `createWithCredential`) read ONE wording and ONE judgement. The address rules
+ * are `checkModbusAddress` (address.ts); the network list is
+ * `loadModbusReaderConfig` (config.ts).
+ */
+
+export interface RuleRefusal { status: number; body: { error: string; message: string; details?: unknown } }
+
+export const NOT_FOR_TCPIP: RuleRefusal = {
+  status: 400,
+  body: {
+    error: 'NOT_FOR_TCPIP',
+    message: 'A TCP/IP (Modbus) instrument is read by this server directly — it cannot be a gateway or report through one.',
+  },
+};
+
+export const NOT_A_TCPIP_PROFILE: RuleRefusal = {
+  status: 400,
+  body: {
+    error: 'NOT_A_TCPIP_PROFILE',
+    message: 'An IP address, port and register map belong to instruments of a TCP/IP (Modbus) profile; this is a Gateway profile.',
+  },
+};
+
+export const CONNECTION_DIFFERS: RuleRefusal = {
+  status: 409,
+  body: {
+    error: 'CONNECTION_DIFFERS',
+    message: 'An instrument cannot move between a Gateway profile and a TCP/IP (Modbus) profile — register a new instrument in that profile instead.',
+  },
+};
+
+export const NO_TOKEN_FOR_TCPIP: RuleRefusal = {
+  status: 400,
+  body: {
+    error: 'NO_TOKEN_FOR_TCPIP',
+    message: 'A TCP/IP (Modbus) instrument has no access token — this server reads the device; the device never logs in.',
+  },
+};
+
+export const REGISTER_MAP_SA_ONLY: RuleRefusal = {
+  status: 403,
+  body: {
+    error: 'REGISTER_MAP_SA_ONLY',
+    message: 'Only a super admin may change an instrument\'s register map — it decides which value is stored as which reading.',
+  },
+};
+
+/** The fields a write may carry, as the shared schemas parse them. */
+export interface ModbusWriteFields {
+  isGateway?: boolean;
+  gatewayId?: string | null;
+  modbusHost?: string | null;
+  modbusPort?: number | null;
+  modbusRegisters?: ModbusRegisterMap | null;
+}
+
+/**
+ * The structural rule of a write against the profile's connection: a TCP/IP
+ * instrument is never a gateway and never a gateway's child; a Gateway-profile
+ * instrument carries no Modbus field. `false` / `null` are the "off" values a
+ * whole-form save sends back, so only `isGateway === true`, a non-null
+ * `gatewayId` and a non-null Modbus field are refused.
+ */
+export function connectionRefusal(fields: ModbusWriteFields, connection: ModbusConnection | string): RuleRefusal | null {
+  if (connection === 'MODBUS_TCP') {
+    if (fields.isGateway === true || (fields.gatewayId ?? null) !== null) return NOT_FOR_TCPIP;
+    return null;
+  }
+  if ((fields.modbusHost ?? null) !== null || (fields.modbusPort ?? null) !== null || (fields.modbusRegisters ?? null) !== null) {
+    return NOT_A_TCPIP_PROFILE;
+  }
+  return null;
+}
+
+/**
+ * A TCP/IP instrument needs its address. Reported in the routes' existing
+ * validation shape (`details.fieldErrors`), so a form puts the message under
+ * the field.
+ */
+export function missingAddressRefusal(host: string | null | undefined, port: number | null | undefined): RuleRefusal | null {
+  const fieldErrors: Record<string, string[]> = {};
+  if (host === null || host === undefined || host === '') fieldErrors.modbusHost = ['A TCP/IP instrument needs its IP address'];
+  if (port === null || port === undefined) fieldErrors.modbusPort = ['A TCP/IP instrument needs its port'];
+  const fields = Object.keys(fieldErrors);
+  if (fields.length === 0) return null;
+  return {
+    status: 400,
+    body: {
+      error: 'VALIDATION_ERROR',
+      message: fields.length === 2 ? 'A TCP/IP instrument needs its IP address and port.' : (Object.values(fieldErrors)[0]![0] + '.'),
+      details: { formErrors: [], fieldErrors },
+    },
+  };
+}
+
+/**
+ * A body that failed the shared schema ONLY on `modbusHost` (a hostname, or an
+ * address in an always-refused range) is an address the server will not read:
+ * answered as ADDRESS_NOT_ALLOWED — the code every other address refusal
+ * carries — with the schema's own words. Any other failure stays the plain
+ * VALIDATION_ERROR (null here), so no other field's error is hidden.
+ */
+export function hostOnlyRefusal(error: ZodError): RuleRefusal | null {
+  if (error.issues.length === 0 || !error.issues.every((i) => i.path[0] === 'modbusHost')) return null;
+  return {
+    status: 400,
+    body: {
+      error: 'ADDRESS_NOT_ALLOWED',
+      message: error.issues.map((i) => i.message).join('; '),
+      details: error.flatten(),
+    },
+  };
+}
+
+/**
+ * Do two register maps say the same thing? Compared field by field, never as
+ * JSON text: Postgres stores JSONB with its own key order, so the stored map and
+ * the same map sent back would differ as strings. Both sides are read through
+ * the one forgiving reader, so a stored map the schema no longer accepts reads
+ * as "no map" on both sides of the comparison, as everywhere else.
+ */
+export function registerMapsEqual(a: unknown, b: unknown): boolean {
+  const x = coerceModbusRegisterMap(a);
+  const y = coerceModbusRegisterMap(b);
+  if (x.length !== y.length) return false;
+  return x.every((r, i) => {
+    const o = y[i]!;
+    return r.key === o.key && r.register === o.register && r.dataType === o.dataType
+      && (r.byteOrder ?? null) === (o.byteOrder ?? null) && r.scale === o.scale;
+  });
+}

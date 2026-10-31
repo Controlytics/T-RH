@@ -782,6 +782,13 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
       const deleted: { instrument: { id: string; code: string; gatewayId: string | null }; key: string }[] = [];
       const row = await prisma.$transaction(async (tx) => {
         if (connectionChanged) {
+          // The profile row FOR UPDATE before counting (2026-10-31, Task 3
+          // review): under READ COMMITTED a bare count cannot see an instrument
+          // whose create is still in flight. Instrument create takes this row
+          // FOR SHARE before its insert (`createWithCredential`), so the two
+          // serialise — that create commits first and is counted here, or it
+          // waits and then reads the new connection.
+          await tx.$queryRaw`SELECT id FROM instrument_profiles WHERE id = ${id} FOR UPDATE`;
           // Every instrument counts, active or not and in scope or not: an
           // instrument built for the other connection kind cannot be read.
           const held = await tx.instrument.count({ where: { profileId: id } });

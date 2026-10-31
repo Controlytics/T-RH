@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { modbusHostSchema, modbusRegisterMapSchema } from '../types/modbus.js';
+import { modbusHostSchema, modbusRegisterMapSchema, MODBUS_CONNECTIONS } from '../types/modbus.js';
 
 /**
  * The seven transport values (four protocol families — http/https, mqtt/mqtts,
@@ -275,6 +275,10 @@ export const instrumentQuerySchema = z.object({
   // in the browser left the pagination footer counting the unfiltered set, so
   // an empty profile announced "Showing 1–10 of 15".
   profileId: z.string().uuid().optional(),
+  // Scopes the list to the instruments of Gateway ('PUSH') or TCP/IP
+  // ('MODBUS_TCP') profiles (2026-10-31) — the "Copy register map from" picker
+  // lists TCP/IP instruments in view through it. Server-side, like profileId.
+  connection: z.enum(MODBUS_CONNECTIONS).optional(),
   page: z.coerce.number().min(1).default(1),
   // NO `.max()` (operator, 2026-09-02): every server-side record ceiling was
   // removed. A `.max()` here REJECTS with a 400 rather than clamping, which is

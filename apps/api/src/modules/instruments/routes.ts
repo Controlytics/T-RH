@@ -65,6 +65,12 @@ import { publishChildRoster, clearChildRoster } from './child-roster.js';
 import { announceChildAttributeChange } from './child-attributes-bundle.js';
 import { logger } from '../../lib/logger.js';
 import { roleHasPermission } from '../../plugins/rbac.js';
+import { MODBUS_CONNECTIONS, coerceModbusRegisterMap } from '@digilog/shared';
+import { checkModbusAddress } from '../modbus/address.js';
+import {
+  connectionRefusal, missingAddressRefusal, hostOnlyRefusal, registerMapsEqual,
+  CONNECTION_DIFFERS, NO_TOKEN_FOR_TCPIP, REGISTER_MAP_SA_ONLY, type ModbusWriteFields,
+} from '../modbus/instrument-rules.js';
 
 /**
  * Registry (operator-facing, JWT + permission gated). The device-facing ingest
@@ -131,6 +137,30 @@ const instrumentProps = {
   gatewayId: { type: 'string', nullable: true },
   /** 'direct' | 'gateway' — which path the last reading arrived by. */
   lastSeenVia: { type: 'string', nullable: true },
+  /**
+   * TCP/IP (Modbus) instruments (2026-10-31). `connection` is the PROFILE's —
+   * 'PUSH' (Gateway) or 'MODBUS_TCP' — so a page knows which cards an
+   * instrument has without deriving it. The other three are the instrument's
+   * own and NULL on a Gateway-profile instrument. Every inner key of a map
+   * entry is DECLARED: Fastify strips what the schema does not name, and an
+   * undeclared entry would arrive as `{}`.
+   */
+  connection: { type: 'string', nullable: true },
+  modbusHost: { type: 'string', nullable: true },
+  modbusPort: { type: 'integer', nullable: true },
+  modbusRegisters: {
+    type: 'array', nullable: true,
+    items: {
+      type: 'object',
+      properties: {
+        key: { type: 'string' },
+        register: { type: 'string' },
+        dataType: { type: 'string' },
+        byteOrder: { type: 'string' },
+        scale: { type: 'number' },
+      },
+    },
+  },
 } as const;
 
 /**
@@ -238,7 +268,7 @@ type InstrumentRow = Record<string, unknown> & { credentials?: CredentialRow[] }
  */
 function present(row: InstrumentRow) {
   const { credentials, profile, ...rest } =
-    row as InstrumentRow & { profile?: { name: string } | null };
+    row as InstrumentRow & { profile?: { name: string; connection?: string } | null };
   const active = credentials?.[0];
   return {
     ...rest,
@@ -246,6 +276,13 @@ function present(row: InstrumentRow) {
     // never the id. Destructured away so the nested object never reaches the
     // client alongside the flat field.
     profileName: profile?.name ?? null,
+    // TCP/IP (2026-10-31): the PROFILE's connection; and the register map read
+    // through the one forgiving reader (spec §5.2) — a stored map the schema no
+    // longer accepts reads as no map, never half of one. NULL for a Gateway one.
+    connection: profile?.connection ?? null,
+    modbusRegisters: rest.modbusRegisters === null || rest.modbusRegisters === undefined
+      ? null
+      : coerceModbusRegisterMap(rest.modbusRegisters),
     tokenPrefix: active?.tokenPrefix ?? null,
     // The CIPHERTEXT ITSELF is destructured away with `credentials` and never
     // reaches the client — only the boolean derived from it. Selecting it here
@@ -255,7 +292,7 @@ function present(row: InstrumentRow) {
 }
 
 /** Reads join the profile only for its name (see `present`). */
-const withProfileName = { profile: { select: { name: true } } };
+const withProfileName = { profile: { select: { name: true, connection: true } } };
 
 const activeCredential = {
   where: { revokedAt: null },
@@ -323,6 +360,13 @@ const PROFILE_NOT_FOUND = {
   error: 'PROFILE_NOT_FOUND',
   message: 'The selected profile no longer exists.',
 };
+
+/** A profile's connection ('PUSH' | 'MODBUS_TCP'), or null when there is no such profile. */
+async function profileConnection(profileId: string | undefined): Promise<string | null> {
+  if (!profileId) return null;
+  const row = await prisma.instrumentProfile.findUnique({ where: { id: profileId }, select: { connection: true } });
+  return row?.connection ?? null;
+}
 
 /**
  * Checked before the create, as the profile is: an unknown id would otherwise
@@ -409,15 +453,43 @@ async function createWithCredential(
    * bulk path once skipped both without anyone noticing.
    */
   visibility: ScopeWhere | undefined,
-): Promise<{ id: string; code: string; name: string; token: string }> {
+): Promise<{ id: string; code: string; name: string; token: string | null }> {
   const token = generateToken();
   return prisma.$transaction(async (tx) => {
     // FIRST statement of the transaction, before the write and before any
     // auditLog takes the audit advisory lock — see gateway-invariants.ts.
     await lockedGatewayRecheck(tx, { linkTo: (draft.gatewayId as string | null | undefined) ?? null, visibility });
 
+    // TCP/IP (MODBUS) INSTRUMENTS (2026-10-31): the PROFILE's connection decides
+    // the rules, read from its row locked FOR SHARE before the insert. A profile
+    // changes connection only while it has no instruments, and that PUT takes the
+    // row FOR UPDATE before it counts — so the two serialise: this insert waits
+    // and reads the new connection, or the profile PUT waits and counts this
+    // instrument. A row lock on a PROFILE, taken before any auditLog.
+    const [profileRow] = await tx.$queryRaw<{ connection: string }[]>`
+      SELECT connection FROM instrument_profiles WHERE id = ${draft.profileId as string} FOR SHARE
+    `;
+    const connection = profileRow?.connection ?? 'PUSH';
+    const tcpip = connection === 'MODBUS_TCP';
+    const { modbusHost, modbusPort, modbusRegisters, ...identity } = draft;
+    const misfit = connectionRefusal(draft as ModbusWriteFields, connection);
+    if (misfit) throw new HandledRouteError(misfit.status, misfit.body);
+    if (tcpip) {
+      const missing = missingAddressRefusal(modbusHost as string | null | undefined, modbusPort as number | null | undefined);
+      if (missing) throw new HandledRouteError(missing.status, missing.body);
+      const address = await checkModbusAddress(modbusHost as string, modbusPort as number, { visibility: { where: visibility } });
+      if (!address.ok) throw new HandledRouteError(address.status, { error: address.code, message: address.message });
+    }
+
     const instrument = await tx.instrument.create({
-      data: { ...draft, createdBy: ctx.userId } as unknown as Prisma.InstrumentCreateInput,
+      data: {
+        ...identity,
+        // Written ONLY for a TCP/IP profile, an omitted map stored as [] (an
+        // instrument "not read until it has keys", spec §5.2). A Gateway-profile
+        // instrument keeps SQL NULL in all three — a raw JSON null is a Prisma error.
+        ...(tcpip ? { modbusHost, modbusPort, modbusRegisters: modbusRegisters ?? [] } : {}),
+        createdBy: ctx.userId,
+      } as unknown as Prisma.InstrumentCreateInput,
     });
     // The caller must be able to SEE what they just created (2026-10-26). Read
     // back through the SAME fragment `GET /:id` applies, inside the transaction
@@ -437,7 +509,9 @@ async function createWithCredential(
     const bornIn = instrument.functionalLocationId
       ? await tx.functionalLocation.findUnique({ where: { id: instrument.functionalLocationId }, select: { name: true } })
       : null;
-    await tx.instrumentCredential.create({
+    // A TCP/IP instrument gets NO credential (spec §5.2): this server reads the
+    // device, and nothing ever logs in as it.
+    if (!tcpip) await tx.instrumentCredential.create({
       data: {
         instrumentId: instrument.id,
         tokenHash: hashToken(token),
@@ -457,8 +531,15 @@ async function createWithCredential(
         ...(instrument.functionalLocationId
           ? { functionalLocation: bornIn?.name ?? null, functionalLocationId: instrument.functionalLocationId }
           : {}),
+        // A TCP/IP instrument's address and register map are what was
+        // registered (spec §10) — on the record from birth.
+        ...(tcpip
+          ? { modbusHost: instrument.modbusHost, modbusPort: instrument.modbusPort, modbusRegisters: instrument.modbusRegisters }
+          : {}),
       },
-      signatureMeaning: `Instrument "${codeLabel(instrument.code)}" registered and access token issued`,
+      signatureMeaning: tcpip
+        ? `Instrument "${codeLabel(instrument.code)}" registered for TCP/IP reading at ${instrument.modbusHost}:${instrument.modbusPort}`
+        : `Instrument "${codeLabel(instrument.code)}" registered and access token issued`,
       userId: ctx.userId, userRole: ctx.userRole,
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     }, tx);
@@ -489,7 +570,7 @@ async function createWithCredential(
       }, tx);
     }
 
-    return { id: instrument.id, code: instrument.code, name: instrument.name, token };
+    return { id: instrument.id, code: instrument.code, name: instrument.name, token: tcpip ? null : token };
   });
 }
 
@@ -500,15 +581,38 @@ async function createWithCredential(
  * exists so a token conflict is not misreported as a gateway invariant.
  */
 class HandledRouteError extends Error {
-  constructor(readonly status: number, readonly body: { error: string; message: string }) {
+  constructor(readonly status: number, readonly body: { error: string; message: string; details?: unknown }) {
     super(body.message);
     this.name = 'HandledRouteError';
   }
 }
 
-/** Postgres unique-violation on `instruments.code`. */
+/** The columns a P2002 names (Prisma's `meta.target`), or [] for any other error. */
+function uniqueTarget(err: unknown): string[] {
+  if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') return [];
+  const target = (err.meta as { target?: unknown } | undefined)?.target;
+  return Array.isArray(target) ? target.map(String) : typeof target === 'string' ? [target] : [];
+}
+
+/**
+ * Postgres unique-violation on `instruments.code` or its lower(code) index.
+ * Not ANY P2002 since 2026-10-31: the TCP/IP address index raises one too
+ * (target `[modbus_host, modbus_port]`), and "an instrument with code X
+ * already exists" would be a false answer to it.
+ */
 function isDuplicateCode(err: unknown): boolean {
-  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
+  return uniqueTarget(err).some((t) => t.includes('code'));
+}
+
+/** The partial unique index `instruments_modbus_address_key` — one device per host:port. */
+function isDuplicateAddress(err: unknown): boolean {
+  return uniqueTarget(err).some((t) => t.includes('modbus'));
+}
+
+/** The 409 for an address another instrument took between the check and the write, worded by the one check. */
+async function addressInUseBody(host: string, port: number, visibility: ScopeWhere | undefined, excludeInstrumentId?: string) {
+  const r = await checkModbusAddress(host, port, { visibility: { where: visibility }, excludeInstrumentId });
+  return { error: 'ADDRESS_IN_USE', message: !r.ok && r.code === 'ADDRESS_IN_USE' ? r.message : `${host} : ${port} is already in use.` };
 }
 
 /**
@@ -588,6 +692,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           location: { type: 'string' },
           isGateway: { type: 'string', enum: ['true', 'false'] },
           profileId: { type: 'string', format: 'uuid', description: 'Scope to one instrument profile' },
+          connection: { type: 'string', enum: [...MODBUS_CONNECTIONS], description: 'Scope to the instruments of Gateway (PUSH) or TCP/IP (MODBUS_TCP) profiles' },
           functionalLocationId: {
             type: 'string', format: 'uuid',
             description: 'Scope to a Block (expanding to its Areas) or one Area',
@@ -613,7 +718,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     }
     const {
       page, limit, search, isActive, block, area, location, isGateway, profileId,
-      functionalLocationId,
+      functionalLocationId, connection,
     } = parsed.data;
 
     const where: Prisma.InstrumentWhereInput = {
@@ -623,6 +728,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       ...(location ? { location: { contains: location, mode: 'insensitive' as const } } : {}),
       ...(isGateway !== undefined ? { isGateway: isGateway === 'true' } : {}),
       ...(profileId ? { profileId } : {}),
+      // The PROFILE's connection (2026-10-31) — what "Copy register map from"
+      // lists. ANDed with visibility below like every other filter.
+      ...(connection ? { profile: { connection } } : {}),
       ...(search
         ? {
             OR: [
@@ -1775,7 +1883,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Instruments'],
       summary: 'Create instrument',
-      description: 'Creates an instrument and issues its access token. The token is returned ONCE and cannot be retrieved later.',
+      description: 'Creates an instrument. In a Gateway profile it issues the access token, returned ONCE and never again; in a TCP/IP (Modbus) profile the instrument has its own IP address, port and register map and NO token (the server reads the device).',
       body: {
         type: 'object',
         required: ['name', 'code', 'profileId'],
@@ -1791,6 +1899,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           block: { type: ['string', 'null'] },
           isGateway: { type: 'boolean' },
           gatewayId: { type: ['string', 'null'], format: 'uuid' },
+          // TCP/IP (Modbus) profile only — required there, refused elsewhere.
+          modbusHost: { type: ['string', 'null'], description: 'IPv4 address of the device (TCP/IP profile only)' },
+          modbusPort: { type: ['integer', 'null'], description: '1..65535 (TCP/IP profile only)' },
+          modbusRegisters: { type: ['array', 'null'], items: { type: 'object' }, description: 'The register map (TCP/IP profile only), validated by the shared schema; omitted = an empty map' },
         },
       },
       response: {
@@ -1810,15 +1922,28 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const { ok: reauthOk } = await enforceReauth('CREATE_INSTRUMENT', req, reply);
     if (!reauthOk) return;
     const parsed = createInstrumentSchema.safeParse(
-      sanitizeStrings((req.body ?? {}) as Record<string, unknown>, IDENTITY_FIELDS),
+      // A register map's keys are stored byte for byte — they ARE the telemetry
+      // keys — exempt like `code` and `name` (see IDENTITY_FIELDS).
+      sanitizeStrings((req.body ?? {}) as Record<string, unknown>, [...IDENTITY_FIELDS, 'modbusRegisters']),
     );
     if (!parsed.success) {
+      // A hostname, or an address in an always-refused range, is an address the
+      // server will not read — the code every address refusal carries.
+      const hostOnly = hostOnlyRefusal(parsed.error);
+      if (hostOnly) return reply.code(hostOnly.status).send(hostOnly.body);
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
 
     // The gateway a new instrument links to must be in the caller's scope
     // (audit 2026-10-12) — out of scope reads exactly like missing.
     const { where: visibility } = await resolveVisibility(buildContext(req));
+    // TCP/IP (2026-10-31): which fields belong is the profile's connection.
+    // Answered before the gateway checks, so a TCP/IP instrument asking for a
+    // gateway is told why; `createWithCredential` decides it again on the
+    // LOCKED profile row and stays the authority.
+    const connection = await profileConnection(parsed.data.profileId);
+    const misfit = connection ? connectionRefusal(parsed.data, connection) : null;
+    if (misfit) return reply.code(misfit.status).send(misfit.body);
     const invalid = await gatewayInvariantError(parsed.data, null, visibility);
     if (invalid) return reply.code(invalid.status).send(invalid.body);
 
@@ -1848,10 +1973,16 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       // slot it cannot tell from a broker that lost the message.
       await announceRoster(parsed.data.gatewayId ?? (parsed.data.isGateway ? id : null));
       const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential, ...withProfileName } }); // post-write re-read; the write already resolved visibility
-      return reply.code(201).send({ ...present(row as unknown as InstrumentRow), token });
+      // No `token` key at all for a TCP/IP instrument: it has none (spec §9).
+      return reply.code(201).send({ ...present(row as unknown as InstrumentRow), ...(token !== null ? { token } : {}) });
     } catch (err) {
       if (err instanceof GatewayInvariantViolation) return reply.code(err.status).send(err.body);
       if (err instanceof HandledRouteError) return reply.code(err.status).send(err.body);
+      // Another instrument took the address between the check and the insert:
+      // the partial unique index is the authority, the check words the answer.
+      if (isDuplicateAddress(err) && parsed.data.modbusHost && parsed.data.modbusPort) {
+        return reply.code(409).send(await addressInUseBody(parsed.data.modbusHost, parsed.data.modbusPort, visibility));
+      }
       if (isDuplicateCode(err)) {
         return reply.code(409).send({ error: 'DUPLICATE_CODE', message: `An instrument with code "${parsed.data.code}" already exists.` });
       }
@@ -1891,7 +2022,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
             unchanged: { type: 'array', items: { type: 'object', properties: bulkRowRefProps } },
             created: {
               type: 'array',
-              items: { type: 'object', properties: { id: { type: 'string' }, code: { type: 'string' }, name: { type: 'string' }, token: { type: 'string' } } },
+              items: { type: 'object', properties: { id: { type: 'string' }, code: { type: 'string' }, name: { type: 'string' }, token: { type: 'string', nullable: true } } },
             },
             errors: {
               type: 'array',
@@ -1970,7 +2101,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       if (!signed) return;
     }
 
-    const created: { id: string; code: string; name: string; token: string }[] = [];
+    const created: { id: string; code: string; name: string; token: string | null }[] = [];
     const updated: { id: string; code: string; row: number; changes: PlannedChange[] }[] = [];
     const unchanged: { row: number; code: string }[] = [];
     // One transaction per ROW, not one for the file: a row that fails — a code
@@ -2121,6 +2252,13 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           block: { type: ['string', 'null'] },
           isGateway: { type: 'boolean' },
           gatewayId: { type: ['string', 'null'], format: 'uuid', description: 'null unlinks this instrument from its gateway' },
+          // TCP/IP (Modbus) instruments (2026-10-31). A change to the address
+          // needs INSTRUMENT_UPDATE and `reason`; a change to the map is super
+          // admin only and needs `reason`. The same value sent back is no change.
+          modbusHost: { type: ['string', 'null'] },
+          modbusPort: { type: ['integer', 'null'] },
+          modbusRegisters: { type: ['array', 'null'], items: { type: 'object' } },
+          reason: { type: 'string', description: 'Required when the TCP/IP address or register map changes; recorded on the INSTRUMENT_UPDATED row' },
         },
       },
       response: { 200: { type: 'object', properties: instrumentProps }, ...errorResponses },
@@ -2131,17 +2269,42 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const { ok: reauthOk } = await enforceReauth('UPDATE_INSTRUMENT', req, reply);
     if (!reauthOk) return;
     const { id } = req.params as { id: string };
-    const parsed = updateInstrumentSchema.safeParse(sanitizeStrings((req.body ?? {}) as Record<string, unknown>));
+    // `reason` is a §11 remark (stripHtml would blank "value < 20 per SOP") and a
+    // register map's keys are stored byte for byte; every other text is stripped.
+    const parsed = updateInstrumentSchema.safeParse(sanitizeStrings((req.body ?? {}) as Record<string, unknown>, ['reason', 'modbusRegisters']));
     if (!parsed.success) {
+      const hostOnly = hostOnlyRefusal(parsed.error);
+      if (hostOnly) return reply.code(hostOnly.status).send(hostOnly.body);
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
+    // TCP/IP (2026-10-31, ledger ruling T1-2): `reason` and the three Modbus
+    // fields are taken OUT of what is written. `reason` is the change's reason
+    // (the audit row's own column, never an instrument field), and the Modbus
+    // fields reach the row only through the checks in the transaction below.
+    const { reason, modbusHost, modbusPort, modbusRegisters, ...fields } = parsed.data;
 
-    const existing = await prisma.instrument.findFirst({ where: await visibleInstrumentWhere(req, id) });
+    const existing = await prisma.instrument.findFirst({
+      where: await visibleInstrumentWhere(req, id),
+      include: { profile: { select: { connection: true } } },
+    });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
 
     if (await profileMissing((parsed.data as { profileId?: string }).profileId)) {
       return reply.code(400).send(PROFILE_NOT_FOUND);
     }
+
+    // TCP/IP (2026-10-31). An instrument's connection is its profile's, and it
+    // stays put: a profile changes connection only while empty, and a move
+    // ACROSS connections is refused for every role (spec §5.2, §15 Q1) — so
+    // before the super-admin measurement rule below. Re-checked on the LOCKED
+    // target profile inside the transaction.
+    const connection = existing.profile.connection;
+    if (fields.profileId && fields.profileId !== existing.profileId
+      && (await profileConnection(fields.profileId)) !== connection) {
+      return reply.code(CONNECTION_DIFFERS.status).send(CONNECTION_DIFFERS.body);
+    }
+    const misfit = connectionRefusal(parsed.data, connection);
+    if (misfit) return reply.code(misfit.status).send(misfit.body);
 
     // MOVING an instrument to a profile that MEASURES DIFFERENTLY is a
     // SUPER_ADMIN act (2026-10-26). What a profile measures — its keys, its NMT /
@@ -2245,12 +2408,64 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         ? [(await codeOf(before.gatewayId, tx)), (await codeOf(parsed.data.gatewayId, tx))]
         : [null, null];
 
+      // TCP/IP (MODBUS) INSTRUMENTS (2026-10-31), judged on the LOCKED row, so
+      // "unchanged" is never a stale verdict (the gateway rule's reasoning above).
+      if (fields.profileId && fields.profileId !== before.profileId) {
+        // The target profile FOR SHARE: its connection cannot flip between this
+        // check and the move (an empty profile's PUT takes it FOR UPDATE).
+        const [target] = await tx.$queryRaw<{ connection: string }[]>`
+          SELECT connection FROM instrument_profiles WHERE id = ${fields.profileId} FOR SHARE
+        `;
+        if (target && target.connection !== connection) throw new HandledRouteError(CONNECTION_DIFFERS.status, CONNECTION_DIFFERS.body);
+      }
+      const modbusWrite: Record<string, unknown> = {};
+      let addressChanged = false;
+      let mapChanged = false;
+      if (connection === 'MODBUS_TCP') {
+        const touchesAddress = modbusHost !== undefined || modbusPort !== undefined;
+        const nextHost = modbusHost === undefined ? before.modbusHost : modbusHost;
+        const nextPort = modbusPort === undefined ? before.modbusPort : modbusPort;
+        if (touchesAddress) {
+          const missing = missingAddressRefusal(nextHost, nextPort);
+          if (missing) throw new HandledRouteError(missing.status, missing.body);
+        }
+        addressChanged = touchesAddress && (nextHost !== before.modbusHost || nextPort !== before.modbusPort);
+        mapChanged = modbusRegisters !== undefined && !registerMapsEqual(modbusRegisters ?? [], before.modbusRegisters);
+        // Changing an existing instrument's map is SUPER_ADMIN only (spec §9, the
+        // MEASUREMENTS_DIFFER precedent): a map edit can stop an instrument being
+        // judged or shift every value it stores. Before the reason, as the
+        // profile route orders its super-admin checks.
+        if (mapChanged && req.user?.role !== 'SUPER_ADMIN') {
+          throw new HandledRouteError(REGISTER_MAP_SA_ONLY.status, REGISTER_MAP_SA_ONLY.body);
+        }
+        if (addressChanged || mapChanged) {
+          const problem = validateAttributeRemark(reason);
+          if (problem) {
+            const what = addressChanged && mapChanged ? 'address and register map' : addressChanged ? 'address' : 'register map';
+            throw new HandledRouteError(400, {
+              error: 'REASON_REQUIRED',
+              message: `Changing a TCP/IP instrument's ${what} changes what is read and stored. ${problem}`,
+            });
+          }
+        }
+        if (addressChanged) {
+          const address = await checkModbusAddress(nextHost as string, nextPort as number, { excludeInstrumentId: id, visibility: { where: visibility } });
+          if (!address.ok) throw new HandledRouteError(address.status, { error: address.code, message: address.message });
+          modbusWrite.modbusHost = nextHost;
+          modbusWrite.modbusPort = nextPort;
+        }
+        if (mapChanged) modbusWrite.modbusRegisters = modbusRegisters ?? [];
+      }
+      const modbusChanged = addressChanged || mapChanged;
+
       priorCode = before.code;
       // Name follows the code when it WAS the code (the 2026-09-04 rule: name =
       // code on every instrument) and no name was given alongside. An explicit
       // name in the same PUT wins; a name that already differed is left alone.
       const codeChanged = parsed.data.code !== undefined && parsed.data.code !== before.code;
-      const data: Record<string, unknown> = { ...parsed.data };
+      // The instrument's own fields only — never `reason`, never a Modbus field
+      // straight from the body (T1-2): those arrive through `modbusWrite`.
+      const data: Record<string, unknown> = { ...fields, ...modbusWrite };
       if (codeChanged && parsed.data.name === undefined && before.name === before.code) data.name = parsed.data.code;
       const row = await tx.instrument.update({ where: { id }, data: data as never });
       // EVERY editable field, on both sides. An omission is not cosmetic: a PUT
@@ -2282,12 +2497,24 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         // inspector finds it under; the design records that through this row
         // rather than a dedicated action.
         profileId: i.profileId,
+        // TCP/IP (2026-10-31): the device's address and register map. `reason`
+        // is NOT here — it is the change's reason, on the row's own column.
+        modbusHost: i.modbusHost, modbusPort: i.modbusPort, modbusRegisters: i.modbusRegisters,
       });
       await auditLog({
         action: 'INSTRUMENT_UPDATED', targetType: 'Instrument', targetId: id,
         beforeValue: audited(before),
         afterValue: audited(row),
-        signatureMeaning: `Instrument "${codeLabel(row.code)}" updated`,
+        signatureMeaning: addressChanged && mapChanged
+          ? `Instrument "${codeLabel(row.code)}" TCP/IP address and register map changed`
+          : addressChanged
+            ? `Instrument "${codeLabel(row.code)}" TCP/IP address changed`
+            : mapChanged
+              ? `Instrument "${codeLabel(row.code)}" register map changed`
+              : `Instrument "${codeLabel(row.code)}" updated`,
+        // The remark the change was signed with (spec §9), recorded as the
+        // profile and attribute edits record theirs; absent when none was needed.
+        ...(modbusChanged && reason ? { reason: reason.trim() } : {}),
         userId: ctx.userId, userRole: ctx.userRole,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
       }, tx);
@@ -2345,6 +2572,15 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         // The locked re-check refused: the transaction — update and audit rows
         // alike — is already rolled back.
         if (err instanceof GatewayInvariantViolation) return reply.code(err.status).send(err.body);
+        // A TCP/IP refusal decided under the locks — rolled back like the rest.
+        if (err instanceof HandledRouteError) return reply.code(err.status).send(err.body);
+        if (isDuplicateAddress(err)) {
+          const host = modbusHost ?? existing.modbusHost;
+          const port = modbusPort ?? existing.modbusPort;
+          return reply.code(409).send(host && port
+            ? await addressInUseBody(host, port, visibility, id)
+            : { error: 'ADDRESS_IN_USE', message: 'That address is already in use.' });
+        }
         if (isDuplicateCode(err)) {
           return reply.code(409).send({ error: 'DUPLICATE_CODE', message: `An instrument with code "${parsed.data.code}" already exists.` });
         }
@@ -2545,8 +2781,13 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     if (!ok) return;
 
     const { id } = req.params as { id: string };
-    const existing = await prisma.instrument.findFirst({ where: await visibleInstrumentWhere(req, id) });
+    const existing = await prisma.instrument.findFirst({
+      where: await visibleInstrumentWhere(req, id),
+      include: { profile: { select: { connection: true } } },
+    });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
+    // A TCP/IP instrument has no credential to replace (2026-10-31).
+    if (existing.profile.connection === 'MODBUS_TCP') return reply.code(NO_TOKEN_FOR_TCPIP.status).send(NO_TOKEN_FOR_TCPIP.body);
 
     const ctx = buildContext(req);
     const token = generateToken();
@@ -2623,8 +2864,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     if (!ok) return;
 
     const { id } = req.params as { id: string };
-    const existing = await prisma.instrument.findFirst({ where: await visibleInstrumentWhere(req, id), select: { id: true, code: true } });
+    const existing = await prisma.instrument.findFirst({ where: await visibleInstrumentWhere(req, id), select: { id: true, code: true, profile: { select: { connection: true } } } });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
+    // A TCP/IP instrument has no token to reveal (2026-10-31).
+    if (existing.profile.connection === 'MODBUS_TCP') return reply.code(NO_TOKEN_FOR_TCPIP.status).send(NO_TOKEN_FOR_TCPIP.body);
 
     const credential = await prisma.instrumentCredential.findFirst({
       where: { instrumentId: id, revokedAt: null },
@@ -2733,8 +2976,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const token = parsed.data.token;
 
     const { id } = req.params as { id: string };
-    const existing = await prisma.instrument.findFirst({ where: await visibleInstrumentWhere(req, id), select: { id: true, code: true } });
+    const existing = await prisma.instrument.findFirst({ where: await visibleInstrumentWhere(req, id), select: { id: true, code: true, profile: { select: { connection: true } } } });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
+    // A TCP/IP instrument takes no token (2026-10-31): nothing logs in as it.
+    if (existing.profile.connection === 'MODBUS_TCP') return reply.code(NO_TOKEN_FOR_TCPIP.status).send(NO_TOKEN_FOR_TCPIP.body);
 
     const hash = hashToken(token);
     const prefix = tokenPrefix(token);

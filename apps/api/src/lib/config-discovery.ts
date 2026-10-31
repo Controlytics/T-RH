@@ -50,6 +50,7 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/attribute-labels.def.js'),
     import('../modules/config/defs/telemetry-retention.def.js'),
     import('../modules/config/defs/audit-hard-delete.def.js'),
+    import('../modules/config/defs/modbus-reader.def.js'),
     // ─── Add new module configs below this line ───
   ]);
 

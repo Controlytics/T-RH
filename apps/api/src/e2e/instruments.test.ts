@@ -529,7 +529,11 @@ describe('Instrument gateway audit trail', () => {
     // identical, i.e. exactly the defect this test exists to prevent. If a
     // field ever genuinely must be excluded, name it here — a visible
     // allowlist, not an implied one.
-    const AUDITED_EXCLUSIONS: string[] = [];
+    //
+    // `reason` (2026-10-31) is the CHANGE's reason, recorded on the audit row's
+    // own `reason` column when a TCP/IP address or register map changes — it is
+    // not a field of the instrument, so it has no before or after.
+    const AUDITED_EXCLUSIONS: string[] = ['reason'];
     // In the audit payload but NOT in the PUT schema: `code` is deliberately
     // not updatable (it is baked into device config), yet it is carried on
     // both sides as the emitter key so the trail never renders a bare UUID.
