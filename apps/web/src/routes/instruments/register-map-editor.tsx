@@ -10,7 +10,14 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useRowKeys } from '@/hooks/use-row-keys';
+import { cn } from '@/lib/cn';
 import { CopyMapDialog } from './copy-map-dialog';
+
+/**
+ * Cell padding: eight columns of inputs have to fit a form card, so the table
+ * is tighter than the shared default.
+ */
+const PAD = 'px-2 py-2';
 
 /** What the SERVER said a key is judged as (Test connection's `judgedAs`). */
 export type JudgedAs = 'TEMPERATURE' | 'HUMIDITY' | null;
@@ -164,14 +171,10 @@ export function RegisterMapEditor({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Key</TableHead>
-            <TableHead>Register</TableHead>
-            <TableHead>Area</TableHead>
-            <TableHead>Data type</TableHead>
-            <TableHead>Byte order</TableHead>
-            <TableHead>Scale</TableHead>
-            <TableHead>Judged as</TableHead>
-            {!readOnly && <TableHead><span className="sr-only">Remove</span></TableHead>}
+            {['Key', 'Register', 'Area', 'Data type', 'Byte order', 'Scale', 'Judged as'].map((h) => (
+              <TableHead key={h} className={cn(PAD, 'whitespace-nowrap')}>{h}</TableHead>
+            ))}
+            {!readOnly && <TableHead className={PAD}><span className="sr-only">Remove</span></TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -185,7 +188,7 @@ export function RegisterMapEditor({
             const scaleShown = typed !== undefined && sameNumber(parseScale(typed), row.scale) ? typed : scaleToText(row.scale);
             return (
               <MapRow key={rk} errors={rowIssues} columns={columns} index={i}>
-                <TableCell className="min-w-[10rem]">
+                <TableCell className={cn(PAD, 'min-w-[9rem]')}>
                   {readOnly ? <span className="font-medium text-slate-800">{row.key}</span> : (
                     <Input
                       aria-label={`Key, row ${n}`}
@@ -194,7 +197,7 @@ export function RegisterMapEditor({
                     />
                   )}
                 </TableCell>
-                <TableCell className="min-w-[7rem]">
+                <TableCell className={cn(PAD, 'min-w-[6rem]')}>
                   {readOnly ? <span className="tabular-nums">{row.register}</span> : (
                     <Input
                       aria-label={`Register, row ${n}`}
@@ -204,12 +207,11 @@ export function RegisterMapEditor({
                     />
                   )}
                 </TableCell>
-                <TableCell data-testid={`map-area-${i}`} className="text-slate-600">{areaOf(row.register)}</TableCell>
-                <TableCell className="min-w-[8rem]">
+                <TableCell data-testid={`map-area-${i}`} className={cn(PAD, 'text-slate-600')}>{areaOf(row.register)}</TableCell>
+                <TableCell className={cn(PAD, 'min-w-[7.5rem]')}>
                   {readOnly ? row.dataType : (
                     <Select
                       aria-label={`Data type, row ${n}`}
-                      selectSize="sm"
                       value={row.dataType}
                       onChange={(e) => setDataType(i, e.target.value as ModbusDataType)}
                     >
@@ -217,11 +219,10 @@ export function RegisterMapEditor({
                     </Select>
                   )}
                 </TableCell>
-                <TableCell className="min-w-[7rem]">
+                <TableCell className={cn(PAD, 'min-w-[7rem]')}>
                   {!thirtyTwo ? <span className="text-slate-400">—</span> : readOnly ? (row.byteOrder ?? '—') : (
                     <Select
                       aria-label={`Byte order, row ${n}`}
-                      selectSize="sm"
                       value={row.byteOrder ?? ''}
                       onChange={(e) => setByteOrder(i, e.target.value)}
                     >
@@ -230,7 +231,7 @@ export function RegisterMapEditor({
                     </Select>
                   )}
                 </TableCell>
-                <TableCell className="min-w-[6rem]">
+                <TableCell className={cn(PAD, 'min-w-[5rem]')}>
                   {readOnly ? <span className="tabular-nums">× {scaleToText(row.scale)}</span> : (
                     <Input
                       aria-label={`Scale, row ${n}`}
@@ -241,9 +242,9 @@ export function RegisterMapEditor({
                     />
                   )}
                 </TableCell>
-                <TableCell data-testid={`map-judged-${i}`}>{judgedText(judged, row.key)}</TableCell>
+                <TableCell data-testid={`map-judged-${i}`} className={cn(PAD, 'whitespace-nowrap')}>{judgedText(judged, row.key)}</TableCell>
                 {!readOnly && (
-                  <TableCell className="w-10 text-right">
+                  <TableCell className={cn(PAD, 'w-10 text-right')}>
                     <Button
                       type="button" size="icon-sm" variant="ghost"
                       aria-label={`Remove row ${n}`}

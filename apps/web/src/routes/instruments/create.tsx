@@ -323,8 +323,10 @@ export function InstrumentCreatePage() {
     });
   };
 
+  // Wider for a TCP/IP profile: the register map is an eight-column table of
+  // inputs. A Gateway profile keeps the width it always had.
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className={`mx-auto space-y-6 ${tcpip ? 'max-w-5xl' : 'max-w-3xl'}`}>
       <PageHeader
         title="New Instrument"
         description="Register a device so its readings, limits and alarms have somewhere to live."
