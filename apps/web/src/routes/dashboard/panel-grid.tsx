@@ -18,14 +18,21 @@ import 'react-resizable/css/styles.css';
  * touchscreen is a dashboard whose layout nobody trusts again. Edit mode also
  * gives the per-card edit affordance an obvious home when that arrives.
  *
- * Only the `lg` layout is ever stored. Narrower breakpoints are derived by the
- * library: storing three layouts would mean an operator arranging a phone view
- * they never look at, and a "why did my desktop layout change" bug the first time
- * someone opened the dashboard on a tablet.
+ * Only the `lg` layout is ever stored: storing three layouts would mean an
+ * operator arranging a phone view they never look at, and a "why did my desktop
+ * layout change" bug the first time someone opened the dashboard on a tablet.
+ *
+ * `md` (a 900–1,200 px container — a 1,240 px window with the sidebar open, the
+ * operator's own) has the SAME 12 columns, so it draws the stored arrangement
+ * exactly, only up to 25 % narrower (ruling F-I5; a quarter is still ~213 px at
+ * 900, above the gauge tile's 160 px minimum). It was 6 columns until the final
+ * fix wave: the library clamped every card past column 6 and pushed the
+ * collisions down — a row of four quarters became a staircase with holes. Only
+ * `sm` (a phone) is derived: one column, the cards stacked in order.
  */
 
 const BREAKPOINTS = { lg: 1200, md: 900, sm: 0 };
-const COLS = { lg: GRID_COLUMNS, md: 6, sm: 1 };
+const COLS = { lg: GRID_COLUMNS, md: GRID_COLUMNS, sm: 1 };
 // ROW_HEIGHT / MARGIN_Y come from `panel-auto-height` so the geometry the grid
 // DRAWS with and the geometry the auto-height maths SOLVES with are the same two
 // numbers. Two copies would mis-size every measured panel by a constant, and it

@@ -21,10 +21,10 @@ import { widgetItemId, type CustomWidget, type LayoutItem } from '@digilog/share
  * Only panels with a NATURAL content height belong here.
  *
  * `telemetry_floorplan` is deliberately absent (operator, 2026-09-01): a drawn
- * plan has no natural height — it scales to whatever box it is given, so "fit the
- * content" is undefined for it and a bigger box genuinely shows the rooms bigger.
- * It keeps its corner handle and its Height dropdown. It is the ONLY panel on this
- * dashboard where dragging taller does something.
+ * plan is WIDTH-fitted and the card body scrolls, so a taller box shows MORE of
+ * the plan, not a bigger one (the plan is never contained in its panel — see
+ * apps/web/CLAUDE.md). It keeps its corner handle and its Height dropdown. It is
+ * the ONLY panel on this dashboard where dragging taller does something.
  *
  * Web-side rather than a field on `PANELS` in `@digilog/shared`: that catalogue is
  * a stored contract the API validates role configs against, and how tall a card
