@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { LAYOUT_VERSION } from '@digilog/shared';
 
@@ -16,7 +16,7 @@ const LAYOUT: Record<string, unknown> & { editing: boolean; widgets: unknown[] }
   items: [{ i: 'telemetry_table', x: 0, y: 0, w: 12, h: 9 }], widgets: [],
   editing: false, saving: false, loaded: true,
   start: () => {}, cancel: () => {}, save: async () => {}, reset, setDraft: () => {},
-  setStyle: () => {}, setSize: () => {}, addWidget: () => {}, updateWidget: () => {}, removeWidget: () => {},
+  setStyle: () => {}, setSize: () => {}, addWidget: () => {}, updateWidget: () => {}, removeWidget: vi.fn(),
   saveAsRoleDefault: async () => {},
 };
 vi.mock('@/hooks/use-dashboard-layout', () => ({ useDashboardLayout: () => LAYOUT }));
@@ -40,7 +40,11 @@ const entryProps: { alarms?: unknown; cards?: { id: string; activeCount?: number
 vi.mock('../entry-cards', () => ({
   EntryCards: (p: { alarms?: unknown; cards?: { id: string }[] }) => { entryProps.push(p); return null; },
 }));
-vi.mock('../widgets/widget-dialog', () => ({ WidgetDialog: () => null }));
+// The dialog's live preview runs a renderer; `DIALOG.explode` makes it throw (I-3).
+const DIALOG = { explode: false };
+vi.mock('../widgets/widget-dialog', () => ({
+  WidgetDialog: () => { if (DIALOG.explode) throw new Error('preview fault'); return null; },
+}));
 vi.mock('../widgets/role-default-dialog', () => ({ RoleDefaultDialog: () => null }));
 // jsdom measures nothing; the grid draws nothing at width 0.
 vi.mock('react-grid-layout', async (importActual) => ({
@@ -57,6 +61,8 @@ vi.mock('../widgets/widget-panel', async () => {
     WidgetPanel: ({ widget, trail }: { widget: { title: string }; trail?: unknown }) => {
       React.useEffect(() => { panelMounts(widget.title); }, []);
       panelTrails.push(trail);
+      // One title draws a renderer that THROWS, to prove `/` survives it (I-3).
+      if (widget.title === 'Explodes') throw new Error('renderer fault');
       return React.createElement('div', { 'data-testid': 'built-widget' }, widget.title);
     },
   };
@@ -187,6 +193,71 @@ describe('a built widget on the home dashboard', () => {
     LAYOUT.items = [{ i: 'telemetry_table', x: 0, y: 0, w: 12, h: 9 }];
     LAYOUT.widgets = [];
     delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+  });
+});
+
+/**
+ * I-3 (final fix wave): `/` had no per-widget render boundary and none around
+ * the Add widget dialog — a renderer that threw took every role's home screen
+ * (and the super admin's unsaved arrangement) to the route's error screen. It
+ * has the built dashboard's boundary now.
+ */
+describe('one widget that throws on the home dashboard', () => {
+  const W1 = '11111111-1111-4111-8111-000000000001';
+  const W2 = '11111111-1111-4111-8111-000000000002';
+  const built = (id: string, title: string) => ({ id, type: 'value_cards', title, source: { mode: 'selection' }, keys: [], options: {} });
+
+  it('stays in its own card: the other widget and the edit row are still drawn, and while arranging it can be removed', () => {
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = StubResizeObserver;
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+    AUTH.user.role = 'SUPER_ADMIN';
+    LAYOUT.editing = true;
+    LAYOUT.items = [
+      { i: 'telemetry_table', x: 0, y: 0, w: 12, h: 9 },
+      { i: `w:${W1}`, x: 0, y: 9, w: 6, h: 5 }, { i: `w:${W2}`, x: 6, y: 9, w: 6, h: 5 },
+    ];
+    LAYOUT.widgets = [built(W1, 'Explodes'), built(W2, 'Fine')];
+    try {
+      renderPage();
+      const failed = screen.getByTestId('widget-failed');
+      expect(failed).toHaveTextContent('Explodes');
+      expect(within(failed).getByRole('alert')).toHaveTextContent('Could not load this widget.');
+      expect(screen.getByTestId('built-widget')).toHaveTextContent('Fine');
+      expect(screen.getByRole('button', { name: 'Add widget' })).toBeInTheDocument();
+      fireEvent.click(within(failed).getByRole('button', { name: 'Remove' }));
+      expect(LAYOUT.removeWidget).toHaveBeenCalledWith(W1);
+      expect(quiet.mock.calls.some((c) => String(c[0]).includes('[dashboard] widget "Explodes" failed to draw'))).toBe(true);
+    } finally {
+      quiet.mockRestore();
+      LAYOUT.editing = false;
+      LAYOUT.items = [{ i: 'telemetry_table', x: 0, y: 0, w: 12, h: 9 }];
+      LAYOUT.widgets = [];
+      (LAYOUT.removeWidget as ReturnType<typeof vi.fn>).mockClear();
+      delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    }
+  });
+
+  it('a widget dialog whose preview throws is replaced by its own failure dialog; the page stays', () => {
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = StubResizeObserver;
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+    AUTH.user.role = 'SUPER_ADMIN';
+    LAYOUT.editing = true;
+    DIALOG.explode = true;
+    try {
+      renderPage();
+      fireEvent.click(screen.getByRole('button', { name: 'Add widget' }));
+      expect(screen.getByText("This widget's preview could not be drawn.")).toBeInTheDocument();
+      expect(screen.getByText('Nothing was added.')).toBeInTheDocument();
+      // The page — its edit row — is still there behind the dialog.
+      expect(screen.getByRole('button', { name: 'Add widget' })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      expect(screen.queryByText("This widget's preview could not be drawn.")).toBeNull();
+    } finally {
+      quiet.mockRestore();
+      DIALOG.explode = false;
+      LAYOUT.editing = false;
+      delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    }
   });
 });
 

@@ -18,6 +18,7 @@ import { CUSTOM_WIDGETS_PANEL, widgetIdOf, type CustomWidget, type LayoutItem } 
 import { WidgetPanel } from './widgets/widget-panel';
 import { WidgetDialog } from './widgets/widget-dialog';
 import { answerState } from './widgets/widget-common';
+import { FailedWidgetCard, PreviewFailedDialog, RenderBoundary } from './widgets/widget-boundary';
 import { useTelemetrySettings } from './use-telemetry';
 import { widgetPolling } from '@/lib/polling';
 import { RoleDefaultDialog } from './widgets/role-default-dialog';
@@ -439,23 +440,39 @@ export function DashboardPage() {
                   {/* Keyed by the DEFINITION, as on a built dashboard: the panel
                       seeds its alarm status, page size and period from the
                       widget once, so an EDITED widget would otherwise keep the
-                      old defaults until a reload. */}
-                  <WidgetPanel
+                      old defaults until a reload — and a widget that failed to
+                      draw gets another try. The SAME per-widget boundary as a
+                      built dashboard (I-3): a renderer that throws stays in its
+                      card instead of blanking every role's home screen and the
+                      super admin's unsaved arrangement. */}
+                  <RenderBoundary
                     key={JSON.stringify(w)}
-                    widget={w}
-                    item={it}
-                    selection={widgetSelection}
-                    // A status tile opens the trend page: it carries the trail,
-                    // as the readings table and the floor plan do.
-                    trail={trailFor(nav.breadcrumb)}
-                    editing={layout.editing}
-                    onEdit={() => setWidgetDialog({ initial: w })}
-                    onRemove={() => layout.removeWidget(w.id)}
-                    onStyleChange={(next) => layout.setStyle(it.i, next)}
-                    onSizeChange={(width, height) => layout.setSize(it.i, width, height)}
-                    autoHeight={autoIds.has(it.i)}
-                    onNaturalHeight={reportHeight(it.i)}
-                  />
+                    name={`widget "${w.title}"`}
+                    fallback={(
+                      <FailedWidgetCard
+                        title={w.title}
+                        editing={layout.editing}
+                        onEdit={() => setWidgetDialog({ initial: w })}
+                        onRemove={() => layout.removeWidget(w.id)}
+                      />
+                    )}
+                  >
+                    <WidgetPanel
+                      widget={w}
+                      item={it}
+                      selection={widgetSelection}
+                      // A status tile opens the trend page: it carries the trail,
+                      // as the readings table and the floor plan do.
+                      trail={trailFor(nav.breadcrumb)}
+                      editing={layout.editing}
+                      onEdit={() => setWidgetDialog({ initial: w })}
+                      onRemove={() => layout.removeWidget(w.id)}
+                      onStyleChange={(next) => layout.setStyle(it.i, next)}
+                      onSizeChange={(width, height) => layout.setSize(it.i, width, height)}
+                      autoHeight={autoIds.has(it.i)}
+                      onNaturalHeight={reportHeight(it.i)}
+                    />
+                  </RenderBoundary>
                 </div>
               );
             }
@@ -521,16 +538,33 @@ export function DashboardPage() {
       )}
 
       {widgetDialog && (
-        <WidgetDialog
-          open
-          initial={widgetDialog.initial}
-          selection={widgetSelection}
-          onCancel={() => setWidgetDialog(null)}
-          onSubmit={(w) => {
-            if (widgetDialog.initial) layout.updateWidget(w); else layout.addWidget(w);
-            setWidgetDialog(null);
-          }}
-        />
+        /* The dialog's LIVE preview runs the widget's renderer outside every
+           card's boundary; a throw there took the page and the arrangement
+           draft with it. Same boundary as a built dashboard's (I-3); it opens
+           fresh with each dialog. */
+        <RenderBoundary
+          name="widget dialog"
+          fallback={(
+            <PreviewFailedDialog
+              onClose={() => setWidgetDialog(null)}
+              onRemove={widgetDialog.initial ? () => {
+                layout.removeWidget(widgetDialog.initial!.id);
+                setWidgetDialog(null);
+              } : undefined}
+            />
+          )}
+        >
+          <WidgetDialog
+            open
+            initial={widgetDialog.initial}
+            selection={widgetSelection}
+            onCancel={() => setWidgetDialog(null)}
+            onSubmit={(w) => {
+              if (widgetDialog.initial) layout.updateWidget(w); else layout.addWidget(w);
+              setWidgetDialog(null);
+            }}
+          />
+        </RenderBoundary>
       )}
       <ConfirmDialog
         open={confirmReset}
