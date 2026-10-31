@@ -6,6 +6,7 @@ import {
   ATTRIBUTE_LABEL_MAX, type AttributeLabels, type SettingsHidden, type ProfileMeasurement,
 } from '@digilog/shared';
 import { ProfileMeasurementsEditor } from './profile-measurements/editor';
+import { ProfileTcpIpReading } from '@/routes/instruments/profile-tcpip-reading';
 import { ProfileDeviceCertificateSwitch } from './device-certificates/profile-switch';
 import { ATTRIBUTE_LABELS_URL } from '@/hooks/use-attribute-labels';
 import { apiClient } from '@/lib/api-client';
@@ -70,7 +71,7 @@ import { RemarkDialog } from '@/routes/instruments/remark-dialog';
  * as the names — see `mergeSettingsHidden`.
  */
 interface Row { id: number; key: string; name: string; shown: boolean }
-interface Profile { id: string; name: string; instrumentCount: number; attributeKeys: string | null; measurements?: ProfileMeasurement[]; requireDeviceCertificate?: boolean }
+interface Profile { id: string; name: string; instrumentCount: number; attributeKeys: string | null; measurements?: ProfileMeasurement[]; requireDeviceCertificate?: boolean; connection?: 'PUSH' | 'MODBUS_TCP'; modbusIntervalSec?: number | null; modbusUnitId?: number | null }
 
 const fold = (k: string) => k.trim().toLowerCase();
 const nameOf = (labels: AttributeLabels, key: string): string => {
@@ -624,9 +625,22 @@ export function InstrumentAttributesConfigPage() {
         </section>
       )}
 
+      {/* TCP/IP (Modbus) profiles only (2026-10-31): how often the server reads
+          each instrument and the unit id. `key` re-seeds the fields when the
+          profile (or its stored values) changes. */}
+      {selectedProfile?.connection === 'MODBUS_TCP' && (
+        <ProfileTcpIpReading
+          key={`${selectedProfile.id}:${selectedProfile.modbusIntervalSec}:${selectedProfile.modbusUnitId}`}
+          profile={selectedProfile}
+          onSaved={() => void mutateProfiles()}
+        />
+      )}
+
       {/* Device certificates (2026-10-27): every instrument of the profile must
           connect with its own client certificate. Its own signed save. */}
-      {selectedProfile && (
+      {/* The API refuses certificates on a TCP/IP profile (the server reads the
+          device; it does not push), so the switch is not offered there. */}
+      {selectedProfile && selectedProfile.connection !== 'MODBUS_TCP' && (
         <section aria-labelledby="profile-device-certificate-heading" className="space-y-3 pt-2">
           <h2 id="profile-device-certificate-heading" className="text-base font-semibold text-slate-800">
             Device certificates — {selectedProfile.name}

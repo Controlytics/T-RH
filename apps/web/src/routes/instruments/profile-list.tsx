@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
+import { MODBUS_INTERVAL, MODBUS_UNIT_ID } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
 import { useCan } from '@/hooks/use-can';
 import { useToast } from '@/hooks/use-toast';
@@ -10,6 +11,7 @@ import { themeGradient, themeGradientBr } from '@/lib/theme-styles';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PageHeader } from '@/components/ui/page-header';
+import { ModbusReadingFields, intervalText } from './modbus-reading-fields';
 
 /**
  * The Instruments landing page: profiles first, instruments inside them.
@@ -36,7 +38,16 @@ interface Profile {
   isActive: boolean;
   instrumentCount: number;
   activeCount: number;
+  /** The server's answer: 'PUSH' (Gateway) or 'MODBUS_TCP'. Never derived here. */
+  connection?: 'PUSH' | 'MODBUS_TCP';
+  modbusIntervalSec?: number | null;
+  modbusUnitId?: number | null;
 }
+
+const CONNECTION_CHOICES = [
+  { value: 'PUSH', title: 'Gateway', text: 'The device sends its own data — MQTT, HTTP, TCP, or through a gateway.' },
+  { value: 'MODBUS_TCP', title: 'TCP/IP (Modbus)', text: 'The application reads each instrument at its own IP address and port.' },
+] as const;
 
 export function InstrumentProfileListPage() {
   const { data, mutate, isLoading } = useSWR<{ data: Profile[] }>('/api/instrument-profiles');
@@ -52,23 +63,37 @@ export function InstrumentProfileListPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [saving, setSaving] = useState(false);
+  const [connection, setConnection] = useState<'PUSH' | 'MODBUS_TCP'>('PUSH');
+  const [intervalSec, setIntervalSec] = useState<number>(MODBUS_INTERVAL.default);
+  const [unitId, setUnitId] = useState<string>(String(MODBUS_UNIT_ID.default));
+  /** The API's refusal, printed under the fields it concerns. */
+  const [formError, setFormError] = useState<string | null>(null);
 
   const profiles = data?.data ?? [];
 
   const create = async () => {
     setSaving(true);
+    setFormError(null);
     try {
       await apiClient.post('/api/instrument-profiles', {
         name: name.trim(),
         ...(description.trim() ? { description: description.trim() } : {}),
+        ...(connection === 'MODBUS_TCP'
+          ? { connection, modbusIntervalSec: intervalSec, modbusUnitId: Number(unitId) }
+          : {}),
       });
       setName('');
       setDescription('');
+      setConnection('PUSH');
+      setIntervalSec(MODBUS_INTERVAL.default);
+      setUnitId(String(MODBUS_UNIT_ID.default));
       setCreating(false);
       mutate();
       toast.success('Profile created', `"${name.trim()}" is ready for instruments.`);
     } catch (e) {
-      toast.error('Could not create profile', (e as Error)?.message ?? 'Unknown error');
+      const message = (e as Error)?.message ?? 'Unknown error';
+      setFormError(message);
+      toast.error('Could not create profile', message);
     }
     setSaving(false);
   };
@@ -139,8 +164,48 @@ export function InstrumentProfileListPage() {
               />
             </label>
           </div>
+          <fieldset className="space-y-3">
+            <legend className="text-sm font-medium text-slate-700">Connection</legend>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {CONNECTION_CHOICES.map((c) => (
+                <label
+                  key={c.value}
+                  className={`flex cursor-pointer items-start gap-3 rounded-[var(--radius-control)] border p-3 transition-colors ${
+                    connection === c.value ? 'border-[var(--theme-primary,#2a78d6)] bg-slate-50' : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="profile-connection"
+                    className="mt-1"
+                    checked={connection === c.value}
+                    onChange={() => setConnection(c.value)}
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold text-slate-800">{c.title}</span>
+                    <span className="block text-xs text-slate-500">{c.text}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            {connection === 'MODBUS_TCP' && (
+              <>
+                <ModbusReadingFields
+                  idPrefix="new-profile"
+                  intervalSec={intervalSec}
+                  unitId={unitId}
+                  onIntervalChange={setIntervalSec}
+                  onUnitIdChange={setUnitId}
+                />
+                <p className="text-xs text-slate-500">For every instrument in this profile. Keys are set on each instrument.</p>
+              </>
+            )}
+            {formError && (
+              <p role="alert" className="text-sm text-red-600">{formError}</p>
+            )}
+          </fieldset>
           <div className="flex justify-end">
-            <Button onClick={create} disabled={!name.trim() || saving} style={themeGradient}>
+            <Button onClick={create} disabled={!name.trim() || saving || (connection === 'MODBUS_TCP' && !unitId.trim())} style={themeGradient}>
               {saving ? 'Creating…' : 'Create Profile'}
             </Button>
           </div>
@@ -167,7 +232,16 @@ export function InstrumentProfileListPage() {
               className="group relative bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-[var(--elev-1)] hover:shadow-[var(--elev-1)] hover:-translate-y-0.5 transition-all duration-200"
             >
               <Link to={`/instruments/profiles/${p.id}`} className="block p-5">
-                <h3 className="font-semibold text-slate-800 pr-8 truncate" title={p.name}>{p.name}</h3>
+                <h3 className="font-semibold text-slate-800 pr-8 truncate" title={p.name}>
+                  {p.name}{' '}
+                  <span
+                    className={`ml-1 rounded px-1.5 py-0.5 align-middle text-[0.625rem] font-bold tracking-wide ${
+                      p.connection === 'MODBUS_TCP' ? 'bg-sky-100 text-sky-800' : 'bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    {p.connection === 'MODBUS_TCP' ? 'TCP/IP' : 'GATEWAY'}
+                  </span>
+                </h3>
                 {p.description && (
                   <p className="text-sm text-slate-500 mt-1 line-clamp-2">{p.description}</p>
                 )}
@@ -189,6 +263,19 @@ export function InstrumentProfileListPage() {
                   </div>
                 </div>
               </Link>
+
+              {/* A TCP/IP profile with nothing in it yet: say how it will be
+                  read (the server's stored values) and offer the next step. */}
+              {p.connection === 'MODBUS_TCP' && p.instrumentCount === 0 && canCreate && p.modbusIntervalSec != null && p.modbusUnitId != null && (
+                <div className="flex items-center gap-3 border-t border-slate-100 px-5 py-3">
+                  <p className="flex-1 text-xs font-semibold text-slate-700">
+                    {`TCP/IP · read every ${intervalText(p.modbusIntervalSec)} · unit ID ${p.modbusUnitId} — no instruments yet.`}
+                  </p>
+                  <Link to={`/instruments/new?profileId=${p.id}`}>
+                    <Button size="sm" style={themeGradient}>+ New Instrument</Button>
+                  </Link>
+                </div>
+              )}
 
               {canDelete && (
                 <button
