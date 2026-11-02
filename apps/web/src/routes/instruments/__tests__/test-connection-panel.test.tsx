@@ -183,10 +183,10 @@ describe('TestConnectionPanel — a failure is said in the server\'s words', () 
   });
 
   it('a 429 (30 tests a minute) has its own pill and prints the rate-limit plugin\'s own sentence', async () => {
-    post.mockRejectedValue(Object.assign(new Error('Rate limit exceeded, retry in 1 minute'), { status: 429, code: 'Too Many Requests' }));
+    post.mockRejectedValue(Object.assign(new Error('Rate limit exceeded, retry in 59 seconds'), { status: 429, code: 'TOO_MANY_REQUESTS' }));
     renderPanel();
     runTest();
-    expect(await screen.findByText('Rate limit exceeded, retry in 1 minute')).toBeInTheDocument();
+    expect(await screen.findByText('Rate limit exceeded, retry in 59 seconds')).toBeInTheDocument();
     expect(screen.getByTestId('test-pill')).toHaveTextContent('Too many tests');
   });
 

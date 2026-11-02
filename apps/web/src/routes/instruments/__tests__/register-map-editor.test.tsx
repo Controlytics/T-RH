@@ -333,12 +333,12 @@ describe('RegisterMapEditor — per-key Test (CR-1, Rulings CR1-2 / CR1-5)', () 
   });
 
   it('a 429 (30 tests a minute) has its own pill word and prints the server\'s sentence', async () => {
-    post.mockRejectedValue(Object.assign(new Error('Rate limit exceeded, retry in 1 minute'), { status: 429, code: 'Too Many Requests' }));
+    post.mockRejectedValue(Object.assign(new Error('Rate limit exceeded, retry in 59 seconds'), { status: 429, code: 'TOO_MANY_REQUESTS' }));
     render(<Harness initial={[ROW_T]} testTarget={TARGET} />);
     testKey(1);
     const line = await screen.findByTestId('map-test-0');
     expect(line).toHaveTextContent('Too many tests');
-    expect(line).toHaveTextContent('Rate limit exceeded, retry in 1 minute');
+    expect(line).toHaveTextContent('Rate limit exceeded, retry in 59 seconds');
   });
 
   it('a refused request (400) prints its message under the row', async () => {
