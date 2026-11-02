@@ -24,7 +24,7 @@ import { Link } from 'react-router-dom';
 import {
   DEFAULT_PERIOD, PERIOD_PRESETS, WIDGET_REPORT_FIELDS, WIDGET_REPORT_KIND, WIDGET_TYPE_SPECS,
   builtinReportTemplate, coerceReportTemplateDocument, widgetReportType,
-  type CustomWidget, type Placeholder, type ReportTemplateDocument,
+  type CustomWidget, type Placeholder, type ReportTemplateDocument, type ReportTemplateRow,
 } from '@digilog/shared';
 import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
 import type { WidgetReportSection } from '@/lib/widget-report';
@@ -38,11 +38,20 @@ import type { WidgetSelection } from './use-widget-data';
 import { useWidgetReportViewRegistry } from './widget-report-view';
 import { BAR_DEFAULTS } from './bar-chart-model';
 import {
-  collectWidgetReport, reportRefs, sectionRows, useWidgetReportPlan, type PlanSection, type ReportTemplateRow,
+  collectWidgetReport, reportRefs, sectionRows, useWidgetReportPlan, type PlanSection,
 } from './widget-report-data';
 
 /** The picker's value for "print with the built-in template". */
 const BUILTIN = '__builtin__';
+
+/** `POST /api/report-reviews` caps the title and the subtitle at these lengths. */
+const REQUEST_TITLE_MAX = 500;
+const REQUEST_SUBTITLE_MAX = 1000;
+
+/** At most `max` characters, an ellipsis saying where it was cut. */
+export function clampText(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+}
 
 export interface WidgetReportDialogProps {
   open: boolean;
@@ -72,13 +81,13 @@ interface ChosenSection {
 }
 
 /**
- * Whether the widget's report is ONE table (or picture) for all its
- * instruments — no row of it names a single instrument, so it cannot be split
- * by profile: the floor plan, the pie, the alarm counts, the bars of every
+ * Whether the widget's report is ONE section for all its instruments — no row
+ * of it names a single instrument, so it cannot be split by profile: the text
+ * card, the floor plan, the pie, the alarm counts, the bars of every
  * instrument combined.
  */
 export function printsOneTable(widget: CustomWidget): boolean {
-  return widget.type === 'floorplan' || widget.type === 'pie_chart' || widget.type === 'alarm_counts'
+  return widget.type === 'text_card' || widget.type === 'floorplan' || widget.type === 'pie_chart' || widget.type === 'alarm_counts'
     || (widget.type === 'bar_chart' && (widget.options.groupBy ?? BAR_DEFAULTS.groupBy) === 'all');
 }
 
@@ -132,16 +141,13 @@ function OpenWidgetReportDialog({ widget, selection, dashboardTitle, selectionLa
         document: template ? coerceReportTemplateDocument(template.document, type) : builtinReportTemplate(type),
       };
     });
-    if (type === 'text_card') {
-      // The built-in, over the selection's VISIBLE instruments (fix wave 1):
-      // they scope the approval request; [] only when the selection has none.
-      return [{
-        profileId: '', profileName: '', instrumentIds: chosen.flatMap((s) => s.instrumentIds),
-        availableIds: [], template: null, document: builtinReportTemplate(type),
-      }];
-    }
-    if (printsOneTable(widget) && chosen.length > 0) {
+    if (printsOneTable(widget)) {
+      // ONE section always (ruling T3-2): the first profile's template over the
+      // selection's VISIBLE instruments (they scope the approval request); with
+      // no instrument in view, the built-in — a text card's text and a floor
+      // plan's picture still print (review I2, m2).
       const first = chosen[0];
+      if (!first) return [{ profileId: '', profileName: '', instrumentIds: [], availableIds: [], template: null, document: builtinReportTemplate(type) }];
       return [{
         ...first,
         profileName: chosen.map((s) => s.profileName).join(', '),
@@ -190,11 +196,15 @@ function OpenWidgetReportDialog({ widget, selection, dashboardTitle, selectionLa
     const values: Partial<Record<Placeholder, string>> = {
       dashboard: dashboardTitle,
       widget: widget.title,
-      period: range ?? 'Latest',
+      // A present-state widget shows now; an alarm table follows no window but
+      // its filters (review m8).
+      period: range ?? (type === 'alarm_table' ? 'As filtered' : 'Latest'),
       from: period ? formatDateTime(period.from) : '—',
       to: period ? formatDateTime(period.to) : '—',
       date: formatDateTime(new Date().toISOString()),
-      user: user?.fullName || user?.username || '',
+      // The USERNAME, the identity the footer's "Printed By" and every
+      // signature print — one person, one name on a record (review m5).
+      user: user?.username ?? '',
       instrumentCount: String(instrumentIds.length),
       selection: widget.source.mode === 'instruments' ? 'Picked instruments' : selectionLabel,
     };
@@ -212,8 +222,10 @@ function OpenWidgetReportDialog({ widget, selection, dashboardTitle, selectionLa
       req,
       report: result.report,
       reportType: widgetReportType(type),
-      title: result.title,
-      subtitle: result.subtitle,
+      // The request schema caps them (500 / 1000): a long `{selection}` or
+      // `{profile}` must not turn a Request into a bare 400 (review m11).
+      title: clampText(result.title, REQUEST_TITLE_MAX),
+      subtitle: result.subtitle === undefined ? undefined : clampText(result.subtitle, REQUEST_SUBTITLE_MAX),
       requestMeta: {
         recordCount: result.recordCount,
         search: widget.title,
@@ -241,6 +253,7 @@ function OpenWidgetReportDialog({ widget, selection, dashboardTitle, selectionLa
           picks={picks}
           onPick={(profileId, value) => setPicks((p) => ({ ...p, [profileId]: value }))}
           loading={plan.loading}
+          oneSection={printsOneTable(widget)}
           failed={plan.error !== undefined && plan.error !== null}
           superAdmin={superAdmin}
         />
@@ -256,13 +269,15 @@ function OpenWidgetReportDialog({ widget, selection, dashboardTitle, selectionLa
  * (or the one picked), a picker when the profile has more than one template,
  * and for a SUPER_ADMIN the way to the editor.
  */
-export function WidgetReportTemplates({ type, sections, plan, picks, onPick, loading, failed, superAdmin }: {
+export function WidgetReportTemplates({ type, sections, plan, picks, onPick, loading, oneSection, failed, superAdmin }: {
   type: CustomWidget['type'];
   sections: readonly ChosenSection[];
   plan: readonly PlanSection[];
   picks: Readonly<Record<string, string>>;
   onPick: (profileId: string, value: string) => void;
   loading: boolean;
+  /** The report is one section whatever the selection holds (`printsOneTable`). */
+  oneSection: boolean;
   failed: boolean;
   superAdmin: boolean;
 }) {
@@ -270,7 +285,7 @@ export function WidgetReportTemplates({ type, sections, plan, picks, onPick, loa
     return <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">The report templates could not be loaded.</p>;
   }
   if (loading) return <p className="text-sm text-slate-500">Loading the report templates…</p>;
-  if (type !== 'text_card' && plan.length === 0) {
+  if (!oneSection && plan.length === 0) {
     return <p className="text-sm text-slate-600" data-testid="widget-report-template">No instruments in this selection — the report says so.</p>;
   }
   return (

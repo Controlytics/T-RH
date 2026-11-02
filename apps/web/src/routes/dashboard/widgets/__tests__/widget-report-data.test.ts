@@ -65,6 +65,7 @@ describe('rowsForLatestTable — one row per KEY of each instrument, every value
   const out = rowsForLatestTable(rows, [T, P, LIMIT], WORDS, fmt);
 
   it("prints a measured reading at the SERVER's decimals, raw text as received, an attribute as the server's display", () => {
+    // The device sent this one as TEXT: it stays its text (fix wave 2, C1).
     expect(out.map((r) => r['reading.value'])).toEqual(['21.5', '1013.2500000000001', '25.00']);
     // The same text the widget's cell prints (keyCell), never a second formatting.
     expect(out[0]['reading.value']).toBe(keyCell(measured('temp', 21.456), true, T, WORDS).text);
@@ -107,7 +108,7 @@ describe('rowsForLatestTable — one row per KEY of each instrument, every value
   it('a template key the widget does not show fills from the instrument cells; the widget key keeps its own text', () => {
     const cells = instrumentCells([latestRow('a', [measured('temp', 99), raw('rh', 40)])], WORDS);
     const withCells = rowsForLatestTable(rows, [T], WORDS, fmt, cells);
-    expect(withCells[0]['key:rh']).toBe('40');
+    expect(withCells[0]['key:rh']).toBe(40);
     expect(withCells[0]['key:temp']).toBe('21.5');
   });
 });
@@ -154,6 +155,47 @@ describe('fix wave 1 — a raw float prints the WIDGET\'s text, never its String
     // cells; collapsing takes the first non-blank value, so those cells must be
     // the widget's text as well.
     expect(print([T, P1])).toBe('1013.3');
+  });
+});
+
+describe('fix wave 2 (review C1) — text for anything already formatted; a NUMBER only for a raw, unjudged key with no widget decimals', () => {
+  const rowsOf = (keys: WidgetKey[], values: LatestKeyValue[]) => rowsForLatestTable([latestRow('a', values)], keys, WORDS, fmt);
+
+  it("a measured reading is the server's text, never a number a column could re-round", () => {
+    const [row] = rowsOf([T], [measured('temp', 21.456)]);
+    expect(row['reading.value']).toBe('21.5');
+    expect(row['key:temp']).toBe('21.5');
+  });
+
+  it('a fault word, an attribute display and a widget key WITH decimals are text too', () => {
+    const faulted = measured('temp', 60, { judged: { limitMin: 18, limitMax: 27, limitMinText: null, limitMaxText: null, sensorError: false, rangeError: true } });
+    expect(rowsOf([T], [faulted])[0]['reading.value']).toBe('OL');
+    expect(rowsOf([LIMIT], [attr('Temp NMT', 25, '25.00')])[0]['reading.value']).toBe('25.00');
+    expect(rowsOf([{ ...P, decimals: 1 }], [raw('p', 1013.2500000000001)])[0]['reading.value']).toBe('1013.3');
+  });
+
+  it('a raw, unjudged number with no widget decimals rides as the NUMBER — and a column\'s decimals round it', () => {
+    const [row] = rowsOf([P], [raw('p', 1013.2500000000001)]);
+    expect(row['reading.value']).toBe(1013.2500000000001);
+    expect(row['key:p']).toBe(1013.2500000000001);
+    expect(formatReportCell(row['key:p'], { id: 'key:p', heading: 'P', show: true, decimals: 1 })).toBe('1013.3');
+  });
+
+  it('PRINTED (with the builder): a measured reading is verbatim under a column with decimals 0; a raw number takes them', () => {
+    const col = { id: 'reading.value', heading: 'Value', show: true, decimals: 0 };
+    expect(formatReportCell(rowsOf([T], [measured('temp', 21.456)])[0]['reading.value'], col)).toBe('21.5');
+    expect(formatReportCell(rowsOf([P], [raw('p', 1013.2500000000001)])[0]['reading.value'], col)).toBe('1013');
+  });
+
+  it('a raw value the device sent as TEXT stays its text', () => {
+    expect(rowsOf([P], [raw('p', '21.50')])[0]['reading.value']).toBe('21.50');
+  });
+
+  it("the time series: a measured instant is the widget's text, a raw one the number", () => {
+    const byId = new Map([['a', latestRow('a', [measured('temp', 20), raw('p', 1)])]]);
+    const [row] = rowsForTimeseriesTable([{ instrumentId: 'a', ts: TS, values: { temp: 21.456, p: 0.05 } }], byId, [T], ['p'], fmt);
+    expect(row['reading.value']).toBe('21.5');
+    expect(row['key:p']).toBe(0.05);
   });
 });
 
@@ -211,7 +253,7 @@ describe('rowsForTimeseriesTable — one row per stored instant per key', () => 
     expect(out[0]).toMatchObject({
       [REPORT_ROW_GROUP]: `a@${TS}`, [REPORT_ROW_INSTRUMENT]: 'a',
       'reading.ts': `F(${TS})`, 'instrument.code': 'CODE-a', 'key.label': 'Temperature',
-      'reading.value': '21.5', 'reading.unit': '°C', 'key:temp': '21.5', 'key:rh': '40',
+      'reading.value': '21.5', 'reading.unit': '°C', 'key:temp': '21.5', 'key:rh': 40,
     });
   });
 });
@@ -230,7 +272,7 @@ describe('rowsForTrendChart — one row per drawn series, the range figures at i
     expect(rowsForTrendChart(plotted, byInstrument)[0]).toMatchObject({
       [REPORT_ROW_INSTRUMENT]: 'a', 'instrument.code': 'CODE-a', 'instrument.location': 'Dissolution Room',
       'key.label': 'Temperature', 'reading.unit': '°C',
-      'summary.min': '20.0', 'summary.max': '23.0', 'summary.avg': '21.5', 'summary.count': 3,
+      'summary.min': '20.0', 'summary.max': '23.0', 'summary.avg': '21.5', 'summary.count': '3',
     });
   });
 });
@@ -248,7 +290,7 @@ describe('rowsForBarChart — one row per bar', () => {
     expect(out[0][REPORT_ROW_INSTRUMENT]).toBeUndefined();
     expect(out[0]).toMatchObject({
       'instrument.code': 'All instruments', 'bucket.ts': 'D0 (partial)', 'series.label': 'Temperature',
-      'bucket.value': '21.50', 'reading.unit': '°C', 'bucket.readings': 10,
+      'bucket.value': '21.50', 'reading.unit': '°C', 'bucket.readings': '10',
     });
   });
 
@@ -265,8 +307,8 @@ describe('the present-state count widgets', () => {
       { key: 'OTHER', label: 'Other', count: 1, hex: '#1', merged: [{ label: 'Offline', count: 1 }] },
     ]);
     expect(out).toEqual([
-      { 'slice.label': 'In limit', 'slice.count': 3, 'slice.share': '75.0' },
-      { 'slice.label': 'Other (Offline 1)', 'slice.count': 1, 'slice.share': '25.0' },
+      { 'slice.label': 'In limit', 'slice.count': '3', 'slice.share': '75.0' },
+      { 'slice.label': 'Other (Offline 1)', 'slice.count': '1', 'slice.share': '25.0' },
     ]);
   });
 
@@ -276,7 +318,7 @@ describe('the present-state count widgets', () => {
       byType: [{ type: 'OFFLINE', active: 0, unacknowledged: 0 }],
     }, undefined);
     expect(out.map((r) => [r['count.label'], r['count.value']])).toEqual([
-      ['Active', 3], ['Unacknowledged', 6], [expect.stringContaining('Active —'), 0],
+      ['Active', '3'], ['Unacknowledged', '6'], [expect.stringContaining('Active —'), '0'],
     ]);
   });
 
@@ -384,6 +426,18 @@ describe('collectWidgetReport — the widget asked again, at confirm, for the DI
       expect.objectContaining({ label: 'CODE-a · Temperature' }), expect.objectContaining({ label: 'CODE-b · Temperature' }),
     ]);
     expect(out.image?.height).toBe(880);
+  });
+
+  it('trend chart (review I3): a series whose history request FAILED is said, never silently dropped', async () => {
+    api.post.mockImplementation(async (_u: string, body: { instrumentIds: string[] }) => latestFor(body.instrumentIds));
+    api.get.mockImplementation(async (url: string) => {
+      if (url.includes('/api/instruments/b/')) throw new Error('500');
+      return { history: [], historySampled: false, historyTotal: 0, summaries: { temp: { count: 1, numericCount: 1, min: 21, max: 21, avg: 21 } } };
+    });
+    const widget = { id: 'w', type: 'trend_chart', title: 'T', source: { mode: 'selection' }, keys: [T], options: {} } as CustomWidget;
+    const out = await collectWidgetReport(base(widget));
+    expect(out.rows.map((r) => r['instrument.code'])).toEqual(['CODE-a']);
+    expect(out.notes).toContain('Not read: CODE-b · Temperature — the request failed');
   });
 
   it('time series: every page of the period is walked, and a cut is SAID', async () => {

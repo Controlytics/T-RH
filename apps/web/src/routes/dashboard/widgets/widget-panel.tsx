@@ -16,7 +16,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FileDown } from 'lucide-react';
-import type { CustomWidget, LayoutItem, PanelStyle, WidgetType } from '@digilog/shared';
+import { WIDGET_TYPES, WIDGET_TYPE_SPECS, type CustomWidget, type LayoutItem, type PanelStyle, type WidgetType } from '@digilog/shared';
 import { useExportOptions } from '@/hooks/use-export-options';
 import { PanelCard } from '../panel-card';
 import { AlarmCountsWidget } from './alarm-counts-widget';
@@ -38,22 +38,14 @@ import type { WidgetSelection } from './use-widget-data';
 import { WidgetReportDialog } from './widget-report-dialog';
 import { WidgetReportViewProvider } from './widget-report-view';
 
-export const WIDGET_EYEBROW: Record<WidgetType, string> = {
-  value_cards: 'Value cards',
-  latest_table: 'Latest values',
-  trend_chart: 'Trend',
-  timeseries_table: 'Time series',
-  alarm_table: 'Alarms',
-  gauge: 'Gauge',
-  bar_chart: 'Bar chart',
-  comparison_bar: 'Comparison',
-  pie_chart: 'Pie',
-  alarm_counts: 'Alarm counts',
-  status_grid: 'Status grid',
-  instrument_list: 'Instruments',
-  text_card: 'Text',
-  floorplan: 'Floor plan',
-};
+/**
+ * The panel's eyebrow: what the type is CALLED — `WIDGET_TYPE_SPECS[t].label`,
+ * the one vocabulary the Add widget picker, the report kinds and the audit's
+ * reportType also use (review m13: three spellings had grown).
+ */
+export const WIDGET_EYEBROW = Object.fromEntries(
+  WIDGET_TYPES.map((t) => [t, WIDGET_TYPE_SPECS[t].label]),
+) as Record<WidgetType, string>;
 
 /**
  * The renderer for a widget's type — also the Add widget dialog's live preview.

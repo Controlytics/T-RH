@@ -39,11 +39,11 @@
  */
 import useSWR from 'swr';
 import {
-  DATA_KEYS_PER_REQUEST_MAX, WIDGET_INSTRUMENTS_MAX, WIDGET_REPORT_FIELDS, coerceReading, formatDecimals,
-  type AlarmTypeNames, type CustomWidget, type DataKeyRef, type LatestValuesRow, type ReportField,
-  type ReportTemplateDocument, type WidgetKey, type WidgetType,
+  DATA_KEYS_PER_REQUEST_MAX, REPORT_TEMPLATE_RESOLVE_IDS_MAX, WIDGET_INSTRUMENTS_MAX, WIDGET_REPORT_FIELDS, coerceReading, formatDecimals,
+  type AlarmTypeNames, type CustomWidget, type DataKeyRef, type LatestKeyValue, type LatestValuesRow, type ReportField,
+  type ReportTemplateDocument, type ReportTemplateRow, type WidgetKey, type WidgetType,
 } from '@digilog/shared';
-import type { WidgetReportRow } from '@/lib/widget-report';
+import type { WidgetReportRow, WidgetReportValue } from '@/lib/widget-report';
 import type { RasterImage } from '@/lib/svg-raster';
 import { apiClient } from '@/lib/api-client';
 import type { SensorWords } from '@/hooks/use-failure-text';
@@ -91,6 +91,27 @@ const NO_CELLS: Cells = new Map();
 
 const keyId = (k: { source: string; key: string }) => `${k.source === 'attribute' ? 'attr' : 'key'}:${k.key}`;
 
+// ── What a cell carries: text, or the one raw number ──────────────────────
+
+/**
+ * A row value is the TEXT the widget prints — the server's precision for a
+ * measured key or its fault word, the server's `display` for an attribute, a
+ * widget key's own decimals — and a template column's `decimals` never touch
+ * it (review C1: re-rounding a figure the server already formatted can hide an
+ * excursion, or state a precision never recorded). The ONE exception is a raw,
+ * unjudged telemetry NUMBER the widget sets no decimals for: nothing has
+ * formatted it, so it rides as the number, and a column's decimals may round it.
+ */
+function rawNumber(v: Pick<LatestKeyValue, 'source' | 'value' | 'judged'> | undefined, key: WidgetKey): number | null {
+  if (!v || v.source !== 'telemetry' || v.judged !== null || typeof key.decimals === 'number') return null;
+  return typeof v.value === 'number' && Number.isFinite(v.value) ? v.value : null;
+}
+
+const cellValue = (v: LatestKeyValue | undefined, key: WidgetKey, text: string): WidgetReportValue => rawNumber(v, key) ?? text;
+
+/** A count, as the widgets print every count (`groupDigits`) — text, never re-rounded. */
+const count = (n: number): string => groupDigits(n);
+
 // ── Instrument cells ───────────────────────────────────────────────────────
 
 /**
@@ -118,7 +139,7 @@ export function instrumentCells(
     for (const v of row.values) {
       if (v.value === null || v.value === undefined) continue;
       const def = widgetKeys.find((k) => k.source === v.source && k.key === v.key) ?? { source: v.source, key: v.key };
-      cells[keyId(v)] = keyCell(v, row.reporting, def, words).text;
+      cells[keyId(v)] = cellValue(v, def, keyCell(v, row.reporting, def, words).text);
     }
     out.set(row.instrumentId, cells);
   }
@@ -150,12 +171,12 @@ function latestKeyRows(
       'instrument.area': row.functionalLocationName ?? null,
       'instrument.location': row.locationAttribute ?? null,
       'key.label': key.label ?? key.key,
-      'reading.value': cell.text,
+      'reading.value': cellValue(v, key, cell.text),
       'reading.unit': cell.unit,
       'reading.status': cell.label,
       'reading.ts': v?.ts ? fmt(v.ts) : null,
       // The widget's key keeps the widget's own text (its decimals, its fault word).
-      [keyId(key)]: cell.text,
+      [keyId(key)]: cellValue(v, key, cell.text),
     };
   });
 }
@@ -188,11 +209,16 @@ export function rowsForTimeseriesTable(
   cells: Cells = NO_CELLS,
 ): WidgetReportRow[] {
   const all: WidgetKey[] = [...keys, ...extraKeys.filter((k) => !keys.some((w) => w.key === k)).map((key) => ({ source: 'telemetry' as const, key }))];
+  /** The stored value at the instant: the widget's cell text, or the one raw number (`rawNumber`). */
+  const atValue = (row: LatestValuesRow | undefined, k: WidgetKey, value: unknown): WidgetReportValue => {
+    const latest = row ? valueOf(row, k) : undefined;
+    return rawNumber({ source: 'telemetry', value, judged: latest?.judged ?? null }, k) ?? timeseriesCellText(row, k, value);
+  };
   return history.flatMap((r) => {
     const row = byId.get(r.instrumentId);
     const atInstant: WidgetReportRow = {};
     for (const k of all) {
-      if (r.values[k.key] !== undefined) atInstant[`key:${k.key}`] = timeseriesCellText(row, k, r.values[k.key]);
+      if (r.values[k.key] !== undefined) atInstant[`key:${k.key}`] = atValue(row, k, r.values[k.key]);
     }
     return keys.map((key) => {
       const value = r.values[key.key];
@@ -207,9 +233,9 @@ export function rowsForTimeseriesTable(
         'reading.ts': fmt(r.ts),
         'instrument.code': row?.code ?? null,
         'key.label': key.label ?? key.key,
-        'reading.value': timeseriesCellText(row, key, value),
+        'reading.value': atValue(row, key, value),
         'reading.unit': unit,
-        [`key:${key.key}`]: timeseriesCellText(row, key, value),
+        [`key:${key.key}`]: atValue(row, key, value),
       };
     });
   });
@@ -236,7 +262,7 @@ export function rowsForTrendChart(
       'summary.min': fixed(s?.min, d),
       'summary.max': fixed(s?.max, d),
       'summary.avg': fixed(s?.avg, d),
-      'summary.count': s ? s.count : null,
+      'summary.count': s ? count(s.count) : null,
     };
   });
 }
@@ -260,7 +286,7 @@ export function rowsForBarChart(model: BarModel, codeOf: (instrumentId: string) 
       'series.label': s.name,
       'bucket.value': formatDecimals(p.value, s.decimals),
       'reading.unit': s.unit,
-      'bucket.readings': p.readings,
+      'bucket.readings': count(p.readings),
     }];
   }));
 }
@@ -295,7 +321,7 @@ export function rowsForPieChart(slices: readonly PieSlice[]): WidgetReportRow[] 
   const total = slices.reduce((sum, s) => sum + s.count, 0);
   return slices.map((s) => ({
     'slice.label': s.merged?.length ? `${s.label} (${s.merged.map((m) => `${m.label} ${groupDigits(m.count)}`).join(', ')})` : s.label,
-    'slice.count': s.count,
+    'slice.count': count(s.count),
     'slice.share': total > 0 ? formatDecimals((s.count / total) * 100, 1) : null,
   }));
 }
@@ -304,9 +330,9 @@ export function rowsForPieChart(slices: readonly PieSlice[]): WidgetReportRow[] 
 export function rowsForAlarmCounts(data: AlarmCounts, names: AlarmTypeNames | undefined): WidgetReportRow[] {
   const q = data.quadrants;
   return [
-    { 'count.label': 'Active', 'count.value': q.activeUnack + q.activeAck },
-    { 'count.label': 'Unacknowledged', 'count.value': q.activeUnack + q.clearedUnack },
-    ...data.byType.map((t) => ({ 'count.label': `Active — ${alarmTypeLabel(t.type, names)}`, 'count.value': t.active })),
+    { 'count.label': 'Active', 'count.value': count(q.activeUnack + q.activeAck) },
+    { 'count.label': 'Unacknowledged', 'count.value': count(q.activeUnack + q.clearedUnack) },
+    ...data.byType.map((t) => ({ 'count.label': `Active — ${alarmTypeLabel(t.type, names)}`, 'count.value': count(t.active) })),
   ];
 }
 
@@ -487,7 +513,7 @@ export async function collectWidgetReport(input: CollectInput): Promise<Collecte
     const ordered = input.ids.map((id) => byId.get(id)).filter((r): r is LatestValuesRow => r !== undefined);
     // The widget's own keys only, as the widget holds them (its cells are its own text).
     const own = ordered.map((r) => ({ ...r, values: widget.keys.map((k) => valueOf(r, k)).filter((v): v is NonNullable<typeof v> => v !== undefined) }));
-    return { own, cells: instrumentCells(ordered, words, widget.keys) };
+    return { own, all: ordered, cells: instrumentCells(ordered, words, widget.keys) };
   };
 
   switch (widget.type) {
@@ -520,6 +546,10 @@ export async function collectWidgetReport(input: CollectInput): Promise<Collecte
       const historyIds = [...new Set(shown.map((p) => p.row.instrumentId))];
       const byInstrument = await fetchWidgetHistory(historyIds, telemetryKeys.map((k) => k.key), input.period);
       const { plotted, shared, unit } = trendPlot(shown, telemetryKeys, byInstrument, words);
+      // A series whose history request failed has no line and no row: SAID, never silent (review I3).
+      for (const p of shown) {
+        if (!byInstrument.has(p.row.instrumentId)) notes.push(`Not read: ${p.row.code} · ${p.key.label ?? p.key.key} — the request failed`);
+      }
       if (pairs.length > shown.length) notes.push(`Showing ${shown.length} of ${pairs.length} series, as the widget draws them.`);
       const notPlotted = plotted.reduce((n, p) => {
         const s = byInstrument.get(p.instrumentId)?.summaries[p.key];
@@ -559,7 +589,7 @@ export async function collectWidgetReport(input: CollectInput): Promise<Collecte
     }
     case 'timeseries_table': {
       if (!input.period) throw new Error('A time series report needs a period.');
-      const { own, cells } = await latest();
+      const { own, all, cells } = await latest();
       const keys = widget.keys.filter((k) => k.source === 'telemetry');
       const carriers = own.filter((r) => keys.some((k) => valueOf(r, k)?.ts != null));
       const queried = carriers.slice(0, WIDGET_INSTRUMENTS_MAX);
@@ -569,7 +599,9 @@ export async function collectWidgetReport(input: CollectInput): Promise<Collecte
       if (asked.length < wanted.length) notes.push(`Not read (more than ${DATA_KEYS_PER_REQUEST_MAX} keys in one request): ${wanted.slice(asked.length).join(', ')}.`);
       const { rows: history, total } = await fetchAllTimeseries(queried.map((r) => r.instrumentId), asked, input.period);
       if (history.length < total) notes.push(`The first ${groupDigits(history.length)} of ${groupDigits(total)} stored instants, newest first.`);
-      const byId = new Map(own.map((r) => [r.instrumentId, r]));
+      // Every value the instrument has (widget AND template keys): a template key's
+      // judgement decides whether its instant value is text or the raw number.
+      const byId = new Map(all.map((r) => [r.instrumentId, r]));
       // The instruments' attributes only: a `key:` cell of a time series row is the INSTANT's value.
       const attrs = new Map([...cells].map(([id, c]) => [id, Object.fromEntries(Object.entries(c).filter(([k]) => k.startsWith('attr:')))]));
       return { rows: rowsForTimeseriesTable(history, byId, keys, asked.slice(keys.length), fmt, attrs), image: null, notes };
@@ -656,19 +688,6 @@ export async function collectWidgetReport(input: CollectInput): Promise<Collecte
 
 // ── The plan, while the dialog is open ─────────────────────────────────────
 
-/** A row of `GET /api/report-templates` — the server's, as returned. */
-export interface ReportTemplateRow {
-  id: string;
-  profileId: string;
-  widgetType: WidgetType;
-  name: string;
-  isDefault: boolean;
-  document: unknown;
-  createdAt: string;
-  updatedAt: string;
-  updatedBy: string | null;
-}
-
 export interface PlanSection {
   profileId: string;
   profileName: string;
@@ -682,15 +701,15 @@ export interface PlanSection {
   availableIds: string[];
 }
 
-/** `/resolve` takes at most this many ids; a selection of ~320 is asked in runs and merged. */
-const RESOLVE_IDS_MAX = 200;
 
 interface ResolvedSection { profileId: string; profileName: string; instrumentIds: string[]; template: ReportTemplateRow | null }
 
 async function resolveSections(type: WidgetType, ids: readonly string[]): Promise<ResolvedSection[]> {
   const merged = new Map<string, ResolvedSection>();
-  for (let k = 0; k < ids.length; k += RESOLVE_IDS_MAX) {
-    const qs = new URLSearchParams({ widgetType: type, instrumentIds: ids.slice(k, k + RESOLVE_IDS_MAX).join(',') });
+  // The route takes at most REPORT_TEMPLATE_RESOLVE_IDS_MAX ids: a selection of
+  // ~320 is asked in runs and merged (ruling R11), never cut.
+  for (let k = 0; k < ids.length; k += REPORT_TEMPLATE_RESOLVE_IDS_MAX) {
+    const qs = new URLSearchParams({ widgetType: type, instrumentIds: ids.slice(k, k + REPORT_TEMPLATE_RESOLVE_IDS_MAX).join(',') });
     const { sections } = await apiClient.get<{ sections: ResolvedSection[] }>(`/api/report-templates/resolve?${qs.toString()}`);
     for (const s of sections ?? []) {
       const held = merged.get(s.profileId);
@@ -717,8 +736,8 @@ async function profileDetails(type: WidgetType, profileIds: readonly string[], w
  * with each profile's templates and catalogue. Every type resolves its
  * selection, a text card included (fix wave 1): the sections' instrument ids
  * are the VISIBLE instruments the widget covers, and they scope the report's
- * approval request like any other. A text card prints the built-in, so its
- * profiles' template lists and catalogues are not asked.
+ * approval request like any other. A type with no fields (text card, floor
+ * plan) asks no catalogue; its templates are asked like any other (review I2).
  */
 export function useWidgetReportPlan(widget: CustomWidget, selection: WidgetSelection): {
   ids: string[];
@@ -735,9 +754,8 @@ export function useWidgetReportPlan(widget: CustomWidget, selection: WidgetSelec
   );
   const profileIds = (resolved.data ?? []).map((s) => s.profileId);
   const fieldless = WIDGET_REPORT_FIELDS[widget.type].length === 0;
-  const pickable = widget.type !== 'text_card';
   const details = useSWR(
-    pickable && profileIds.length > 0 ? ['widget-report-templates', widget.type, profileIds.join(',')] : null,
+    profileIds.length > 0 ? ['widget-report-templates', widget.type, profileIds.join(',')] : null,
     () => profileDetails(widget.type, profileIds, !fieldless),
     { revalidateOnFocus: false },
   );
@@ -755,6 +773,6 @@ export function useWidgetReportPlan(widget: CustomWidget, selection: WidgetSelec
   const asked = wanted && ids.length > 0;
   const loading = idsLoading
     || (asked && resolved.data === undefined && !resolved.error)
-    || (pickable && profileIds.length > 0 && details.data === undefined && !details.error);
+    || (profileIds.length > 0 && details.data === undefined && !details.error);
   return { ids, sections, loading, error: idsError ?? resolved.error ?? details.error };
 }

@@ -47,6 +47,7 @@ const TOAST = { toast: { success: (...a: unknown[]) => toastSuccess(...a), warni
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => TOAST }));
 
 import { WidgetReportDialog } from '../widget-report-dialog';
+import { WidgetReportViewProvider, useWidgetReportViewRegistry } from '../widget-report-view';
 
 const PNG_1x1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 const PNG_BYTES = Uint8Array.from(atob(PNG_1x1.split(',')[1]), (c) => c.charCodeAt(0));
@@ -214,7 +215,7 @@ describe('WidgetReportDialog', () => {
     });
     const download = async () => {
       render(wrap(<WidgetReportDialog open widget={TEXT} selection={{ directOnly: false }} dashboardTitle="Dashboard" selectionLabel="QC 3" onClose={vi.fn()} />));
-      expect(await screen.findByText('Template: Built-in')).toBeInTheDocument();
+      expect(await screen.findByText(OVERVIEW.rows.length ? 'Template: Built-in (T&RH)' : 'Template: Built-in')).toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: 'Download' }));
       await waitFor(() => expect(deliver).toHaveBeenCalledTimes(1));
       return deliver.mock.calls[0][0];
@@ -232,6 +233,94 @@ describe('WidgetReportDialog', () => {
       const call = await download();
       expect(call.instrumentIds).toEqual([]);
       expect(get.mock.calls.some((c) => String(c[0]).startsWith('/api/report-templates/resolve'))).toBe(false);
+    });
+  });
+
+  describe('fix wave 2', () => {
+    const answer = (sections: unknown[], extra: (url: string) => unknown = () => ({})) => get.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/report-templates/resolve')) return { sections };
+      if (url.startsWith('/api/report-templates/catalogue')) return { fields: [] };
+      if (url.startsWith('/api/report-templates?')) return { data: [] };
+      return extra(url);
+    });
+    const textDoc = (): ReportTemplateDocument => {
+      const d = builtinReportTemplate('text_card');
+      d.header.title = 'Shift memo — {widget}';
+      d.header.subtitle = 'by {user} · {period}';
+      return d;
+    };
+    const TEXT: CustomWidget = { id: 'w-text', type: 'text_card', title: 'Shift note', source: { mode: 'selection' }, keys: [], options: { text: 'Hello' } } as CustomWidget;
+    const open2 = (widget: CustomWidget, selectionLabel = 'QC 3') => render(wrap(
+      <WidgetReportDialog open widget={widget} selection={{ directOnly: false }} dashboardTitle="Dashboard" selectionLabel={selectionLabel} onClose={vi.fn()} />,
+    ));
+    const confirm = async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Download' }));
+      await waitFor(() => expect(deliver).toHaveBeenCalledTimes(1));
+      return deliver.mock.calls[0][0];
+    };
+    beforeEach(() => {
+      for (const k of ['text_card', 'floorplan', 'alarm_table']) POLICY.policy[`widget:${k}` as 'widget:gauge'] = POLICY.policy['widget:gauge'];
+    });
+
+    it("I2 — a text card prints its FIRST profile's resolved template; m5 — {user} is the USERNAME", async () => {
+      const tpl = { ...row('t-text', 'Shift memo', textDoc(), true), widgetType: 'text_card' };
+      answer([{ profileId: 'p1', profileName: 'T&RH', instrumentIds: ['i1'], template: tpl }]);
+      open2(TEXT);
+      expect(await screen.findByText('Template: Shift memo (T&RH)')).toBeInTheDocument();
+      const call = await confirm();
+      expect(call.title).toBe('Shift memo — Shift note');
+      expect(call.subtitle).toBe('by asha · Latest');
+    });
+
+    it('m2 — a floor plan with NO visible instrument still prints its picture, in ONE section', async () => {
+      OVERVIEW.rows = [];
+      answer([]);
+      const FLOOR: CustomWidget = { id: 'w-fp', type: 'floorplan', title: 'QC floor', source: { mode: 'selection' }, keys: [], options: { planId: 'pl' } } as CustomWidget;
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 100 50');
+      const Publish = () => {
+        const reg = useWidgetReportViewRegistry();
+        reg?.publish(FLOOR.id, { floorplanSvg: () => svg });
+        return null;
+      };
+      const ui = (open: boolean) => wrap(
+        <WidgetReportViewProvider>
+          <Publish />
+          <WidgetReportDialog open={open} widget={FLOOR} selection={{ directOnly: false }} dashboardTitle="Dashboard" selectionLabel="QC" onClose={vi.fn()} />
+        </WidgetReportViewProvider>,
+      );
+      const { rerender } = render(ui(false));
+      rerender(ui(true));
+      expect(await screen.findByText('Template: Built-in')).toBeInTheDocument();
+      const call = await confirm();
+      const sections = (call.report as ReportDoc).getSnapshot().sections;
+      expect(sections.filter((s) => s.kind === 'image')).toHaveLength(1);
+      expect(JSON.stringify(sections)).not.toContain('No instruments in this selection.');
+      expect(call.instrumentIds).toEqual([]);
+    });
+
+    it('m8 — an alarm table\'s {period} says "As filtered"', async () => {
+      const doc = builtinReportTemplate('alarm_table');
+      doc.header.subtitle = '{period}';
+      answer([{ profileId: 'p1', profileName: 'T&RH', instrumentIds: ['i1'], template: { ...row('t-al', 'Alarms', doc, true), widgetType: 'alarm_table' } }],
+        (url) => (url.startsWith('/api/alarms') ? { data: [], total: 0 } : {}));
+      open2({ id: 'w-al', type: 'alarm_table', title: 'Alarms', source: { mode: 'selection' }, keys: [], options: {} } as CustomWidget);
+      await screen.findByText('Template: Alarms (T&RH)');
+      expect((await confirm()).subtitle).toBe('As filtered');
+    });
+
+    it('m11 — the title and subtitle sent with the request are clamped to 500 / 1000 characters', async () => {
+      const doc = textDoc();
+      doc.header.title = '{selection}';
+      doc.header.subtitle = '{selection} {selection}';
+      answer([{ profileId: 'p1', profileName: 'T&RH', instrumentIds: ['i1'], template: { ...row('t-long', 'Long', doc, true), widgetType: 'text_card' } }]);
+      open2(TEXT, 'x'.repeat(600));
+      await screen.findByText('Template: Long (T&RH)');
+      const call = await confirm();
+      expect(call.title).toHaveLength(500);
+      expect(call.title.endsWith('…')).toBe(true);
+      expect(call.subtitle).toHaveLength(1000);
+      expect(call.subtitle.endsWith('…')).toBe(true);
     });
   });
 

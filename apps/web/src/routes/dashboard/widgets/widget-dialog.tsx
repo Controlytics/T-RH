@@ -17,7 +17,7 @@
 import { useState, type ComponentType } from 'react';
 import {
   PERIOD_PRESETS, TEXT_CARD_MAX, WIDGET_ALARM_STATUSES, WIDGET_BAR_AGGS, WIDGET_BAR_BUCKETS, WIDGET_BAR_GROUPS, WIDGET_INSTRUMENTS_MAX,
-  WIDGET_PAGE_SIZES, WIDGET_PIE_SUBJECTS, WIDGET_TYPE_SPECS, customWidgetSchema,
+  WIDGET_PAGE_SIZES, WIDGET_PIE_SUBJECTS, WIDGET_TYPES, WIDGET_TYPE_SPECS, customWidgetSchema,
   type CustomWidget, type WidgetKey, type WidgetType,
 } from '@digilog/shared';
 import { Dialog, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -34,22 +34,27 @@ import { useKeyCatalogue, type CatalogueSelector, type WidgetSelection } from '.
 import { WidgetBody } from './widget-panel';
 
 /** In `WIDGET_TYPES` order: the picker lists every type the registry has. */
-const TYPES: { type: WidgetType; label: string; blurb: string }[] = [
-  { type: 'value_cards', label: 'Value cards', blurb: 'The latest value of each key, one card per instrument' },
-  { type: 'latest_table', label: 'Latest values table', blurb: 'A row per instrument, a column per key' },
-  { type: 'trend_chart', label: 'Trend chart', blurb: 'Each key plotted over a period' },
-  { type: 'timeseries_table', label: 'Time series table', blurb: 'Every stored reading, newest first' },
-  { type: 'alarm_table', label: 'Alarm table', blurb: 'Open and recent alarms of these instruments, with acknowledge' },
-  { type: 'gauge', label: 'Gauge', blurb: 'The latest value of each key on a dial' },
-  { type: 'bar_chart', label: 'Bar chart', blurb: 'Each key per hour, day or week over a period' },
-  { type: 'comparison_bar', label: 'Comparison bars', blurb: 'The latest value of each key, instrument beside instrument' },
-  { type: 'pie_chart', label: 'Pie chart', blurb: 'Instruments by status, or active alarms by type' },
-  { type: 'alarm_counts', label: 'Alarm counts', blurb: 'How many alarms are active and unacknowledged, by type' },
-  { type: 'status_grid', label: 'Status grid', blurb: 'One tile per instrument, in its status colour' },
-  { type: 'instrument_list', label: 'Instrument list', blurb: 'Each instrument with its area, location, status and last report' },
-  { type: 'text_card', label: 'Text card', blurb: 'A note in your own words' },
-  { type: 'floorplan', label: 'Floor plan', blurb: 'A drawn floor plan with its live readings' },
-];
+const BLURBS: Record<WidgetType, string> = {
+  value_cards: 'The latest value of each key, one card per instrument',
+  latest_table: 'A row per instrument, a column per key',
+  trend_chart: 'Each key plotted over a period',
+  timeseries_table: 'Every stored reading, newest first',
+  alarm_table: 'Open and recent alarms of these instruments, with acknowledge',
+  gauge: 'The latest value of each key on a dial',
+  bar_chart: 'Each key per hour, day or week over a period',
+  comparison_bar: 'The latest value of each key, instrument beside instrument',
+  pie_chart: 'Instruments by status, or active alarms by type',
+  alarm_counts: 'How many alarms are active and unacknowledged, by type',
+  status_grid: 'One tile per instrument, in its status colour',
+  instrument_list: 'Each instrument with its area, location, status and last report',
+  text_card: 'A note in your own words',
+  floorplan: 'A drawn floor plan with its live readings',
+};
+
+/** The label is the type's one name (`WIDGET_TYPE_SPECS[t].label`, review m13). */
+const TYPES: { type: WidgetType; label: string; blurb: string }[] = WIDGET_TYPES.map((type) => ({
+  type, label: WIDGET_TYPE_SPECS[type].label, blurb: BLURBS[type],
+}));
 
 /** What a type's option section is given. */
 export interface WidgetOptionSectionProps {
