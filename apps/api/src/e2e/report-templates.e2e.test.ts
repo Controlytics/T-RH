@@ -402,7 +402,11 @@ describe('/api/report-templates', () => {
     const two = await create({ profileId: P1, widgetType: 'alarm_counts', name: `Two ${S}`, document: builtinReportTemplate('alarm_counts') });
     expect(two.isDefault).toBe(false);
 
-    const res = await setDefault(two.id);
+    // The browser's shape (apiClient.put(url, {})): JSON content-type, an empty object.
+    const res = await app.inject({
+      method: 'PUT', url: `/api/report-templates/${two.id}/default`,
+      headers: { ...sa, 'content-type': 'application/json' }, payload: {},
+    });
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json()).toMatchObject({ id: two.id, isDefault: true });
     const rows = await list(`profileId=${P1}&widgetType=alarm_counts`);
@@ -436,7 +440,11 @@ describe('/api/report-templates', () => {
     expect(before.statusCode, before.body).toBe(200);
     expect((before.json().sections as Section[])[0].template?.id).toBe(def.id);
 
-    const res = await remove(def.id);
+    // The browser's shape (apiClient.delete(url)): JSON content-type, an empty object.
+    const res = await app.inject({
+      method: 'DELETE', url: `/api/report-templates/${def.id}`,
+      headers: { ...sa, 'content-type': 'application/json' }, payload: {},
+    });
     expect(res.statusCode, res.body).toBe(204);
     expect(res.body).toBe('');
     expect(await prisma.reportTemplate.findUnique({ where: { id: def.id } })).toBeNull();
@@ -608,6 +616,18 @@ describe('/api/report-templates', () => {
       const renamed = await put(t.id, { name: `Reauth B ${S}` }, { ...sa, 'x-reauth-password': PW });
       expect(renamed.statusCode, renamed.body).toBe(200);
       expect((renamed.json() as Row).name).toBe(`Reauth B ${S}`);
+      // The two routes with no body schema read the password from the body too.
+      const json = { ...sa, 'content-type': 'application/json' };
+      const signedDefault = await app.inject({
+        method: 'PUT', url: `/api/report-templates/${t.id}/default`, headers: json, payload: { _currentPassword: PW },
+      });
+      expect(signedDefault.statusCode, signedDefault.body).toBe(200);
+      expect((signedDefault.json() as Row).isDefault).toBe(true);
+      const signedDelete = await app.inject({
+        method: 'DELETE', url: `/api/report-templates/${t.id}`, headers: json, payload: { _currentPassword: PW },
+      });
+      expect(signedDelete.statusCode, signedDelete.body).toBe(204);
+      expect(await prisma.reportTemplate.findUnique({ where: { id: t.id } })).toBeNull();
     } finally {
       await restoreConfig('action-reauth', reauthBefore);
       reauthBefore = undefined;
