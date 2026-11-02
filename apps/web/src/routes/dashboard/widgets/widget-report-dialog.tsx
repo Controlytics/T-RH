@@ -133,7 +133,12 @@ function OpenWidgetReportDialog({ widget, selection, dashboardTitle, selectionLa
       };
     });
     if (type === 'text_card') {
-      return [{ profileId: '', profileName: '', instrumentIds: [], availableIds: [], template: null, document: builtinReportTemplate(type) }];
+      // The built-in, over the selection's VISIBLE instruments (fix wave 1):
+      // they scope the approval request; [] only when the selection has none.
+      return [{
+        profileId: '', profileName: '', instrumentIds: chosen.flatMap((s) => s.instrumentIds),
+        availableIds: [], template: null, document: builtinReportTemplate(type),
+      }];
     }
     if (printsOneTable(widget) && chosen.length > 0) {
       const first = chosen[0];

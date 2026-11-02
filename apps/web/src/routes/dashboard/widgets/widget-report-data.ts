@@ -100,13 +100,25 @@ const keyId = (k: { source: string; key: string }) => `${k.source === 'attribute
  * received, an attribute as the server's display). An absent value has no
  * cell (the builder prints `—`).
  */
-export function instrumentCells(rows: readonly LatestValuesRow[], words: SensorWords): Map<string, WidgetReportRow> {
+export function instrumentCells(
+  rows: readonly LatestValuesRow[],
+  words: SensorWords,
+  /**
+   * The WIDGET's keys: a value of one of them is printed by that key's
+   * definition (its `decimals`), exactly as the widget prints it — never as
+   * the bare float (fix wave 1: `1013.2500000000001` where the widget showed
+   * `1013.3`; a collapsed row takes the first row's cell, so these must be the
+   * widget's text too).
+   */
+  widgetKeys: readonly WidgetKey[] = [],
+): Map<string, WidgetReportRow> {
   const out = new Map<string, WidgetReportRow>();
   for (const row of rows) {
     const cells: WidgetReportRow = {};
     for (const v of row.values) {
       if (v.value === null || v.value === undefined) continue;
-      cells[keyId(v)] = keyCell(v, row.reporting, { source: v.source, key: v.key }, words).text;
+      const def = widgetKeys.find((k) => k.source === v.source && k.key === v.key) ?? { source: v.source, key: v.key };
+      cells[keyId(v)] = keyCell(v, row.reporting, def, words).text;
     }
     out.set(row.instrumentId, cells);
   }
@@ -466,7 +478,7 @@ export async function collectWidgetReport(input: CollectInput): Promise<Collecte
   const notes: string[] = [];
   const extras = input.refs.filter((r) => !widget.keys.some((k) => k.source === r.source && k.key === r.key));
   const cellsFor = async (ids: readonly string[]) => (input.refs.length
-    ? instrumentCells(await fetchLatestValuesAllKeys(ids, input.refs), words)
+    ? instrumentCells(await fetchLatestValuesAllKeys(ids, input.refs), words, widget.keys)
     : new Map<string, WidgetReportRow>());
   /** The widget's latest values in its order (`useWidgetRows`' order), and every template cell. */
   const latest = async () => {
@@ -475,7 +487,7 @@ export async function collectWidgetReport(input: CollectInput): Promise<Collecte
     const ordered = input.ids.map((id) => byId.get(id)).filter((r): r is LatestValuesRow => r !== undefined);
     // The widget's own keys only, as the widget holds them (its cells are its own text).
     const own = ordered.map((r) => ({ ...r, values: widget.keys.map((k) => valueOf(r, k)).filter((v): v is NonNullable<typeof v> => v !== undefined) }));
-    return { own, cells: instrumentCells(ordered, words) };
+    return { own, cells: instrumentCells(ordered, words, widget.keys) };
   };
 
   switch (widget.type) {
@@ -702,8 +714,11 @@ async function profileDetails(type: WidgetType, profileIds: readonly string[], w
 
 /**
  * Which template each of the widget's profiles uses — the server's answer —
- * with each profile's templates and catalogue. A text card covers no
- * instrument: its plan is empty (the dialog gives it one built-in section).
+ * with each profile's templates and catalogue. Every type resolves its
+ * selection, a text card included (fix wave 1): the sections' instrument ids
+ * are the VISIBLE instruments the widget covers, and they scope the report's
+ * approval request like any other. A text card prints the built-in, so its
+ * profiles' template lists and catalogues are not asked.
  */
 export function useWidgetReportPlan(widget: CustomWidget, selection: WidgetSelection): {
   ids: string[];
@@ -711,9 +726,8 @@ export function useWidgetReportPlan(widget: CustomWidget, selection: WidgetSelec
   loading: boolean;
   error: unknown;
 } {
-  const covers = widget.type !== 'text_card';
   const { ids, loading: idsLoading, error: idsError } = useWidgetInstrumentIds(widget.source, selection);
-  const wanted = covers && !idsLoading && !idsError;
+  const wanted = !idsLoading && !idsError;
   const resolved = useSWR<ResolvedSection[]>(
     wanted && ids.length > 0 ? ['widget-report-resolve', widget.type, ids.join(',')] : null,
     () => resolveSections(widget.type, ids),
@@ -721,8 +735,9 @@ export function useWidgetReportPlan(widget: CustomWidget, selection: WidgetSelec
   );
   const profileIds = (resolved.data ?? []).map((s) => s.profileId);
   const fieldless = WIDGET_REPORT_FIELDS[widget.type].length === 0;
+  const pickable = widget.type !== 'text_card';
   const details = useSWR(
-    profileIds.length > 0 ? ['widget-report-templates', widget.type, profileIds.join(',')] : null,
+    pickable && profileIds.length > 0 ? ['widget-report-templates', widget.type, profileIds.join(',')] : null,
     () => profileDetails(widget.type, profileIds, !fieldless),
     { revalidateOnFocus: false },
   );
@@ -738,13 +753,8 @@ export function useWidgetReportPlan(widget: CustomWidget, selection: WidgetSelec
     };
   });
   const asked = wanted && ids.length > 0;
-  const loading = covers && (idsLoading
+  const loading = idsLoading
     || (asked && resolved.data === undefined && !resolved.error)
-    || (profileIds.length > 0 && details.data === undefined && !details.error));
-  return {
-    ids: covers ? ids : [],
-    sections: covers ? sections : [],
-    loading,
-    error: covers ? idsError ?? resolved.error ?? details.error : undefined,
-  };
+    || (pickable && profileIds.length > 0 && details.data === undefined && !details.error);
+  return { ids, sections, loading, error: idsError ?? resolved.error ?? details.error };
 }

@@ -33,7 +33,7 @@ const POLICY = {
   error: undefined,
 };
 vi.mock('@/hooks/use-report-downloads', () => ({ useReportDownloads: () => POLICY }));
-const OVERVIEW = { rows: [{ instrumentId: 'i1' }], isLoading: false, error: undefined };
+const OVERVIEW: { rows: { instrumentId: string }[]; isLoading: boolean; error: unknown } = { rows: [{ instrumentId: 'i1' }], isLoading: false, error: undefined };
 const SETTINGS = { overviewRefreshMs: 0, chartRefreshMs: 0 };
 vi.mock('../../use-telemetry', async (importActual) => ({
   ...(await importActual<typeof import('../../use-telemetry')>()),
@@ -77,6 +77,7 @@ let templates = [PLANT_A];
 
 beforeEach(() => {
   templates = [PLANT_A];
+  OVERVIEW.rows = [{ instrumentId: 'i1' }];
   get.mockReset();
   post.mockReset();
   deliver.mockReset();
@@ -196,6 +197,42 @@ describe('WidgetReportDialog', () => {
     expect(tableHeads(call.report)).toHaveLength(1);
     expect(JSON.stringify(sections)).not.toContain('No records.');
     expect(call.instrumentIds).toEqual(['i1', 'i2']);
+  });
+
+  describe('fix wave 1 — a text card is scoped by its SELECTION, like any other request', () => {
+    const TEXT: CustomWidget = { id: 'w-text', type: 'text_card', title: 'Shift note', source: { mode: 'selection' }, keys: [], options: { text: 'Hello' } } as CustomWidget;
+    beforeEach(() => {
+      POLICY.policy['widget:text_card' as 'widget:gauge'] = POLICY.policy['widget:gauge'];
+      get.mockImplementation(async (url: string) => {
+        if (url.startsWith('/api/report-templates/resolve')) {
+          // The server's answer is the VISIBLE ids: an out-of-view one is dropped.
+          return { sections: [{ profileId: 'p1', profileName: 'T&RH', instrumentIds: ['i1'], template: null }] };
+        }
+        if (url.startsWith('/api/report-templates')) return { data: [], fields: [] };
+        return {};
+      });
+    });
+    const download = async () => {
+      render(wrap(<WidgetReportDialog open widget={TEXT} selection={{ directOnly: false }} dashboardTitle="Dashboard" selectionLabel="QC 3" onClose={vi.fn()} />));
+      expect(await screen.findByText('Template: Built-in')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Download' }));
+      await waitFor(() => expect(deliver).toHaveBeenCalledTimes(1));
+      return deliver.mock.calls[0][0];
+    };
+
+    it("sends the selection's instruments the server resolved as visible", async () => {
+      OVERVIEW.rows = [{ instrumentId: 'i1' }, { instrumentId: 'i-out-of-view' }];
+      const call = await download();
+      expect(call.instrumentIds).toEqual(['i1']);
+      expect(call.kind).toBe('widget:text_card');
+    });
+
+    it('sends [] only when the selection truly has no instrument', async () => {
+      OVERVIEW.rows = [];
+      const call = await download();
+      expect(call.instrumentIds).toEqual([]);
+      expect(get.mock.calls.some((c) => String(c[0]).startsWith('/api/report-templates/resolve'))).toBe(false);
+    });
   });
 
   it('says "Built-in" for a profile with no default template', async () => {

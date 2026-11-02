@@ -3,10 +3,10 @@ import {
   WIDGET_REPORT_FIELDS, builtinReportTemplate,
   type CustomWidget, type LatestKeyValue, type LatestValuesRow, type ReportTemplateDocument, type WidgetKey,
 } from '@digilog/shared';
-import { REPORT_ROW_GROUP, printedRows, type WidgetReportRow } from '@/lib/widget-report';
+import { REPORT_ROW_GROUP, formatReportCell, printedRows, type WidgetReportRow } from '@/lib/widget-report';
 import type { AlarmRow } from '@/routes/alarms/alarm-display';
 import type { OverviewRow } from '../../use-telemetry';
-import { keyCell } from '../key-value';
+import { formatKeyValue, keyCell } from '../key-value';
 import type { BarModel } from '../bar-chart-model';
 import type { TrendPlotted } from '../trend-chart-widget';
 import type { InstrumentHistory, TimeseriesRow } from '../use-widget-data';
@@ -119,6 +119,41 @@ describe('the other present-state key widgets', () => {
   });
   it('gauges leave out a key the instrument never sent, as the widget draws no ring for it', () => {
     expect(rowsForGauge(rows, [T, P], WORDS, fmt).map((r) => r['key.label'])).toEqual(['Temperature']);
+  });
+});
+
+describe('fix wave 1 — a raw float prints the WIDGET\'s text, never its String()', () => {
+  const NOISY = raw('p', 1013.2500000000001);
+  const collapsedDoc = (decimals?: number): ReportTemplateDocument => ({
+    ...builtinReportTemplate('latest_table'),
+    columns: [
+      { id: 'instrument.code', heading: 'ID', show: true },
+      { id: 'key:temp', heading: 'T', show: true },
+      { id: 'key:p', heading: 'P', show: true, ...(decimals === undefined ? {} : { decimals }) },
+    ],
+  });
+  const print = (keys: WidgetKey[], decimals?: number) => {
+    const rows = [latestRow('a', [measured('temp', 21.456), NOISY])];
+    const doc = collapsedDoc(decimals);
+    const merged = printedRows('latest_table', doc, rowsForLatestTable(rows, keys, WORDS, fmt, instrumentCells(rows, WORDS, keys)));
+    return formatReportCell(merged[0]['key:p'], doc.columns[2]);
+  };
+
+  it('a column with no decimals prints exactly what formatKeyValue prints for the widget key', () => {
+    expect(print([T, P])).toBe(formatKeyValue(NOISY, P));
+  });
+
+  it("a column's decimals: 1 prints 1013.3", () => {
+    expect(print([T, P], 1)).toBe('1013.3');
+  });
+
+  it("the widget key's own decimals: 1 — the widget shows 1013.3, so does the report, on the COLLAPSED row too", () => {
+    const P1: WidgetKey = { ...P, decimals: 1 };
+    expect(formatKeyValue(NOISY, P1)).toBe('1013.3');
+    // The instrument's first row (Temperature) carries key:p from the instrument
+    // cells; collapsing takes the first non-blank value, so those cells must be
+    // the widget's text as well.
+    expect(print([T, P1])).toBe('1013.3');
   });
 });
 
