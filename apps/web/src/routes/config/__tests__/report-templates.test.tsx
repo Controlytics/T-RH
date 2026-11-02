@@ -46,6 +46,8 @@ const TEMPERATURE: ReportField = { id: 'key:Temperature', label: 'Temperature', 
 const LOCATION_ATTR: ReportField = { id: 'attr:Location', label: 'Location', group: 'attribute', kind: 'text' };
 const CATALOGUE_VC = { fields: [...WIDGET_REPORT_FIELDS.value_cards, TEMPERATURE, LOCATION_ATTR] };
 const CATALOGUE_G = { fields: [...WIDGET_REPORT_FIELDS.gauge] };
+const CATALOGUE_PIE = { fields: [...WIDGET_REPORT_FIELDS.pie_chart, TEMPERATURE, LOCATION_ATTR] };
+const CATALOGUE_COUNTS = { fields: [...WIDGET_REPORT_FIELDS.alarm_counts, TEMPERATURE, LOCATION_ATTR] };
 
 const listKey = (p: string, t: string) => `/api/report-templates?profileId=${p}&widgetType=${t}`;
 const catalogueKey = (p: string, t: string) => `/api/report-templates/catalogue?profileId=${p}&widgetType=${t}`;
@@ -55,6 +57,9 @@ const RESPONSES: Record<string, unknown> = {
   [listKey(P1, 'gauge')]: LIST_G,
   [catalogueKey(P1, 'value_cards')]: CATALOGUE_VC,
   [catalogueKey(P1, 'gauge')]: CATALOGUE_G,
+  // The server lists the profile's keys and attributes for EVERY type (Task 2).
+  [catalogueKey(P1, 'pie_chart')]: CATALOGUE_PIE,
+  [catalogueKey(P1, 'alarm_counts')]: CATALOGUE_COUNTS,
 };
 const swrKeys: string[] = [];
 const mutateList = vi.fn(async () => undefined);
@@ -379,6 +384,33 @@ describe('Configuration → Report Templates — the editor', () => {
     title.setSelectionRange(7, 7);
     fireEvent.change(screen.getByLabelText('Insert into Title'), { target: { value: 'profile' } });
     expect(title).toHaveValue('Report {profile} readings');
+  });
+});
+
+describe('Configuration → Report Templates — ruling T2-C1', () => {
+  // A slice / a figure is never one instrument's row: its key and attribute
+  // columns could only print empty, so the editor offers the type's own fields.
+  it.each([
+    ['Pie chart', 'pie_chart', ['Category', 'Count', 'Share']],
+    ['Alarm counts', 'alarm_counts', ['Alarms', 'Count']],
+  ] as const)('%s offers only its own fields, though the catalogue lists keys and attributes', async (tab, type, own) => {
+    renderPage();
+    fireEvent.click(screen.getByRole('tab', { name: tab }));
+    fireEvent.click(screen.getByRole('button', { name: /new template/i }));
+    for (const label of own) expect(screen.getByLabelText(`Show ${label}`)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Show Temperature')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Show Location/)).not.toBeInTheDocument();
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).not.toContain('Attribute: Location');
+    // The preview is told the same: only the type's own ids are available.
+    await waitFor(() => expect(build).toHaveBeenCalled());
+    expect(build.mock.calls.at(-1)![0].sections[0].availableIds).toEqual(WIDGET_REPORT_FIELDS[type].map((f) => f.id));
+  });
+
+  it('a type that is not under the rule still offers the profile keys and attributes', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /new template/i }));
+    expect(screen.getByLabelText('Show Temperature')).toBeInTheDocument();
+    expect(screen.getByLabelText('Show Location (attribute)')).toBeInTheDocument();
   });
 });
 

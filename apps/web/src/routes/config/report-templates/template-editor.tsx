@@ -45,6 +45,22 @@ export const PLACEHOLDER_LABELS: Record<Placeholder, string> = {
 };
 
 const GROUP_WORDS: Record<ReportField['group'], string> = { builtin: 'Built-in', key: 'Key', attribute: 'Attribute' };
+
+/**
+ * Ruling T2-C1 (2026-11-02): a pie slice and an alarm-count figure are never one
+ * instrument's row, so a `key:` / `attr:` column on those reports could only
+ * ever print empty. The server's catalogue still lists the profile's keys and
+ * attributes for every type; for these two the editor offers the type's OWN
+ * fields (`WIDGET_REPORT_FIELDS`) and nothing else. A stored column outside
+ * them shows as not available — which is what it prints.
+ */
+export const TYPE_FIELDS_ONLY: readonly WidgetType[] = ['pie_chart', 'alarm_counts'];
+
+export function offeredFields(widgetType: WidgetType, served: readonly ReportField[] | undefined): readonly ReportField[] | undefined {
+  if (!served || !TYPE_FIELDS_ONLY.includes(widgetType)) return served;
+  const own = new Set(WIDGET_REPORT_FIELDS[widgetType].map((f) => f.id));
+  return served.filter((f) => own.has(f.id));
+}
 /** A column's group read off its id — for a column the catalogue no longer lists. */
 const groupOfId = (id: string): ReportField['group'] => (id.startsWith('key:') ? 'key' : id.startsWith('attr:') ? 'attribute' : 'builtin');
 
@@ -236,7 +252,10 @@ export function TemplateEditor({
   const { data: catalogue, error: catalogueError } = useSWR<{ fields: ReportField[] }>(reportTemplatesCatalogueUrl(profileId, widgetType));
   // The catalogue, or — only if it cannot be had — the shared built-ins, so the
   // editor still works; never fields derived from the profile here.
-  const fields = catalogue?.fields ?? (catalogueError ? WIDGET_REPORT_FIELDS[widgetType] : undefined);
+  const served = catalogue?.fields ?? (catalogueError ? WIDGET_REPORT_FIELDS[widgetType] : undefined);
+  // What this editor OFFERS: the catalogue, except for a type whose rows never
+  // belong to one instrument (ruling T2-C1) — there only the type's own fields.
+  const fields = useMemo(() => offeredFields(widgetType, served), [widgetType, served]);
   const [draft, setDraft] = useState<Draft>(() => draftFrom(initialName, initialDefault, initialDocument, fields));
   const [logoError, setLogoError] = useState<string | null>(null);
   const [dragFrom, setDragFrom] = useState<number | null>(null);
