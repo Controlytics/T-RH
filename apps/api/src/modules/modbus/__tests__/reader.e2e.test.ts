@@ -42,7 +42,7 @@ vi.mock('../../instruments/ingest-core.js', async (importOriginal) => {
 
 import {
   readOnce, createModbusReader, startModbusReader, pickDue, phaseFor, firstSlotAtOrAfter,
-  NOT_ANSWERING_AFTER, MAX_READS_IN_FLIGHT, type ScheduleEntry,
+  NOT_ANSWERING_AFTER, MAX_READS_IN_FLIGHT, FAILING_RETRY_SEC, type ScheduleEntry,
 } from '../reader.js';
 
 const s = Date.now();
@@ -254,14 +254,16 @@ describe('readOnce — the read the scheduler runs', () => {
     expect(await audits(i.id)).toEqual([]);
 
     await sleep(5); // distinct instants
-    expect((await readOnce(i.id, ON)).outcome).toBe('failed');
+    // `failing` is said only once the device IS "not answering" (the scheduler's
+    // back-off, final review F-5) — not on the first two misses.
+    expect(await readOnce(i.id, ON)).toEqual({ outcome: 'failed', code: 'REFUSED' });
     const st2 = (await status(i.id))!;
     expect(st2.consecutiveFailures).toBe(2);
     expect(st2.failingSince).toBeNull();
     expect(await audits(i.id)).toEqual([]);
 
     await sleep(5);
-    expect((await readOnce(i.id, ON)).outcome).toBe('failed');
+    expect(await readOnce(i.id, ON)).toEqual({ outcome: 'failed', code: 'REFUSED', failing: true });
     const st3 = (await status(i.id))!;
     expect(st3.consecutiveFailures).toBe(3);
     expect(st3.failingSince!.getTime()).toBe(firstFailure.getTime());
@@ -278,7 +280,7 @@ describe('readOnce — the read the scheduler runs', () => {
     expect(after3.failingSince).toBe(firstFailure.toISOString());
 
     await sleep(5);
-    expect((await readOnce(i.id, ON)).outcome).toBe('failed');
+    expect(await readOnce(i.id, ON)).toEqual({ outcome: 'failed', code: 'REFUSED', failing: true });
     const st4 = (await status(i.id))!;
     expect(st4.consecutiveFailures).toBe(4);
     expect(st4.failingSince!.getTime()).toBe(firstFailure.getTime());
@@ -355,7 +357,7 @@ describe('readOnce — the read the scheduler runs', () => {
     await prisma.instrument.update({ where: { id: i.id }, data: { modbusPort: sl.port } });
     ingestOutcome.next = { ok: false, code: 'WRITE_FAILED', message: 'Readings could not be stored: (test)' };
     await sleep(5);
-    expect(await readOnce(i.id, ON)).toMatchObject({ outcome: 'failed', code: 'WRITE_FAILED' });
+    expect(await readOnce(i.id, ON)).toEqual({ outcome: 'failed', code: 'WRITE_FAILED' });
     const st = (await status(i.id))!;
     expect(st.consecutiveFailures).toBe(0);
     expect(st.failureRunStartedAt).toBeNull();
@@ -404,7 +406,8 @@ describe('readOnce — the read the scheduler runs', () => {
     await prisma.instrument.update({ where: { id: i.id }, data: { modbusPort: sl.port } });
     ingestOutcome.next = { ok: false, code: 'WRITE_FAILED', message: 'Readings could not be stored: (test)' };
     await sleep(5);
-    expect(await readOnce(i.id, ON)).toMatchObject({ outcome: 'failed', code: 'WRITE_FAILED' });
+    // Still "not answering" by the status row, so the scheduler keeps backing off (F-5).
+    expect(await readOnce(i.id, ON)).toEqual({ outcome: 'failed', code: 'WRITE_FAILED', failing: true });
     const st = (await status(i.id))!;
     expect(st.failingSince!.getTime()).toBe(failing.failingSince!.getTime());
     expect(st.consecutiveFailures).toBe(NOT_ANSWERING_AFTER);
@@ -595,6 +598,64 @@ describe('the schedule — one read at a time', () => {
       await until(() => core.inFlight() === 0, 3000, 'read finished');
       expect(sl.connections()).toBe(1);
       expect((await history(i.id)).map((x) => x.key)).toEqual(SIX_KEYS);
+    } finally {
+      await core.stop();
+    }
+  });
+
+  it(`a device that is "not answering" is read every max(interval, ${FAILING_RETRY_SEC} s) until it answers; a healthy one keeps its 10 s interval (final review F-5)`, async () => {
+    // The scheduler's own seams: an injected clock stepped one second per tick
+    // (the real Reader ticks every second) and an injected read, so 7 minutes of
+    // schedule run in a few seconds with no socket. The reload reads the two
+    // instruments from the database as the real Reader does.
+    expect(FAILING_RETRY_SEC).toBe(60);
+    const failingInst = await inst('backoff-failing', await deadPort(), SIX, { profileId: profile10Id });
+    const healthyInst = await inst('backoff-healthy', await deadPort(), SIX, { profileId: profile10Id });
+    const attempts = new Map<string, number[]>([[failingInst.id, []], [healthyInst.id, []]]);
+    let answering = false;
+    let clock = Math.ceil(Date.now() / 1000) * 1000;
+    const core = createModbusReader({
+      log, allowLoopbackForTests: true, now: () => clock,
+      read: async (id) => {
+        const seen = attempts.get(id);
+        if (!seen) return { outcome: 'skipped', code: 'NOT_FOUND' }; // another suite's row
+        seen.push(clock);
+        if (id === failingInst.id && !answering) return { outcome: 'failed', code: 'NO_ANSWER', failing: true };
+        return { outcome: 'stored' };
+      },
+    });
+    const runFor = async (seconds: number) => {
+      for (let n = 0; n < seconds; n++) {
+        core.tick();
+        for (let k = 0; k < 20 && core.inFlight() > 0; k++) await new Promise((r) => setImmediate(r));
+        expect(core.inFlight()).toBe(0);
+        clock += 1000;
+      }
+    };
+    const gaps = (xs: number[]) => xs.slice(1).map((x, n) => x - xs[n]!);
+    try {
+      await core.reload();
+      expect(core.schedule().filter((e) => attempts.has(e.instrumentId)).map((e) => e.intervalSec)).toEqual([10, 10]);
+      await runFor(300);
+
+      const healthy = attempts.get(healthyInst.id)!;
+      expect(healthy.length).toBeGreaterThanOrEqual(29);
+      expect(new Set(gaps(healthy))).toEqual(new Set([10_000]));
+
+      const failing = attempts.get(failingInst.id)!;
+      // Its first read is on its 10 s slot; from then on, never two attempts within 60 s.
+      expect(failing.length).toBeGreaterThanOrEqual(4);
+      expect(failing.length).toBeLessThanOrEqual(6);
+      for (const g of gaps(failing)) expect(g).toBeGreaterThanOrEqual(60_000);
+
+      // It answers: the next (backed-off) attempt is stored, and from then on it is back on 10 s.
+      answering = true;
+      const answeredFrom = clock;
+      await runFor(120);
+      const recovered = failing.filter((t) => t >= answeredFrom);
+      expect(recovered[0]! - failing[failing.indexOf(recovered[0]!) - 1]!).toBeLessThanOrEqual(61_000);
+      expect(recovered.length).toBeGreaterThanOrEqual(7);
+      expect(new Set(gaps(recovered))).toEqual(new Set([10_000]));
     } finally {
       await core.stop();
     }

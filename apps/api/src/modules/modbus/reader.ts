@@ -31,8 +31,11 @@ import { readDevice, type ReadResult } from './protocol/index.js';
  *    devices on one interval are not read in the same second), at most
  *    `MAX_READS_IN_FLIGHT` reads at once and ONE per host:port, and an
  *    instrument whose previous read is still running skips that tick (no queue
- *    builds up). Every `RELOAD_CHECK_MS` it asks the database whether anything
- *    it reads from changed, and rebuilds the schedule only then.
+ *    builds up). A device that is "not answering" is tried only every
+ *    `max(interval, FAILING_RETRY_SEC)` until a read is stored, so dead devices
+ *    cannot hold the slots healthy ones need. Every `RELOAD_CHECK_MS` it asks
+ *    the database whether anything it reads from changed, and rebuilds the
+ *    schedule only then.
  *
  * Failures (§7.5): a failed read stores nothing. The status row counts the run
  * of failures; the THIRD in a row sets `failingSince` (= the first of them) and
@@ -64,6 +67,16 @@ export const MAX_READS_IN_FLIGHT = 16;
 export const TICK_MS = 1000;
 /** How often the Reader asks whether its inputs changed (§7.3). */
 export const RELOAD_CHECK_MS = 5000;
+/**
+ * A device that is "not answering" (`failingSince` set) is read every
+ * `max(interval, FAILING_RETRY_SEC)` seconds until it answers (final review
+ * F-5). A dead device holds a read slot for the whole connect timeout (3 s), so
+ * at the 10 s minimum about 54 of them would fill all 16 slots and healthy
+ * devices on other switches would queue behind them. The debounce needs three
+ * consecutive misses, not a full-rate stream of them; the cost is that a
+ * recovery is noticed up to a minute later.
+ */
+export const FAILING_RETRY_SEC = 60;
 
 const TRANSPORT = 'modbus';
 const READ_BY_SERVER = 'server';
@@ -79,7 +92,12 @@ export type ReaderSkipCode =
   | 'SERVER_READING_OFF' | 'NOT_FOUND' | 'NOT_TCPIP' | 'INSTRUMENT_DISABLED' | 'PROFILE_DISABLED'
   | 'NO_ADDRESS' | 'NO_REGISTER_MAP' | 'INVALID_CONFIG' | 'ADDRESS_NOT_ALLOWED' | 'STOPPED';
 
-export type ReadOnceResult = { outcome: 'stored' | 'failed' | 'skipped'; code?: string };
+/**
+ * `failing: true` (present only when true) = after this read the status row says
+ * the device is "not answering" (`failingSince` set) — what the scheduler backs
+ * off on (FAILING_RETRY_SEC). A stored read is never failing.
+ */
+export type ReadOnceResult = { outcome: 'stored' | 'failed' | 'skipped'; code?: string; failing?: true };
 
 const INSTRUMENT_SELECT = {
   id: true,
@@ -206,8 +224,8 @@ export async function readOnce(
   if (signal?.aborted) return skipped('STOPPED');
 
   if (!result.ok) {
-    await recordFailure(row, target, startedAt, result.code, result.message);
-    return { outcome: 'failed', code: result.code };
+    const failing = await recordFailure(row, target, startedAt, result.code, result.message);
+    return { outcome: 'failed', code: result.code, ...(failing ? { failing: true as const } : {}) };
   }
 
   if (result.rejected.length > 0) {
@@ -244,8 +262,8 @@ export async function readOnce(
     // failure (Ruling T9-1, departing from §7.4's "counted as a failed read").
     logger.error({ instrumentId: row.id, code: row.code, outcome: ingested.code, message: ingested.message },
       '[modbus-reader] the device answered but its readings were not stored');
-    await recordStorageFailure(row, startedAt, ingested.code, ingested.message);
-    return { outcome: 'failed', code: ingested.code };
+    const failing = await recordStorageFailure(row, startedAt, ingested.code, ingested.message);
+    return { outcome: 'failed', code: ingested.code, ...(failing ? { failing: true as const } : {}) };
   }
   await recordSuccess(row, target, startedAt);
   if (ingested.accepted === 0) {
@@ -281,8 +299,9 @@ async function lockStatus(tx: AuditTx, instrumentId: string): Promise<StatusBefo
 
 type ReadableTarget = Extract<ReadTarget, { ok: true }>;
 
-async function recordFailure(row: InstrumentRow, target: ReadableTarget, at: Date, code: string, message: string): Promise<void> {
-  await prisma.$transaction(async (tx) => {
+/** Records a failed read; true when the device is "not answering" after it. */
+async function recordFailure(row: InstrumentRow, target: ReadableTarget, at: Date, code: string, message: string): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
     const before = await lockStatus(tx, row.id);
     const failures = before.consecutiveFailures + 1;
     const runStartedAt = before.consecutiveFailures === 0 || !before.failureRunStartedAt ? at : before.failureRunStartedAt;
@@ -308,6 +327,7 @@ async function recordFailure(row: InstrumentRow, target: ReadableTarget, at: Dat
         signatureMeaning: `TCP/IP instrument "${clip(row.code)}" stopped answering the server's reads`,
       }, tx);
     }
+    return failingSince !== null;
   });
 }
 
@@ -322,10 +342,11 @@ async function recordFailure(row: InstrumentRow, target: ReadableTarget, at: Dat
  * would have written "stopped answering" across a read the device answered —
  * a false §11 row. Once it IS "not answering" (`failingSince` set) nothing
  * moves: only a STORED read ends that state and writes "answering again", and
- * no reading was stored here.
+ * no reading was stored here. Returns true when the device is still "not
+ * answering" — the scheduler keeps backing off until a stored read.
  */
-async function recordStorageFailure(row: InstrumentRow, at: Date, code: string, message: string): Promise<void> {
-  await prisma.$transaction(async (tx) => {
+async function recordStorageFailure(row: InstrumentRow, at: Date, code: string, message: string): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
     const before = await lockStatus(tx, row.id);
     await tx.modbusPollStatus.update({
       where: { instrumentId: row.id },
@@ -334,6 +355,7 @@ async function recordStorageFailure(row: InstrumentRow, at: Date, code: string, 
         ...(before.failingSince === null ? { consecutiveFailures: 0, failureRunStartedAt: null } : {}),
       },
     });
+    return before.failingSince !== null;
   });
 }
 
@@ -554,7 +576,7 @@ export function createModbusReader(opts: {
     return true;
   }
 
-  function launch(e: ScheduleEntry): void {
+  function launch(e: ScheduleEntry, startedAt: number): void {
     runningIds.add(e.instrumentId);
     runningAddresses.add(e.address);
     const holder: { p?: Promise<void> } = {};
@@ -562,6 +584,15 @@ export function createModbusReader(opts: {
       try {
         const r = await read(e.instrumentId, controller.signal);
         if (r.outcome !== 'stored') log.debug({ instrumentId: e.instrumentId, ...r }, '[modbus-reader] read');
+        if (r.failing && !stopped) {
+          // "Not answering": the next attempt is max(interval, FAILING_RETRY_SEC)
+          // after this one started (final review F-5), not the next slot — until
+          // a read is stored, after which tick() puts it back on its own grid.
+          // The entry is looked up AGAIN: a reload during the read replaced the
+          // object this closure holds.
+          const current = entries.get(e.instrumentId);
+          if (current) current.nextDueAt = Math.max(current.nextDueAt, startedAt + Math.max(current.intervalSec, FAILING_RETRY_SEC) * 1000);
+        }
       } catch (err) {
         log.error({ err, instrumentId: e.instrumentId }, '[modbus-reader] read threw — nothing was recorded for it');
       } finally {
@@ -592,7 +623,7 @@ export function createModbusReader(opts: {
       }
       for (const e of start) {
         e.nextDueAt = firstSlotAtOrAfter(t + 1, e.intervalSec, e.phaseSec);
-        launch(e);
+        launch(e, t);
       }
     },
     schedule: () => [...entries.values()].map((e) => ({ ...e })),
