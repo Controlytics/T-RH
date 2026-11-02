@@ -674,9 +674,46 @@ model InstrumentProfile {
   createdBy   String?  @map("created_by")
   updatedBy   String?  @map("updated_by")
 
-  instruments Instrument[]
+  instruments     Instrument[]
+  reportTemplates ReportTemplate[]
 
   @@map("instrument_profiles")
+}
+
+/// REPORT TEMPLATES (2026-11-02): what a dashboard widget's "Download report"
+/// prints — columns, headings, header, footer, logo, page — per instrument
+/// PROFILE per widget TYPE, any number of named templates, at most one the
+/// default. Spec docs/superpowers/specs/2026-11-02-widget-report-templates-design.md §5.
+///
+/// - `widgetType` is a validated string (`WIDGET_TYPES` in @digilog/shared), not
+///   a Postgres enum — the vocabulary grows with the widget types, no migration.
+/// - `document` is validated by `reportTemplateDocumentSchema` on write and read
+///   ONLY through `coerceReportTemplateDocument` (a corrupt one reads as the
+///   widget type's built-in).
+/// - A name is unique per (profile, widget type) IGNORING CASE. The `@@unique`
+///   below is the plain one; the case-folded unique index
+///   `report_templates_profile_type_lower_name_key` on (profile_id, widget_type,
+///   lower(name)) and the partial unique index `report_templates_one_default`
+///   on (profile_id, widget_type) WHERE is_default exist only in migration
+///   `20261102150000_report_templates` — Prisma cannot express either.
+/// - ON DELETE CASCADE from the profile: a template means nothing without it.
+///   The profile DELETE route audits each template it takes with it.
+/// - `createdBy` / `updatedBy` hold the USERNAME (the profile precedent).
+model ReportTemplate {
+  id         String            @id @default(uuid())
+  profileId  String            @map("profile_id")
+  profile    InstrumentProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  widgetType String            @map("widget_type")
+  name       String
+  isDefault  Boolean           @default(false) @map("is_default")
+  document   Json
+  createdAt  DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdBy  String?           @map("created_by")
+  updatedBy  String?           @map("updated_by")
+
+  @@unique([profileId, widgetType, name])
+  @@map("report_templates")
 }
 
 /// The measurement TYPES a profile can choose from (2026-10-26). One identity

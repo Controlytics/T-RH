@@ -55,6 +55,7 @@ class ProfileHasInstruments extends Error {
 }
 import { publishAttributeDownlink } from '../instruments/attribute-downlink.js';
 import { announceChildAttributeChange } from '../instruments/child-attributes-bundle.js';
+import { lockProfile, auditTemplatesDeletedWithProfile } from '../report-templates/service.js';
 
 /**
  * Instrument profiles — a named container for instruments.
@@ -1124,6 +1125,14 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
     // audited after, a failed audit write left a profile gone with no record.
     try {
       await prisma.$transaction(async (tx) => {
+        // REPORT TEMPLATES (2026-11-02): `report_templates` cascades from the
+        // profile, so each template the delete takes is audited here, whole,
+        // under the profile row lock every template write also takes — a
+        // template created after this list was read cannot be cascaded unaudited.
+        await lockProfile(tx as unknown as Prisma.TransactionClient, id);
+        await auditTemplatesDeletedWithProfile(tx as unknown as Prisma.TransactionClient, {
+          userId: ctx.userId, userRole: ctx.userRole, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, { id, name: row.name });
         await tx.instrumentProfile.delete({ where: { id } });
         await auditLog({
           userId: ctx.userId, userRole: ctx.userRole,

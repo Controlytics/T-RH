@@ -16,6 +16,7 @@ import superAdminRoutes from "./modules/super-admin/routes.js";
 import debugTraceRoutes from "./modules/debug-traces/routes.js";
 import ldapRoutes from "./modules/ldap/routes.js";
 import dashboardRoutes from "./modules/dashboards/routes.js";
+import reportTemplateRoutes from "./modules/report-templates/routes.js";
 import authRoutes from './modules/auth/routes.js';
 import userRoutes from './modules/users/routes.js';
 import configRoutes from './modules/config/routes.js';
@@ -389,6 +390,8 @@ await app.register(superAdminRoutes, { prefix: "/api/super-admin" });
 await app.register(debugTraceRoutes, { prefix: "/api/debug/traces" });
 await app.register(ldapRoutes, { prefix: "/api/ldap" });
 await app.register(dashboardRoutes, { prefix: "/api/dashboards" });
+// Report templates (2026-11-02): what a widget's "Download report" prints, per profile per widget type.
+await app.register(reportTemplateRoutes, { prefix: "/api/report-templates" });
 await app.register(adminRequestRoutes, { prefix: '/api/admin-requests' });
 // Floorplans + rooms. NOT under /api/dashboards — that prefix is the widget
 // dashboard module, and a second unrelated dashboard route tree there would be
