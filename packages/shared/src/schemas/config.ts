@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isModbusReadInterval } from '../types/modbus.js';
 
 /**
  * The shipped browser-tab title.
@@ -362,11 +363,18 @@ export function isInstrumentReporting(
  * instrument's since 2026-11-02, CR-1), so that is when it is expected; a
  * Gateway instrument with no interval is exempt (null). The profile is asked
  * only for its connection.
+ *
+ * A stored read interval outside `MODBUS_INTERVAL` (hand-edited — no route
+ * writes one) is NOT an expectation (CR-1 review M4): the Reader refuses it
+ * (INVALID_CONFIG) and never reads the instrument, so judging liveness by it
+ * would wait 2 x 5000 s for a reading that is never asked for, or flip a 5 s
+ * one almost at once. It falls back to the site window, as "not read" does.
  */
 export function effectiveExpectedIntervalSec(
   inst: { expectedIntervalSec: number | null; modbusIntervalSec: number | null },
   profile: { connection: string },
 ): number | null {
+  const read = inst.modbusIntervalSec;
   return inst.expectedIntervalSec
-    ?? (profile.connection === 'MODBUS_TCP' ? (inst.modbusIntervalSec ?? null) : null);
+    ?? (profile.connection === 'MODBUS_TCP' && isModbusReadInterval(read) ? read : null);
 }

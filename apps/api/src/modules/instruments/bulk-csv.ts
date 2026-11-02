@@ -20,6 +20,8 @@ export interface AttributeColumn { key: string; label: string }
  * uses. Normalised to `code` before anything else reads the header, so the rest
  * of the parser and every file operators already have keep working unchanged.
  */
+import { BULK_TCPIP_HEADINGS } from '@digilog/shared';
+
 export const INSTRUMENT_ID_HEADING = 'Instrument ID';
 const CODE_HEADINGS = new Set(['code', INSTRUMENT_ID_HEADING.toLowerCase()]);
 
@@ -140,16 +142,16 @@ export interface ParsedInstrumentCsv {
  * name still wins (an RS485 "Port" attribute is an attribute), and only an
  * unclaimed heading is read as an address column, so the plan can refuse it.
  */
-const HOST_HEADING = 'ip address';
-const PORT_HEADING = 'port';
+const HOST_HEADING = BULK_TCPIP_HEADINGS.host.toLowerCase();
+const PORT_HEADING = BULK_TCPIP_HEADINGS.port.toLowerCase();
 /**
  * The two reading columns of a TCP/IP upload (CR-1, 2026-11-02): the Modbus
  * unit ("Slave") ID and the seconds between reads. Matched exactly like the
  * address columns, with the same rule against a profile attribute of the same
  * name.
  */
-const UNIT_HEADING = 'slave id';
-const INTERVAL_HEADING = 'read every';
+const UNIT_HEADING = BULK_TCPIP_HEADINGS.unitId.toLowerCase();
+const INTERVAL_HEADING = BULK_TCPIP_HEADINGS.interval.toLowerCase();
 
 export function parseInstrumentCsv(
   text: string,

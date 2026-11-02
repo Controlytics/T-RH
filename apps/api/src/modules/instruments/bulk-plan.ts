@@ -29,7 +29,7 @@
  */
 import {
   parseOffsetValue, formatOffsetValue, SENSOR_OFFSET_VALUE_MESSAGE, modbusHostSchema, MODBUS_PORT_DEFAULT,
-  MODBUS_UNIT_ID, MODBUS_INTERVAL, MODBUS_UNIT_ID_MESSAGE, MODBUS_INTERVAL_MESSAGE,
+  MODBUS_UNIT_ID, MODBUS_INTERVAL, MODBUS_UNIT_ID_MESSAGE, MODBUS_INTERVAL_MESSAGE, BULK_TCPIP_HEADINGS,
 } from '@digilog/shared';
 import type { InstrumentDraft, RowError } from './bulk-csv.js';
 
@@ -108,11 +108,12 @@ export interface BulkPlanInput {
 
 const fold = (s: string) => s.trim().toLowerCase();
 
-const HOST_COLUMN = 'IP address';
-const PORT_COLUMN = 'Port';
+// The template's own spellings (`BULK_TCPIP_HEADINGS`, the one definition).
+const HOST_COLUMN = BULK_TCPIP_HEADINGS.host;
+const PORT_COLUMN = BULK_TCPIP_HEADINGS.port;
 const PORT_MESSAGE = 'Port must be a whole number from 1 to 65535.';
-const UNIT_COLUMN = 'Slave ID';
-const INTERVAL_COLUMN = 'Read every';
+const UNIT_COLUMN = BULK_TCPIP_HEADINGS.unitId;
+const INTERVAL_COLUMN = BULK_TCPIP_HEADINGS.interval;
 
 /** A filled cell as a whole number in [min, max], or null — digits only, as the Port cell is read. */
 function wholeCell(raw: string, min: number, max: number): number | null {

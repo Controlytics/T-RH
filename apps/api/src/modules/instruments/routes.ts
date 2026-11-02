@@ -65,7 +65,7 @@ import { publishChildRoster, clearChildRoster } from './child-roster.js';
 import { announceChildAttributeChange } from './child-attributes-bundle.js';
 import { logger } from '../../lib/logger.js';
 import { roleHasPermission } from '../../plugins/rbac.js';
-import { MODBUS_CONNECTIONS, MODBUS_UNIT_ID, MODBUS_INTERVAL, coerceModbusRegisterMap } from '@digilog/shared';
+import { MODBUS_CONNECTIONS, MODBUS_UNIT_ID, MODBUS_INTERVAL, BULK_TCPIP_HEADINGS, coerceModbusRegisterMap } from '@digilog/shared';
 import { checkModbusAddress } from '../modbus/address.js';
 import {
   connectionRefusal, missingAddressRefusal, missingReadingRefusal, hostOnlyRefusal, registerMapsEqual,
@@ -2288,7 +2288,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const plan = await planBulkFile(req, parsed.data, visibility);
     const { rows, errors, warnings } = plan;
     const ctx = buildContext(req);
-    const hostColumn = plan.addressHeadings.host ?? 'IP address';
+    const hostColumn = plan.addressHeadings.host ?? BULK_TCPIP_HEADINGS.host;
 
     // Every gate is decided ONCE, before anything is written, so a refusal
     // registers nothing and changes nothing.
@@ -3533,7 +3533,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // named only if the caller can see it). A refused row is dropped from the
     // plan and reported; the preview and the upload both come through here.
     const addressErrors: RowError[] = [];
-    const hostColumn = parsed.addressHeadings.host ?? 'IP address';
+    const hostColumn = parsed.addressHeadings.host ?? BULK_TCPIP_HEADINGS.host;
     const plans: RowPlan[] = [];
     for (const p of planned.plans) {
       const next = p.kind === 'create' && p.modbusHost

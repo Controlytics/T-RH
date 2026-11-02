@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { setMaxListeners } from 'node:events';
 import type { FastifyBaseLogger } from 'fastify';
 import type { Prisma } from '@prisma/client';
-import { coerceModbusRegisterMap, MODBUS_INTERVAL, MODBUS_UNIT_ID, type ModbusRegisterMap } from '@digilog/shared';
+import { coerceModbusRegisterMap, isModbusReadInterval, MODBUS_INTERVAL, MODBUS_UNIT_ID, type ModbusRegisterMap } from '@digilog/shared';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog, type AuditTx } from '../../lib/audit.js';
 import { logger } from '../../lib/logger.js';
@@ -132,8 +132,12 @@ const isInt = (v: unknown, min: number, max: number): v is number =>
 export const isSendableUnitId = (v: unknown): v is number => isInt(v, MODBUS_UNIT_ID.min, MODBUS_UNIT_ID.max);
 const unitIdRefusal = (v: unknown): string =>
   `The instrument's Slave ID ${String(v)} is not ${MODBUS_UNIT_ID.min} to ${MODBUS_UNIT_ID.max}.`;
-/** A STORED read interval the Reader reads at (10..3600 s) — also the status route's rule for an expected count. */
-export const isReadInterval = (v: unknown): v is number => isInt(v, MODBUS_INTERVAL.min, MODBUS_INTERVAL.max);
+/**
+ * A STORED read interval the Reader reads at (10..3600 s) — also the status
+ * route's rule for an expected count. The shared test the reporting resolver
+ * asks too (CR-1 review M4), so the three cannot disagree.
+ */
+export const isReadInterval = isModbusReadInterval;
 
 /**
  * Is this instrument read, and with what? The ONE answer to spec §7.1, used by

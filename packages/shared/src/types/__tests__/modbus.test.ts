@@ -5,6 +5,7 @@ import {
   parseModiconRef, registersFor, modbusRegisterMapSchema, coerceModbusRegisterMap,
   modbusHostSchema, parseDeviceNetworks, ipInNetworks, fromDesktopKeysFile,
   modbusUnitIdSchema, modbusIntervalSchema, MODBUS_UNIT_ID_MESSAGE, MODBUS_INTERVAL_MESSAGE,
+  isModbusReadInterval, BULK_TCPIP_HEADINGS,
 } from '../modbus.js';
 import { effectiveExpectedIntervalSec } from '../../schemas/config.js';
 import {
@@ -194,6 +195,26 @@ describe('effectiveExpectedIntervalSec', () => {
   });
   it('a TCP/IP instrument with no read interval stored (a hand-edited row) is exempt, never 0 or a default', () => {
     expect(effectiveExpectedIntervalSec({ expectedIntervalSec: null, modbusIntervalSec: null }, { connection: 'MODBUS_TCP' })).toBeNull();
+  });
+  it('a stored read interval the Reader refuses (hand-edited 5 s or 5000 s) is no expectation — the site window decides, as for "not read" (review M4)', () => {
+    for (const modbusIntervalSec of [5, 9, 3601, 5000, 0, -60, 30.5]) {
+      expect(effectiveExpectedIntervalSec({ expectedIntervalSec: null, modbusIntervalSec }, { connection: 'MODBUS_TCP' }), String(modbusIntervalSec)).toBeNull();
+    }
+    // The bounds themselves are read, so they are expected.
+    expect(effectiveExpectedIntervalSec({ expectedIntervalSec: null, modbusIntervalSec: 10 }, { connection: 'MODBUS_TCP' })).toBe(10);
+    expect(effectiveExpectedIntervalSec({ expectedIntervalSec: null, modbusIntervalSec: 3600 }, { connection: 'MODBUS_TCP' })).toBe(3600);
+    // The instrument's own expected interval still wins, as the brief wrote it.
+    expect(effectiveExpectedIntervalSec({ expectedIntervalSec: 300, modbusIntervalSec: 5000 }, { connection: 'MODBUS_TCP' })).toBe(300);
+  });
+  it('isModbusReadInterval is the one test of a stored interval (the Reader, the status route and this resolver ask it)', () => {
+    for (const ok of [10, 60, 3600]) expect(isModbusReadInterval(ok), String(ok)).toBe(true);
+    for (const bad of [9, 3601, 5000, 30.5, null, undefined, '60', NaN]) expect(isModbusReadInterval(bad), String(bad)).toBe(false);
+  });
+});
+
+describe('BULK_TCPIP_HEADINGS (review M7)', () => {
+  it('is the ONE spelling of the bulk TCP/IP columns the template prints and the parser reads', () => {
+    expect(BULK_TCPIP_HEADINGS).toEqual({ host: 'IP address', port: 'Port', unitId: 'Slave ID', interval: 'Read every' });
   });
 });
 

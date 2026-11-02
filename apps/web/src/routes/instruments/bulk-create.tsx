@@ -7,7 +7,9 @@ import { useToast } from '@/hooks/use-toast';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useAttributeLabels } from '@/hooks/use-attribute-labels';
-import { parseInstrumentAttributeKeys, ALL_RECORDS_PARAM } from '@digilog/shared';
+import {
+  parseInstrumentAttributeKeys, ALL_RECORDS_PARAM, BULK_TCPIP_HEADINGS, MODBUS_PORT_DEFAULT, MODBUS_UNIT_ID, MODBUS_INTERVAL,
+} from '@digilog/shared';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
@@ -56,8 +58,9 @@ function summary(res: BulkResult): string {
  * headed by keys (an older template) still imports.
  */
 const INSTRUMENT_ID_HEADING = 'Instrument ID';
-/** A TCP/IP profile's columns, as `bulk-plan.ts` names them. */
-const TCPIP_HEADINGS = ['IP address', 'Port', 'Slave ID', 'Read every'];
+/** A TCP/IP profile's columns — the server's own spelling, from `@digilog/shared` (CR-1 review M7). */
+const H = BULK_TCPIP_HEADINGS;
+const TCPIP_HEADINGS = [H.host, H.port, H.unitId, H.interval];
 
 function buildTemplate(attributeKeys: string[], labelFor: (key: string) => string, tcpip: boolean): string {
   // Headed as the create form labels it (operator, 2026-09-16); the importer
@@ -265,7 +268,7 @@ export function InstrumentBulkCreatePage() {
         <CardHeader><CardTitle>2. Download the template</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-slate-600">
-            Columns: Instrument ID, {tcpip && 'IP address, Port, Slave ID and Read every (seconds), '}then the attributes of the profile chosen above. A blank cell changes nothing.{tcpip && ' On a new instrument a blank Port is 502, a blank Slave ID 1 and a blank Read every 60.'}
+            Columns: Instrument ID, {tcpip && `${H.host}, ${H.port}, ${H.unitId} and ${H.interval} (seconds), `}then the attributes of the profile chosen above. A blank cell changes nothing.{tcpip && ` On a new instrument a blank ${H.port} is ${MODBUS_PORT_DEFAULT}, a blank ${H.unitId} ${MODBUS_UNIT_ID.default} and a blank ${H.interval} ${MODBUS_INTERVAL.default}.`}
           </p>
           <Button
             variant="secondary"

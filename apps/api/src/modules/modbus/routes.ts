@@ -30,8 +30,13 @@ interface TestBody {
   modbusHost: string;
   modbusPort: number;
   modbusRegisters: unknown[];
-  /** The Slave ID to read with — the form's, as the address and map are (CR-1). */
-  modbusUnitId: number;
+  /**
+   * The Slave ID to read with — the form's, as the address and map are (CR-1).
+   * Untyped in the JSON schema on purpose (review M3): with Fastify's
+   * `coerceTypes` an `integer` field turns `null` into 0 and `true` into 1, so a
+   * blank Slave ID would read unit 0. The handler judges the raw value.
+   */
+  modbusUnitId: unknown;
   instrumentId?: string | null;
 }
 
@@ -54,7 +59,7 @@ const modbusRoutes: FastifyPluginAsync<ModbusRoutesOptions> = async (app, opts) 
   app.post<{ Body: TestBody }>('/test', {
     preHandler: [app.requireAnyPermission('INSTRUMENT_CREATE', 'INSTRUMENT_UPDATE')],
     config: {
-      // 30 a minute per user (ruling CR1-8, 2026-11-02; was 10): the form has
+      // 30 a minute per user (ruling CR1-7, 2026-11-02; was 10): the form has
       // a Test button per key, and "add a key, test it" on a 12-key device
       // passed 10 inside a minute. Over it: 429 TOO_MANY_REQUESTS whose message
       // is the plugin's "Rate limit exceeded, retry in <time left>".
@@ -77,9 +82,10 @@ const modbusRoutes: FastifyPluginAsync<ModbusRoutesOptions> = async (app, opts) 
           modbusPort: { type: 'integer' },
           modbusRegisters: { type: 'array', items: { type: 'object' } },
           // The form's Slave ID (CR-1, 2026-11-02 — the instrument's own, no
-          // longer the profile's). 0..255, judged in the handler so the answer
-          // is the field's one sentence.
-          modbusUnitId: { type: 'integer', description: 'The Modbus unit (Slave) ID to read with, 0..255.' },
+          // longer the profile's). NO `type`: Ajv's coercion would turn null into
+          // 0 and true into 1 (review M3). Required here, judged in the handler —
+          // a whole number 0..255 or the field's one sentence.
+          modbusUnitId: { description: 'The Modbus unit (Slave) ID to read with: a whole number 0..255 (null, a string or a boolean is a 400).' },
           instrumentId: { type: ['string', 'null'], format: 'uuid' },
         },
       },

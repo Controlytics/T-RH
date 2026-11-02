@@ -248,11 +248,17 @@ describe('POST /api/instruments/modbus/test', () => {
     await setReading(true);
     const sl = await slave();
     const own = await user(U('unit'), ROLE); // its own user: the 30-a-minute limit
-    for (const modbusUnitId of [300, -1]) {
+    // null and true too (review M3): with a typed schema Ajv coerced them to
+    // 0 and 1 and the device was read; a string is not a Slave ID either.
+    // Every value's answer is collected, so a failure names each one let through.
+    const values = [300, -1, 1.5, null, true, '7'];
+    const answers: unknown[] = [];
+    for (const modbusUnitId of values) {
       const res = await test(own, body(sl, { modbusRegisters: ONE, modbusUnitId }));
-      expect(res.statusCode, res.body).toBe(400);
-      expect(res.json()).toMatchObject({ error: 'VALIDATION_ERROR', message: 'Slave ID must be a whole number from 0 to 255.' });
+      answers.push([JSON.stringify(modbusUnitId), res.statusCode, res.json().error, res.json().message]);
     }
+    const SENTENCE = 'Slave ID must be a whole number from 0 to 255.';
+    expect(answers).toEqual(values.map((v) => [JSON.stringify(v), 400, 'VALIDATION_ERROR', SENTENCE]));
     const { modbusUnitId: _omit, ...withoutUnit } = body(sl, { modbusRegisters: ONE });
     expect((await test(own, withoutUnit)).statusCode).toBe(400);
     await new Promise((r) => setTimeout(r, 100));
@@ -337,7 +343,7 @@ describe('POST /api/instruments/modbus/test', () => {
     expect(await prisma.instrumentTelemetryLatest.count({ where: { instrumentId: { in: ids } } })).toBe(0);
   });
 
-  it('30 calls a minute per user; the 31st is a 429 whose sentence names the wait (ruling CR1-8; runs last, own user)', async () => {
+  it('30 calls a minute per user; the 31st is a 429 whose sentence names the wait (ruling CR1-7; runs last, own user)', async () => {
     await setReading(false);
     const rl = await user(U('rl'), ROLE);
     const sl = await slave();

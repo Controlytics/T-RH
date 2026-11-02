@@ -38,6 +38,26 @@ export const modbusUnitIdSchema = z.number({ invalid_type_error: MODBUS_UNIT_ID_
   .refine(wholeIn(MODBUS_UNIT_ID.min, MODBUS_UNIT_ID.max), MODBUS_UNIT_ID_MESSAGE);
 export const modbusIntervalSchema = z.number({ invalid_type_error: MODBUS_INTERVAL_MESSAGE })
   .refine(wholeIn(MODBUS_INTERVAL.min, MODBUS_INTERVAL.max), MODBUS_INTERVAL_MESSAGE);
+/**
+ * A read interval this server reads at (whole seconds, 10..3600) — the ONE test
+ * for a STORED value: the Reader, the status route and the reporting resolver
+ * all ask it, so a hand-edited value is refused by all three or by none.
+ */
+export const isModbusReadInterval = (v: unknown): v is number =>
+  typeof v === 'number' && wholeIn(MODBUS_INTERVAL.min, MODBUS_INTERVAL.max)(v);
+
+/**
+ * The TCP/IP columns of a bulk upload, spelled as the template prints them —
+ * the ONE spelling (CR-1 review M7): the web template writes these headings and
+ * the API parser matches them (trimmed, ignoring case) and names a refused cell
+ * by them. Renaming one here renames it on both sides.
+ */
+export const BULK_TCPIP_HEADINGS = {
+  host: 'IP address',
+  port: 'Port',
+  unitId: 'Slave ID',
+  interval: 'Read every',
+} as const;
 
 export const MODBUS_MAX_KEYS = 100;
 export const MODBUS_MAX_REGISTERS_PER_REQUEST = 125;

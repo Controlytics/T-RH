@@ -10,8 +10,11 @@ import { PROFILE_READING_MOVED_MESSAGE } from '@digilog/shared';
  * never decides what a connection change is allowed to do.
  *
  * CR-1 (2026-11-02): the profile ONLY chooses the kind. The Slave ID and the
- * read interval are each instrument's (tcpip-instrument-reading.e2e.test.ts);
- * a profile body still carrying them is a 400 on the field, never ignored.
+ * read interval are each instrument's — pinned in tcpip-instruments.e2e.test.ts
+ * (create / PUT / refusals), modbus/__tests__/reader.e2e.test.ts (the read and
+ * the schedule), modbus-test-connection.e2e.test.ts (Test connection and the
+ * status route) and tcpip-bulk.e2e.test.ts (the bulk columns); a profile body
+ * still carrying them is a 400 on the field, never ignored.
  */
 
 let app: FastifyInstance;
