@@ -101,11 +101,25 @@ beforeEach(() => {
 });
 
 describe('RegisterMapEditor — the rows', () => {
-  it('shows Key, Register, Quantity, Reads, Data type, Byte order, Scale and Judged as — in that order, and no Unit column', () => {
+  it('edit: Key, Register, Quantity, Data type, Byte order, Scale — what a register reads and Judged as are captions, not columns (fix round 1: it fits)', () => {
     render(<Harness initial={[ROW_T]} />);
     const heads = screen.getAllByRole('columnheader').map((h) => h.textContent);
-    expect(heads.slice(0, 8)).toEqual(['Key', 'Register', 'Quantity', 'Reads', 'Data type', 'Byte order', 'Scale', 'Judged as']);
-    expect(heads).not.toContain('Unit');
+    expect(heads).toEqual(['Key', 'Register', 'Quantity', 'Data type', 'Byte order', 'Scale', 'Actions']);
+  });
+
+  it('read view: the same columns plus Judged as — and no Unit column', () => {
+    render(<Harness initial={[ROW_T]} readOnly />);
+    const heads = screen.getAllByRole('columnheader').map((h) => h.textContent);
+    expect(heads).toEqual(['Key', 'Register', 'Quantity', 'Data type', 'Byte order', 'Scale', 'Judged as']);
+  });
+
+  it('the read view breaks a long key after its underscores, never mid-word', () => {
+    const key = 'Differential_Pressure_Corridor_to_Room_12';
+    render(<Harness initial={[{ ...ROW_T, key }]} readOnly />);
+    const cell = screen.getByText((_, el) => el?.tagName === 'SPAN' && el.textContent === key && el.querySelector('wbr') !== null);
+    expect(cell.querySelectorAll('wbr')).toHaveLength(5);
+    expect(cell.className.split(/\s+/)).not.toContain('[overflow-wrap:anywhere]');
+    expect(Array.from(cell.children).map((c) => c.textContent)).toEqual(['Differential_', 'Pressure_', 'Corridor_', 'to_', 'Room_', '12']);
   });
 
   it('the selects carry their own width — a cell\'s min-width is ignored by Chrome', () => {
@@ -121,26 +135,28 @@ describe('RegisterMapEditor — the rows', () => {
     expect(classes('Quantity, row 1')).toContain('w-16');
   });
 
-  it('Reads names the area and the references read: two registers "40001–40002", one register "30009"', () => {
+  it('under the Register: the area and the references read — two registers "40001–40002", one register "30009"', () => {
     render(<Harness initial={[ROW_T, ROW_V]} />);
-    expect(screen.getByTestId('map-reads-0')).toHaveTextContent(/^Holding40001–40002$/);
-    expect(screen.getByTestId('map-reads-1')).toHaveTextContent(/^Input30009$/);
+    expect(screen.getByTestId('map-reads-0')).toHaveTextContent(/^Holding · 40001–40002$/);
+    expect(screen.getByTestId('map-reads-1')).toHaveTextContent(/^Input · 30009$/);
+    // A caption in the Register cell, beside its input — not a column of its own.
+    expect(screen.getByTestId('map-reads-0').closest('td')).toContainElement(screen.getByRole('textbox', { name: 'Register, row 1' }));
   });
 
-  it('Reads keeps the 6-digit form the reference was typed in', () => {
+  it('the caption keeps the 6-digit form the reference was typed in', () => {
     render(<Harness initial={[{ ...ROW_T, register: '400001' }, { ...ROW_V, register: '300010' }]} />);
-    expect(screen.getByTestId('map-reads-0')).toHaveTextContent(/^Holding400001–400002$/);
-    expect(screen.getByTestId('map-reads-1')).toHaveTextContent(/^Input300010$/);
+    expect(screen.getByTestId('map-reads-0')).toHaveTextContent(/^Holding · 400001–400002$/);
+    expect(screen.getByTestId('map-reads-1')).toHaveTextContent(/^Input · 300010$/);
   });
 
   it('a two-register key at the very end of its area: no bogus range, and the schema says why', () => {
     render(<Harness initial={[{ ...ROW_T, register: '49999' }]} />);
-    expect(screen.getByTestId('map-reads-0')).toHaveTextContent(/^Holding—$/);
+    expect(screen.getByTestId('map-reads-0')).toHaveTextContent(/^Holding · —$/);
     expect(screen.getByTestId('map-reads-0')).not.toHaveTextContent('50000');
     expect(screen.getByTestId('map-errors-0')).toHaveTextContent('runs past the end of the register area');
   });
 
-  it('a reference that is not a register: Reads "—" and the schema message under the row', () => {
+  it('a reference that is not a register: the caption is "—" and the schema message is under the row', () => {
     render(<Harness initial={[{ ...ROW_T, register: '00001' }]} />);
     expect(screen.getByTestId('map-reads-0')).toHaveTextContent(/^—$/);
     expect(screen.getByTestId('map-errors-0')).toHaveTextContent('Register "00001" must be a holding');
@@ -228,7 +244,7 @@ describe('RegisterMapEditor — Quantity (CR-1, Ruling CR1-1)', () => {
     expect(optionTexts('Data type, row 1')).toEqual(['Choose…', 'UINT16', 'INT16']);
     expect(screen.getByTestId('map-byte-order-0')).toHaveTextContent('—');
     expect(screen.queryByRole('combobox', { name: 'Byte order, row 1' })).not.toBeInTheDocument();
-    expect(screen.getByTestId('map-reads-0')).toHaveTextContent(/^Holding40001$/);
+    expect(screen.getByTestId('map-reads-0')).toHaveTextContent(/^Holding · 40001$/);
     expect(screen.getByTestId('map-errors-0')).toHaveTextContent('Data type must be one of');
   });
 
@@ -239,7 +255,7 @@ describe('RegisterMapEditor — Quantity (CR-1, Ruling CR1-1)', () => {
     expect(select('Quantity, row 1')).toHaveValue('2');
     expect(optionTexts('Data type, row 1')).toEqual(['Choose…', 'UINT32', 'INT32', 'FLOAT32']);
     expect(select('Byte order, row 1')).toHaveValue('');
-    expect(screen.getByTestId('map-reads-0')).toHaveTextContent(/^Input30009–30010$/);
+    expect(screen.getByTestId('map-reads-0')).toHaveTextContent(/^Input · 30009–30010$/);
     expect(screen.getByTestId('map-errors-0')).toHaveTextContent('Data type must be one of');
   });
 
@@ -297,13 +313,14 @@ describe('RegisterMapEditor — per-key Test (CR-1, Rulings CR1-2 / CR1-5)', () 
     });
   });
 
-  it('prints the value read and the server\'s judgement on a line under the row — not in Judged as', async () => {
+  it('prints the value read and the server\'s judgement on a line under the row — not as the row\'s Judged as', async () => {
     post.mockResolvedValue(ANSWER(22.4, 'TEMPERATURE'));
     render(<Harness initial={[ROW_T, ROW_V]} testTarget={TARGET} />);
     testKey(1);
     expect(await screen.findByTestId('map-test-0')).toHaveTextContent('Read now: 22.4 · judged as Temperature');
     expect(screen.queryByTestId('map-test-1')).not.toBeInTheDocument();
-    expect(screen.getByTestId('map-judged-0')).toHaveTextContent('—');
+    // The per-key answer does not write the judgement (Ruling CR1-5): no caption under the Key.
+    expect(screen.queryByTestId('map-judged-0')).not.toBeInTheDocument();
   });
 
   it('a key the server did not judge prints its value alone', async () => {
@@ -436,25 +453,43 @@ describe('RegisterMapEditor — per-key Test (CR-1, Rulings CR1-2 / CR1-5)', () 
 });
 
 describe('RegisterMapEditor — Judged as is the server\'s answer', () => {
-  it('is "—" for every row, a Temperature key included, until a response is passed in', () => {
-    render(<Harness initial={[ROW_T, ROW_V]} />);
+  it('read view: "—" for every row, a Temperature key included, until a response is passed in', () => {
+    render(<Harness initial={[ROW_T, ROW_V]} readOnly />);
     expect(screen.getByTestId('map-judged-0')).toHaveTextContent('—');
     expect(screen.getByTestId('map-judged-1')).toHaveTextContent('—');
   });
 
-  it('prints what the response said, and "Not judged" for a key it did not judge', () => {
+  it('read view: what the response said, and "Not judged" for a key it did not judge', () => {
     // The response — not the key's name — decides: a key named "Voltage"
     // reported as judged reads as judged, a key named "Temperature" reported
     // as not judged reads "Not judged".
-    render(<Harness initial={[ROW_T, ROW_V]} judged={{ Temperature: null, Voltage: 'HUMIDITY' }} />);
+    render(<Harness initial={[ROW_T, ROW_V]} judged={{ Temperature: null, Voltage: 'HUMIDITY' }} readOnly />);
     expect(screen.getByTestId('map-judged-0')).toHaveTextContent('Not judged');
     expect(screen.getByTestId('map-judged-1')).toHaveTextContent('Humidity');
   });
 
-  it('a key the response did not cover stays "—"', () => {
-    render(<Harness initial={[ROW_T, ROW_V]} judged={{ Temperature: 'TEMPERATURE' }} />);
+  it('read view: a key the response did not cover stays "—"', () => {
+    render(<Harness initial={[ROW_T, ROW_V]} judged={{ Temperature: 'TEMPERATURE' }} readOnly />);
     expect(screen.getByTestId('map-judged-0')).toHaveTextContent('Temperature');
     expect(screen.getByTestId('map-judged-1')).toHaveTextContent('—');
+  });
+
+  it('edit: no caption until a response, a Temperature key included', () => {
+    render(<Harness initial={[ROW_T, ROW_V]} />);
+    expect(screen.queryByTestId('map-judged-0')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('map-judged-1')).not.toBeInTheDocument();
+  });
+
+  it('edit: "Judged as …" under the Key exactly when the response judged it — the response decides, not the name', () => {
+    render(<Harness initial={[ROW_T, ROW_V]} judged={{ Temperature: null, Voltage: 'HUMIDITY' }} />);
+    expect(screen.queryByTestId('map-judged-0')).not.toBeInTheDocument();
+    expect(screen.getByTestId('map-judged-1')).toHaveTextContent(/^Judged as Humidity$/);
+    expect(screen.getByTestId('map-judged-1').closest('td')).toContainElement(screen.getByRole('textbox', { name: 'Key, row 2' }));
+  });
+
+  it('edit: the lookup trims the key as the server does', () => {
+    render(<Harness initial={[{ ...ROW_T, key: ' Temperature ' }]} judged={{ Temperature: 'TEMPERATURE' }} />);
+    expect(screen.getByTestId('map-judged-0')).toHaveTextContent(/^Judged as Temperature$/);
   });
 });
 
@@ -525,7 +560,7 @@ describe('RegisterMapEditor — read only', () => {
     expect(screen.queryAllByRole('button')).toHaveLength(0);
     expect(screen.queryByLabelText('Import keys file')).not.toBeInTheDocument();
     expect(screen.getByText('Temperature')).toBeInTheDocument();
-    expect(screen.getByTestId('map-reads-1')).toHaveTextContent(/^Input30009$/);
+    expect(screen.getByTestId('map-reads-1')).toHaveTextContent(/^Input · 30009$/);
   });
 
   it('prints the Quantity, and the byte order by its name', () => {

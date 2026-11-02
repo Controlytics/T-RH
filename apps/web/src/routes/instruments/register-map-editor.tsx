@@ -22,10 +22,10 @@ import {
 export type { JudgedAs } from './modbus-test';
 
 /**
- * Cell padding: nine columns of inputs have to fit a form card, so the table
- * is tighter than the shared default.
+ * Cell padding: a row of inputs has to fit a form card, so the table is
+ * tighter than the shared default.
  */
-const PAD = 'px-2 py-2';
+const PAD = 'px-1.5 py-2';
 
 /**
  * Column widths sit on the CONTROLS, never on the cells: Chrome ignores
@@ -38,20 +38,25 @@ const PAD = 'px-2 py-2';
  * the column is one width and no label is clipped.
  */
 const W = {
-  key: 'min-w-[9rem]',
+  key: 'min-w-[8rem]',
   register: 'w-24',
   quantity: 'w-16',
   dataType: 'min-w-[7rem]',
   byteOrder: 'w-auto',
-  scale: 'w-24',
+  scale: 'w-20',
 } as const;
 
+/** The small line under a Key or Register control: what the reference reads, what the server judged. */
+const CAPTION = 'mt-0.5 block text-[0.6875rem] leading-tight text-slate-500';
+
 /**
- * Nine columns do not fit a 1240 px window with the sidebar open — the table
- * scrolls sideways inside its card (render check, CR-1). The actions column
- * (Test, Remove) is pinned to the right edge so it is never what scrolled out
- * of sight: a sticky cell needs an OPAQUE background, so the head cell takes the
- * band's solid end colour (the Alarms page's rule) and a body cell its row's.
+ * EVERY column fits a 1240 px window with the sidebar open, in edit too (CR-1
+ * fix round 1, render check): what the reference reads is a caption under the
+ * Register, and in edit the server's judgement is a caption under the Key, so
+ * no column of their own. The actions column (Test, Remove) stays pinned to
+ * the right edge in case a narrower window does scroll: a sticky cell needs an
+ * OPAQUE background, so the head cell takes the band's solid end colour (the
+ * Alarms page's rule) and a body cell its row's.
  */
 const STICKY = 'sticky right-0 shadow-[-8px_0_8px_-8px_rgba(15,23,42,0.18)]';
 
@@ -67,8 +72,10 @@ const isDataType = (t: string): t is ModbusDataType => (MODBUS_DATA_TYPES as rea
 
 /**
  * The register map of a TCP/IP (Modbus) instrument (spec §6, §12, §18 CR-1):
- * one row per key this server reads from the device — Key, Register, Quantity,
- * Reads, Data type, Byte order (two registers only), Scale, Judged as. No Unit
+ * one row per key this server reads from the device — Key, Register (and under
+ * it the area and references it reads), Quantity, Data type, Byte order (two
+ * registers only), Scale, and Judged as (a column in the read view, a caption
+ * under the Key in edit — fix round 1, so the edit table fits). No Unit
  * column (spec §6.1 ruling): a raw key's unit is set where it is shown, a
  * measured key's comes from its measurement.
  *
@@ -77,11 +84,11 @@ const isDataType = (t: string): t is ModbusDataType => (MODBUS_DATA_TYPES as rea
  * runs, so the words under a row are the words a 400 would carry. Quantity is
  * NOT stored (Ruling CR1-1): it is `registersFor` of the row's type, and only
  * while a changed Quantity has left the type unchosen is it held here, per row,
- * beside the map. Reads (area and the references read) is a pure parse of the
- * reference (`registerRange`). **Judged as is never decided here**: it is the
- * `judged` prop, the whole-map Test connection's `judgedAs`, and "—" for a key
- * no response covered (root CLAUDE.md "Never reconstruct server-side decision
- * logic").
+ * beside the map. What a row reads (area and references) is a pure parse of
+ * the reference (`registerRange`). **Judged as is never decided here**: it is
+ * the `judged` prop, the whole-map Test connection's `judgedAs` — "—" in the
+ * read view for a key no response covered, no caption in edit — (root
+ * CLAUDE.md "Never reconstruct server-side decision logic").
  *
  * With a `testTarget`, every row has a Test button (Ruling CR1-2): the same
  * `POST /api/instruments/modbus/test` with a ONE-key map, its answer printed on
@@ -240,7 +247,8 @@ export function RegisterMapEditor({
 
   const targetBlocked = testTarget ? targetProblem(testTarget) : null;
   const actions = !readOnly || testTarget !== undefined;
-  const columns = 8 + (actions ? 1 : 0);
+  const headings = ['Key', 'Register', 'Quantity', 'Data type', 'Byte order', 'Scale', ...(readOnly ? ['Judged as'] : [])];
+  const columns = headings.length + (actions ? 1 : 0);
 
   return (
     <div className="space-y-3">
@@ -281,7 +289,7 @@ export function RegisterMapEditor({
       <Table>
         <TableHeader>
           <TableRow>
-            {['Key', 'Register', 'Quantity', 'Reads', 'Data type', 'Byte order', 'Scale', 'Judged as'].map((h) => (
+            {headings.map((h) => (
               <TableHead key={h} className={cn(PAD, 'whitespace-nowrap')}>{h}</TableHead>
             ))}
             {actions && (
@@ -302,19 +310,25 @@ export function RegisterMapEditor({
             const reads = readsOf(row.register, typed ? row.dataType : MODBUS_QUANTITY_TYPES[q][0]!);
             const answer = answers[rk];
             const shown = answer && answer.signature === signatureOf(row) ? answer.outcome : null;
+            const judgedCaption = readOnly ? null : judgedWord(judgedOf(judged, row.key) ?? null);
             const testBlocked = targetBlocked
               ?? (rowIssues && rowIssues.length > 0 ? 'Fix this row first — see the message under it.' : null);
             return (
               <MapRow key={rk} errors={rowIssues} answer={shown} columns={columns} index={i}>
                 <TableCell className={PAD}>
-                  {/* A long key wraps (anywhere — keys have no spaces) rather than widening the table. */}
-                  {readOnly ? <span className="font-medium text-slate-800 [overflow-wrap:anywhere]">{row.key}</span> : (
-                    <Input
-                      aria-label={`Key, row ${n}`}
-                      className={W.key}
-                      value={row.key}
-                      onChange={(e) => setRow(i, { ...row, key: e.target.value })}
-                    />
+                  {/* A long key wraps after its underscores rather than widening the table. */}
+                  {readOnly ? <span className="font-medium text-slate-800 break-words">{softBreaks(row.key)}</span> : (
+                    <>
+                      <Input
+                        aria-label={`Key, row ${n}`}
+                        className={W.key}
+                        value={row.key}
+                        onChange={(e) => setRow(i, { ...row, key: e.target.value })}
+                      />
+                      {judgedCaption && (
+                        <span data-testid={`map-judged-${i}`} className={CAPTION}>Judged as {judgedCaption}</span>
+                      )}
+                    </>
                   )}
                 </TableCell>
                 <TableCell className={PAD}>
@@ -327,6 +341,10 @@ export function RegisterMapEditor({
                       onChange={(e) => setRow(i, { ...row, register: e.target.value.trim() })}
                     />
                   )}
+                  {/* What it reads; may wrap after the "·" so it never widens the column. */}
+                  <span data-testid={`map-reads-${i}`} className={CAPTION}>
+                    {reads ? <>{reads.area} · <span className="whitespace-nowrap tabular-nums">{reads.range}</span></> : '—'}
+                  </span>
                 </TableCell>
                 <TableCell data-testid={`map-quantity-${i}`} className={PAD}>
                   {readOnly ? <span className="tabular-nums">{q}</span> : (
@@ -340,14 +358,6 @@ export function RegisterMapEditor({
                       <option value="2">2</option>
                     </Select>
                   )}
-                </TableCell>
-                <TableCell data-testid={`map-reads-${i}`} className={cn(PAD, 'whitespace-nowrap text-slate-600')}>
-                  {reads ? (
-                    <>
-                      <span className="block text-xs text-slate-500">{reads.area}</span>
-                      <span className="block text-sm tabular-nums">{reads.range}</span>
-                    </>
-                  ) : '—'}
                 </TableCell>
                 <TableCell className={PAD}>
                   {readOnly ? row.dataType : (
@@ -387,7 +397,9 @@ export function RegisterMapEditor({
                     />
                   )}
                 </TableCell>
-                <TableCell data-testid={`map-judged-${i}`} className={cn(PAD, 'whitespace-nowrap')}>{judgedText(judged, row.key)}</TableCell>
+                {readOnly && (
+                  <TableCell data-testid={`map-judged-${i}`} className={cn(PAD, 'whitespace-nowrap')}>{judgedText(judged, row.key)}</TableCell>
+                )}
                 {actions && (
                   <TableCell className={cn(PAD, STICKY, 'whitespace-nowrap bg-inherit text-right')}>
                     {testTarget && (
@@ -540,14 +552,32 @@ function readsOf(ref: string, dataType: ModbusDataType): { area: string; range: 
 }
 
 /**
- * The response's word for a key: the server parses the map with a schema that
- * TRIMS keys, so the lookup does too. Absent = no response covered it ("—");
- * `null` = covered and not judged.
+ * The response's answer for a key: the server parses the map with a schema
+ * that TRIMS keys, so the lookup does too. `undefined` = no response covered
+ * it; `null` = covered and not judged.
  */
-function judgedText(judged: Record<string, JudgedAs> | undefined, key: string): string {
+function judgedOf(judged: Record<string, JudgedAs> | undefined, key: string): JudgedAs | undefined {
   const k = key.trim();
-  if (!judged || !Object.prototype.hasOwnProperty.call(judged, k)) return '—';
-  return judgedWord(judged[k] ?? null) ?? 'Not judged';
+  if (!judged || !Object.prototype.hasOwnProperty.call(judged, k)) return undefined;
+  return judged[k] ?? null;
+}
+
+/** The read view's Judged as cell: "—" when no response covered the key. */
+function judgedText(judged: Record<string, JudgedAs> | undefined, key: string): string {
+  const j = judgedOf(judged, key);
+  return j === undefined ? '—' : judgedWord(j) ?? 'Not judged';
+}
+
+/**
+ * A key with a line-break opportunity after each underscore, so
+ * `Differential_Pressure_Corridor_to_Room_12` wraps between its words, never
+ * mid-word. The text (and so its copy, search and accessible name) is unchanged.
+ */
+function softBreaks(key: string): React.ReactNode {
+  const parts = key.split('_');
+  return parts.map((p, i) => (i < parts.length - 1
+    ? <span key={i}>{p}_<wbr /></span>
+    : <span key={i}>{p}</span>));
 }
 
 /** "" is no scale (NaN — the schema says "Scale must be a number"), never 0. */

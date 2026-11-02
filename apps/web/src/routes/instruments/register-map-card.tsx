@@ -45,7 +45,7 @@ export function RegisterMapCard({
     <div className="space-y-3" data-testid="register-map-card">
       {editing ? (
         <>
-          <RegisterMapEditor value={draft} onChange={setDraft} testTarget={testTarget} />
+          <RegisterMapEditor value={draft} onChange={setDraft} judged={judged} testTarget={testTarget} />
           <div className="flex justify-end gap-2">
             <Button variant="secondary" size="sm" onClick={() => setEditing(false)}>Cancel</Button>
             <Button size="sm" disabled={!valid} onClick={() => setReasonOpen(true)}>Save</Button>

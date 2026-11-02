@@ -98,7 +98,7 @@ describe('TestConnectionPanel — the request', () => {
   it('cannot test a map the shared schema refuses (a row whose data type was cleared)', () => {
     renderPanel({ map: [{ ...MAP[0]!, dataType: '' as never }] });
     expect(screen.getByRole('button', { name: 'Test connection' })).toBeDisabled();
-    expect(screen.getByText('Fix the register map rows marked, to test.')).toBeInTheDocument();
+    expect(screen.getByText('Fix the marked register map rows to test.')).toBeInTheDocument();
     expect(post).not.toHaveBeenCalled();
   });
 });

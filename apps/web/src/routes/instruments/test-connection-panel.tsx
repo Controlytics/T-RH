@@ -60,7 +60,7 @@ export function TestConnectionPanel({
 
   const problem = targetProblem({ host, port, unitId })
     ?? (map.length === 0 ? 'Add at least one key to test.' : null)
-    ?? (modbusRegisterMapSchema.safeParse(map).success ? null : 'Fix the register map rows marked, to test.');
+    ?? (modbusRegisterMapSchema.safeParse(map).success ? null : 'Fix the marked register map rows to test.');
   const ready = problem === null;
 
   const run = async () => {

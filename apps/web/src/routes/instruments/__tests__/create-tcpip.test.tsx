@@ -158,11 +158,15 @@ describe('New Instrument — a TCP/IP profile', () => {
 });
 
 describe('New Instrument — Judged as is the Test-connection response', () => {
-  it('reads "—" until a response arrives, then exactly what the response said', async () => {
+  it('no "Judged as" caption until a response, then exactly what the response said', async () => {
     post.mockImplementation((url: string) => url === '/api/instruments/modbus/test'
-      // A key NAMED Temperature that the server did not judge: the column
-      // must say so — no browser lookup of measurement names.
-      ? Promise.resolve({ ok: true, elapsedMs: 40, requests: 1, values: [{ key: 'Temperature', value: 22.4, judgedAs: null }], rejected: [] })
+      // A key NAMED Temperature that the server did not judge: no caption —
+      // no browser lookup of measurement names. A key named Pressure that it
+      // DID judge gets one.
+      ? Promise.resolve({
+        ok: true, elapsedMs: 40, requests: 1, rejected: [],
+        values: [{ key: 'Temperature', value: 22.4, judgedAs: null }, { key: 'Pressure', value: 21.9, judgedAs: 'TEMPERATURE' }],
+      })
       : Promise.resolve(CREATED_TCPIP));
     renderAt('/instruments/new?profileId=t-1');
     fireEvent.click(screen.getByRole('button', { name: '+ Add key' }));
@@ -170,12 +174,21 @@ describe('New Instrument — Judged as is the Test-connection response', () => {
     typeInto('Register, row 1', '40001');
     fireEvent.change(screen.getByRole('combobox', { name: 'Byte order, row 1' }), { target: { value: 'ABCD' } });
     typeInto(/ip address/i, '192.168.1.24');
-    expect(screen.getByTestId('map-judged-0')).toHaveTextContent('—');
+    fireEvent.click(screen.getByRole('button', { name: '+ Add key' }));
+    typeInto('Key, row 2', 'Pressure');
+    typeInto('Register, row 2', '40003');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Byte order, row 2' }), { target: { value: 'ABCD' } });
+    expect(screen.queryByTestId('map-judged-0')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('map-judged-1')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Test connection' }));
-    await waitFor(() => expect(screen.getByTestId('map-judged-0')).toHaveTextContent('Not judged'));
+    await waitFor(() => expect(screen.getByTestId('map-judged-1')).toHaveTextContent(/^Judged as Temperature$/));
+    expect(screen.queryByTestId('map-judged-0')).not.toBeInTheDocument();
     expect(post).toHaveBeenCalledWith('/api/instruments/modbus/test', {
       profileId: 't-1', modbusHost: '192.168.1.24', modbusPort: 502, modbusUnitId: 1,
-      modbusRegisters: [{ key: 'Temperature', register: '40001', dataType: 'FLOAT32', byteOrder: 'ABCD', scale: 1 }],
+      modbusRegisters: [
+        { key: 'Temperature', register: '40001', dataType: 'FLOAT32', byteOrder: 'ABCD', scale: 1 },
+        { key: 'Pressure', register: '40003', dataType: 'FLOAT32', byteOrder: 'ABCD', scale: 1 },
+      ],
     });
   });
 
