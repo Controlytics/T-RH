@@ -44,9 +44,11 @@ import { readDevice, type ReadResult } from './protocol/index.js';
  * Only the DEVICE's failures count (ledger Ruling T9-1). When the device
  * answered but this server could not store the readings (`ingestPayload` not
  * ok — WRITE_FAILED and the like) that is a server fault: logged at ERROR and
- * recorded as the status row's last error, but it neither advances nor resets
- * the run of device failures and never writes a transition row — "stopped
+ * recorded as the status row's last error, never a transition row — "stopped
  * answering" would be a false §11 statement about a device that did answer.
+ * Because it DID answer, it resets a run of device failures that has not yet
+ * reached "not answering" (final review F-4, overturning Ruling T9-3); once
+ * the device is "not answering", only a stored read ends that.
  *
  * `stop()` is the only path that abandons a read: it aborts the socket, and a
  * read that finishes after the abort writes nothing — no telemetry, no status,
@@ -311,16 +313,26 @@ async function recordFailure(row: InstrumentRow, target: ReadableTarget, at: Dat
 
 /**
  * The device answered and this server could not store its readings (Ruling
- * T9-1): the attempt and the error are recorded, and nothing else moves — not
- * the failure count, not the run's start, not `failingSince` — and no audit
- * row is written. A run of DEVICE failures is neither advanced nor broken by it.
+ * T9-1): the attempt and the error are recorded and no audit row is written —
+ * it is not a device failure, so it never advances the run of failures.
+ *
+ * It BREAKS that run (final review F-4, overturning Ruling T9-3): the device
+ * answered, so while it is not yet "not answering" the count and the run's
+ * start go back to zero. Left alone, miss · miss · storage failure · miss
+ * would have written "stopped answering" across a read the device answered —
+ * a false §11 row. Once it IS "not answering" (`failingSince` set) nothing
+ * moves: only a STORED read ends that state and writes "answering again", and
+ * no reading was stored here.
  */
 async function recordStorageFailure(row: InstrumentRow, at: Date, code: string, message: string): Promise<void> {
   await prisma.$transaction(async (tx) => {
-    await lockStatus(tx, row.id);
+    const before = await lockStatus(tx, row.id);
     await tx.modbusPollStatus.update({
       where: { instrumentId: row.id },
-      data: { readBy: READ_BY_SERVER, lastAttemptAt: at, lastErrorCode: code, lastErrorMessage: message, lastErrorAt: at },
+      data: {
+        readBy: READ_BY_SERVER, lastAttemptAt: at, lastErrorCode: code, lastErrorMessage: message, lastErrorAt: at,
+        ...(before.failingSince === null ? { consecutiveFailures: 0, failureRunStartedAt: null } : {}),
+      },
     });
   });
 }

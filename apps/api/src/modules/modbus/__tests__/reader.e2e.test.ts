@@ -341,38 +341,84 @@ describe('readOnce — the read the scheduler runs', () => {
     }
   });
 
-  it('a mixed run — two device misses then a storage failure — does NOT transition, and the storage failure neither advances nor breaks the run', async () => {
+  it('a mixed run — miss, miss, a storage failure, miss — does NOT transition: the device answered, so the run starts again (final review F-4, overturning T9-3)', async () => {
     const sl = await slave(); // live first, so the dead port cannot be the live one
     const dead = await deadPort();
     const i = await inst('mixed', dead);
 
     expect((await readOnce(i.id, ON)).code).toBe('REFUSED');
-    const firstFailure = (await status(i.id))!.lastAttemptAt!;
     await sleep(5);
     expect((await readOnce(i.id, ON)).code).toBe('REFUSED');
     expect((await status(i.id))!.consecutiveFailures).toBe(2);
 
-    // The device answers; this server cannot store it.
+    // The device answers; this server cannot store it. The device's run of misses is broken.
     await prisma.instrument.update({ where: { id: i.id }, data: { modbusPort: sl.port } });
     ingestOutcome.next = { ok: false, code: 'WRITE_FAILED', message: 'Readings could not be stored: (test)' };
     await sleep(5);
-    expect(await readOnce(i.id, ON)).toEqual({ outcome: 'failed', code: 'WRITE_FAILED' });
+    expect(await readOnce(i.id, ON)).toMatchObject({ outcome: 'failed', code: 'WRITE_FAILED' });
     const st = (await status(i.id))!;
-    expect(st.consecutiveFailures).toBe(2);
+    expect(st.consecutiveFailures).toBe(0);
+    expect(st.failureRunStartedAt).toBeNull();
     expect(st.failingSince).toBeNull();
-    expect(st.failureRunStartedAt!.getTime()).toBe(firstFailure.getTime());
     expect(st.lastErrorCode).toBe('WRITE_FAILED');
     expect(await audits(i.id)).toEqual([]);
 
-    // The next DEVICE miss is the run's third: the transition names the first miss.
+    // The next DEVICE miss is the FIRST of a new run - not the third of the old one.
     ingestOutcome.next = null;
     await prisma.instrument.update({ where: { id: i.id }, data: { modbusPort: dead } });
     await sleep(5);
     expect((await readOnce(i.id, ON)).code).toBe('REFUSED');
+    const st1 = (await status(i.id))!;
+    expect(st1.consecutiveFailures).toBe(1);
+    expect(st1.failingSince).toBeNull();
+    expect(st1.failureRunStartedAt!.getTime()).toBe(st1.lastAttemptAt!.getTime());
+    expect(await audits(i.id)).toEqual([]);
+
+    // Two more misses make the NEW run's third: the transition names the new run's first miss.
+    const newRunStart = st1.failureRunStartedAt!;
+    for (let n = 0; n < 2; n++) {
+      await sleep(5);
+      expect((await readOnce(i.id, ON)).code).toBe('REFUSED');
+    }
     const st3 = (await status(i.id))!;
     expect(st3.consecutiveFailures).toBe(3);
-    expect(st3.failingSince!.getTime()).toBe(firstFailure.getTime());
+    expect(st3.failingSince!.getTime()).toBe(newRunStart.getTime());
+    const a3 = await audits(i.id);
+    expect(a3.map((a) => a.action)).toEqual(['MODBUS_DEVICE_NOT_ANSWERING']);
+    expect((a3[0]!.afterValue as Record<string, unknown>).failingSince).toBe(newRunStart.toISOString());
+  });
+
+  it('a storage failure while ALREADY not answering leaves the failing state as it is and writes no "answering" row (final review F-4)', async () => {
+    const sl = await slave();
+    const dead = await deadPort();
+    const i = await inst('mixed-failing', dead);
+    for (let n = 0; n < NOT_ANSWERING_AFTER; n++) {
+      await sleep(5);
+      expect((await readOnce(i.id, ON)).code).toBe('REFUSED');
+    }
+    const failing = (await status(i.id))!;
+    expect(failing.failingSince).not.toBeNull();
+    expect(await audits(i.id)).toHaveLength(1);
+
+    // The device answers, nothing is stored: no reading came in, so nothing recovered.
+    await prisma.instrument.update({ where: { id: i.id }, data: { modbusPort: sl.port } });
+    ingestOutcome.next = { ok: false, code: 'WRITE_FAILED', message: 'Readings could not be stored: (test)' };
+    await sleep(5);
+    expect(await readOnce(i.id, ON)).toMatchObject({ outcome: 'failed', code: 'WRITE_FAILED' });
+    const st = (await status(i.id))!;
+    expect(st.failingSince!.getTime()).toBe(failing.failingSince!.getTime());
+    expect(st.consecutiveFailures).toBe(NOT_ANSWERING_AFTER);
+    expect(st.failureRunStartedAt!.getTime()).toBe(failing.failureRunStartedAt!.getTime());
+    expect(st.lastErrorCode).toBe('WRITE_FAILED');
     expect((await audits(i.id)).map((a) => a.action)).toEqual(['MODBUS_DEVICE_NOT_ANSWERING']);
+
+    // A STORED read is what ends it.
+    ingestOutcome.next = null;
+    expect(await readOnce(i.id, ON)).toEqual({ outcome: 'stored' });
+    expect((await status(i.id))!.failingSince).toBeNull();
+    const after = await audits(i.id);
+    expect(after.map((a) => a.action)).toEqual(['MODBUS_DEVICE_NOT_ANSWERING', 'MODBUS_DEVICE_ANSWERING']);
+    expect((after[1]!.afterValue as Record<string, unknown>).missed).toBe(NOT_ANSWERING_AFTER);
   });
 
   it('reading switched OFF: skipped, and the device sees NO connection', async () => {
