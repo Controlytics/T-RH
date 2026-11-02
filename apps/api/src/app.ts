@@ -160,7 +160,10 @@ await app.register(helmet, {
       // src is a blob: URL the page built itself (2026-11-02). Only blob: and
       // same-origin frames; nothing remote can be framed in.
       frameSrc: ["'self'", 'blob:'],
-      frameAncestors: ["'none'"],
+      // 'self', not 'none' (review m10): a blob: document inherits its creator's
+      // policy, and an inherited frame-ancestors 'none' refuses the preview's own
+      // frame. Only this origin may frame a page; third-party framing stays refused.
+      frameAncestors: ["'self'"],
     },
   },
   strictTransportSecurity: {
