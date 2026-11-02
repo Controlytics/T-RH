@@ -300,3 +300,40 @@ describe('bulk upload — an existing TCP/IP instrument\'s address', () => {
     expect(body.errors).toEqual([{ row: 3, column: 'IP address', message: `${ip(100)} : 502 is already used by instrument "${C('same')}".` }]);
   });
 });
+
+describe('bulk upload - an existing row is all or nothing', () => {
+  it('an address change whose attribute step fails is rolled back with it: the row is only an error', async () => {
+    const id = await tcp('half', ip(110), 502);
+    const put = await app.inject({ method: 'POST', url: `/api/instruments/${id}/attributes`, headers: sa, payload: { key: 'Room', value: 'R-old' } });
+    expect(put.statusCode, put.body).toBe(201);
+    const csv = `Instrument ID,IP address,Room\n${C('half')},${ip(111)},TBULK-BOOM`;
+    const pv = await preview(csv);
+    expect(pv.json().update).toHaveLength(1);
+    expect(pv.json().update[0].address.to.host).toBe(ip(111));
+    expect(pv.json().update[0].changes).toHaveLength(1);
+
+    const updates = () => prisma.auditTrail.count({ where: { action: 'INSTRUMENT_UPDATED', targetId: id } });
+    const attrAudits = () => prisma.auditTrail.count({ where: { action: 'INSTRUMENT_ATTRIBUTE_SET', targetId: id } });
+    const [u0, a0] = [await updates(), await attrAudits()];
+    // A real database refusal of ONE attribute value, after the address write.
+    await prisma.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION tbulk_boom() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'tbulk boom'; END $$ LANGUAGE plpgsql`);
+    await prisma.$executeRawUnsafe(`CREATE TRIGGER tbulk_boom_trg BEFORE INSERT OR UPDATE ON instrument_attributes FOR EACH ROW WHEN (NEW.value = 'TBULK-BOOM') EXECUTE FUNCTION tbulk_boom()`);
+    try {
+      const res = await upload(csv, { reason: 'Moved with its room label, CC-77' });
+      expect(res.statusCode, res.body).toBe(200);
+      const body = res.json();
+      expect(body.updated).toEqual([]);
+      expect(body.created).toEqual([]);
+      expect(body.errors).toHaveLength(1);
+      expect(body.errors[0].row).toBe(2);
+    } finally {
+      await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS tbulk_boom_trg ON instrument_attributes');
+      await prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS tbulk_boom()');
+    }
+    const row = await prisma.instrument.findUniqueOrThrow({ where: { id }, include: { attributes: true } });
+    expect([row.modbusHost, row.modbusPort]).toEqual([ip(110), 502]);
+    expect(row.attributes.map((a) => a.value)).toEqual(['R-old']);
+    expect(await updates()).toBe(u0);
+    expect(await attrAudits()).toBe(a0);
+  });
+});

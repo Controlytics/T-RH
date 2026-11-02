@@ -689,45 +689,45 @@ async function registerMapSource(
 
 /**
  * Change one existing TCP/IP instrument's address from a bulk upload
- * (2026-10-31): ONE transaction, the instrument row locked FIRST (as the PUT
- * does, before the audit chain), the stored address read again under the lock
- * and the address checked again there. Writes one INSTRUMENT_UPDATED row with
- * the upload's remark as its reason. Returns what was applied, `from` as read
- * under the lock, or null when the instrument already holds that address.
+ * (2026-10-31) INSIDE the transaction `applyBulkChanges` opened for the row, so
+ * the row's address and attributes commit together or not at all. The caller
+ * has already locked the instrument row (FIRST, as the PUT does, before any
+ * attribute key and before the audit chain); the stored address is read again
+ * here and checked again. Writes one INSTRUMENT_UPDATED row with the upload's
+ * remark as its reason. Returns what was applied, `from` as read under the
+ * lock, or null when the instrument already holds that address.
  */
-async function applyBulkAddress(
+async function writeBulkAddress(
+  tx: Prisma.TransactionClient,
   instrumentId: string,
   planned: PlannedAddress,
   reason: string | null,
   ctx: ReturnType<typeof buildContext>,
   visibility: ScopeWhere | undefined,
 ): Promise<PlannedAddress | null> {
-  return prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM instruments WHERE id = ${instrumentId} FOR UPDATE`;
-    const before = await tx.instrument.findUnique({ where: { id: instrumentId } });
-    if (!before) throw new HandledRouteError(404, { error: 'NOT_FOUND', message: 'Instrument not found.' });
-    if (before.modbusHost === planned.to.host && before.modbusPort === planned.to.port) return null;
-    const recorded = before.modbusHost !== null || before.modbusPort !== null;
-    if (recorded && !reason) {
-      throw new HandledRouteError(409, {
-        error: 'CHANGED_SINCE_CHECKED',
-        message: `The address of "${before.code}" was recorded while the file was being checked. Upload the file again.`,
-      });
-    }
-    const address = await checkModbusAddress(planned.to.host, planned.to.port, { excludeInstrumentId: instrumentId, visibility: { where: visibility } });
-    if (!address.ok) throw new HandledRouteError(address.status, { error: address.code, message: address.message });
-    const row = await tx.instrument.update({ where: { id: instrumentId }, data: { modbusHost: planned.to.host, modbusPort: planned.to.port } });
-    await auditLog({
-      action: 'INSTRUMENT_UPDATED', targetType: 'Instrument', targetId: instrumentId,
-      beforeValue: auditedInstrument(before),
-      afterValue: auditedInstrument(row),
-      signatureMeaning: `Instrument "${codeLabel(row.code)}" TCP/IP address changed`,
-      ...(recorded && reason ? { reason: reason.trim() } : {}),
-      userId: ctx.userId, userRole: ctx.userRole,
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
-    }, tx);
-    return { from: { host: before.modbusHost, port: before.modbusPort }, to: planned.to };
-  });
+  const before = await tx.instrument.findUnique({ where: { id: instrumentId } });
+  if (!before) throw new HandledRouteError(404, { error: 'NOT_FOUND', message: 'Instrument not found.' });
+  if (before.modbusHost === planned.to.host && before.modbusPort === planned.to.port) return null;
+  const recorded = before.modbusHost !== null || before.modbusPort !== null;
+  if (recorded && !reason) {
+    throw new HandledRouteError(409, {
+      error: 'CHANGED_SINCE_CHECKED',
+      message: `The address of "${before.code}" was recorded while the file was being checked. Upload the file again.`,
+    });
+  }
+  const address = await checkModbusAddress(planned.to.host, planned.to.port, { excludeInstrumentId: instrumentId, visibility: { where: visibility } });
+  if (!address.ok) throw new HandledRouteError(address.status, { error: address.code, message: address.message });
+  const row = await tx.instrument.update({ where: { id: instrumentId }, data: { modbusHost: planned.to.host, modbusPort: planned.to.port } });
+  await auditLog({
+    action: 'INSTRUMENT_UPDATED', targetType: 'Instrument', targetId: instrumentId,
+    beforeValue: auditedInstrument(before),
+    afterValue: auditedInstrument(row),
+    signatureMeaning: `Instrument "${codeLabel(row.code)}" TCP/IP address changed`,
+    ...(recorded && reason ? { reason: reason.trim() } : {}),
+    userId: ctx.userId, userRole: ctx.userRole,
+    ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+  }, tx);
+  return { from: { host: before.modbusHost, port: before.modbusPort }, to: planned.to };
 }
 
 /**
@@ -2247,35 +2247,24 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     for (const p of plan.plans) {
       if (p.kind === 'unchanged') { unchanged.push({ row: p.row, code: p.code }); continue; }
       if (p.kind === 'update') {
-        // The address first, in its own transaction (it takes the instrument row
-        // lock and the audit chain, as the PUT does); the attributes after. A
-        // failure in the second step leaves the first applied, and says so.
-        let addressApplied: PlannedAddress | null = null;
+        // The row's address AND attributes are written in ONE transaction: any
+        // failure rolls the whole row back and the row reports only the error.
         try {
-          if (p.address) {
-            try {
-              addressApplied = await applyBulkAddress(p.id, p.address, reason, ctx, visibility);
-            } catch (err) {
-              if (isDuplicateAddress(err)) {
-                errors.push({ row: p.row, column: hostColumn, message: (await addressInUseBody(p.address.to.host, p.address.to.port, visibility, p.id)).message });
-                continue;
-              }
-              throw err;
-            }
-          }
-          const applied = p.changes.length > 0 ? await applyBulkChanges(p.id, p.code, p.changes, reason, ctx) : [];
-          if (applied.length > 0 || addressApplied) {
-            updated.push({ id: p.id, code: p.code, row: p.row, changes: applied, ...(addressApplied ? { address: addressApplied } : {}) });
+          const done = await applyBulkChanges(p.id, p.code, p.changes, reason, ctx, p.address ? { planned: p.address, visibility } : undefined);
+          if (done.changes.length > 0 || done.address) {
+            updated.push({ id: p.id, code: p.code, row: p.row, changes: done.changes, ...(done.address ? { address: done.address } : {}) });
           } else unchanged.push({ row: p.row, code: p.code });
         } catch (err) {
-          const lead = addressApplied ? `The address of "${p.code}" was changed, but its attributes were not updated: ` : '';
-          if (addressApplied) updated.push({ id: p.id, code: p.code, row: p.row, changes: [], address: addressApplied });
+          if (isDuplicateAddress(err) && p.address) {
+            errors.push({ row: p.row, column: hostColumn, message: (await addressInUseBody(p.address.to.host, p.address.to.port, visibility, p.id)).message });
+            continue;
+          }
           if (err instanceof HandledRouteError) {
-            errors.push({ row: p.row, ...(err.body.error.startsWith('ADDRESS_') ? { column: hostColumn } : {}), message: lead + err.body.message });
+            errors.push({ row: p.row, ...(err.body.error.startsWith('ADDRESS_') ? { column: hostColumn } : {}), message: err.body.message });
             continue;
           }
           req.log.error({ err, row: p.row, code: p.code }, 'bulk upload: row not updated');
-          errors.push({ row: p.row, message: `${lead || 'Not updated: '}${(err as Error).message.slice(0, 200)}` });
+          errors.push({ row: p.row, message: `Not updated: ${(err as Error).message.slice(0, 200)}` });
         }
         continue;
       }
@@ -3505,6 +3494,11 @@ export default async function instrumentRoutes(app: FastifyInstance) {
    * not overwritten without a remark. One INSTRUMENT_ATTRIBUTE_SET per change,
    * exactly as `PUT /:id/attributes/:key` writes it; the device is told after
    * the commit. Returns what was applied, each `from` as read under the lock.
+   *
+   * With `address` (a TCP/IP instrument whose address the file changes) the
+   * address is written in the SAME transaction (2026-10-31): lock order is the
+   * instrument row, then the attribute keys in key order, then the audit chain,
+   * so a failure anywhere leaves the row untouched.
    */
   async function applyBulkChanges(
     instrumentId: string,
@@ -3512,10 +3506,14 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     changes: PlannedChange[],
     reason: string | null,
     ctx: ReturnType<typeof buildContext>,
-  ): Promise<PlannedChange[]> {
+    address?: { planned: PlannedAddress; visibility: ScopeWhere | undefined },
+  ): Promise<{ changes: PlannedChange[]; address: PlannedAddress | null }> {
     const ordered = [...changes].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    let addressApplied: PlannedAddress | null = null;
     const applied = await prisma.$transaction(async (tx) => {
+      if (address) await tx.$queryRaw`SELECT id FROM instruments WHERE id = ${instrumentId} FOR UPDATE`;
       for (const c of ordered) await lockAttribute(tx, instrumentId, c.key);
+      if (address) addressApplied = await writeBulkAddress(tx, instrumentId, address.planned, reason, ctx, address.visibility);
       const done: PlannedChange[] = [];
       for (const c of ordered) {
         const before = await tx.instrumentAttribute.findUnique({
@@ -3554,7 +3552,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       if (owner) for (const c of applied) await announceAttributeChange(instrumentId, owner, c.key, c.to);
     }
     // In the file's column order, as the preview showed them.
-    return changes.flatMap((c) => applied.filter((a) => a.key === c.key));
+    return { changes: changes.flatMap((c) => applied.filter((a) => a.key === c.key)), address: addressApplied as PlannedAddress | null };
   }
 
   /**
