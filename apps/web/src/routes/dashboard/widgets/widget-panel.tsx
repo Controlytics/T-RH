@@ -3,10 +3,20 @@
  * renderer. Moved and sized like any panel; Edit and Remove exist only while
  * arranging (SUPER_ADMIN only — the layout routes' 403 is the control).
  *
+ * Download report (2026-11-02) is in EVERY widget's header, arranging or not,
+ * when Configuration → Export Options lets the viewer's role have a PDF on the
+ * "Dashboard widgets" surface. It opens `WidgetReportDialog` (kind
+ * `widget:<type>`); the body publishes what it is showing for it through
+ * `WidgetReportViewProvider` (its range, the alarm table's filters, the floor
+ * plan's drawing).
+ *
  * Nothing imported here may import ECharts: a chart widget draws through
  * `charts/lazy-echart.tsx`, so the library stays out of the main bundle.
  */
+import { useState } from 'react';
+import { FileDown } from 'lucide-react';
 import type { CustomWidget, LayoutItem, PanelStyle, WidgetType } from '@digilog/shared';
+import { useExportOptions } from '@/hooks/use-export-options';
 import { PanelCard } from '../panel-card';
 import { AlarmCountsWidget } from './alarm-counts-widget';
 import { AlarmTableWidget } from './alarm-table-widget';
@@ -24,6 +34,8 @@ import { TrendChartWidget } from './trend-chart-widget';
 import type { WidgetTrail } from './trend-link';
 import { ValueCardsWidget } from './value-cards-widget';
 import type { WidgetSelection } from './use-widget-data';
+import { WidgetReportDialog } from './widget-report-dialog';
+import { WidgetReportViewProvider } from './widget-report-view';
 
 export const WIDGET_EYEBROW: Record<WidgetType, string> = {
   value_cards: 'Value cards',
@@ -70,14 +82,24 @@ export function WidgetBody({ widget, selection, trail }: { widget: CustomWidget;
   }
 }
 
+/** What a widget's report says about where it was downloaded from (`{dashboard}`, `{selection}`). */
+export interface WidgetReportHost {
+  /** The built dashboard's name, or "Dashboard" on `/`. */
+  dashboard: string;
+  /** The dashboard's drill-down or source, as its header says it. */
+  selection: string;
+}
+
 export function WidgetPanel({
-  widget, item, selection, trail, editing, onEdit, onRemove, onStyleChange, onSizeChange, autoHeight, onNaturalHeight,
+  widget, item, selection, trail, reportHost, editing, onEdit, onRemove, onStyleChange, onSizeChange, autoHeight, onNaturalHeight,
 }: {
   widget: CustomWidget;
   item: LayoutItem;
   selection: WidgetSelection;
   /** The host dashboard's breadcrumb as links (see `WidgetBody`). */
   trail?: WidgetTrail;
+  /** The host, for the widget's Download report. */
+  reportHost: WidgetReportHost;
   editing: boolean;
   onEdit: () => void;
   onRemove: () => void;
@@ -86,7 +108,13 @@ export function WidgetPanel({
   autoHeight: boolean;
   onNaturalHeight: (px: number) => void;
 }) {
+  // Configuration → Export Options' "Dashboard widgets" surface: fail-open,
+  // hidden only when the viewer's role is allowed no PDF there. Presentation —
+  // the download's own policy (Direct / Request) is the kind's, on the server.
+  const { pdf } = useExportOptions('dashboard-widgets');
+  const [reporting, setReporting] = useState(false);
   return (
+    <WidgetReportViewProvider>
     <PanelCard
       title={widget.title}
       eyebrow={WIDGET_EYEBROW[widget.type]}
@@ -98,6 +126,17 @@ export function WidgetPanel({
       onSizeChange={onSizeChange}
       autoHeight={autoHeight}
       onNaturalHeight={onNaturalHeight}
+      actions={pdf ? (
+        <button
+          type="button"
+          onClick={() => setReporting(true)}
+          aria-label="Download report"
+          title="Download report"
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white/90 text-slate-700 hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-primary,#2a78d6)]"
+        >
+          <FileDown aria-hidden="true" className="h-4 w-4" />
+        </button>
+      ) : null}
       menu={(
         <>
           <button
@@ -122,5 +161,14 @@ export function WidgetPanel({
           click there would leave a page holding an unsaved draft (R7-9). */}
       <WidgetBody widget={widget} selection={selection} trail={editing ? undefined : trail} />
     </PanelCard>
+    <WidgetReportDialog
+      open={reporting}
+      widget={widget}
+      selection={selection}
+      dashboardTitle={reportHost.dashboard}
+      selectionLabel={reportHost.selection}
+      onClose={() => setReporting(false)}
+    />
+    </WidgetReportViewProvider>
   );
 }

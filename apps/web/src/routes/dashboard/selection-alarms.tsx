@@ -91,9 +91,63 @@ export interface SelectionAlarmsScope extends AlarmScope {
   initialStatus?: (typeof WIDGET_ALARM_STATUSES)[number];
 }
 
-export function SelectionAlarms({ functionalLocationId: homeLocationId, scope }: {
+/**
+ * THE `/api/alarms` URL of the panel: one page of a scope under the panel's
+ * three filters. A built alarm table's report walks every page of it with the
+ * filters the panel is showing (2026-11-02), so the two ask the same question.
+ * Null asks nothing — an EMPTY fixed list (`alarmScopeSelectsNothing`).
+ */
+export function alarmListUrl(
+  scope: AlarmScope,
+  filters: AlarmWidgetFilterValue,
+  page: number,
+  pageSize: number,
+): string | null {
+  if (alarmScopeSelectsNothing(scope)) return null;
+  const qs = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  applyAlarmScope(qs, scope);
+  applyWidgetFilters(qs, filters);
+  return `/api/alarms?${qs.toString()}`;
+}
+
+/**
+ * Every administered alarm wording a row is printed with — the panel's, and a
+ * built alarm table's report's (2026-11-02), so the two cannot word an alarm
+ * two ways. See the note in `SelectionAlarms` for why each one is read.
+ */
+export function useAlarmDisplayTexts(): {
+  texts: AlarmDisplayTexts;
+  statusTexts: AlarmStatusTexts | undefined;
+  typeNames: ReturnType<typeof useAlarmTypeNames>;
+} {
+  const { data: statusTextsResponse } = useSWR<AlarmStatusTextsResponse>(
+    '/api/config/alarm-limits/status-texts',
+  );
+  const statusTexts: AlarmStatusTexts | undefined =
+    statusTextsResponse ? mapStatusTextsResponse(statusTextsResponse) : undefined;
+  const { data: inactivityTextsResponse } = useSWR<InactivityTextsResponse>(
+    '/api/config/inactivity-alarms/display-texts',
+  );
+  const sensorWords = useSensorWords();
+  const typeNames = useAlarmTypeNames();
+  const texts: AlarmDisplayTexts = {
+    ...(inactivityTextsResponse ? mapInactivityTextsResponse(inactivityTextsResponse) : {}),
+    sensorFailure: sensorWords.failure,
+    outOfRange: sensorWords.outOfRange,
+    typeNames,
+  };
+  return { texts, statusTexts, typeNames };
+}
+
+export function SelectionAlarms({ functionalLocationId: homeLocationId, scope, onFiltersChange }: {
   functionalLocationId?: string;
   scope?: SelectionAlarmsScope;
+  /**
+   * Told the filters the panel is showing, each time they change — a built
+   * alarm table hands them to its Download report (2026-11-02), so the report
+   * prints the alarms the viewer is looking at. Must be referentially stable.
+   */
+  onFiltersChange?: (filters: AlarmWidgetFilterValue) => void;
 }) {
   const functionalLocationId = scope ? scope.functionalLocationId : homeLocationId;
   const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
@@ -113,25 +167,10 @@ export function SelectionAlarms({ functionalLocationId: homeLocationId, scope }:
    *
    * Both are narrow, all-authenticated-users reads; the configs themselves are
    * SUPER_ADMIN-only. Undefined while loading degrades to the shipped wording,
-   * never to a blank cell.
+   * never to a blank cell. Read through `useAlarmDisplayTexts`, which a built
+   * alarm table's report reads too.
    */
-  const { data: statusTextsResponse } = useSWR<AlarmStatusTextsResponse>(
-    '/api/config/alarm-limits/status-texts',
-  );
-  const statusTexts: AlarmStatusTexts | undefined =
-    statusTextsResponse ? mapStatusTextsResponse(statusTextsResponse) : undefined;
-
-  const { data: inactivityTextsResponse } = useSWR<InactivityTextsResponse>(
-    '/api/config/inactivity-alarms/display-texts',
-  );
-  const sensorWords = useSensorWords();
-  const typeNames = useAlarmTypeNames();
-  const texts: AlarmDisplayTexts = {
-    ...(inactivityTextsResponse ? mapInactivityTextsResponse(inactivityTextsResponse) : {}),
-    sensorFailure: sensorWords.failure,
-    outOfRange: sensorWords.outOfRange,
-    typeNames,
-  };
+  const { texts, statusTexts, typeNames } = useAlarmDisplayTexts();
 
   /**
    * PAGED (operator, 2026-09-01). It fetched a flat `limit: '25'` and showed
@@ -165,21 +204,16 @@ export function SelectionAlarms({ functionalLocationId: homeLocationId, scope }:
     scope?.initialStatus ? { ...EMPTY_WIDGET_FILTERS, status: scope.initialStatus } : EMPTY_WIDGET_FILTERS,
   );
   const toolbarSlot = usePanelToolbarSlot();
+  useEffect(() => { onFiltersChange?.(filters); }, [filters, onFiltersChange]);
 
-  const qs = new URLSearchParams({
-    page: String(page),
-    pageSize: String(pageSize),
-  });
   // The scope comes from the ONE builder `/api/alarms/counts` uses too (the home
   // panel's is its location alone).
-  applyAlarmScope(qs, scope ?? { functionalLocationId });
-  applyWidgetFilters(qs, filters);
   // A fixed list that is EMPTY selects nothing. The server reads an absent
   // `instrumentIds` as everything in view, so this asks NO question at all.
   const nothingInScope = alarmScopeSelectsNothing(scope);
 
   const { data, error, mutate } = useSWR<{ data: AlarmRow[]; total: number }>(
-    nothingInScope ? null : `/api/alarms?${qs.toString()}`,
+    alarmListUrl(scope ?? { functionalLocationId }, filters, page, pageSize),
     {
       // THE dashboards' polling and retry policy (R7-11), for the home panel and
       // the alarm table widget alike: a failure is retried at the panel's cadence

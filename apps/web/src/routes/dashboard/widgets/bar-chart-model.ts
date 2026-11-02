@@ -207,6 +207,8 @@ export interface BarPoint {
 export interface BarSeries {
   /** The tooltip's name: the key's label, or "<code> · <label>" for each instrument. */
   name: string;
+  /** The instrument the series is (grouped by instrument); null = every instrument combined. */
+  instrumentId: string | null;
   /** The legend's: the name, with the unit when the value axis cannot name one. */
   legendName: string;
   color: string;
@@ -320,6 +322,7 @@ export function barModel(
     const keyLabel = key.label ?? key.key;
     const series: Omit<BarSeries, 'legendName'> = {
       name: owner ? `${owner.code} · ${keyLabel}` : keyLabel,
+      instrumentId: id,
       color: DASHBOARD_SERIES_HEX[Math.min(position, DASHBOARD_SERIES_HEX.length - 1)],
       ...seriesNumbers(resp.agg, key, owner ? [owner] : asked, got.points.map((p) => p.value)),
       points,

@@ -185,31 +185,7 @@ export function useTelemetryOverview(opts?: string | {
   const { overviewRefreshMs } = useTelemetrySettings();
   // A bare string stays supported so existing callers (floorplan-view) are
   // unchanged; the object form adds the functional-location scope.
-  const o = typeof opts === 'string' ? { floorplanId: opts } : (opts ?? {});
-  const qs = new URLSearchParams();
-  if (o.floorplanId) qs.set('floorplanId', o.floorplanId);
-  // The scope goes to the SERVER, not applied to rows here: the payload would
-  // otherwise be the whole estate, and project D enforces visibility on this same
-  // query. A client-side filter would have to be rewritten then.
-  if (o.functionalLocationId) qs.set('functionalLocationId', o.functionalLocationId);
-  // Direct-only: this location itself, WITHOUT its Areas. Without this flag the
-  // "— direct" card said 1 instrument while its table showed all 4 in the Block.
-  if (o.functionalLocationId && o.directOnly) qs.set('functionalLocationDirect', 'true');
-  if (o.profileId) qs.set('profileId', o.profileId);
-  // An EMPTY list selects NOTHING and must make no request at all: the server
-  // reads an absent `instrumentIds` as "everything in view", so sending
-  // `instrumentIds=` (or dropping the parameter) is the one difference between
-  // an empty dashboard and the whole estate.
-  const noInstruments = o.instrumentIds !== undefined && o.instrumentIds.length === 0;
-  if (o.instrumentIds && o.instrumentIds.length > 0) qs.set('instrumentIds', o.instrumentIds.join(','));
-  // The string, not `URLSearchParams.size`: `size` is undefined before Chrome 113
-  // / Safari 17, so a scoped query was sent as the bare, UNSCOPED route there.
-  const query = qs.toString();
-  const url = noInstruments
-    ? null
-    : query
-      ? `/api/instruments/telemetry-overview?${query}`
-      : '/api/instruments/telemetry-overview';
+  const url = telemetryOverviewUrl(typeof opts === 'string' ? { floorplanId: opts } : (opts ?? {}));
 
   const { data, error, isLoading } = useSWR<{ data: OverviewRow[] }>(url, {
     // THE dashboards' polling and retry policy (R7-11): a failure is retried at
@@ -239,6 +215,38 @@ export function useTelemetryOverview(opts?: string | {
   // empty list is NO instruments, so it reads as none.
   if (url === null) return { rows: NO_ROWS, isLoading: false, error: undefined };
   return { rows: data?.data ?? NO_ROWS, isLoading, error };
+}
+
+/**
+ * THE `telemetry-overview` URL of a scope — `useTelemetryOverview`'s key, and
+ * what a widget's report asks for the same rows (2026-11-02). Null = asks
+ * nothing (an EMPTY fixed list, see below).
+ */
+export function telemetryOverviewUrl(o: {
+  floorplanId?: string; functionalLocationId?: string; directOnly?: boolean;
+  profileId?: string; instrumentIds?: string[];
+}): string | null {
+  const qs = new URLSearchParams();
+  if (o.floorplanId) qs.set('floorplanId', o.floorplanId);
+  // The scope goes to the SERVER, not applied to rows here: the payload would
+  // otherwise be the whole estate, and project D enforces visibility on this same
+  // query. A client-side filter would have to be rewritten then.
+  if (o.functionalLocationId) qs.set('functionalLocationId', o.functionalLocationId);
+  // Direct-only: this location itself, WITHOUT its Areas. Without this flag the
+  // "— direct" card said 1 instrument while its table showed all 4 in the Block.
+  if (o.functionalLocationId && o.directOnly) qs.set('functionalLocationDirect', 'true');
+  if (o.profileId) qs.set('profileId', o.profileId);
+  // An EMPTY list selects NOTHING and must make no request at all: the server
+  // reads an absent `instrumentIds` as "everything in view", so sending
+  // `instrumentIds=` (or dropping the parameter) is the one difference between
+  // an empty dashboard and the whole estate.
+  const noInstruments = o.instrumentIds !== undefined && o.instrumentIds.length === 0;
+  if (o.instrumentIds && o.instrumentIds.length > 0) qs.set('instrumentIds', o.instrumentIds.join(','));
+  // The string, not `URLSearchParams.size`: `size` is undefined before Chrome 113
+  // / Safari 17, so a scoped query was sent as the bare, UNSCOPED route there.
+  const query = qs.toString();
+  if (noInstruments) return null;
+  return query ? `/api/instruments/telemetry-overview?${query}` : '/api/instruments/telemetry-overview';
 }
 
 /** One stable empty array: a fresh `[]` per render would re-run every effect keyed on the rows. */

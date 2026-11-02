@@ -44,6 +44,17 @@ export class ChartChunkError extends Error {
 
 const EChart = lazy(() => import('./echart').catch((e: unknown) => { throw new ChartChunkError(e); }));
 
+/**
+ * A chart drawn OFF-SCREEN as an SVG document at a fixed size — a widget
+ * report's picture (2026-11-02), by the widget's own option builder. Through a
+ * dynamic import, like every drawn chart, so ECharts never enters the main
+ * bundle. A chunk that cannot load rejects with `ChartChunkError`.
+ */
+export async function renderChartSvg(option: EChartsCoreOption, width: number, height: number): Promise<string> {
+  const m = await import('./echart').catch((e: unknown) => { throw new ChartChunkError(e); });
+  return m.renderOptionToSvg(option, width, height);
+}
+
 export function LazyEChart(props: EChartProps) {
   return (
     <ChartBoundary height={props.height} resetKey={props.option}>

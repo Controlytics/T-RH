@@ -47,7 +47,7 @@ export function usePanelToolbarSlot(): HTMLElement | null {
 }
 
 export function PanelCard({
-  title, eyebrow, editing, style, width, height, onStyleChange, onSizeChange, children, menu,
+  title, eyebrow, editing, style, width, height, onStyleChange, onSizeChange, children, menu, actions,
   autoHeight = false, onNaturalHeight,
 }: {
   /** The panel's built-in heading, used when the operator has not renamed it. */
@@ -84,6 +84,11 @@ export function PanelCard({
    * Remove (2026-10-28). Nothing renders outside edit mode.
    */
   menu?: ReactNode;
+  /**
+   * Header controls shown ALWAYS, arranging or not — a built widget's Download
+   * report (2026-11-02). After the toolbar slot, before the arranging controls.
+   */
+  actions?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [toolbarEl, setToolbarEl] = useState<HTMLDivElement | null>(null);
@@ -203,6 +208,7 @@ export function PanelCard({
             truncated heading is more readable than a crushed search box. */}
         <div ref={setToolbarEl} className="ml-auto flex min-w-0 flex-nowrap items-center gap-2" />
 
+        {actions}
         {editing && menu}
         {editing && onStyleChange && (
           <button

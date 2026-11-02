@@ -27,6 +27,7 @@ import {
   heldAnswers, legendRows, tooManyBarsText,
 } from './bar-chart-model';
 import { useTelemetryBuckets, type BucketRequest, type WidgetSelection } from './use-widget-data';
+import { usePublishWidgetRange } from './widget-report-view';
 import {
   LOAD_FAILED, NO_INSTRUMENTS, NO_KEY_YET, PeriodSelect, WidgetMessage, WidgetNotes,
   answerState, useBoxWidth, useWidgetRange, useWidgetRows,
@@ -35,6 +36,7 @@ import {
 export function BarChartWidget({ widget, selection }: { widget: CustomWidget; selection: WidgetSelection }) {
   const { rows, loading, error, empty, refreshFailed: rowsHeld } = useWidgetRows(widget, selection);
   const { preset, setPreset, range, rolling } = useWidgetRange(widget.options.period, selection.window);
+  usePublishWidgetRange(widget.id, range);
   const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
   const bucket = widget.options.bucket ?? BAR_DEFAULTS.bucket;
   const agg = widget.options.agg ?? BAR_DEFAULTS.agg;

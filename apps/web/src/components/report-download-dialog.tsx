@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import useSWR from 'swr';
 import {
   INTERVALS, REPORT_APPROVERS_NONE_MESSAGE, coerceApproverRoles,
@@ -53,7 +53,7 @@ const MAX_REMARKS = 500;
  */
 export function ReportDownloadDialog({
   open, reportName, kind, policy: policyOverride, initialPeriod, showPeriod = true, showInterval = false, initialIntervalMs = null,
-  progress = null, onCancel, onConfirm,
+  progress = null, extra, onCancel, onConfirm,
 }: {
   open: boolean;
   reportName: string;
@@ -78,6 +78,12 @@ export function ReportDownloadDialog({
    * "Read 7 of 30 instruments…". Shown above the buttons while busy.
    */
   progress?: string | null;
+  /**
+   * What the caller states above the fields — a dashboard widget's report
+   * names the template(s) it prints with, and offers a picker (2026-11-02).
+   * Presentation only; shown once the policy has loaded.
+   */
+  extra?: ReactNode;
   onCancel: () => void;
   onConfirm: (req: ReportDownloadRequest) => Promise<void>;
 }) {
@@ -168,6 +174,7 @@ export function ReportDownloadDialog({
             </p>
           ) : (
             <>
+              {extra}
               {showPeriod && (
                 <div className="grid grid-cols-2 gap-3">
                   <div>

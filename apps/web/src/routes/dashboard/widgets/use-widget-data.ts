@@ -162,18 +162,27 @@ export function useLatestValues(
   const swrKey = ids.length > 0 && refs.length > 0
     ? ['widget-latest-values', ids.join(','), JSON.stringify(refs)]
     : null;
-  const { data, error, isLoading } = useSWR<LatestValuesRow[]>(
-    swrKey,
-    async () => {
-      const pages = await Promise.all(
-        chunk(ids, DATA_KEYS_INSTRUMENTS_MAX).map((instrumentIds) =>
-          apiClient.post<{ data: LatestValuesRow[] }>('/api/instruments/latest-values', { instrumentIds, keys: refs })),
-      );
-      return pages.flatMap((p) => p.data);
-    },
-    polling,
-  );
+  const { data, error, isLoading } = useSWR<LatestValuesRow[]>(swrKey, () => fetchLatestValues(ids, refs), polling);
   return { rows: data ?? [], loading: isLoading, error };
+}
+
+/**
+ * `POST /api/instruments/latest-values`, batched in `DATA_KEYS_INSTRUMENTS_MAX`s
+ * — THE fetcher of latest values: `useLatestValues` asks with it, and so does a
+ * widget's report (2026-11-02), so the two cannot ask differently. No ids or no
+ * keys is `[]`, with no request.
+ */
+export async function fetchLatestValues(
+  ids: readonly string[],
+  keys: readonly (DataKeyRef | WidgetKey)[],
+): Promise<LatestValuesRow[]> {
+  const refs = refsOf(keys);
+  if (ids.length === 0 || refs.length === 0) return [];
+  const pages = await Promise.all(
+    chunk(ids, DATA_KEYS_INSTRUMENTS_MAX).map((instrumentIds) =>
+      apiClient.post<{ data: LatestValuesRow[] }>('/api/instruments/latest-values', { instrumentIds, keys: refs })),
+  );
+  return pages.flatMap((p) => p.data);
 }
 
 export type CatalogueSelector =
@@ -240,36 +249,68 @@ export function useWidgetHistory(
   const swrKey = ids.length > 0 && keys.length > 0
     ? ['widget-history', ids.join(','), keys.join(','), range.from, range.to]
     : null;
-  const { data, isLoading } = useSWR<Map<string, InstrumentHistory>>(
-    swrKey,
-    async () => {
-      const qs = (id: string) => {
-        const q = new URLSearchParams({ from: range.from, to: range.to, points: String(MAX_SERIES_POINTS), keys: keys.join(',') });
-        return `/api/instruments/${id}/telemetry?${q.toString()}`;
-      };
-      const settled = await Promise.allSettled(ids.map((id) => apiClient.get<InstrumentHistory>(qs(id))));
-      const out = new Map<string, InstrumentHistory>();
-      settled.forEach((r, n) => {
-        if (r.status === 'fulfilled') {
-          out.set(ids[n], {
-            history: r.value.history ?? [],
-            summaries: r.value.summaries ?? {},
-            historySampled: r.value.historySampled === true,
-            historyTotal: r.value.historyTotal ?? 0,
-          });
-        }
-      });
-      return out;
-    },
-    polling,
-  );
+  const { data, isLoading } = useSWR<Map<string, InstrumentHistory>>(swrKey, () => fetchWidgetHistory(ids, keys, range), polling);
   return { byInstrument: data ?? new Map(), loading: isLoading };
+}
+
+/**
+ * THE fetcher behind `useWidgetHistory` — and a trend chart widget's report
+ * (2026-11-02), for the dialog's period. One request per instrument; one that
+ * fails is LEFT OUT (out of scope, deleted), never the whole answer.
+ */
+export async function fetchWidgetHistory(
+  ids: readonly string[],
+  keys: readonly string[],
+  range: WidgetRange,
+): Promise<Map<string, InstrumentHistory>> {
+  const out = new Map<string, InstrumentHistory>();
+  if (ids.length === 0 || keys.length === 0) return out;
+  const qs = (id: string) => {
+    const q = new URLSearchParams({ from: range.from, to: range.to, points: String(MAX_SERIES_POINTS), keys: keys.join(',') });
+    return `/api/instruments/${id}/telemetry?${q.toString()}`;
+  };
+  const settled = await Promise.allSettled(ids.map((id) => apiClient.get<InstrumentHistory>(qs(id))));
+  settled.forEach((r, n) => {
+    if (r.status === 'fulfilled') {
+      out.set(ids[n], {
+        history: r.value.history ?? [],
+        summaries: r.value.summaries ?? {},
+        historySampled: r.value.historySampled === true,
+        historyTotal: r.value.historyTotal ?? 0,
+      });
+    }
+  });
+  return out;
 }
 
 export interface TimeseriesRow {
   instrumentId: string;
   ts: string;
   values: Record<string, unknown>;
+}
+
+/**
+ * THE `telemetry-history` URL — one page of the time series widget, and each
+ * page a time series widget's report walks for the dialog's period
+ * (2026-11-02). Null when there is nothing to ask.
+ */
+export function widgetTimeseriesUrl(
+  ids: readonly string[],
+  keys: readonly string[],
+  range: WidgetRange,
+  limit: number,
+  offset: number,
+): string | null {
+  if (ids.length === 0 || keys.length === 0) return null;
+  const q = new URLSearchParams({
+    instrumentIds: ids.join(','),
+    keys: keys.join(','),
+    from: range.from,
+    to: range.to,
+    limit: String(limit),
+    offset: String(offset),
+  });
+  return `/api/instruments/telemetry-history?${q.toString()}`;
 }
 
 /** Several instruments' readings, merged and paged on the SERVER, newest first. */
@@ -282,15 +323,7 @@ export function useWidgetTimeseries(
 ): { rows: TimeseriesRow[]; total: number; loading: boolean } {
   const { chartRefreshMs } = useTelemetrySettings();
   const polling = widgetPolling(chartRefreshMs);
-  const q = new URLSearchParams({
-    instrumentIds: ids.join(','),
-    keys: keys.join(','),
-    from: range.from,
-    to: range.to,
-    limit: String(pageSize),
-    offset: String(Math.max(page - 1, 0) * pageSize),
-  });
-  const url = ids.length > 0 && keys.length > 0 ? `/api/instruments/telemetry-history?${q.toString()}` : null;
+  const url = widgetTimeseriesUrl(ids, keys, range, pageSize, Math.max(page - 1, 0) * pageSize);
   const { data, isLoading } = useSWR<{ data: TimeseriesRow[]; total: number }>(
     url,
     (u: string) => apiClient.get<{ data: TimeseriesRow[]; total: number }>(u),
@@ -358,6 +391,32 @@ function bucketRequestOf(url: string): BucketRequest {
 }
 
 /**
+ * THE `telemetry-buckets` URL — the bar chart widget's request, and a bar chart
+ * widget's report for the dialog's period (2026-11-02). Null when there is
+ * nothing to ask.
+ */
+export function telemetryBucketsUrl(
+  ids: readonly string[],
+  keys: readonly string[],
+  range: WidgetRange,
+  bucket: BarBucket,
+  agg: BarAgg,
+  groupBy: BarGroup,
+): string | null {
+  if (ids.length === 0 || keys.length === 0) return null;
+  const q = new URLSearchParams({
+    instrumentIds: ids.join(','),
+    keys: keys.join(','),
+    from: range.from,
+    to: range.to,
+    bucket,
+    agg,
+    groupBy,
+  });
+  return `/api/instruments/telemetry-buckets?${q.toString()}`;
+}
+
+/**
  * Readings binned into local hours, days or weeks, aggregated on the SERVER —
  * every value is derived and says how many readings are behind it. No instruments
  * or no keys asks nothing. The server refuses more than `WIDGET_INSTRUMENTS_MAX`
@@ -377,16 +436,7 @@ export function useTelemetryBuckets(
 ): { data: TelemetryBuckets | undefined; request: BucketRequest | undefined; loading: boolean; error: unknown } {
   const { chartRefreshMs } = useTelemetrySettings();
   const polling = widgetPolling(chartRefreshMs);
-  const q = new URLSearchParams({
-    instrumentIds: ids.join(','),
-    keys: keys.join(','),
-    from: range.from,
-    to: range.to,
-    bucket,
-    agg,
-    groupBy,
-  });
-  const url = ids.length > 0 && keys.length > 0 ? `/api/instruments/telemetry-buckets?${q.toString()}` : null;
+  const url = telemetryBucketsUrl(ids, keys, range, bucket, agg, groupBy);
   const { data, error, isLoading } = useSWR<{ response: TelemetryBuckets; request: BucketRequest }>(
     url,
     async (u: string) => ({ response: await apiClient.get<TelemetryBuckets>(u), request: bucketRequestOf(u) }),
@@ -415,14 +465,7 @@ export interface AlarmCounts {
  */
 export function useAlarmCounts(selection: AlarmScope): { data: AlarmCounts | undefined; loading: boolean; error: unknown } {
   const polling = widgetPolling(ALARM_REFRESH_MS);
-  const qs = new URLSearchParams();
-  applyAlarmScope(qs, selection);
-  // The string, not `URLSearchParams.size`: `size` is undefined before Chrome 113
-  // / Safari 17, and there an empty-looking query would ask for everything in view.
-  const query = qs.toString();
-  const url = alarmScopeSelectsNothing(selection)
-    ? null
-    : query ? `/api/alarms/counts?${query}` : '/api/alarms/counts';
+  const url = alarmCountsUrl(selection);
   const { data, error, isLoading } = useSWR<AlarmCounts>(
     url,
     (u: string) => apiClient.get<AlarmCounts>(u),
@@ -430,4 +473,18 @@ export function useAlarmCounts(selection: AlarmScope): { data: AlarmCounts | und
   );
   // An empty list counts nothing, never the previous selection's alarms.
   return url ? { data, loading: isLoading, error } : { data: undefined, loading: false, error: undefined };
+}
+
+/**
+ * THE `/api/alarms/counts` URL of a scope — the alarm counts and alarm-type pie
+ * widgets, and their reports (2026-11-02). An empty fixed list asks nothing.
+ */
+export function alarmCountsUrl(scope: AlarmScope): string | null {
+  if (alarmScopeSelectsNothing(scope)) return null;
+  const qs = new URLSearchParams();
+  applyAlarmScope(qs, scope);
+  // The string, not `URLSearchParams.size`: `size` is undefined before Chrome 113
+  // / Safari 17, and there an empty-looking query would ask for everything in view.
+  const query = qs.toString();
+  return query ? `/api/alarms/counts?${query}` : '/api/alarms/counts';
 }

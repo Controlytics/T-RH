@@ -14,21 +14,28 @@
  * - Current is the latest STORED reading (from latest-values), never a point of
  *   the sampled series; Min / Max / Average are the server's, over every reading.
  */
-import { coerceReading, TREND_SERIES_MAX, type CustomWidget, type LatestKeyValue } from '@digilog/shared';
+import {
+  coerceReading, TREND_SERIES_MAX,
+  type CustomWidget, type DataKeyJudged, type LatestKeyValue, type LatestValuesRow, type WidgetKey,
+} from '@digilog/shared';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { useSensorWords } from '@/hooks/use-failure-text';
+import { useSensorWords, type SensorWords } from '@/hooks/use-failure-text';
 import { SampledNote } from '@/routes/instruments/sampled-note';
 import { TimeSeriesChart, seriesColor, type ChartSeries } from '../time-series-chart';
 import { decimalsSeen, isMeasured, keyCell } from './key-value';
-import { useWidgetHistory, type WidgetSelection } from './use-widget-data';
+import { useWidgetHistory, type InstrumentHistory, type WidgetSelection } from './use-widget-data';
 import {
   LOAD_FAILED, NO_INSTRUMENTS, NO_KEY_YET, PeriodSelect, WidgetMessage, WidgetNotes, keyColorSlots, useWidgetRange, useWidgetRows, valueOf,
 } from './widget-common';
+import { usePublishWidgetRange } from './widget-report-view';
 
-interface Plotted {
+export interface TrendPlotted {
   series: ChartSeries;
   instrumentId: string;
   key: string;
+  /** The instrument's row — its code and Location, for the widget's report. */
+  row: LatestValuesRow;
+  widgetKey: WidgetKey;
   latest: LatestKeyValue | undefined;
   current: string;
   /** The unit beside Current — none beside NA or a fault word. */
@@ -36,35 +43,43 @@ interface Plotted {
   unit: string | null;
 }
 
-export function TrendChartWidget({ widget, selection }: { widget: CustomWidget; selection: WidgetSelection }) {
-  const { rows, loading, error, empty, refreshFailed } = useWidgetRows(widget, selection);
-  const { preset, setPreset, range, zoomed, zoomTo, resetZoom } = useWidgetRange(widget.options.period, selection.window);
-  const words = useSensorWords();
+export interface TrendPair { row: LatestValuesRow; key: WidgetKey }
 
-  const telemetryKeys = widget.keys.filter((k) => k.source === 'telemetry');
-  // Only instruments that have SENT the key: a key a few instruments carry must
-  // not be cut behind empty series of instruments that never sent it
-  // (review 2026-10-29).
+/**
+ * Which series a trend chart draws: every (instrument × telemetry key) whose
+ * instrument has SENT the key — a key a few instruments carry must not be cut
+ * behind empty series of instruments that never sent it (review 2026-10-29) —
+ * the first `TREND_SERIES_MAX` of them. The widget and its report (2026-11-02)
+ * both ask this, so the printed series are the drawn ones.
+ */
+export function trendPairs(rows: readonly LatestValuesRow[], telemetryKeys: readonly WidgetKey[]): { pairs: TrendPair[]; shown: TrendPair[] } {
   const pairs = rows.flatMap((row) => telemetryKeys
     .filter((key) => valueOf(row, key)?.ts != null)
     .map((key) => ({ row, key })));
-  const shownPairs = pairs.slice(0, TREND_SERIES_MAX);
-  const historyIds = [...new Set(shownPairs.map((p) => p.row.instrumentId))];
-  // A key's chosen colour names the KEY only when one instrument is drawn; across
-  // several instruments every series takes its own palette slot, or the lines
-  // for one key would be indistinguishable. On one instrument a key without a
-  // colour takes a slot no key chose (fix round 1, m-7 — `key.color ?? index`
-  // drew a key in the colour another key had been given).
-  const singleInstrument = historyIds.length === 1;
+  return { pairs, shown: pairs.slice(0, TREND_SERIES_MAX) };
+}
+
+/**
+ * The drawn series of a trend chart — points, decimals, colour, Current — and
+ * the shared limits and unit, from the instruments' latest values and their
+ * history. Pure: the widget draws it, and its report prints the same series
+ * and the same picture (`renderChartToPng` mounts the same chart).
+ *
+ * A key's chosen colour names the KEY only when one instrument is drawn; across
+ * several instruments every series takes its own palette slot, or the lines for
+ * one key would be indistinguishable. On one instrument a key without a colour
+ * takes a slot no key chose (fix round 1, m-7 — `key.color ?? index` drew a key
+ * in the colour another key had been given).
+ */
+export function trendPlot(
+  shown: readonly TrendPair[],
+  telemetryKeys: readonly WidgetKey[],
+  byInstrument: ReadonlyMap<string, InstrumentHistory>,
+  words: SensorWords,
+): { plotted: TrendPlotted[]; shared: DataKeyJudged | null; unit: string } {
+  const singleInstrument = new Set(shown.map((p) => p.row.instrumentId)).size === 1;
   const keySlots = keyColorSlots(telemetryKeys);
-  const { byInstrument, loading: historyLoading } = useWidgetHistory(historyIds, telemetryKeys.map((k) => k.key), range);
-
-  if (loading) return <WidgetMessage>Loading…</WidgetMessage>;
-  if (error) return <WidgetMessage tone="error">{LOAD_FAILED}</WidgetMessage>;
-  if (empty) return <WidgetMessage>{NO_INSTRUMENTS}</WidgetMessage>;
-  if (pairs.length === 0) return <WidgetMessage>{NO_KEY_YET}</WidgetMessage>;
-
-  const plotted: Plotted[] = shownPairs.flatMap(({ row, key }, index) => {
+  const plotted: TrendPlotted[] = shown.flatMap(({ row, key }, index) => {
     const h = byInstrument.get(row.instrumentId);
     if (!h) return [];
     const points = h.history
@@ -88,6 +103,8 @@ export function TrendChartWidget({ widget, selection }: { widget: CustomWidget; 
       },
       instrumentId: row.instrumentId,
       key: key.key,
+      row,
+      widgetKey: key,
       latest,
       current: cell.text,
       currentUnit: cell.unit,
@@ -99,7 +116,26 @@ export function TrendChartWidget({ widget, selection }: { widget: CustomWidget; 
   const shared = bounds.length > 0 && bounds.every((b) => b !== null
     && b.limitMin === bounds[0]!.limitMin && b.limitMax === bounds[0]!.limitMax) ? bounds[0] : null;
   const units = new Set(plotted.map((p) => p.unit ?? ''));
-  const unit = units.size === 1 ? [...units][0] : '';
+  return { plotted, shared, unit: units.size === 1 ? [...units][0] : '' };
+}
+
+export function TrendChartWidget({ widget, selection }: { widget: CustomWidget; selection: WidgetSelection }) {
+  const { rows, loading, error, empty, refreshFailed } = useWidgetRows(widget, selection);
+  const { preset, setPreset, range, zoomed, zoomTo, resetZoom } = useWidgetRange(widget.options.period, selection.window);
+  usePublishWidgetRange(widget.id, range);
+  const words = useSensorWords();
+
+  const telemetryKeys = widget.keys.filter((k) => k.source === 'telemetry');
+  const { pairs, shown: shownPairs } = trendPairs(rows, telemetryKeys);
+  const historyIds = [...new Set(shownPairs.map((p) => p.row.instrumentId))];
+  const { byInstrument, loading: historyLoading } = useWidgetHistory(historyIds, telemetryKeys.map((k) => k.key), range);
+
+  if (loading) return <WidgetMessage>Loading…</WidgetMessage>;
+  if (error) return <WidgetMessage tone="error">{LOAD_FAILED}</WidgetMessage>;
+  if (empty) return <WidgetMessage>{NO_INSTRUMENTS}</WidgetMessage>;
+  if (pairs.length === 0) return <WidgetMessage>{NO_KEY_YET}</WidgetMessage>;
+
+  const { plotted, shared, unit } = trendPlot(shownPairs, telemetryKeys, byInstrument, words);
 
   let notPlotted = 0;
   let sampled = false;

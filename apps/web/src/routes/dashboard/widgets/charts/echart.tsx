@@ -54,3 +54,24 @@ export default function EChart({ option, height, ariaLabel }: EChartProps) {
   return <div ref={box} role="img" aria-label={ariaLabel} style={{ height, width: '100%' }} />;
 }
 
+/**
+ * The chart as an SVG DOCUMENT, drawn off-screen at a FIXED size — a widget
+ * report's picture (2026-11-02). ECharts' server-side mode: no DOM node, no
+ * ResizeObserver, nothing left behind (the instance is disposed before this
+ * returns). The option is drawn by the SAME rules as on screen — `color:
+ * [NEUTRAL_HEX]` first, `animation: false` — so the printed chart is the
+ * widget's own builder's, never a second drawing of the same numbers.
+ *
+ * Reach it only through `lazy-echart.tsx`'s `renderChartSvg` (a dynamic
+ * import), so ECharts stays out of the main bundle.
+ */
+export function renderOptionToSvg(option: EChartProps['option'], width: number, height: number): string {
+  const instance = init(null, undefined, { renderer: 'svg', ssr: true, width, height });
+  try {
+    instance.setOption({ color: [NEUTRAL_HEX], ...option, animation: false }, { notMerge: true });
+    return instance.renderToSVGString();
+  } finally {
+    instance.dispose();
+  }
+}
+

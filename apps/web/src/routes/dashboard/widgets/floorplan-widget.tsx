@@ -25,12 +25,14 @@
  * The server gates the type on `/` (the `telemetry_floorplan` panel); nothing is
  * re-gated here.
  */
+import { useEffect, useRef } from 'react';
 import type { CustomWidget } from '@digilog/shared';
 import { FloorplanNotAvailable, FloorplanView, fixedPlanState } from '../floorplan-view';
 import { useFloorplans } from '../use-telemetry';
 import type { WidgetTrail } from './trend-link';
 import { overviewQueryFor, useWidgetOverview, type WidgetSelection } from './use-widget-data';
 import { LOAD_FAILED, WidgetMessage, WidgetNotes, answerState } from './widget-common';
+import { useWidgetReportViewRegistry } from './widget-report-view';
 
 export function FloorplanWidget({ widget, selection, trail }: {
   widget: CustomWidget;
@@ -45,13 +47,24 @@ export function FloorplanWidget({ widget, selection, trail }: {
   const { rows, loading, error } = useWidgetOverview(widget.source, selection);
   const answer = answerState(rows.length > 0, error);
 
+  // Its report's picture is THIS drawing on the page (2026-11-02): published as
+  // a getter, read when the report is built — null when no plan is drawn.
+  const root = useRef<HTMLDivElement>(null);
+  const registry = useWidgetReportViewRegistry();
+  const widgetId = widget.id;
+  useEffect(() => {
+    registry?.publish(widgetId, {
+      floorplanSvg: () => root.current?.querySelector<SVGSVGElement>('svg[data-report-picture="floorplan"]') ?? null,
+    });
+  }, [registry, widgetId]);
+
   const plan = fixedPlanState(plans, plansLoading, plansError, planId);
   if (plan === 'gone') return <FloorplanNotAvailable />;
   if (plan === 'loading' || loading) return <WidgetMessage>Loading…</WidgetMessage>;
   if (answer === 'failed') return <WidgetMessage tone="error">{LOAD_FAILED}</WidgetMessage>;
 
   return (
-    <div className="space-y-2">
+    <div ref={root} className="space-y-2">
       <WidgetNotes refreshFailed={answer === 'stale'} />
       <FloorplanView
         planId={planId}

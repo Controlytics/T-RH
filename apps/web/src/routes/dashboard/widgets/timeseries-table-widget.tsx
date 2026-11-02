@@ -8,20 +8,37 @@
  * says so when the selection is larger.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { WIDGET_INSTRUMENTS_MAX, type CustomWidget, type LatestKeyValue } from '@digilog/shared';
+import {
+  WIDGET_INSTRUMENTS_MAX, type CustomWidget, type LatestKeyValue, type LatestValuesRow, type WidgetKey,
+} from '@digilog/shared';
 import { Pagination } from '@/components/ui/pagination';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { formatKeyValue } from './key-value';
 import { widgetPageSize } from './type-switch';
 import { useWidgetTimeseries, type WidgetSelection } from './use-widget-data';
+import { usePublishWidgetRange } from './widget-report-view';
 import {
   LOAD_FAILED, NO_INSTRUMENTS, PeriodSelect, WidgetMessage, WidgetNotes, useWidgetRange, useWidgetRows, valueOf,
 } from './widget-common';
 
+/**
+ * One stored reading, printed by the same rule as the instrument's latest value
+ * (its server decimals when measured; as received, or at the widget key's
+ * decimals, when raw). The widget's cells and its report's (2026-11-02).
+ */
+export function timeseriesCellText(row: LatestValuesRow | undefined, key: WidgetKey, value: unknown): string {
+  const latest = row ? valueOf(row, key) : undefined;
+  const v: LatestKeyValue = latest
+    ? { ...latest, value: value ?? null }
+    : { source: 'telemetry', key: key.key, value: value ?? null, ts: null, unit: null, decimals: null, display: null, judged: null };
+  return formatKeyValue(v, key);
+}
+
 export function TimeseriesTableWidget({ widget, selection }: { widget: CustomWidget; selection: WidgetSelection }) {
   const { rows, loading, error, empty, refreshFailed } = useWidgetRows(widget, selection);
   const { preset, setPreset, range } = useWidgetRange(widget.options.period, selection.window);
+  usePublishWidgetRange(widget.id, range);
   const { formatDateTime } = useDatetimeFormat();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(widgetPageSize(widget));
@@ -41,15 +58,8 @@ export function TimeseriesTableWidget({ widget, selection }: { widget: CustomWid
   if (error) return <WidgetMessage tone="error">{LOAD_FAILED}</WidgetMessage>;
   if (empty) return <WidgetMessage>{NO_INSTRUMENTS}</WidgetMessage>;
 
-  /** One stored reading, printed by the same rule as the instrument's latest value. */
-  const cellText = (instrumentId: string, key: (typeof keys)[number], value: unknown): string => {
-    const row = byId.get(instrumentId);
-    const latest = row ? valueOf(row, key) : undefined;
-    const v: LatestKeyValue = latest
-      ? { ...latest, value: value ?? null }
-      : { source: 'telemetry', key: key.key, value: value ?? null, ts: null, unit: null, decimals: null, display: null, judged: null };
-    return formatKeyValue(v, key);
-  };
+  const cellText = (instrumentId: string, key: (typeof keys)[number], value: unknown): string =>
+    timeseriesCellText(byId.get(instrumentId), key, value);
 
   return (
     <div className="space-y-2">

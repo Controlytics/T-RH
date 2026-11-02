@@ -101,6 +101,12 @@ function DashboardView({ dashboard, mutate }: {
     () => [{ label: 'Dashboards', to: '/dashboards' }, { label: dashboard.title, to: `/dashboards/${dashboard.id}` }],
     [dashboard.id, dashboard.title],
   );
+  // What a widget's Download report names as `{dashboard}` and `{selection}`:
+  // this dashboard, and its source as the header says it (2026-11-02).
+  const reportHost = useMemo(
+    () => ({ dashboard: dashboard.title, selection: dashboard.sourceSummary.label }),
+    [dashboard.title, dashboard.sourceSummary.label],
+  );
   // The same overview query the "follow the dashboard" widgets make — one SWR
   // key, so the count costs no extra request.
   const overview = useTelemetryOverview({
@@ -351,6 +357,7 @@ function DashboardView({ dashboard, mutate }: {
                     item={it}
                     selection={selection}
                     trail={trail}
+                    reportHost={reportHost}
                     editing={editing}
                     onEdit={() => setWidgetDialog({ initial: w })}
                     onRemove={() => session.removeWidget(w.id)}

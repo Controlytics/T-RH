@@ -1291,6 +1291,9 @@ export function FloorplanView({ functionalLocationId, directOnly, trail, planId:
             preserveAspectRatio="xMidYMin meet"
             role="img"
             aria-label={`${plan.name}: ${roomViews.length} rooms with current temperature and humidity`}
+            // What a floor plan widget's Download report rasterises (2026-11-02):
+            // THIS drawing, not the compass or the legend's swatches beside it.
+            data-report-picture="floorplan"
           >
             <style>{HALO_CSS}</style>
 

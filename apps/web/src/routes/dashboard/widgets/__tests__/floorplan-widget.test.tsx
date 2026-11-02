@@ -263,6 +263,7 @@ describe('floor plan widget', () => {
       <MemoryRouter>
         <WidgetPanel
           widget={widget(QC.id)} item={{ i: `w:${QC.id}`, x: 0, y: 0, w: 12, h: 16 }} selection={SEL} trail={TRAIL}
+          reportHost={{ dashboard: 'Dashboard', selection: 'QC' }}
           editing={false} onEdit={noop} onRemove={noop} onStyleChange={noop} onSizeChange={noop}
           autoHeight={false} onNaturalHeight={noop}
         />

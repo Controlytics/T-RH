@@ -252,6 +252,15 @@ export function DashboardPage() {
     return where ? `${base} — ${where}${pinned}` : `${base}${pinned}`;
   };
 
+  // What a built widget's Download report names as `{dashboard}` and
+  // `{selection}` (2026-11-02): this page, and the drill-down as its breadcrumb
+  // says it, past the "Dashboard" root.
+  const reportSelection = nav.breadcrumb.slice(1).map((c) => c.label).join(' › ');
+  const reportHost = useMemo(
+    () => ({ dashboard: 'Dashboard', selection: `${reportSelection || 'All Instruments'}${nav.directOnly ? ' (the block itself)' : ''}` }),
+    [reportSelection, nav.directOnly],
+  );
+
   return (
     <div className="space-y-4 animate-fade-in">
       {/*
@@ -464,6 +473,7 @@ export function DashboardPage() {
                       // A status tile opens the trend page: it carries the trail,
                       // as the readings table and the floor plan do.
                       trail={trailFor(nav.breadcrumb)}
+                      reportHost={reportHost}
                       editing={layout.editing}
                       onEdit={() => setWidgetDialog({ initial: w })}
                       onRemove={() => layout.removeWidget(w.id)}
