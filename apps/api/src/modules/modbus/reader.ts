@@ -41,6 +41,13 @@ import { readDevice, type ReadResult } from './protocol/index.js';
  * write no audit row — a lossy link must not write thousands of chained rows a
  * day. The status change and its audit row are ONE transaction.
  *
+ * Only the DEVICE's failures count (ledger Ruling T9-1). When the device
+ * answered but this server could not store the readings (`ingestPayload` not
+ * ok — WRITE_FAILED and the like) that is a server fault: logged at ERROR and
+ * recorded as the status row's last error, but it neither advances nor resets
+ * the run of device failures and never writes a transition row — "stopped
+ * answering" would be a false §11 statement about a device that did answer.
+ *
  * `stop()` is the only path that abandons a read: it aborts the socket, and a
  * read that finishes after the abort writes nothing — no telemetry, no status,
  * no audit row. Switching reading OFF empties the schedule at the next reload
@@ -186,11 +193,17 @@ export async function readOnce(
   }
 
   if (result.rejected.length > 0) {
-    await safeWriteDeadLetters(result.rejected.map((r) => ({
+    // ONE dead letter per read, naming every refused key with its reason and
+    // raw words (Ruling T9-2) — the ingest core's per-request rule. One row
+    // per key per read would be ~8,640 rows a day for a single dead FLOAT32
+    // probe at the 10 s minimum interval.
+    const n = result.rejected.length;
+    await safeWriteDeadLetters([{
       id: randomUUID(), instrumentId: row.id, transport: TRANSPORT,
-      reason: `Modbus key "${r.key}" was not stored: ${r.reason}`,
+      reason: `${n} Modbus key${n === 1 ? '' : 's'} not stored: `
+        + result.rejected.map((r) => `"${r.key}" — ${r.reason}`).join('; '),
       rawPayload: null,
-    })));
+    }]);
   }
 
   // The readings, as a device would have sent them: a PROTOTYPE-LESS object so
@@ -208,11 +221,12 @@ export async function readOnce(
     identity, raw: Buffer.from(JSON.stringify(payload), 'utf8'), transport: TRANSPORT, lastSeenVia: 'polled',
   });
   if (!ingested.ok) {
-    // The device answered; this server could not store what it said (spec
-    // §7.4: a server fault, logged and counted as a failed read).
+    // The device answered; this server could not store what it said. A server
+    // fault (spec §7.4), logged and recorded as the last error — NOT a device
+    // failure (Ruling T9-1, departing from §7.4's "counted as a failed read").
     logger.error({ instrumentId: row.id, code: row.code, outcome: ingested.code, message: ingested.message },
       '[modbus-reader] the device answered but its readings were not stored');
-    await recordFailure(row, target, startedAt, ingested.code, ingested.message);
+    await recordStorageFailure(row, startedAt, ingested.code, ingested.message);
     return { outcome: 'failed', code: ingested.code };
   }
   await recordSuccess(row, target, startedAt);
@@ -228,7 +242,6 @@ interface StatusBefore {
   consecutiveFailures: number;
   failingSince: Date | null;
   failureRunStartedAt: Date | null;
-  lastErrorAt: Date | null;
   lastErrorCode: string | null;
   lastErrorMessage: string | null;
 }
@@ -240,7 +253,7 @@ async function lockStatus(tx: AuditTx, instrumentId: string): Promise<StatusBefo
     ON CONFLICT (instrument_id) DO NOTHING`;
   const rows = await tx.$queryRaw<StatusBefore[]>`
     SELECT consecutive_failures AS "consecutiveFailures", failing_since AS "failingSince",
-           failure_run_started_at AS "failureRunStartedAt", last_error_at AS "lastErrorAt",
+           failure_run_started_at AS "failureRunStartedAt",
            last_error_code AS "lastErrorCode", last_error_message AS "lastErrorMessage"
     FROM modbus_poll_status WHERE instrument_id = ${instrumentId} FOR UPDATE`;
   const row = rows[0];
@@ -280,6 +293,22 @@ async function recordFailure(row: InstrumentRow, target: ReadableTarget, at: Dat
   });
 }
 
+/**
+ * The device answered and this server could not store its readings (Ruling
+ * T9-1): the attempt and the error are recorded, and nothing else moves — not
+ * the failure count, not the run's start, not `failingSince` — and no audit
+ * row is written. A run of DEVICE failures is neither advanced nor broken by it.
+ */
+async function recordStorageFailure(row: InstrumentRow, at: Date, code: string, message: string): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    await lockStatus(tx, row.id);
+    await tx.modbusPollStatus.update({
+      where: { instrumentId: row.id },
+      data: { readBy: READ_BY_SERVER, lastAttemptAt: at, lastErrorCode: code, lastErrorMessage: message, lastErrorAt: at },
+    });
+  });
+}
+
 async function recordSuccess(row: InstrumentRow, target: ReadableTarget, at: Date): Promise<void> {
   await prisma.$transaction(async (tx) => {
     const before = await lockStatus(tx, row.id);
@@ -291,9 +320,10 @@ async function recordSuccess(row: InstrumentRow, target: ReadableTarget, at: Dat
       },
     });
     if (before.failingSince !== null) {
-      // The gap: `from` = the first missed read, `to` = the last one; the read
-      // that answered is `answeredAt`.
-      const lastMissed = before.lastErrorAt ?? before.failingSince;
+      // The gap: `from` = the first missed read, `to` = this read, the one that
+      // answered. (`to` is not "the last missed read": since Ruling T9-1 the
+      // last error may be a storage failure, so `lastErrorAt` no longer marks
+      // the device's last miss.)
       await auditLog({
         action: 'MODBUS_DEVICE_ANSWERING', targetType: 'Instrument', targetId: row.id,
         beforeValue: {
@@ -304,8 +334,7 @@ async function recordSuccess(row: InstrumentRow, target: ReadableTarget, at: Dat
         afterValue: {
           code: row.code, host: target.host, port: target.port,
           missed: before.consecutiveFailures,
-          from: before.failingSince.toISOString(), to: lastMissed.toISOString(),
-          answeredAt: at.toISOString(), readBy: READ_BY_SERVER,
+          from: before.failingSince.toISOString(), to: at.toISOString(), readBy: READ_BY_SERVER,
         },
         signatureMeaning: `TCP/IP instrument "${clip(row.code)}" answering the server's reads again`,
       }, tx);

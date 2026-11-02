@@ -168,7 +168,7 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   // TCP/IP (Modbus) Reader rows (2026-10-31): MODBUS_DEVICE_NOT_ANSWERING /
   // _ANSWERING. Written by the server with no user, so every value is the
   // row's own after-value, printed as stored — `from` / `to` are ISO instants
-  // (the first and the last missed read), `missed` a count. {code} is the
+  // (the first missed read, the read that answered), `missed` a count. {code} is the
   // instrument code; {reason} is already substituted above.
   const text = (v: unknown): string => (v === null || v === undefined ? '' : String(v));
   const code = text(after.code ?? before.code);

@@ -27,6 +27,19 @@ vi.mock('../../alarms/enqueue-evaluation.js', () => ({
   enqueueAlarmEvaluation: (...a: unknown[]) => enqueueSpy(...(a as [])),
 }));
 
+// The ingest core, passed through — except when a test sets `ingestOutcome`
+// to make this server's STORAGE fail while the device answers (Ruling T9-1).
+// A test-file seam only: production code has no way to ask for a failure.
+const { ingestOutcome } = vi.hoisted(() => ({ ingestOutcome: { next: null as null | Record<string, unknown> } }));
+vi.mock('../../instruments/ingest-core.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../instruments/ingest-core.js')>();
+  return {
+    ...actual,
+    ingestPayload: (args: Parameters<typeof actual.ingestPayload>[0]) =>
+      (ingestOutcome.next ? Promise.resolve(ingestOutcome.next) : actual.ingestPayload(args)),
+  };
+});
+
 import {
   readOnce, createModbusReader, startModbusReader, pickDue, phaseFor, firstSlotAtOrAfter,
   NOT_ANSWERING_AFTER, MAX_READS_IN_FLIGHT, type ScheduleEntry,
@@ -50,7 +63,7 @@ const f32 = (v: number): [number, number] => {
   return [b.readUInt16BE(0), b.readUInt16BE(2)];
 };
 const [tHi, tLo] = f32(22.4);
-const HOLDING: Record<number, number> = { 0: tHi, 1: tLo, 2: 553, 3: 1013, 4: 0, 5: 1500, 6: 1, 10: 0x7fc0, 11: 0x0000 };
+const HOLDING: Record<number, number> = { 0: tHi, 1: tLo, 2: 553, 3: 1013, 4: 0, 5: 1500, 6: 1, 10: 0x7fc0, 11: 0x0000, 12: 0x7f80, 13: 0x0000 };
 const INPUT: Record<number, number> = { 0: 2301 };
 const SIX = [
   { key: 'Temperature', register: '40001', dataType: 'FLOAT32', byteOrder: 'ABCD', scale: 1 },
@@ -149,6 +162,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   enqueueSpy.mockClear();
+  ingestOutcome.next = null;
   logs.length = 0;
   await setReading(true);
   // Each test reads only its own instrument: the earlier ones are switched off,
@@ -196,11 +210,12 @@ describe('readOnce — the read the scheduler runs', () => {
     expect(await audits(i.id)).toEqual([]);
   });
 
-  it('a NaN key is dead-lettered (transport modbus) and the other keys are stored', async () => {
+  it('refused keys (NaN, infinity) are ONE dead letter per read naming each, and the other keys are stored', async () => {
     const sl = await slave();
     const i = await inst('nan', sl.port, [
       SIX[0],
       { key: 'Broken', register: '40011', dataType: 'FLOAT32', byteOrder: 'ABCD', scale: 1 },
+      { key: 'Endless', register: '40013', dataType: 'FLOAT32', byteOrder: 'ABCD', scale: 1 },
     ]);
     const r = await readOnce(i.id, ON);
     expect(r.outcome).toBe('stored');
@@ -208,10 +223,18 @@ describe('readOnce — the read the scheduler runs', () => {
     const dl = await prisma.deadLetter.findMany({ where: { instrumentId: i.id } });
     expect(dl).toHaveLength(1);
     expect(dl[0]!.transport).toBe('modbus');
-    expect(dl[0]!.reason).toContain('Broken');
+    expect(dl[0]!.reason).toContain('2 Modbus keys not stored');
+    expect(dl[0]!.reason).toContain('"Broken"');
     expect(dl[0]!.reason).toContain('NaN');
     expect(dl[0]!.reason).toContain('0x7FC0 0x0000');
+    expect(dl[0]!.reason).toContain('"Endless"');
+    expect(dl[0]!.reason).toContain('infinite');
+    expect(dl[0]!.reason).toContain('0x7F80 0x0000');
     expect((await status(i.id))!.consecutiveFailures).toBe(0);
+
+    // A second read: one more row, not two.
+    await readOnce(i.id, ON);
+    expect(await prisma.deadLetter.count({ where: { instrumentId: i.id } })).toBe(2);
   });
 
   it(`failures: ${NOT_ANSWERING_AFTER - 1} misses change nothing but the count, the ${NOT_ANSWERING_AFTER}rd writes ONE "not answering" row, the next success ONE "answering" row`, async () => {
@@ -279,10 +302,77 @@ describe('readOnce — the read the scheduler runs', () => {
     const after5 = a5[1]!.afterValue as Record<string, unknown>;
     expect(after5.code).toBe(i.code);
     expect(after5.missed).toBe(4);
+    // The gap: from the first missed read to the read that answered.
     expect(after5.from).toBe(firstFailure.toISOString());
-    expect(after5.to).toBe(lastFailure.toISOString());
-    expect(after5.answeredAt).toBe(st5.lastSuccessAt!.toISOString());
+    expect(after5.to).toBe(st5.lastSuccessAt!.toISOString());
+    expect(st5.lastSuccessAt!.getTime()).toBeGreaterThan(lastFailure.getTime());
     expect((await history(i.id)).map((x) => x.key)).toEqual(SIX_KEYS);
+  });
+
+  it('a STORAGE failure (the device answered) is recorded as the last error but is never "not answering" (Ruling T9-1)', async () => {
+    const error = vi.spyOn(logger, 'error');
+    try {
+      const sl = await slave();
+      const i = await inst('wf', sl.port);
+      ingestOutcome.next = { ok: false, code: 'WRITE_FAILED', message: 'Readings could not be stored: disk full (test)' };
+      for (let n = 1; n <= NOT_ANSWERING_AFTER; n++) {
+        expect(await readOnce(i.id, ON)).toEqual({ outcome: 'failed', code: 'WRITE_FAILED' });
+        await sleep(5);
+      }
+      const st = (await status(i.id))!;
+      expect(st.consecutiveFailures).toBe(0);
+      expect(st.failingSince).toBeNull();
+      expect(st.failureRunStartedAt).toBeNull();
+      expect(st.lastSuccessAt).toBeNull();
+      expect(st.lastErrorCode).toBe('WRITE_FAILED');
+      expect(st.lastErrorMessage).toContain('disk full (test)');
+      expect(st.lastErrorAt!.getTime()).toBe(st.lastAttemptAt!.getTime());
+      expect(await audits(i.id)).toEqual([]);
+      expect(error).toHaveBeenCalled();
+      expect(sl.connections()).toBe(NOT_ANSWERING_AFTER); // the device WAS read each time
+
+      // Storage back: a stored read, still no audit row (nothing transitioned).
+      ingestOutcome.next = null;
+      expect(await readOnce(i.id, ON)).toEqual({ outcome: 'stored' });
+      expect((await status(i.id))!.consecutiveFailures).toBe(0);
+      expect(await audits(i.id)).toEqual([]);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it('a mixed run — two device misses then a storage failure — does NOT transition, and the storage failure neither advances nor breaks the run', async () => {
+    const sl = await slave(); // live first, so the dead port cannot be the live one
+    const dead = await deadPort();
+    const i = await inst('mixed', dead);
+
+    expect((await readOnce(i.id, ON)).code).toBe('REFUSED');
+    const firstFailure = (await status(i.id))!.lastAttemptAt!;
+    await sleep(5);
+    expect((await readOnce(i.id, ON)).code).toBe('REFUSED');
+    expect((await status(i.id))!.consecutiveFailures).toBe(2);
+
+    // The device answers; this server cannot store it.
+    await prisma.instrument.update({ where: { id: i.id }, data: { modbusPort: sl.port } });
+    ingestOutcome.next = { ok: false, code: 'WRITE_FAILED', message: 'Readings could not be stored: (test)' };
+    await sleep(5);
+    expect(await readOnce(i.id, ON)).toEqual({ outcome: 'failed', code: 'WRITE_FAILED' });
+    const st = (await status(i.id))!;
+    expect(st.consecutiveFailures).toBe(2);
+    expect(st.failingSince).toBeNull();
+    expect(st.failureRunStartedAt!.getTime()).toBe(firstFailure.getTime());
+    expect(st.lastErrorCode).toBe('WRITE_FAILED');
+    expect(await audits(i.id)).toEqual([]);
+
+    // The next DEVICE miss is the run's third: the transition names the first miss.
+    ingestOutcome.next = null;
+    await prisma.instrument.update({ where: { id: i.id }, data: { modbusPort: dead } });
+    await sleep(5);
+    expect((await readOnce(i.id, ON)).code).toBe('REFUSED');
+    const st3 = (await status(i.id))!;
+    expect(st3.consecutiveFailures).toBe(3);
+    expect(st3.failingSince!.getTime()).toBe(firstFailure.getTime());
+    expect((await audits(i.id)).map((a) => a.action)).toEqual(['MODBUS_DEVICE_NOT_ANSWERING']);
   });
 
   it('reading switched OFF: skipped, and the device sees NO connection', async () => {

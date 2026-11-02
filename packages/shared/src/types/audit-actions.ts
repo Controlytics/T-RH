@@ -214,7 +214,8 @@ export const AUDIT_ACTIONS = {
    *  read's time are in the row. Written once per run, never per failed read. */
   MODBUS_DEVICE_NOT_ANSWERING: 'MODBUS_DEVICE_NOT_ANSWERING',
   /** The first successful read after MODBUS_DEVICE_NOT_ANSWERING: the number of
-   *  reads missed and the first and last of them. No human actor. */
+   *  reads the device missed, the first of them and this read. No human actor.
+   *  A storage failure on this server is never one of the missed reads. */
   MODBUS_DEVICE_ANSWERING: 'MODBUS_DEVICE_ANSWERING',
 
   // Floorplans and their rooms. A room carries the environmental SPECIFICATION

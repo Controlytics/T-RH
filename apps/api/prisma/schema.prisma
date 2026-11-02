@@ -1227,6 +1227,8 @@ model DeadLetter {
 /// failure's time from the run's first miss (it is not in the spec's column
 /// list: without it the third failure could not know when the first one was,
 /// and a time held in memory would be wrong after a restart mid-run).
+/// Only DEVICE failures count: a storage failure on this server (the device
+/// answered) sets `lastError*` / `lastAttemptAt` and nothing else (Ruling T9-1).
 model ModbusPollStatus {
   instrumentId        String     @id @map("instrument_id")
   instrument          Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)

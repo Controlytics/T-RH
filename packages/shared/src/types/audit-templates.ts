@@ -635,9 +635,8 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
   },
   // TCP/IP (Modbus) instruments (2026-10-31, Part 2). SYSTEM actions — no
   // {actor}: the server's Reader wrote them. {reason} is the failure in the
-  // operator's words (the Test connection wording); {from}–{to} are the first
-  // and the last missed read; the read that answered is `answeredAt` in the
-  // row's after-value.
+  // operator's words (the Test connection wording); {from}–{to} is the gap,
+  // from the first missed read to the read that answered.
   MODBUS_DEVICE_NOT_ANSWERING: {
     label: 'TCP/IP Device Not Answering',
     category: 'Instruments',
