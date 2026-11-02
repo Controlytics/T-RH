@@ -84,7 +84,8 @@ const WIDGET_REPORT_KINDS: readonly WidgetReportKindEntry[] = WIDGET_TYPES.map((
   settingPrefix: `widget${pascal(t)}`,
   inheritsFrom: null,
   label: `Widget — ${WIDGET_TYPE_SPECS[t].label}`,
-  hint: `The Download report on a ${WIDGET_TYPE_SPECS[t].label} widget.`,
+  // "the", not "a": the label decides the article ("a Alarm counts", fix wave 1).
+  hint: `The Download report on the ${WIDGET_TYPE_SPECS[t].label} widget.`,
 }));
 
 /**

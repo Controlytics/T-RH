@@ -35,6 +35,19 @@ export const REPORT_TEMPLATE_DOCUMENT_VERSION = 1;
 export const REPORT_TEMPLATE_NAME_MAX = 80;
 /** A custom logo, as the whole `data:` URL, in characters (~730 KB of image). */
 export const REPORT_TEMPLATE_LOGO_MAX = 1_000_000;
+/**
+ * How large an IMAGE fits under that cap, in KB (1,024 bytes) rounded DOWN to
+ * ten: base64 is four characters per three bytes, after the 23-character
+ * `data:image/jpeg;base64,` prefix. 730 for 1,000,000 characters. DERIVED from
+ * the cap, so the sentence an admin reads can never disagree with the check
+ * (fix wave 1, 2026-11-02: it said "1 MB", and an 800 KB PNG was "over 1 MB").
+ */
+export const REPORT_TEMPLATE_LOGO_IMAGE_KB =
+  Math.floor(((REPORT_TEMPLATE_LOGO_MAX - 'data:image/jpeg;base64,'.length) * 3) / 4 / 1024 / 10) * 10;
+const thousands = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+/** The refusal of a logo over the cap — the schema's words, worded from the two numbers above. */
+export const REPORT_TEMPLATE_LOGO_TOO_LARGE =
+  `The logo must be about ${REPORT_TEMPLATE_LOGO_IMAGE_KB} KB of image or smaller (${thousands(REPORT_TEMPLATE_LOGO_MAX)} characters as a data URL)`;
 export const REPORT_TEMPLATE_COLUMNS_MAX = 100;
 export const REPORT_TEMPLATE_INFO_ROWS_MAX = 20;
 export const REPORT_TEMPLATE_HEADING_MAX = 80;
@@ -300,9 +313,9 @@ const logoSchema = z.object({
     if (logo.mode === 'custom') ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['dataUrl'], message: 'Upload a logo image, or choose Branding or None' });
     return;
   }
-  // Size first: a 1 MB string is not worth a regex, and the size is the reason.
+  // Size first: a million-character string is not worth a regex, and the size is the reason.
   if (logo.dataUrl.length > REPORT_TEMPLATE_LOGO_MAX) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['dataUrl'], message: 'The logo must be 1 MB or smaller' });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['dataUrl'], message: REPORT_TEMPLATE_LOGO_TOO_LARGE });
     return;
   }
   const payload = LOGO_DATA_URL.exec(logo.dataUrl)?.[2];

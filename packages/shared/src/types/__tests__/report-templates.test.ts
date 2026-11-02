@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { WIDGET_TYPES, WIDGET_TYPE_SPECS, type WidgetType } from '../dashboard-widgets.js';
 import {
   REPORT_TEMPLATE_DOCUMENT_VERSION, REPORT_TEMPLATE_LOGO_MAX, REPORTABLE_WIDGET_TYPES, WIDGET_REPORT_FIELDS,
+  REPORT_TEMPLATE_LOGO_IMAGE_KB, REPORT_TEMPLATE_LOGO_TOO_LARGE,
   REPORT_PLACEHOLDERS, REPORT_VALUE_MISSING, reportTemplateDocumentSchema, reportTemplateCreateSchema,
   reportTemplateUpdateSchema, builtinReportTemplate, substitutePlaceholders, coerceReportTemplateDocument,
   WIDGET_REPORT_KIND, widgetReportType, reportLogoFormat, keyRowsCollapse, type ReportTemplateDocument,
@@ -130,7 +131,23 @@ describe('reportTemplateDocumentSchema', () => {
     expect(d.header.logo.dataUrl!.length).toBe(1_000_001);
     const found = issues(d);
     expect(found).toHaveLength(1);
-    expect(found[0]).toMatch(/^header\.logo\.dataUrl: .*1 MB/);
+    expect(found[0]).toBe(`header.logo.dataUrl: ${REPORT_TEMPLATE_LOGO_TOO_LARGE}`);
+  });
+
+  // Fix wave 1: the message said "1 MB" while the cap is a million CHARACTERS
+  // of base64 — an 800 KB PNG was told it was over 1 MB. The figure is now
+  // derived from the cap; these pin both the words and that they are true.
+  it('the size refusal states the real cap: about 730 KB of image, 1,000,000 characters as a data URL', () => {
+    expect(REPORT_TEMPLATE_LOGO_IMAGE_KB).toBe(730);
+    expect(REPORT_TEMPLATE_LOGO_TOO_LARGE).toBe('The logo must be about 730 KB of image or smaller (1,000,000 characters as a data URL)');
+    const jpegOf = (bytes: number) => 'data:image/jpeg;base64,/9j/' + 'A'.repeat(4 * Math.ceil(bytes / 3) - 4);
+    const tooLarge = (bytes: number) => {
+      const d = doc();
+      d.header.logo = { mode: 'custom', dataUrl: jpegOf(bytes) };
+      return issues(d).some((i) => i.includes(REPORT_TEMPLATE_LOGO_TOO_LARGE));
+    };
+    expect(tooLarge(REPORT_TEMPLATE_LOGO_IMAGE_KB * 1024)).toBe(false);
+    expect(tooLarge((REPORT_TEMPLATE_LOGO_IMAGE_KB + 10) * 1024)).toBe(true);
   });
 
   it('accepts the longest whole-base64 logo under the limit', () => {
@@ -392,9 +409,11 @@ describe('widget report kinds', () => {
     const k = REPORT_KINDS.find((x) => x.key === 'widget:gauge')!;
     expect(k).toEqual({
       key: 'widget:gauge', reportType: 'Widget: Gauge', settingPrefix: 'widgetGauge', inheritsFrom: null,
-      label: 'Widget — Gauge', hint: 'The Download report on a Gauge widget.',
+      label: 'Widget — Gauge', hint: 'The Download report on the Gauge widget.',
     });
     expect(REPORT_KINDS.find((x) => x.key === 'widget:timeseries_table')!.settingPrefix).toBe('widgetTimeseriesTable');
+    // No article to get wrong in front of a label ("a Alarm counts", fix wave 1).
+    expect(REPORT_KINDS.find((x) => x.key === 'widget:alarm_counts')!.hint).toBe('The Download report on the Alarm counts widget.');
     expect(reportTypeMatchesKind('widget:gauge', 'Widget: Gauge')).toBe(true);
     expect(reportTypeMatchesKind('widget:gauge', 'Widget: Pie chart')).toBe(false);
     expect(isReportKind('widget:gauge')).toBe(true);

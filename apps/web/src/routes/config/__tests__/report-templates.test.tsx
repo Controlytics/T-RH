@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import {
-  builtinReportTemplate, WIDGET_REPORT_FIELDS, type ReportField, type ReportTemplateDocument,
+  builtinReportTemplate, WIDGET_REPORT_FIELDS, REPORT_TEMPLATE_LOGO_TOO_LARGE, type ReportField, type ReportTemplateDocument,
 } from '@digilog/shared';
 
 /**
@@ -428,7 +428,7 @@ describe('Configuration → Report Templates — the logo', () => {
       fireEvent.click(screen.getByRole('button', { name: /new template/i }));
       fireEvent.click(screen.getByRole('radio', { name: 'Upload' }));
       fireEvent.change(screen.getByLabelText('Upload logo'), { target: { files: [pngFile(1_100_000)] } });
-      await waitFor(() => expect(screen.getByTestId('logo-error')).toHaveTextContent('The logo must be 1 MB or smaller'));
+      await waitFor(() => expect(screen.getByTestId('logo-error')).toHaveTextContent(REPORT_TEMPLATE_LOGO_TOO_LARGE));
       expect(read).not.toHaveBeenCalled();
       expect(screen.queryByRole('img', { name: /logo/i })).not.toBeInTheDocument();
     } finally {
@@ -436,12 +436,12 @@ describe('Configuration → Report Templates — the logo', () => {
     }
   });
 
-  it('a file under the cap whose DATA URL is over it (base64 is 4/3 the bytes) is refused by the same shared rule', async () => {
+  it('an 800 KB file — under 1 MB, over the cap as a data URL (base64 is 4/3 the bytes) — is refused by the same shared rule, which says ~730 KB', async () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: /new template/i }));
     fireEvent.click(screen.getByRole('radio', { name: 'Upload' }));
     fireEvent.change(screen.getByLabelText('Upload logo'), { target: { files: [pngFile(800_000)] } });
-    await waitFor(() => expect(screen.getByTestId('logo-error')).toHaveTextContent('The logo must be 1 MB or smaller'));
+    await waitFor(() => expect(screen.getByTestId('logo-error')).toHaveTextContent(REPORT_TEMPLATE_LOGO_TOO_LARGE));
     expect(screen.queryByRole('img', { name: /logo/i })).not.toBeInTheDocument();
   });
 
