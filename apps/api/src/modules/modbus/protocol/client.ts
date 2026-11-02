@@ -197,13 +197,17 @@ export function readDevice(opts: ReadDeviceOptions): Promise<ReadResult> {
         finish(err instanceof Error ? err : new Error(String(err)));
       }
     });
+    // After the connection was accepted, an error or a close we did not cause
+    // is the device dropping the line before it answered — its own sentence
+    // (final review F-7), not the response timeout's, which would put a false
+    // cause into the "stopped answering" audit row's {reason}.
     socket.on('error', (err: NodeJS.ErrnoException) => {
       if (stage === 'connecting') fail(isRefusal(err) ? 'REFUSED' : 'NO_ANSWER');
-      else fail('BAD_RESPONSE');
+      else fail('BAD_RESPONSE', { closed: true });
     });
     socket.on('close', () => {
-      // A close we did not cause: the device hung up before answering.
-      fail(stage === 'connecting' ? 'NO_ANSWER' : 'BAD_RESPONSE');
+      if (stage === 'connecting') fail('NO_ANSWER');
+      else fail('BAD_RESPONSE', { closed: true });
     });
 
     arm(connectMs, 'NO_ANSWER');

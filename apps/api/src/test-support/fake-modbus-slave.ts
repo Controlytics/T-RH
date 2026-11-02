@@ -6,7 +6,11 @@
  */
 import net from 'node:net';
 
-export type FakeSlaveBehaviour = 'normal' | 'exception02' | 'silent' | 'wrongTxId' | 'wrongUnit' | 'wrongFc' | 'short';
+/**
+ * `hangup` closes the connection (FIN) on the first request without answering;
+ * `reset` resets it (RST) — a device that drops the line after accepting it.
+ */
+export type FakeSlaveBehaviour = 'normal' | 'exception02' | 'silent' | 'wrongTxId' | 'wrongUnit' | 'wrongFc' | 'short' | 'hangup' | 'reset';
 
 export interface FakeSlaveOptions {
   holding?: Record<number, number>;
@@ -71,6 +75,8 @@ export async function startFakeSlave(opts: FakeSlaveOptions = {}): Promise<FakeS
     const address = req.readUInt16BE(8);
     const quantity = req.readUInt16BE(10);
     seen.push({ functionCode: fc, address, quantity });
+    if (behaviour === 'hangup') { socket.end(); return; }
+    if (behaviour === 'reset') { socket.resetAndDestroy(); return; }
     if (behaviour === 'silent' || unit !== unitId) return;
     const area = fc === 4 ? input : holding;
     switch (behaviour) {

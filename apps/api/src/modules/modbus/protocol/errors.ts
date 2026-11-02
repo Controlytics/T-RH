@@ -15,6 +15,8 @@ export interface ModbusErrorContext {
   responseTimeoutMs?: number;
   /** BAD_RESPONSE only: the device DID answer, but the reply did not match the request. */
   mismatch?: boolean;
+  /** BAD_RESPONSE only: the device accepted the connection, then closed or reset it before answering (final review F-7). */
+  closed?: boolean;
 }
 
 export const DEFAULT_CONNECT_TIMEOUT_MS = 3000;
@@ -54,6 +56,9 @@ export function modbusErrorMessage(code: ModbusErrorCode, ctx: ModbusErrorContex
     case 'BAD_RESPONSE':
       if (ctx.mismatch) {
         return `${host} : ${port} answered, but the reply did not match the request (wrong transaction, unit, function code or length) — check the unit ID and the register map.`;
+      }
+      if (ctx.closed) {
+        return `${host} : ${port} closed the connection without answering the read.`;
       }
       return `${host} : ${port} accepted the connection but did not answer the read within ${seconds(ctx.responseTimeoutMs ?? DEFAULT_RESPONSE_TIMEOUT_MS)} s.`;
   }

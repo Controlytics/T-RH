@@ -80,6 +80,23 @@ describe('readDevice', () => {
     expect(s.closedConnections()).toBe(1);
   });
 
+  // Final review F-7: a device that drops the line after accepting it gets its
+  // own sentence — "did not answer the read within 1 s" would put a false cause
+  // into the "stopped answering" audit row's {reason}.
+  it.each([['hangs up (FIN)', 'hangup'], ['resets the line (RST)', 'reset']] as const)(
+    'is BAD_RESPONSE "closed the connection without answering" when the device %s after accepting',
+    async (_label, behaviour) => {
+      const s = await start({ behaviour });
+      const t0 = Date.now();
+      const r = await readDevice({ host: s.host, port: s.port, unitId: 1, map });
+      expect(r).toMatchObject({ ok: false, code: 'BAD_RESPONSE' });
+      if (r.ok) throw new Error('unreachable');
+      expect(r.message).toBe(`127.0.0.1 : ${s.port} closed the connection without answering the read.`);
+      expect(Date.now() - t0).toBeLessThan(900); // at the close, not at the 1 s response timeout
+      expect(s.requests()).toHaveLength(1);
+    },
+  );
+
   it('is REFUSED when nothing listens on the port', async () => {
     const probe = net.createServer();
     await new Promise<void>((res) => probe.listen(0, '127.0.0.1', () => res()));
@@ -145,6 +162,7 @@ describe('modbusErrorMessage', () => {
     expect(modbusErrorMessage('NO_ANSWER', { host: 'h', port: 1, connectTimeoutMs: 200 })).toContain('within 0.2 s');
     expect(modbusErrorMessage('BAD_RESPONSE', { host: 'h', port: 1, responseTimeoutMs: 1000 })).toContain('within 1 s.');
     expect(modbusErrorMessage('BAD_RESPONSE', { host: 'h', port: 1, responseTimeoutMs: 1000, mismatch: true })).toBe('h : 1 answered, but the reply did not match the request (wrong transaction, unit, function code or length) — check the unit ID and the register map.');
+    expect(modbusErrorMessage('BAD_RESPONSE', { host: 'h', port: 1, responseTimeoutMs: 1000, closed: true })).toBe('h : 1 closed the connection without answering the read.');
   });
 
   it('names exception codes, and unknown ones by number', () => {
