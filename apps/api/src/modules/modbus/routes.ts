@@ -54,8 +54,12 @@ const modbusRoutes: FastifyPluginAsync<ModbusRoutesOptions> = async (app, opts) 
   app.post<{ Body: TestBody }>('/test', {
     preHandler: [app.requireAnyPermission('INSTRUMENT_CREATE', 'INSTRUMENT_UPDATE')],
     config: {
+      // 30 a minute per user (ruling CR1-8, 2026-11-02; was 10): the form has
+      // a Test button per key, and "add a key, test it" on a 12-key device
+      // passed 10 inside a minute. Over it: 429 TOO_MANY_REQUESTS whose message
+      // is the plugin's "Rate limit exceeded, retry in <time left>".
       rateLimit: {
-        max: 10,
+        max: 30,
         timeWindow: '1 minute',
         keyGenerator: (req) => `modbus-test:${req.user.sub}`,
       },

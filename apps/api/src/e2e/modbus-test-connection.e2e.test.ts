@@ -12,7 +12,7 @@ import { slotConfigForProfile } from '../modules/instruments/profile-measurement
  * TCP/IP instruments, Task 5 — POST /api/instruments/modbus/test reads a device
  * once with the form's own address and map. Nothing is stored, nothing audited.
  * Fixtures are this file's own; the `modbus-reader` row is restored FIRST in
- * afterAll. Each caller stays under the 10/min limit; the limit case has its
+ * afterAll. Each caller stays under the 30/min limit; the limit case has its
  * own users and runs last.
  */
 
@@ -140,8 +140,8 @@ afterAll(async () => {
 });
 
 describe('POST /api/instruments/modbus/test', () => {
-  let a: Record<string, string>; // caller A (under 10 calls)
-  let b: Record<string, string>; // caller B (under 10 calls)
+  let a: Record<string, string>; // caller A (under 30 calls)
+  let b: Record<string, string>; // caller B (under 30 calls)
   beforeAll(async () => {
     a = await user(U('a'), ROLE);
     b = await user(U('b'), ROLE);
@@ -232,7 +232,7 @@ describe('POST /api/instruments/modbus/test', () => {
 
   it('reads with the Slave ID it is SENT: a slave answering only unit 7 answers 7 and not 1 (CR-1)', async () => {
     await setReading(true);
-    const own = await user(U('u7'), ROLE); // its own user: the 10-a-minute limit
+    const own = await user(U('u7'), ROLE); // its own user: the 30-a-minute limit
     const sl = await slave({ holding: HOLDING, input: INPUT, unitId: 7 });
     const seven = await test(own, body(sl, { modbusRegisters: ONE, modbusUnitId: 7 }));
     expect(seven.statusCode, seven.body).toBe(200);
@@ -247,7 +247,7 @@ describe('POST /api/instruments/modbus/test', () => {
     // threw inside its 'connect' listener — an uncaught exception.
     await setReading(true);
     const sl = await slave();
-    const own = await user(U('unit'), ROLE); // its own user: the 10-a-minute limit
+    const own = await user(U('unit'), ROLE); // its own user: the 30-a-minute limit
     for (const modbusUnitId of [300, -1]) {
       const res = await test(own, body(sl, { modbusRegisters: ONE, modbusUnitId }));
       expect(res.statusCode, res.body).toBe(400);
@@ -337,16 +337,22 @@ describe('POST /api/instruments/modbus/test', () => {
     expect(await prisma.instrumentTelemetryLatest.count({ where: { instrumentId: { in: ids } } })).toBe(0);
   });
 
-  it('the 11th call within a minute by one user is a 429 (runs last, own user)', async () => {
+  it('30 calls a minute per user; the 31st is a 429 whose sentence names the wait (ruling CR1-8; runs last, own user)', async () => {
     await setReading(false);
     const rl = await user(U('rl'), ROLE);
     const sl = await slave();
-    for (let i = 0; i < 10; i++) {
+    // 30, not 10 (2026-11-02): a Test button per key — "add a key, test it" on
+    // a 12-key device must not run out inside a minute.
+    for (let i = 0; i < 30; i++) {
       const res = await test(rl, body(sl));
       expect(res.statusCode, `call ${i + 1}: ${res.body}`).toBe(200);
     }
-    const eleventh = await test(rl, body(sl));
-    expect(eleventh.statusCode, eleventh.body).toBe(429);
+    const over = await test(rl, body(sl));
+    expect(over.statusCode, over.body).toBe(429);
+    // The words the page prints verbatim: the plugin's sentence, the time LEFT
+    // in the window in words (`@lukeed/ms` long form), behind the app's code.
+    expect(over.json()).toEqual({ error: 'TOO_MANY_REQUESTS', message: expect.stringMatching(/^Rate limit exceeded, retry in \d+ (seconds?|minute)$/) });
+    expect(Number(over.headers['retry-after'])).toBeGreaterThan(0);
     // another user is unaffected: the limit is per user
     const other = await user(U('rl2'), ROLE);
     expect((await test(other, body(sl))).statusCode).toBe(200);
