@@ -63,7 +63,7 @@ export const INACTIVITY_OFF_SENTENCE =
   'No alarm is raised when this device stops answering — Inactivity Alarms are off (Configuration → Inactivity Alarms).';
 
 export function ModbusConnectionCard({
-  instrumentId, profileId, host, port, unitId, intervalSec, map, canEdit, onSave, onJudged,
+  instrumentId, profileId, host, port, unitId, intervalSec, map, canEdit, canTest, onSave, onJudged,
 }: {
   instrumentId: string;
   profileId: string;
@@ -76,6 +76,12 @@ export function ModbusConnectionCard({
   map: ModbusRegisterMap;
   /** `instruments.edit` — the server still decides (INSTRUMENT_UPDATE, re-auth). */
   canEdit: boolean;
+  /**
+   * The role may run Test connection (the route needs INSTRUMENT_CREATE or
+   * INSTRUMENT_UPDATE). Presentation only — the server's 403 is the control;
+   * without it a read-only viewer got a button whose every press said "Not tested".
+   */
+  canTest: boolean;
   /** Writes ONLY the changed fields with the operator's reason; resolves true once saved. */
   onSave: (fields: ModbusConnectionChange, reason: string) => Promise<boolean>;
   onJudged: (judged: Record<string, JudgedAs>) => void;
@@ -110,7 +116,9 @@ export function ModbusConnectionCard({
   const unitNumber = asNumber(unitDraft);
   // The Slave ID's words are the shared schema's — the ones the API's 400 carries.
   const unitCheck = updateInstrumentSchema.shape.modbusUnitId.safeParse(unitNumber);
-  const unitError = unitDraft.trim() !== '' && !unitCheck.success ? unitCheck.error.issues[0]!.message : undefined;
+  // Blank included (review M6): a blank Slave ID — also what Edit opens on for a
+  // stored NULL — says why Save is disabled, in New Instrument's sentence.
+  const unitError = !unitCheck.success ? unitCheck.error.issues[0]!.message : undefined;
   const address = host !== null && port !== null ? `${host} : ${port}` : '—';
 
   /** Only what differs from the stored values travels, and only that is signed for. */
@@ -247,7 +255,7 @@ export function ModbusConnectionCard({
         )
       )}
 
-      {!editing && host !== null && port !== null && map.length > 0 && (
+      {canTest && !editing && host !== null && port !== null && map.length > 0 && (
         <TestConnectionPanel
           profileId={profileId} host={host} port={port}
           // An absent stored Slave ID is not guessed: the panel says it needs one.

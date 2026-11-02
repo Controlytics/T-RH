@@ -32,8 +32,10 @@ export type TestAnswer =
 
 /**
  * A request the server refused outright (400 / 403 / 429): its status, code and
- * message. `status` is kept because a 429 from the rate-limit plugin carries no
- * code of ours — its `error` is the HTTP phrase "Too Many Requests".
+ * message. `status` is kept because the pill for a refused test keys on it: the
+ * app's error handler sends a 429 as `{ error: 'TOO_MANY_REQUESTS', message }`
+ * (30 tests a minute per user), and "Too many tests" follows the STATUS, so the
+ * word holds whatever the code is spelled.
  */
 export interface Refusal { refused: true; status: number | undefined; code: string | undefined; message: string }
 

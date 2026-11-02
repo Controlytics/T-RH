@@ -420,6 +420,12 @@ export function InstrumentDetailPage() {
   // The server's answer, shown as received (root CLAUDE.md: never re-derive it here).
   const { reporting } = inst;
   const tcpip = inst.connection === 'MODBUS_TCP';
+  /**
+   * Test connection (whole map and per key) needs INSTRUMENT_CREATE or
+   * INSTRUMENT_UPDATE on the route; the buttons follow the same two nodes
+   * (review M5). Presentation only — the 403 stays the control.
+   */
+  const canTestModbus = can('instruments.edit') || can('instruments.create');
 
   return (
     <div className="space-y-6">
@@ -587,6 +593,7 @@ export function InstrumentDetailPage() {
                 intervalSec={inst.modbusIntervalSec ?? null}
                 map={inst.modbusRegisters ?? []}
                 canEdit={can('instruments.edit')}
+                canTest={canTestModbus}
                 onSave={(fields, reason) => saveModbus(fields, reason)}
                 onJudged={setJudged}
               />
@@ -695,14 +702,15 @@ export function InstrumentDetailPage() {
               canEdit={isSuperAdmin}
               onSave={(map, reason) => saveModbus({ modbusRegisters: map }, reason)}
               // Per-key Test reads the STORED address and Slave ID; an absent
-              // one is not guessed (the button says it is missing).
-              testTarget={{
+              // one is not guessed (the button says it is missing). Only for a
+              // role that may test (review M5) — no target, no Test buttons.
+              testTarget={canTestModbus ? {
                 profileId: inst.profileId,
                 host: inst.modbusHost ?? '',
                 port: inst.modbusPort ?? Number.NaN,
                 unitId: inst.modbusUnitId ?? Number.NaN,
                 instrumentId: inst.id,
-              }}
+              } : undefined}
             />
           </CardContent>
         </Card>

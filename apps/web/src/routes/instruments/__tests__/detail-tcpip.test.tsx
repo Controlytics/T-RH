@@ -67,7 +67,9 @@ vi.mock('@/lib/api-client', () => ({
   },
 }));
 vi.mock('@/hooks/use-auth', () => ({ useAuth: () => ({ user: { role } }) }));
-vi.mock('@/hooks/use-can', () => ({ useCan: () => () => true }));
+/** The tree nodes the role holds; `null` = every node (the default). */
+let allowedNodes: Set<string> | null = null;
+vi.mock('@/hooks/use-can', () => ({ useCan: () => (id: string) => allowedNodes === null || allowedNodes.has(id) }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: { success: vi.fn(), error: vi.fn() } }) }));
 vi.mock('@/hooks/use-datetime-format', () => ({
   useDatetimeFormat: () => ({ formatDate: (v: string) => `D(${v})`, formatTime: () => 'T', formatDateTime: (v: string) => v }),
@@ -106,6 +108,7 @@ const sign = async (button = 'Save changes') => {
 };
 
 beforeEach(() => {
+  allowedNodes = null;
   tcpInstrument = TCP_INSTRUMENT;
   put.mockReset().mockResolvedValue({});
   post.mockReset();
@@ -309,6 +312,48 @@ describe('instrument detail - a TCP/IP instrument', () => {
     expect(put).toHaveBeenCalledWith('/api/instruments/i-1', { modbusUnitId: 9, modbusIntervalSec: 300, reason: REASON });
     expect(reauthActions).toEqual(['UPDATE_INSTRUMENT']);
     expect(statusMutate).toHaveBeenCalled();
+  });
+
+  it('a role that cannot test (read only) sees no Test connection panel and no per-key Test buttons (review M5)', () => {
+    allowedNodes = new Set(['instruments.view']);
+    role = 'OPERATOR';
+    renderPage();
+    expect(screen.queryByTestId('test-panel')).toBeNull();
+    expect(panelProps).toHaveLength(0);
+    const card = screen.getByTestId('register-map-card');
+    expect(within(card).queryByRole('button', { name: /^Test key/ })).toBeNull();
+    expect(within(card).getByText('Temperature')).toBeInTheDocument();
+  });
+
+  it('either Edit or Create Instruments is enough to test (the route takes INSTRUMENT_UPDATE or INSTRUMENT_CREATE)', () => {
+    for (const node of ['instruments.edit', 'instruments.create']) {
+      allowedNodes = new Set([node]);
+      panelProps.length = 0;
+      const { unmount } = renderPage();
+      expect(screen.getByTestId('test-panel')).toBeInTheDocument();
+      expect(within(screen.getByTestId('register-map-card')).getAllByRole('button', { name: /^Test key/ })).toHaveLength(2);
+      unmount();
+    }
+  });
+
+  it('a blank Slave ID says why Save is disabled, in New Instrument\'s sentence (review M6)', () => {
+    renderPage();
+    const card = screen.getByTestId('modbus-connection-card');
+    fireEvent.click(within(card).getByRole('button', { name: 'Edit' }));
+    expect(within(card).queryByText('Slave ID must be a whole number from 0 to 255.')).toBeNull();
+    fireEvent.change(within(card).getByRole('spinbutton', { name: /Slave ID/ }), { target: { value: '' } });
+    expect(within(card).getByText('Slave ID must be a whole number from 0 to 255.')).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  it('…and so does Edit opened on a stored NULL Slave ID', () => {
+    tcpInstrument = { ...TCP_INSTRUMENT, modbusUnitId: null };
+    renderPage();
+    const card = screen.getByTestId('modbus-connection-card');
+    fireEvent.click(within(card).getByRole('button', { name: 'Edit' }));
+    expect(within(card).getByRole('spinbutton', { name: /Slave ID/ })).toHaveValue(null);
+    expect(within(card).getByText('Slave ID must be a whole number from 0 to 255.')).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Save' })).toBeDisabled();
   });
 
   it('a Slave ID outside 0..255 is named in the shared schema\'s words and cannot be saved', () => {
