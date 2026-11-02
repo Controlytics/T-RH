@@ -227,3 +227,47 @@ describe('the EFFECTIVE requirement, stated by the server', () => {
     });
   });
 });
+
+/**
+ * Final review F-3: a TCP/IP (Modbus) instrument is READ by this server and
+ * presents no credential — no device secret may exist for it, so ISSUE is
+ * refused. REVOKE keeps working: it is how a certificate issued before this rule
+ * (local testing included) is withdrawn.
+ */
+describe('a TCP/IP (Modbus) instrument', () => {
+  let tcpProfileId = '';
+  let tcpId = '';
+  const tcpUrl = () => `/api/instruments/${tcpId}/device-certificate`;
+  beforeAll(async () => {
+    tcpProfileId = (await prisma.instrumentProfile.create({
+      data: { name: `fixture:devcert-tcpip-${s}`, connection: 'MODBUS_TCP', modbusIntervalSec: 60, modbusUnitId: 1 },
+    })).id;
+    tcpId = (await prisma.instrument.create({ data: { name: `DCR-TCP-${s}`, code: `DCR-TCP-${s}`, profileId: tcpProfileId } })).id;
+  });
+  afterAll(async () => {
+    await prisma.instrument.deleteMany({ where: { id: tcpId } });
+    await prisma.instrumentProfile.deleteMany({ where: { id: tcpProfileId } });
+  });
+
+  it('is never ISSUED a certificate: 400 NOT_FOR_TCPIP, nothing stored, nothing audited', async () => {
+    const res = await app.inject({ method: 'POST', url: tcpUrl(), headers: reauth });
+    expect(res.statusCode, res.body).toBe(400);
+    expect(res.json().error).toBe('NOT_FOR_TCPIP');
+    expect(res.json()).not.toHaveProperty('bundle');
+    expect((await prisma.instrument.findUniqueOrThrow({ where: { id: tcpId } })).deviceCertIssueId).toBeNull();
+    expect(await prisma.auditTrail.count({ where: { action: 'DEVICE_CERTIFICATE_ISSUED', targetId: tcpId } })).toBe(0);
+  });
+
+  it('...but a certificate it already holds can still be REVOKED', async () => {
+    await prisma.instrument.update({
+      where: { id: tcpId },
+      data: { deviceCertIssueId: 'f'.repeat(32), deviceCertFingerprint: 'e'.repeat(64), deviceCertNotAfter: new Date(Date.now() + 86_400_000), deviceCertIssuedAt: new Date() },
+    });
+    const res = await app.inject({ method: 'DELETE', url: tcpUrl(), headers: reauth });
+    expect(res.statusCode, res.body).toBe(200);
+    expect((await prisma.instrument.findUniqueOrThrow({ where: { id: tcpId } })).deviceCertIssueId).toBeNull();
+    const audits = await prisma.auditTrail.findMany({ where: { action: 'DEVICE_CERTIFICATE_REVOKED', targetId: tcpId } });
+    expect(audits).toHaveLength(1);
+    expect(audits[0].beforeValue).toMatchObject({ issueId: 'f'.repeat(32) });
+  });
+});

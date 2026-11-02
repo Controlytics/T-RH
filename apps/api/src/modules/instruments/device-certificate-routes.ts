@@ -151,7 +151,7 @@ export default async function deviceCertificateRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Instruments'],
       summary: 'Issue or re-issue the device certificate',
-      description: 'Issues a new client certificate for this instrument and returns it ONCE as a base64 zip (`client.crt`, `client.key`, and the server `ca.crt` when known). Any previous certificate stops working immediately. The private key is not kept. Requires INSTRUMENT_UPDATE and an ALWAYS-ON password re-auth (`x-reauth-password`). 409 `DEVICE_CA_NOT_CONFIGURED` when the server has no device CA.',
+      description: 'Issues a new client certificate for this instrument and returns it ONCE as a base64 zip (`client.crt`, `client.key`, and the server `ca.crt` when known). Any previous certificate stops working immediately. The private key is not kept. Requires INSTRUMENT_UPDATE and an ALWAYS-ON password re-auth (`x-reauth-password`). 400 `NOT_FOR_TCPIP` for a TCP/IP (Modbus) instrument (the server reads it; no device secret exists for it). 409 `DEVICE_CA_NOT_CONFIGURED` when the server has no device CA.',
       params: idParams,
       response: {
         200: {
@@ -170,8 +170,23 @@ export default async function deviceCertificateRoutes(app: FastifyInstance) {
     if (!ok) return;
 
     const { id } = req.params as { id: string };
-    const existing = await prisma.instrument.findFirst({ where: await visibleWhere(req, id) });
+    const existing = await prisma.instrument.findFirst({
+      where: await visibleWhere(req, id),
+      include: { profile: { select: { connection: true } } },
+    });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Instrument not found.' });
+    // No device secret exists for a TCP/IP (Modbus) instrument (final review
+    // F-3; spec §13): the server READS it and it presents no credential, so a
+    // certificate would be a key handed out for nothing and an audit row
+    // recording a credential issued to a device the server polls. Judged before
+    // the CA check, so the answer does not depend on whether the server has a
+    // device CA. REVOKE is NOT refused — it withdraws one issued before this rule.
+    if (existing.profile.connection === 'MODBUS_TCP') {
+      return reply.code(400).send({
+        error: 'NOT_FOR_TCPIP',
+        message: 'Device certificates do not apply to a TCP/IP (Modbus) instrument — this server reads the device; it does not push to us.',
+      });
+    }
     if (!deviceCaAvailable()) {
       return reply.code(409).send({ error: 'DEVICE_CA_NOT_CONFIGURED', message: new DeviceCaNotConfiguredError().message });
     }
