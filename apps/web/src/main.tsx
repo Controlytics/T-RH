@@ -23,6 +23,7 @@ import { ResetRequestsPage } from './routes/users/reset-requests';
 import { ConfigIndexPage } from './routes/config/index';
 import { PasswordPolicyPage } from './routes/config/password-policy';
 const ReportSettingsConfigPage = lazy(() => import('./routes/config/report-settings').then(m => ({ default: m.ReportSettingsConfigPage })));
+const ReportTemplatesConfigPage = lazy(() => import('./routes/config/report-templates').then(m => ({ default: m.ReportTemplatesConfigPage })));
 const AttributeAccessConfigPage = lazy(() => import('./routes/config/attribute-access').then(m => ({ default: m.AttributeAccessConfigPage })));
 const InstrumentAttributesConfigPage = lazy(() => import('./routes/config/instrument-attributes').then(m => ({ default: m.InstrumentAttributesConfigPage })));
 const LayoutDesignerPage = lazy(() => import('./routes/config/layout-designer').then(m => ({ default: m.LayoutDesignerPage })));
@@ -132,6 +133,8 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/instrument-attributes" element={<RequireRole roles={['SUPER_ADMIN']}><InstrumentAttributesConfigPage /></RequireRole>} />
             {/* Report Approvers + Report Downloads on one page (2026-10-01). */}
             <Route path="/config/report-settings" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><ReportSettingsConfigPage /></Suspense></RequireRole>} />
+            {/* What each dashboard widget's Download report prints, per instrument profile and widget type (2026-11-02). */}
+            <Route path="/config/report-templates" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><ReportTemplatesConfigPage /></Suspense></RequireRole>} />
             {/* Who may change which instrument attributes, per role AND per user (2026-10-24). */}
             <Route path="/config/attribute-access" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><AttributeAccessConfigPage /></Suspense></RequireRole>} />
             <Route path="/config/floorplans" element={<RequireRole roles={['SUPER_ADMIN']}><LayoutDesignerPage /></RequireRole>} />

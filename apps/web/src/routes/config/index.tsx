@@ -327,6 +327,22 @@ const superAdminCards = [
     ),
   },
   {
+    // 2026-11-02: what each dashboard widget's Download report prints — per
+    // instrument profile, per widget type. A card of its own beside Report
+    // Settings (which decides HOW a report is released, not what it prints).
+    // No def and no `system_config` row: templates are their own table.
+    title: 'Report Templates',
+    description: 'What each dashboard widget\'s report prints, per instrument profile and widget type',
+    href: '/config/report-templates',
+    // Lucide's FileText, inline like every other card's icon.
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14 2v4a2 2 0 0 0 2 2h4M10 9H8m8 4H8m8 4H8" />
+      </svg>
+    ),
+  },
+  {
     // 2026-10-01: each instrument's Temp / Humid Off set corrects its readings
     // as they arrive. The VALUES are attributes (super admin only); which keys
     // hold them is each profile's (2026-10-26); this card is the switch.

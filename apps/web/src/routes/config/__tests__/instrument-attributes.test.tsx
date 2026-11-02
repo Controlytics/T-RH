@@ -181,6 +181,14 @@ describe('InstrumentAttributesConfigPage — profile picker', () => {
     expect(options.some((o) => /default/i.test(o ?? ''))).toBe(false);
   });
 
+  it('links to THIS profile\'s report templates, and follows the picker (2026-11-02)', () => {
+    renderPage();
+    const link = screen.getByRole('link', { name: /report templates/i });
+    expect(link).toHaveAttribute('href', '/config/report-templates?profileId=p1');
+    selectTarget('p2');
+    expect(screen.getByRole('link', { name: /report templates/i })).toHaveAttribute('href', '/config/report-templates?profileId=p2');
+  });
+
   it('shows the selected profile keys, not the previous one, after switching', () => {
     renderPage();
     selectTarget('p2');

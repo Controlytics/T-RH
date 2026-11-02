@@ -434,9 +434,23 @@ export function InstrumentAttributesConfigPage() {
 
       <Card>
         <CardContent className="py-4">
-          <label className="block space-y-1">
-            <span className="text-sm font-medium text-slate-700">Editing</span>
+          <div className="space-y-1">
+            <div className="flex items-baseline justify-between gap-3">
+              <label htmlFor="instrument-attributes-target" className="text-sm font-medium text-slate-700">Editing</label>
+              {/* The profile's own door to its widget report templates (2026-11-02,
+                  spec §9) — beside the picker, outside its label, carrying the
+                  profile being edited. */}
+              {target && (
+                <Link
+                  to={`/config/report-templates?profileId=${encodeURIComponent(target)}`}
+                  className="text-sm font-semibold text-[var(--theme-primary,#2a78d6)] hover:underline"
+                >
+                  Report templates →
+                </Link>
+              )}
+            </div>
             <select
+              id="instrument-attributes-target"
               aria-label="Editing"
               value={target}
               onChange={(e) => changeTarget(e.target.value)}
@@ -448,7 +462,7 @@ export function InstrumentAttributesConfigPage() {
                 </option>
               ))}
             </select>
-          </label>
+          </div>
           <p className="mt-2 text-xs text-slate-500">
             This list is what the New Instrument form asks for in this profile only.
             Every profile has its own; a new one starts empty.
