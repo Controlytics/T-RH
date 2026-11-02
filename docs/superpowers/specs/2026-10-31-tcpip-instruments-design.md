@@ -527,7 +527,7 @@ This section overrides §5.1, §5.2, §7.3, §7.6, §8, §9 and §12 wherever th
 
 - **The profile** chooses only Gateway or TCP/IP. `instrument_profiles.modbus_interval_sec` and
   `.modbus_unit_id` are dropped after copying them to every instrument on a MODBUS_TCP profile
-  (`COALESCE` to 1 / 60). A profile body carrying either is a 400.
+  as stored (ruling CR1-9: a NULL or out-of-range profile value could only come from a hand-edit, and the Reader names it INVALID_CONFIG rather than silently defaulting). A profile body carrying either is a 400.
 - **Each TCP/IP instrument** has `modbusUnitId` (**Slave ID**, 0..255, default 1) and `modbusIntervalSec`
   (**Read every**, 10..3600 s, default 60). Set on New Instrument and in bulk ("Slave ID", "Read every"
   columns); changed on the instrument page with a reason under `UPDATE_INSTRUMENT` re-auth (the host/port
