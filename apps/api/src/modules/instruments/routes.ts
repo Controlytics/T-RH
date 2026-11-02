@@ -2227,6 +2227,20 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       if (problem) return reply.code(400).send({ error: 'REMARK_REQUIRED', message: problem });
     }
 
+    // An existing TCP/IP instrument's ADDRESS is signed as the single edit signs
+    // it (final review F-1): `PUT /:id` moves an address under the configurable
+    // UPDATE_INSTRUMENT re-auth, and a policy that challenged one device but not a
+    // file of a hundred would be bypassed by the CSV. Asked only when the role's
+    // policy requires it (`enforceReauth`, never Always: bulk is not stricter than
+    // the PUT) and the request is not already signed; the password this request
+    // carried for CREATE_INSTRUMENT is reused (`enforceReauth` keeps it), so one
+    // upload asks once.
+    const movesAddress = plan.plans.some((p) => p.kind === 'update' && p.address !== undefined);
+    if (movesAddress && !(req as unknown as { _reauthVerified?: boolean })._reauthVerified) {
+      const { ok: signed } = await enforceReauth('UPDATE_INSTRUMENT', req, reply);
+      if (!signed) return;
+    }
+
     // The attribute cells answer to the role's attribute re-auth as the single
     // form's per-attribute writes do (audit 2026-10-12). A file with no filled
     // attribute cell to write is not an attribute write and is not asked.

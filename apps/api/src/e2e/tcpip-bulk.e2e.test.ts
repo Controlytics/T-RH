@@ -4,6 +4,7 @@ import { buildApp, loginAs } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 import { hashPassword } from '../lib/password.js';
 import { invalidateRolePermsCache } from '../plugins/rbac.js';
+import { invalidateReauthCache } from '../lib/reauth-check.js';
 
 /**
  * Bulk upload for TCP/IP (Modbus) profiles (Task 11). A file for a TCP/IP
@@ -335,5 +336,88 @@ describe('bulk upload - an existing row is all or nothing', () => {
     expect(row.attributes.map((a) => a.value)).toEqual(['R-old']);
     expect(await updates()).toBe(u0);
     expect(await attrAudits()).toBe(a0);
+  });
+});
+
+/**
+ * Final review F-1: an existing TCP/IP instrument's ADDRESS changed by CSV is
+ * signed exactly as `PUT /:id` signs it — the configurable UPDATE_INSTRUMENT
+ * re-auth policy. Driven on this file's own ROLE (the `op` user), with the
+ * `action-reauth` row put back FIRST in afterAll and the 10 s reauth cache
+ * dropped after every write to it. `sa` / `op` carry `x-reauth-password` on
+ * every request, so the unsigned calls here build their headers without it.
+ */
+describe('bulk upload - an address change is signed like the single edit (UPDATE_INSTRUMENT)', () => {
+  const POLICY_KEY = 'action-reauth';
+  const REMARK = 'Device moved to the new switch, CC-901';
+  let policyBefore: { configValue: unknown; configType: string; requiresReauth: boolean } | null = null;
+  const setPolicy = async (policy: Record<string, string[]>) => {
+    await prisma.systemConfig.upsert({
+      where: { configKey: POLICY_KEY },
+      update: { configValue: policy as never },
+      create: { configKey: POLICY_KEY, configValue: policy as never, configType: 'security', requiresReauth: false },
+    });
+    invalidateReauthCache();
+  };
+  const unsigned = () => ({ authorization: op.authorization });
+  const hostOf = async (id: string) => (await prisma.instrument.findUniqueOrThrow({ where: { id } })).modbusHost;
+
+  beforeAll(async () => {
+    const row = await prisma.systemConfig.findUnique({ where: { configKey: POLICY_KEY } });
+    policyBefore = row ? { configValue: row.configValue, configType: row.configType, requiresReauth: row.requiresReauth } : null;
+  });
+  afterAll(async () => {
+    try {
+      if (policyBefore) await prisma.systemConfig.update({ where: { configKey: POLICY_KEY }, data: policyBefore as never });
+      else await prisma.systemConfig.deleteMany({ where: { configKey: POLICY_KEY } });
+    } finally {
+      invalidateReauthCache();
+    }
+  });
+
+  it('a role whose policy asks only UPDATE_INSTRUMENT cannot move an existing device by CSV without its password; with it, it can', async () => {
+    const id = await tcp('sig', ip(120), 502, { functionalLocationId: blockIn });
+    await setPolicy({ UPDATE_INSTRUMENT: [ROLE] });
+    const csv = `Instrument ID,IP address\n${C('sig')},${ip(121)}`;
+
+    const refused = await upload(csv, { reason: REMARK, functionalLocationId: blockIn }, unsigned());
+    expect(refused.statusCode, refused.body).toBe(401);
+    expect(refused.json()).toMatchObject({ error: 'REAUTH_REQUIRED', action: 'UPDATE_INSTRUMENT' });
+    expect(await hostOf(id)).toBe(ip(120));
+
+    // The password sent ONCE, in the body - the web client's form.
+    const signed = await upload(csv, { reason: REMARK, functionalLocationId: blockIn, _currentPassword: OP_PW }, unsigned());
+    expect(signed.statusCode, signed.body).toBe(200);
+    expect(signed.json().updated.map((u: { id: string }) => u.id)).toEqual([id]);
+    expect(await hostOf(id)).toBe(ip(121));
+  });
+
+  it('...is asked only when an address changes: a file that only creates is not', async () => {
+    await setPolicy({ UPDATE_INSTRUMENT: [ROLE] });
+    const res = await upload(`Instrument ID,IP address\n${C('sig-new')},${ip(122)}`, { functionalLocationId: blockIn }, unsigned());
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().created.map((c: { code: string }) => c.code)).toEqual([C('sig-new')]);
+  });
+
+  it('with CREATE_INSTRUMENT on as well, ONE password signs the whole upload', async () => {
+    const id = await tcp('sig2', ip(123), 502, { functionalLocationId: blockIn });
+    await setPolicy({ CREATE_INSTRUMENT: [ROLE], UPDATE_INSTRUMENT: [ROLE] });
+    const csv = `Instrument ID,IP address\n${C('sig2')},${ip(124)}\n${C('sig2-new')},${ip(125)}`;
+    const refused = await upload(csv, { reason: REMARK, functionalLocationId: blockIn }, unsigned());
+    expect(refused.statusCode).toBe(401);
+    expect(refused.json().error).toBe('REAUTH_REQUIRED');
+    const res = await upload(csv, { reason: REMARK, functionalLocationId: blockIn, _currentPassword: OP_PW }, unsigned());
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().updated.map((u: { id: string }) => u.id)).toEqual([id]);
+    expect(res.json().created.map((c: { code: string }) => c.code)).toEqual([C('sig2-new')]);
+    expect(await hostOf(id)).toBe(ip(124));
+  });
+
+  it('a role outside the policy moves a device with no password - never stricter than the single edit', async () => {
+    const id = await tcp('sig3', ip(126), 502, { functionalLocationId: blockIn });
+    await setPolicy({ UPDATE_INSTRUMENT: ['SUPER_ADMIN'] });
+    const res = await upload(`Instrument ID,IP address\n${C('sig3')},${ip(127)}`, { reason: REMARK, functionalLocationId: blockIn }, unsigned());
+    expect(res.statusCode, res.body).toBe(200);
+    expect(await hostOf(id)).toBe(ip(127));
   });
 });
