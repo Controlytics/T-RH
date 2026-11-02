@@ -71,6 +71,23 @@ describe('WidgetPanel — Download report', () => {
     expect(screen.getByRole('button', { name: 'Edit widget' })).toBeInTheDocument();
   });
 
+  it('opens the dialog OUTSIDE the panel: a grid item is transformed, and `fixed` inside it would be boxed into the card', () => {
+    render(
+      <div data-testid="grid-item" style={{ transform: 'translate(0px, 0px)' }}>
+        <WidgetPanel
+          widget={TEXT} item={ITEM} selection={{ directOnly: false }}
+          reportHost={{ dashboard: 'Dashboard', selection: 'All Instruments' }}
+          editing={false} onEdit={() => {}} onRemove={() => {}} onStyleChange={() => {}} onSizeChange={() => {}}
+          autoHeight={false} onNaturalHeight={() => {}}
+        />
+      </div>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Download report' }));
+    const dialog = screen.getByTestId('widget-report-dialog');
+    expect(screen.getByTestId('grid-item').contains(dialog)).toBe(false);
+    expect(document.body.contains(dialog)).toBe(true);
+  });
+
   it("opens THIS widget's report dialog with the host's dashboard and selection", () => {
     renderPanel();
     expect(screen.queryByTestId('widget-report-dialog')).toBeNull();

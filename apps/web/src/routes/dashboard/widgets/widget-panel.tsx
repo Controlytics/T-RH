@@ -14,6 +14,7 @@
  * `charts/lazy-echart.tsx`, so the library stays out of the main bundle.
  */
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { FileDown } from 'lucide-react';
 import type { CustomWidget, LayoutItem, PanelStyle, WidgetType } from '@digilog/shared';
 import { useExportOptions } from '@/hooks/use-export-options';
@@ -161,14 +162,22 @@ export function WidgetPanel({
           click there would leave a page holding an unsaved draft (R7-9). */}
       <WidgetBody widget={widget} selection={selection} trail={editing ? undefined : trail} />
     </PanelCard>
-    <WidgetReportDialog
-      open={reporting}
-      widget={widget}
-      selection={selection}
-      dashboardTitle={reportHost.dashboard}
-      selectionLabel={reportHost.selection}
-      onClose={() => setReporting(false)}
-    />
+    {/* PORTALLED to the body: a grid item is positioned by `transform`, which
+        makes it the containing block of every `position: fixed` inside it, so
+        the dialog's full-screen overlay would be boxed into this card
+        (the floor plan's full screen portals for the same reason). Context —
+        the registry, the router, the toasts — crosses a portal. */}
+    {reporting && createPortal(
+      <WidgetReportDialog
+        open
+        widget={widget}
+        selection={selection}
+        dashboardTitle={reportHost.dashboard}
+        selectionLabel={reportHost.selection}
+        onClose={() => setReporting(false)}
+      />,
+      document.body,
+    )}
     </WidgetReportViewProvider>
   );
 }
