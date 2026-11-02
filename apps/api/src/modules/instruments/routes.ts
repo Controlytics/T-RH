@@ -135,8 +135,15 @@ const instrumentProps = {
   block: { type: 'string', nullable: true },
   isGateway: { type: 'boolean' },
   gatewayId: { type: 'string', nullable: true },
-  /** 'direct' | 'gateway' — which path the last reading arrived by. */
+  /** 'direct' | 'gateway' | 'polled' — which path the last reading arrived by. */
   lastSeenVia: { type: 'string', nullable: true },
+  /**
+   * The SERVER's answer to "is it reporting?" (one rule, `isInstrumentReporting`
+   * over the resolved interval) and the interval it judged by. The browser shows
+   * these; it never re-derives them.
+   */
+  reporting: { type: 'boolean' },
+  effectiveExpectedIntervalSec: { type: 'integer', nullable: true },
   /**
    * TCP/IP (Modbus) instruments (2026-10-31). `connection` is the PROFILE's —
    * 'PUSH' (Gateway) or 'MODBUS_TCP' — so a page knows which cards an
@@ -266,9 +273,16 @@ type InstrumentRow = Record<string, unknown> & { credentials?: CredentialRow[] }
  * "Never" for exactly the instruments the gateway feature exists to serve.
  * `tokenPrefix` stays credential-derived — it IS a property of the credential.
  */
-function present(row: InstrumentRow) {
+function present(row: InstrumentRow, activeWindowMinutes: number) {
   const { credentials, profile, ...rest } =
-    row as InstrumentRow & { profile?: { name: string; connection?: string } | null };
+    row as InstrumentRow & {
+      profile?: { name: string; connection?: string; modbusIntervalSec?: number | null } | null;
+    };
+  // The interval this instrument is expected at (its own, else a TCP/IP profile's
+  // read interval) and the verdict that follows: decided HERE, once, so no page
+  // recomputes it from the bare column.
+  const own = { expectedIntervalSec: (rest.expectedIntervalSec as number | null | undefined) ?? null };
+  const mode = { connection: profile?.connection ?? 'PUSH', modbusIntervalSec: profile?.modbusIntervalSec ?? null };
   const active = credentials?.[0];
   return {
     ...rest,
@@ -283,6 +297,13 @@ function present(row: InstrumentRow) {
     modbusRegisters: rest.modbusRegisters === null || rest.modbusRegisters === undefined
       ? null
       : coerceModbusRegisterMap(rest.modbusRegisters),
+    effectiveExpectedIntervalSec: effectiveExpectedIntervalSec(own, mode),
+    reporting: isInstrumentReporting(
+      (rest.lastSeenAt as Date | null | undefined) ?? null,
+      effectiveExpectedIntervalSec(own, mode),
+      activeWindowMinutes,
+      new Date(),
+    ),
     tokenPrefix: active?.tokenPrefix ?? null,
     // The CIPHERTEXT ITSELF is destructured away with `credentials` and never
     // reaches the client — only the boolean derived from it. Selecting it here
@@ -292,7 +313,7 @@ function present(row: InstrumentRow) {
 }
 
 /** Reads join the profile only for its name (see `present`). */
-const withProfileName = { profile: { select: { name: true, connection: true } } };
+const withProfileName = { profile: { select: { name: true, connection: true, modbusIntervalSec: true } } };
 
 const activeCredential = {
   where: { revokedAt: null },
@@ -763,7 +784,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const { where: visibility } = await resolveVisibility(buildContext(req));
     const scopedWhere = withVisibility(where, visibility) as typeof where;
 
-    const [rows, total] = await Promise.all([
+    const [rows, total, activeWindowMinutes] = await Promise.all([
       prisma.instrument.findMany({
         where: scopedWhere,
         include: { credentials: activeCredential, ...withProfileName },
@@ -772,10 +793,11 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         take: limit,
       }),
       prisma.instrument.count({ where: scopedWhere }),
+      loadActiveWindowMinutes(),
     ]);
 
     return {
-      data: rows.map((r) => present(r as unknown as InstrumentRow)),
+      data: rows.map((r) => present(r as unknown as InstrumentRow, activeWindowMinutes)),
       total, page, limit, totalPages: Math.ceil(total / limit) || 1,
     };
   });
@@ -1419,7 +1441,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         }))
       : false;
     return {
-      ...present(rest as unknown as InstrumentRow),
+      ...present(rest as unknown as InstrumentRow, await loadActiveWindowMinutes()),
       gatewayCode: gateway?.code ?? null,
       gatewayVisible,
     };
@@ -1978,7 +2000,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       await announceRoster(parsed.data.gatewayId ?? (parsed.data.isGateway ? id : null));
       const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential, ...withProfileName } }); // post-write re-read; the write already resolved visibility
       // No `token` key at all for a TCP/IP instrument: it has none (spec §9).
-      return reply.code(201).send({ ...present(row as unknown as InstrumentRow), ...(token !== null ? { token } : {}) });
+      return reply.code(201).send({ ...present(row as unknown as InstrumentRow, await loadActiveWindowMinutes()), ...(token !== null ? { token } : {}) });
     } catch (err) {
       if (err instanceof GatewayInvariantViolation) return reply.code(err.status).send(err.body);
       if (err instanceof HandledRouteError) return reply.code(err.status).send(err.body);
@@ -2659,7 +2681,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     else if (existing.isGateway) await clearChildRoster(existing.code);
 
     const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential, ...withProfileName } }); // post-write re-read; the write already resolved visibility
-    return present((row ?? updated) as unknown as InstrumentRow);
+    return present((row ?? updated) as unknown as InstrumentRow, await loadActiveWindowMinutes());
   });
 
   // DELETE /api/instruments/:id — cascades the credential rows

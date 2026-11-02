@@ -84,3 +84,42 @@ describe('isInstrumentReporting callers', () => {
     expect([...new Set(calls.map((c) => c.file))].sort()).toEqual(EXPECTED_CALLERS);
   });
 });
+
+/**
+ * The browser never decides "reporting": the API sends `reporting` and
+ * `effectiveExpectedIntervalSec` on every instrument (root CLAUDE.md "never
+ * reconstruct server-side decisions in the client"). A web call to
+ * `isInstrumentReporting(` would read a silent TCP/IP instrument as reporting.
+ */
+describe('the web does not decide reporting', () => {
+  const WEB = join(SRC, '..', '..', 'web', 'src');
+  function webSources(dir: string, out: string[] = []): string[] {
+    for (const name of readdirSync(dir)) {
+      const p = join(dir, name);
+      if (statSync(p).isDirectory()) {
+        if (name === '__tests__' || name === 'node_modules') continue;
+        webSources(p, out);
+      } else if (/\.(ts|tsx)$/.test(p) && !/\.(test|spec)\.(ts|tsx)$/.test(p)) {
+        out.push(p);
+      }
+    }
+    return out;
+  }
+
+  it('no non-test file under apps/web/src calls isInstrumentReporting', () => {
+    const files = webSources(WEB);
+    expect(files.length).toBeGreaterThan(50);
+    const callers: string[] = [];
+    for (const file of files) {
+      const src = readFileSync(file, 'utf8');
+      const re = /\bisInstrumentReporting\(/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(src))) {
+        const lineStart = src.lastIndexOf('\n', m.index) + 1;
+        if (/^\s*\*|\/\/|\/\*/.test(src.slice(lineStart, m.index))) continue;
+        callers.push(relative(WEB, file).split(sep).join('/'));
+      }
+    }
+    expect(callers).toEqual([]);
+  });
+});

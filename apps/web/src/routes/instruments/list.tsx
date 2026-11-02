@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import useSWR from 'swr';
 import { useCan } from '@/hooks/use-can';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
-import { isInstrumentReporting, INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN } from '@digilog/shared';
+import { INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN } from '@digilog/shared';
 import { themeGradient, themeGradientBr } from '@/lib/theme-styles';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
@@ -48,6 +48,8 @@ interface InstrumentRow {
   lastSeenAt: string | null;
   lastSeenVia: string | null;
   expectedIntervalSec: number | null;
+  /** The SERVER's verdict (one rule, the resolved interval) — shown, never recomputed. */
+  reporting: boolean;
   isGateway: boolean;
   block: string | null;
   area: string | null;
@@ -106,9 +108,8 @@ export function InstrumentListPage() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [active, setActive] = useState('');
   /**
-   * Reporting status is computed in the browser from `lastSeenAt` +
-   * `expectedIntervalSec` + the configured window, so this filter applies to
-   * the page in hand rather than being sent to the API. The tile counts say "on
+   * Reporting status is the server's per-row verdict (`reporting`), so this
+   * filter applies to the page in hand rather than being sent to the API. The tile counts say "on
    * this page" for the same reason — a count that silently described only 10 of
    * 240 rows would be a lie.
    */
@@ -145,7 +146,7 @@ export function InstrumentListPage() {
 
   const withStatus = rows.map((r) => ({
     row: r,
-    reporting: isInstrumentReporting(r.lastSeenAt, r.expectedIntervalSec, activeWindow),
+    reporting: r.reporting,
   }));
   const counts = {
     active: withStatus.filter((r) => r.reporting).length,

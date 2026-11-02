@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AttributeValueInput } from '@/components/attribute-value-input';
 import useSWR from 'swr';
 import {
-  ALL_RECORDS, isInstrumentReporting, INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN,
+  ALL_RECORDS,
   canEditAttributeKey, type AttributeAccess,
 } from '@digilog/shared';
 import { scopeIdFor, areasOf, type LocationNode } from '@/routes/instruments/history-selection';
@@ -77,6 +77,8 @@ import { safeStorage } from '@/lib/safe-storage';
 interface Row {
   id: string; code: string; name: string; isActive: boolean; profileId: string;
   expectedIntervalSec: number | null; lastSeenAt: string | null; functionalLocationId: string | null;
+  /** The SERVER's verdict — shown, never recomputed here. */
+  reporting: boolean;
 }
 interface Attribute {
   key: string;
@@ -110,9 +112,9 @@ const LAST_PICK_KEY = 'settings.instrumentId';
 /** The remembered Block / Area, `{blockId, areaId}` — a per-browser convenience like the pick. */
 const LAST_SCOPE_KEY = 'settings.scope';
 
-function statusOf(r: Row, activeWindow: number): { tone: StatusTone; label: string } {
+export function statusOf(r: Row): { tone: StatusTone; label: string } {
   if (!r.isActive) return { tone: 'idle', label: 'Disabled' };
-  return isInstrumentReporting(r.lastSeenAt, r.expectedIntervalSec, activeWindow)
+  return r.reporting
     ? { tone: 'ok', label: 'Reporting' }
     : { tone: 'warn', label: 'Not reporting' };
 }
@@ -165,8 +167,6 @@ export function SettingsPage() {
 
   const listKey = instrumentListKey(scopeId);
   const { data, isLoading, error } = useSWR<{ data: Row[]; total: number }>(listKey);
-  const { data: activityConfig } = useSWR<{ activeWindowMinutes?: number }>('/api/config/instrument-activity/current');
-  const activeWindow = activityConfig?.activeWindowMinutes ?? INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN;
 
   const instruments = useMemo(() => data?.data ?? [], [data]);
   const options = useMemo(() => instruments.map((r) => ({ value: r.id, label: r.code })), [instruments]);
@@ -445,12 +445,12 @@ export function SettingsPage() {
               </div>
               <div className="flex items-center gap-3">
                 <div className="text-right text-[0.8125rem] text-white/80">
-                  <div className="font-semibold text-white">{statusOf(selected, activeWindow).label}</div>
+                  <div className="font-semibold text-white">{statusOf(selected).label}</div>
                   <div>{selected.lastSeenAt ? `Last report ${formatDateTime(selected.lastSeenAt)}` : 'No report yet'}</div>
                 </div>
                 <span
                   aria-hidden
-                  className={`h-3 w-3 rounded-full ring-4 ring-white/25 ${statusOf(selected, activeWindow).tone === 'ok' ? 'bg-emerald-300' : statusOf(selected, activeWindow).tone === 'warn' ? 'bg-amber-300' : 'bg-slate-300'}`}
+                  className={`h-3 w-3 rounded-full ring-4 ring-white/25 ${statusOf(selected).tone === 'ok' ? 'bg-emerald-300' : statusOf(selected).tone === 'warn' ? 'bg-amber-300' : 'bg-slate-300'}`}
                 />
                 {canEdit && !editing && (
                   <Button

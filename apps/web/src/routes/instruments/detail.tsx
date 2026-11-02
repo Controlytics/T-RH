@@ -15,7 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { isInstrumentReporting, INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN } from '@digilog/shared';
+import { INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN } from '@digilog/shared';
 import { ConnectionInstructions } from './connection-instructions';
 import { TokenDialog } from './token-dialog';
 import { GatewayPanel } from './gateway-panel';
@@ -30,6 +30,8 @@ interface Instrument {
   id: string; name: string; code: string; isActive: boolean;
   instrumentType: string | null; manufacturer: string | null; model: string | null;
   serialNumber: string | null; description: string | null; expectedIntervalSec: number | null;
+  /** The SERVER's verdict and the interval it judged by (own, else a TCP/IP profile's read interval). */
+  reporting: boolean; effectiveExpectedIntervalSec: number | null;
   tokenPrefix: string | null; lastSeenAt: string | null;
   /**
    * Whether `GET /:id/token` can actually return a value: the credential has
@@ -369,7 +371,8 @@ export function InstrumentDetailPage() {
     readings: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
   };
 
-  const reporting = isInstrumentReporting(inst.lastSeenAt, inst.expectedIntervalSec, activeWindow);
+  // The server's answer, shown as received (root CLAUDE.md: never re-derive it here).
+  const { reporting } = inst;
 
   return (
     <div className="space-y-6">
@@ -415,7 +418,7 @@ export function InstrumentDetailPage() {
               <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">Disabled — not accepting data</span>
             )}
             <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/80 ring-1 ring-white/20">
-              {inst.expectedIntervalSec ? `Expected every ${inst.expectedIntervalSec}s` : `Inactive after ${activeWindow} min without data`}
+              {inst.effectiveExpectedIntervalSec ? `Expected every ${inst.effectiveExpectedIntervalSec}s` : `Inactive after ${activeWindow} min without data`}
             </span>
             <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/80 ring-1 ring-white/20">Last seen {stamp(inst.lastSeenAt)}</span>
           </>
