@@ -125,6 +125,19 @@ describe('instrument detail - a TCP/IP instrument', () => {
     expect(screen.getByText('Latest readings')).toBeInTheDocument();
   });
 
+  it('Details neither prints nor offers Gateway for a TCP/IP instrument - it can never be one or report through one (final review F-9)', async () => {
+    renderPage();
+    const card = screen.getByTestId('details-card');
+    expect(within(card).queryByText('Gateway')).toBeNull();
+    expect(within(card).getByText('Instrument ID')).toBeInTheDocument();
+    fireEvent.click(within(card).getByRole('button', { name: 'Edit' }));
+    expect(within(card).queryByRole('checkbox', { name: /is gateway/i })).toBeNull();
+    fireEvent.change(within(card).getByRole('textbox', { name: 'Instrument ID' }), { target: { value: 'MB-2' } });
+    fireEvent.click(within(card).getByRole('button', { name: 'Save' }));
+    // Only the code travels: no isGateway field for an instrument that cannot be one.
+    await waitFor(() => expect(put).toHaveBeenCalledWith('/api/instruments/i-1', { code: 'MB-2' }));
+  });
+
   it('the register map is full width, outside the two-column grid (seven columns do not fit half a page)', () => {
     renderPage();
     // Render check 2026-11-02: in the left column at a 1240 px window, Byte

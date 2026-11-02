@@ -456,6 +456,23 @@ describe('reading TCP/IP instruments back', () => {
     expect((await q(sa, 'SERIAL')).statusCode).toBe(400);
   });
 
+  it('GET /eligible-children offers a Gateway-profile instrument and never a TCP/IP one (final review F-9)', async () => {
+    // A TCP/IP instrument cannot report through a gateway (PUT /:id refuses the
+    // link NOT_FOR_TCPIP), so the gateway picker must not offer it.
+    const tcpId = await tcp('elig-tcp', '192.168.77.80', 502);
+    const pushId = await pushInstrument('elig-push');
+    const res = await app.inject({ method: 'GET', url: '/api/instruments/eligible-children', headers: sa });
+    expect(res.statusCode).toBe(200);
+    const ids = res.json().data.map((r: { id: string }) => r.id);
+    expect(ids).toContain(pushId);
+    expect(ids).not.toContain(tcpId);
+    // ...and the refusal the picker no longer leads to:
+    const gw = await pushInstrument('elig-gw', { isGateway: true });
+    const link = await put(sa, tcpId, { gatewayId: gw });
+    expect(link.statusCode).toBe(400);
+    expect(link.json().error).toBe('NOT_FOR_TCPIP');
+  });
+
   it('GET /:id returns the address, the port and the whole map', async () => {
     const id = await tcp('detail', '192.168.77.72', 1502);
     const res = await app.inject({ method: 'GET', url: `/api/instruments/${id}`, headers: sa });

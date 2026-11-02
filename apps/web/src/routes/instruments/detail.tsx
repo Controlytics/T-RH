@@ -188,7 +188,9 @@ export function InstrumentDetailPage() {
       const newCode = (draft.code ?? inst.code).trim();
       const body = {
         ...(newCode && newCode !== inst.code ? { code: newCode } : {}),
-        isGateway: draft.isGateway ?? false,
+        // A TCP/IP instrument can never be a gateway (the server refuses it
+        // NOT_FOR_TCPIP), so its form has no such field and sends none (F-9).
+        ...(inst.connection === 'MODBUS_TCP' ? {} : { isGateway: draft.isGateway ?? false }),
       };
       // `UPDATE_INSTRUMENT` is an admin-configurable re-auth action (audit
       // 2026-10-03, SEC-7; the server checks it FIRST on PUT). Through the
@@ -507,8 +509,15 @@ export function InstrumentDetailPage() {
                 <dd className="font-mono font-medium text-slate-800">{inst.code}</dd>
                 <dt className="text-slate-500">Profile</dt>
                 <dd>{inst.profileName || '—'}</dd>
-                <dt className="text-slate-500">Gateway</dt>
-                <dd>{inst.isGateway ? 'Yes — reports for its linked instruments' : gatewayCode ? `Child of ${gatewayCode}` : 'No'}</dd>
+                {/* Not for a TCP/IP instrument (final review F-9): it can never
+                    be a gateway or report through one, so "Gateway: No" is a
+                    question that does not apply to it. */}
+                {!tcpip && (
+                  <>
+                    <dt className="text-slate-500">Gateway</dt>
+                    <dd>{inst.isGateway ? 'Yes — reports for its linked instruments' : gatewayCode ? `Child of ${gatewayCode}` : 'No'}</dd>
+                  </>
+                )}
                 <dt className="text-slate-500">Created</dt>
                 <dd>{stamp(inst.createdAt)}{inst.createdBy ? ` by ${inst.createdBy}` : ''}</dd>
               </dl>
@@ -537,14 +546,18 @@ export function InstrumentDetailPage() {
                     onChange={(e) => setDraft({ ...draft, code: e.target.value })}
                   />
                 </label>
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={draft.isGateway ?? false}
-                    onChange={(e) => setDraft({ ...draft, isGateway: e.target.checked })}
-                  className="ctl-check" />
-                  Is Gateway — reports telemetry on behalf of the instruments linked to it
-                </label>
+                {/* Never offered for a TCP/IP instrument: the server refuses it
+                    NOT_FOR_TCPIP, and a control that can only fail is not one (F-9). */}
+                {!tcpip && (
+                  <label className="flex items-center gap-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={draft.isGateway ?? false}
+                      onChange={(e) => setDraft({ ...draft, isGateway: e.target.checked })}
+                    className="ctl-check" />
+                    Is Gateway — reports telemetry on behalf of the instruments linked to it
+                  </label>
+                )}
                 <div className="flex justify-end gap-2">
                   <Button variant="secondary" onClick={() => setEditing(false)}>Cancel</Button>
                   <Button onClick={save}>Save</Button>

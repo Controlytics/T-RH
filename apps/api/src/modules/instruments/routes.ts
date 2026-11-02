@@ -206,7 +206,8 @@ const childProps = {
    * The child's OWN profile, which need not be the gateway's. Gateways and the
    * instruments reporting through them are routinely created under different
    * profiles, and a link across profiles is legitimate — nothing here or in
-   * `eligible-children` filters on profile. Surfacing it means the operator can
+   * `eligible-children` filters on WHICH profile (only on its connection: a
+   * TCP/IP instrument is never a child, F-9). Surfacing it means the operator can
    * see which profile a child came from before linking it, instead of guessing
    * from the code.
    */
@@ -913,7 +914,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Instruments'],
       summary: 'Instruments eligible to be linked to a gateway',
-      description: 'Active instruments that are neither a gateway themselves (D2) nor already linked to one (D3). Both exclusions are the invariants, not a UI preference.',
+      description: 'Active instruments that are neither a gateway themselves (D2) nor already linked to one (D3), of a Gateway (push) profile — a TCP/IP (Modbus) instrument cannot report through a gateway. The exclusions are the invariants, not a UI preference.',
       response: {
         200: {
           type: 'object',
@@ -926,8 +927,12 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // Scoped (audit 2026-10-03, API-8): the picker handed every id in the
     // plant to a caller scoped to four instruments.
     const { where: visibility } = await resolveVisibility(buildContext(req));
+    // Gateway-profile instruments only (final review F-9), a third invariant
+    // beside D2 / D3: a TCP/IP (Modbus) instrument is read by this server and
+    // cannot report through a gateway (`PUT /:id` refuses the link
+    // NOT_FOR_TCPIP), so offering it would offer a guaranteed error.
     const data = await prisma.instrument.findMany({
-      where: withVisibility({ isGateway: false, gatewayId: null, isActive: true }, visibility) as never,
+      where: withVisibility({ isGateway: false, gatewayId: null, isActive: true, profile: { connection: 'PUSH' } }, visibility) as never,
       select: { id: true, code: true, name: true, isActive: true, profile: { select: { name: true } } },
       orderBy: { code: 'asc' },
     });

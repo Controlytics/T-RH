@@ -92,7 +92,8 @@ export function InstrumentCreatePage() {
    * The list is EVERY gateway, across ALL profiles, on purpose: gateways are
    * routinely created under one profile and the instruments behind them under
    * another, and the backend has never restricted the pairing
-   * (`eligible-children` filters on isGateway/gatewayId/isActive, never profile).
+   * (`eligible-children` filters on isGateway/gatewayId/isActive and a Gateway
+   * profile's connection, never on which profile).
    * Each option names the gateway's own profile so a cross-profile link is a
    * visible choice rather than an accident.
    */
