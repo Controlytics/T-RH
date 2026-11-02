@@ -12,7 +12,7 @@ import { Select } from '@/components/ui/select';
 import { Toggle } from '@/components/ui/toggle';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/cn';
-import { columnsFromRows, moveRow, rowsFromColumns, withCatalogue, type ColumnRow } from './column-rows';
+import { columnsFromRows, decimalsAllowed, moveRow, rowsFromColumns, withCatalogue, type ColumnRow } from './column-rows';
 import { TemplatePreview } from './template-preview';
 import { reportTemplatesCatalogueUrl } from './types';
 
@@ -45,22 +45,6 @@ export const PLACEHOLDER_LABELS: Record<Placeholder, string> = {
 };
 
 const GROUP_WORDS: Record<ReportField['group'], string> = { builtin: 'Built-in', key: 'Key', attribute: 'Attribute' };
-
-/**
- * Ruling T2-C1 (2026-11-02): a pie slice and an alarm-count figure are never one
- * instrument's row, so a `key:` / `attr:` column on those reports could only
- * ever print empty. The server's catalogue still lists the profile's keys and
- * attributes for every type; for these two the editor offers the type's OWN
- * fields (`WIDGET_REPORT_FIELDS`) and nothing else. A stored column outside
- * them shows as not available — which is what it prints.
- */
-export const TYPE_FIELDS_ONLY: readonly WidgetType[] = ['pie_chart', 'alarm_counts'];
-
-export function offeredFields(widgetType: WidgetType, served: readonly ReportField[] | undefined): readonly ReportField[] | undefined {
-  if (!served || !TYPE_FIELDS_ONLY.includes(widgetType)) return served;
-  const own = new Set(WIDGET_REPORT_FIELDS[widgetType].map((f) => f.id));
-  return served.filter((f) => own.has(f.id));
-}
 /** A column's group read off its id — for a column the catalogue no longer lists. */
 const groupOfId = (id: string): ReportField['group'] => (id.startsWith('key:') ? 'key' : id.startsWith('attr:') ? 'attribute' : 'builtin');
 
@@ -129,7 +113,7 @@ function draftFrom(name: string, isDefault: boolean, doc: ReportTemplateDocument
 const opt = <K extends string>(key: K, value: string): Partial<Record<K, string>> =>
   (value.trim() === '' ? {} : { [key]: value } as Record<K, string>);
 
-export function documentFromDraft(d: Draft): ReportTemplateDocument {
+export function documentFromDraft(d: Draft, decimalsAllowedFor: (id: string) => boolean = () => true): ReportTemplateDocument {
   return {
     version: 1,
     header: {
@@ -144,7 +128,7 @@ export function documentFromDraft(d: Draft): ReportTemplateDocument {
       ...(d.accentColor ? { accentColor: d.accentColor } : {}),
     },
     infoBlock: d.info.map(({ label, source }) => ({ label, source })),
-    columns: columnsFromRows(d.columns),
+    columns: columnsFromRows(d.columns, decimalsAllowedFor),
     footer: {
       ...opt('text', d.footerText),
       showPageNumbers: d.showPageNumbers,
@@ -252,10 +236,10 @@ export function TemplateEditor({
   const { data: catalogue, error: catalogueError } = useSWR<{ fields: ReportField[] }>(reportTemplatesCatalogueUrl(profileId, widgetType));
   // The catalogue, or — only if it cannot be had — the shared built-ins, so the
   // editor still works; never fields derived from the profile here.
-  const served = catalogue?.fields ?? (catalogueError ? WIDGET_REPORT_FIELDS[widgetType] : undefined);
-  // What this editor OFFERS: the catalogue, except for a type whose rows never
-  // belong to one instrument (ruling T2-C1) — there only the type's own fields.
-  const fields = useMemo(() => offeredFields(widgetType, served), [widgetType, served]);
+  // Shown exactly as served: which fields a widget type may print — e.g. no
+  // keys or attributes on a pie or an alarm-count report — is the catalogue's
+  // rule (review m1), never re-decided here.
+  const fields = catalogue?.fields ?? (catalogueError ? WIDGET_REPORT_FIELDS[widgetType] : undefined);
   const [draft, setDraft] = useState<Draft>(() => draftFrom(initialName, initialDefault, initialDocument, fields));
   const [logoError, setLogoError] = useState<string | null>(null);
   const [dragFrom, setDragFrom] = useState<number | null>(null);
@@ -271,16 +255,20 @@ export function TemplateEditor({
   }, [fields]);
 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((d) => ({ ...d, [key]: value }));
-  const document = useMemo(() => documentFromDraft(draft), [draft]);
-  const reportable = REPORTABLE_WIDGET_TYPES.includes(widgetType);
-
-  // ── Columns ──
   const fieldById = useMemo(() => {
     const m = new Map<string, ReportField>();
     for (const f of WIDGET_REPORT_FIELDS[widgetType]) m.set(f.id, f);
     for (const f of fields ?? []) m.set(f.id, f);
     return m;
   }, [fields, widgetType]);
+  const ownDecimals = useMemo(
+    () => (id: string) => decimalsAllowed(id, fieldById.get(id), fields !== undefined),
+    [fieldById, fields],
+  );
+  const document = useMemo(() => documentFromDraft(draft, ownDecimals), [draft, ownDecimals]);
+  const reportable = REPORTABLE_WIDGET_TYPES.includes(widgetType);
+
+  // ── Columns ──
   const available = useMemo(() => (fields ? new Set(fields.map((f) => f.id)) : null), [fields]);
   /** A row's name on screen and to a screen reader — unique: two fields may share a label (a built-in Location and an attribute Location). */
   const nameOf = (row: ColumnRow): string => {
@@ -491,6 +479,9 @@ export function TemplateEditor({
                   const name = nameOf(row);
                   const missing = available !== null && !available.has(row.id);
                   const isNumber = f?.kind === 'number';
+                  // Decimals only on a raw key: every other number prints the
+                  // server's display precision as it stands (review C1).
+                  const hasDecimals = isNumber && ownDecimals(row.id);
                   return (
                     <li
                       key={row.id}
@@ -525,9 +516,9 @@ export function TemplateEditor({
                         <Button type="button" size="icon-sm" variant="ghost" aria-label={`Move ${name} up`} disabled={i === 0} onClick={() => moveColumn(i, i - 1)}><ArrowUp className="h-4 w-4" /></Button>
                         <Button type="button" size="icon-sm" variant="ghost" aria-label={`Move ${name} down`} disabled={i === draft.columns.length - 1} onClick={() => moveColumn(i, i + 1)}><ArrowDown className="h-4 w-4" /></Button>
                       </div>
-                      <div className={cn('grid gap-2', isNumber && 'sm:grid-cols-[minmax(0,1fr)_7rem_6.5rem]')}>
+                      <div className={cn('grid gap-2', hasDecimals ? 'sm:grid-cols-[minmax(0,1fr)_7rem_6.5rem]' : isNumber && 'sm:grid-cols-[minmax(0,1fr)_6.5rem]')}>
                         <Input aria-label={`Heading for ${name}`} value={row.heading} maxLength={80} placeholder="Heading" onChange={(e) => editColumn(i, { heading: e.target.value })} />
-                        {isNumber && (
+                        {hasDecimals && (
                           <Input
                             type="number"
                             min={0}

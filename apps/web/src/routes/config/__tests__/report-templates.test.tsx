@@ -38,16 +38,29 @@ const stamp = { createdAt: '2026-11-01T08:00:00.000Z', updatedAt: '2026-11-01T10
 const ROW_A = { id: 't1', profileId: P1, widgetType: 'value_cards', name: 'Daily values', isDefault: true, document: DOC_A, ...stamp };
 const ROW_B = { id: 't2', profileId: P1, widgetType: 'value_cards', name: 'Shift report', isDefault: false, document: BUILTIN_VC, ...stamp };
 const ROW_G = { id: 't3', profileId: P1, widgetType: 'gauge', name: 'Gauge sheet', isDefault: false, document: builtinReportTemplate('gauge'), ...stamp };
-const LIST_VC = { data: [ROW_A, ROW_B] };
+/** Decimals stored where they may not be: a built-in value, a MEASURED key, a removed key — and on a raw key, where they may. */
+const DOC_C: ReportTemplateDocument = {
+  ...BUILTIN_VC,
+  columns: [
+    ...BUILTIN_VC.columns.map((c) => (c.id === 'reading.value' ? { ...c, decimals: 3 } : c)),
+    { id: 'key:Temperature', heading: 'Temperature', show: true, decimals: 1 },
+    { id: 'key:Pressure', heading: 'Pressure', show: true, decimals: 2 },
+    { id: 'key:Gone', heading: 'Gone key', show: true, decimals: 4 },
+  ],
+};
+const ROW_C = { id: 't4', profileId: P1, widgetType: 'value_cards', name: 'Precision sheet', isDefault: false, document: DOC_C, ...stamp };
+const LIST_VC = { data: [ROW_A, ROW_B, ROW_C] };
 const LIST_G = { data: [ROW_G] };
 const LIST_EMPTY = { data: [] };
 
 const TEMPERATURE: ReportField = { id: 'key:Temperature', label: 'Temperature', group: 'key', kind: 'number', unit: '°C', measured: true };
 const LOCATION_ATTR: ReportField = { id: 'attr:Location', label: 'Location', group: 'attribute', kind: 'text' };
-const CATALOGUE_VC = { fields: [...WIDGET_REPORT_FIELDS.value_cards, TEMPERATURE, LOCATION_ATTR] };
+/** A RAW key: shown, never judged — the only kind of column that may carry its own decimals (review C1). */
+const PRESSURE: ReportField = { id: 'key:Pressure', label: 'Pressure', group: 'key', kind: 'number' };
+const CATALOGUE_VC = { fields: [...WIDGET_REPORT_FIELDS.value_cards, TEMPERATURE, PRESSURE, LOCATION_ATTR] };
 const CATALOGUE_G = { fields: [...WIDGET_REPORT_FIELDS.gauge] };
-const CATALOGUE_PIE = { fields: [...WIDGET_REPORT_FIELDS.pie_chart, TEMPERATURE, LOCATION_ATTR] };
-const CATALOGUE_COUNTS = { fields: [...WIDGET_REPORT_FIELDS.alarm_counts, TEMPERATURE, LOCATION_ATTR] };
+// As the SERVER serves them (review m1): no key: / attr: fields for a pie or an alarm-count report.
+const CATALOGUE_PIE = { fields: [...WIDGET_REPORT_FIELDS.pie_chart] };
 
 const listKey = (p: string, t: string) => `/api/report-templates?profileId=${p}&widgetType=${t}`;
 const catalogueKey = (p: string, t: string) => `/api/report-templates/catalogue?profileId=${p}&widgetType=${t}`;
@@ -57,9 +70,7 @@ const RESPONSES: Record<string, unknown> = {
   [listKey(P1, 'gauge')]: LIST_G,
   [catalogueKey(P1, 'value_cards')]: CATALOGUE_VC,
   [catalogueKey(P1, 'gauge')]: CATALOGUE_G,
-  // The server lists the profile's keys and attributes for EVERY type (Task 2).
   [catalogueKey(P1, 'pie_chart')]: CATALOGUE_PIE,
-  [catalogueKey(P1, 'alarm_counts')]: CATALOGUE_COUNTS,
 };
 const swrKeys: string[] = [];
 const mutateList = vi.fn(async () => undefined);
@@ -343,16 +354,35 @@ describe('Configuration → Report Templates — the editor', () => {
     expect(cols.map((c) => c.id)).not.toContain('attr:Location');
   });
 
-  it('a number column takes decimals and a unit; a text column offers neither', async () => {
+  // Review C1: a reading's value, a range figure and a measured key print the
+  // SERVER's display at the instrument's administered precision. Only a raw key
+  // may carry its own decimals; any other stored decimals are dropped on save.
+  it('Decimals are offered ONLY on a raw key — not on a measured key, not on any built-in number', () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'Edit Daily values' }));
+    expect(screen.getByLabelText('Decimals for Pressure')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Decimals for Temperature')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Decimals for Value')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Decimals for Instrument ID')).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Decimals for Value'), { target: { value: '2' } });
+    // A number column still takes a unit beside its heading; a text one does not.
+    expect(screen.getByLabelText('Unit for Value')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Unit for Instrument ID')).not.toBeInTheDocument();
+  });
+
+  it('a raw key\u2019s decimals are written; decimals stored on any other column are DROPPED on save', async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Precision sheet' }));
+    expect(screen.getByLabelText('Decimals for Pressure')).toHaveValue(2);
+    fireEvent.change(screen.getByLabelText('Decimals for Pressure'), { target: { value: '3' } });
     fireEvent.change(screen.getByLabelText('Unit for Value'), { target: { value: '°C' } });
     fireEvent.click(screen.getByRole('button', { name: /^save template$/i }));
     await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
-    const value = (lastBody(put).document.columns as { id: string }[]).find((c) => c.id === 'reading.value');
-    expect(value).toEqual({ id: 'reading.value', heading: 'Value', show: true, decimals: 2, unit: '°C' });
+    const cols = lastBody(put).document.columns as { id: string; decimals?: number }[];
+    const col = (id: string) => cols.find((c) => c.id === id);
+    expect(col('key:Pressure')).toEqual({ id: 'key:Pressure', heading: 'Pressure', show: true, decimals: 3 });
+    expect(col('reading.value')).toEqual({ id: 'reading.value', heading: 'Value', show: true, unit: '°C' });
+    expect(col('key:Temperature')).toEqual({ id: 'key:Temperature', heading: 'Temperature', show: true });
+    expect(col('key:Gone')).toEqual({ id: 'key:Gone', heading: 'Gone key', show: true });
   });
 
   it('Move up reorders the columns in the PUT body', async () => {
@@ -387,26 +417,23 @@ describe('Configuration → Report Templates — the editor', () => {
   });
 });
 
-describe('Configuration → Report Templates — ruling T2-C1', () => {
-  // A slice / a figure is never one instrument's row: its key and attribute
-  // columns could only print empty, so the editor offers the type's own fields.
-  it.each([
-    ['Pie chart', 'pie_chart', ['Category', 'Count', 'Share']],
-    ['Alarm counts', 'alarm_counts', ['Alarms', 'Count']],
-  ] as const)('%s offers only its own fields, though the catalogue lists keys and attributes', async (tab, type, own) => {
+describe('Configuration → Report Templates — the catalogue is shown exactly as served (review m1)', () => {
+  // Which fields a widget type may print is the SERVER's rule: for a pie or an
+  // alarm-count report its catalogue lists no keys and no attributes. The
+  // editor filters nothing itself.
+  it('a catalogue with no key: / attr: fields (a pie report) offers none — and the preview is told the same ids', async () => {
     renderPage();
-    fireEvent.click(screen.getByRole('tab', { name: tab }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Pie chart' }));
     fireEvent.click(screen.getByRole('button', { name: /new template/i }));
-    for (const label of own) expect(screen.getByLabelText(`Show ${label}`)).toBeInTheDocument();
+    for (const label of ['Category', 'Count', 'Share']) expect(screen.getByLabelText(`Show ${label}`)).toBeInTheDocument();
     expect(screen.queryByLabelText('Show Temperature')).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/^Show Location/)).not.toBeInTheDocument();
     expect(screen.getAllByRole('option').map((o) => o.textContent)).not.toContain('Attribute: Location');
-    // The preview is told the same: only the type's own ids are available.
     await waitFor(() => expect(build).toHaveBeenCalled());
-    expect(build.mock.calls.at(-1)![0].sections[0].availableIds).toEqual(WIDGET_REPORT_FIELDS[type].map((f) => f.id));
+    expect(build.mock.calls.at(-1)![0].sections[0].availableIds).toEqual(CATALOGUE_PIE.fields.map((f) => f.id));
   });
 
-  it('a type that is not under the rule still offers the profile keys and attributes', () => {
+  it('a catalogue that lists keys and attributes offers them', () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: /new template/i }));
     expect(screen.getByLabelText('Show Temperature')).toBeInTheDocument();

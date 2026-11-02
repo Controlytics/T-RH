@@ -48,15 +48,37 @@ export function withCatalogue(rows: ColumnRow[], fields: readonly ReportField[])
   return [...rows, ...extra.map((f) => ({ id: f.id, heading: f.label, show: false, keep: false }))];
 }
 
-/** What a save writes, in row order. */
-export function columnsFromRows(rows: readonly ColumnRow[]): ReportTemplateColumn[] {
+/**
+ * What a save writes, in row order. `decimalsAllowed` says which columns may
+ * carry `decimals` (`decimalsAllowed` below); a stored `decimals` on any other
+ * column is DROPPED, not kept dormant (review C1).
+ */
+export function columnsFromRows(rows: readonly ColumnRow[], decimalsAllowed: (id: string) => boolean = () => true): ReportTemplateColumn[] {
   return rows.filter((r) => r.keep).map((r) => ({
     id: r.id,
     heading: r.heading,
     show: r.show,
-    ...(r.decimals !== undefined ? { decimals: r.decimals } : {}),
+    ...(r.decimals !== undefined && decimalsAllowed(r.id) ? { decimals: r.decimals } : {}),
     ...(r.unit !== undefined && r.unit.trim() !== '' ? { unit: r.unit } : {}),
   }));
+}
+
+/**
+ * May a column carry its own `decimals`? Only a RAW key — a `key:` field the
+ * catalogue lists as not measured (review C1, 2026-11-02). Every other number
+ * a widget report prints (a reading's value, a range figure, a bar) is the
+ * SERVER's display at the instrument's administered precision; re-rounding it
+ * in the browser could print 25 for a 25.4 that crossed NMT 25.0, or 21.500
+ * for a value never recorded to three places.
+ *
+ * `field` is the catalogue's (or the built-in's) entry for the id. With the
+ * catalogue not yet loaded a `key:` id is given the benefit of the doubt so an
+ * early save does not strip a raw key's setting; once it is loaded an id it
+ * does not list (a removed key) carries none.
+ */
+export function decimalsAllowed(id: string, field: ReportField | undefined, catalogueLoaded: boolean): boolean {
+  if (field) return field.group === 'key' && field.measured !== true;
+  return !catalogueLoaded && id.startsWith('key:');
 }
 
 export function moveRow<T>(rows: readonly T[], from: number, to: number): T[] {
