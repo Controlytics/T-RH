@@ -66,7 +66,7 @@ server's, unchanged); a logo or heading that changes under an approved report (f
 - **Report template** — a row of `report_templates`: `profileId`, `widgetType`, `name`, `isDefault`, `document`.
 - **Template document** (JSON, shared zod `reportTemplateDocumentSchema`, version 1):
   - `header`: `{ title, subtitle?, companyName?, appName?, showAppName, logo: { mode: 'branding' | 'custom' |
-    'none', dataUrl? (custom, ≤ 1 MB, png/jpeg) }, accentColor? }` — title/subtitle are TEMPLATES with
+    'none', dataUrl? (custom, ≤ 1,000,000 characters as a data URL ≈ 730 KB of png/jpeg) }, accentColor? }` — title/subtitle are TEMPLATES with
     placeholders `{dashboard}`, `{widget}`, `{profile}`, `{from}`, `{to}`, `{period}`, `{date}`, `{user}`.
   - `infoBlock`: ordered `[{ label, source }]` — the key/value pairs under the title (source = a placeholder
     above, `instrumentCount`, `selection`, or a profile attribute key shown for a one-instrument report).
@@ -180,7 +180,7 @@ Every body through the shared schemas; a `widgetType` not in `WIDGET_TYPES` is 4
 
 Templates are display configuration, written by SUPER_ADMIN only, every write audited with the document. A
 download prints only data the viewer already received for the widget. A custom logo is a data URI inside the
-document (≤ 1 MB, png/jpeg by magic bytes checked server-side) — no new public file path. The snapshot freezes
+document (≤ 1,000,000 characters ≈ 730 KB, png/jpeg by magic bytes checked server-side) — no new public file path. The snapshot freezes
 the chrome, so an approved report cannot change under its signatures. Placeholders are substituted server-side
 for nothing: they are pure text replacement in the browser from values the dialog already has; HTML is never
 interpreted (jsPDF draws text).
@@ -210,6 +210,6 @@ endpoints.md`, `apps/{api,web}/CLAUDE.md`, memory.
 3. Multi-profile widget: one section per profile, chrome from the first.
 4. Download gated by a new Export Options surface `dashboard-widgets`; policy per kind `widget:<type>`.
 5. SUPER_ADMIN-only template writes, one re-auth action, three audit actions; no new permission.
-6. Custom logo as a ≤ 1 MB data URI in the document; snapshot v3 freezes the chrome.
+6. Custom logo as a ≤ 1,000,000-character (≈ 730 KB) data URI in the document; snapshot v3 freezes the chrome.
 7. Config page under Configuration, plus a link from the profile's Instrument Attributes picker.
 8. Built-in Data Report / Alarm Report / Trend PDFs untouched in this build.

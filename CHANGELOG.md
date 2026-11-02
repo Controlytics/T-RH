@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased] - Feature: widget reports and report templates (2026-11-02)
+
+Operator: "whenever i added a new widgets added report download option should be added, in report
+each and every field or keys or headers, footers, logos everything should be configurable and for
+each instrument profile and each widget report should configurable … for each widget each report
+template should be createable". Spec `docs/superpowers/specs/2026-11-02-widget-report-templates-design.md`;
+the rules in `docs/feature-notes.md` WIDGET REPORTS AND REPORT TEMPLATES. Commits `97ed4d78` (shared) · `26107a97` `cdc4f9ec` (api) · `81e68924` (lib) · `8bcda03c` `c206b12d` `39797eb1` (widgets) · `471db4fc` `abdcd7d3` (config page) · `5d421649` (CSP) · fix wave `1a14ea59` `7358f093`.
+**Built, not pushed, not deployed.**
+
+- **Download report on every dashboard widget** (`/` and `/dashboards/:id`), governed like every
+  other PDF: 14 new report kinds `widget:<type>` (Direct or Request per kind under Configuration →
+  Report Settings; every one ships as Request + remarks + password), a new Export Options surface
+  "Dashboard widgets", the frozen snapshot for approval. The report prints the widget's own data
+  for the dialog's period; charts are re-drawn as pictures with a key.
+- **Report templates per instrument profile per widget type** — table `report_templates` (model 40,
+  migration `20261102150000_report_templates`), API module `report-templates` (27), re-auth
+  `UPDATE_REPORT_TEMPLATE` (58), audit `REPORT_TEMPLATE_CREATED/UPDATED/DELETED` (105 / 118). A
+  template sets the title and subtitle (placeholders), company / app name, logo (branding, uploaded,
+  none), the information rows, which fields print and what they are called (with decimals and
+  units), the footer, the page. One default per profile × type; no template = the built-in look.
+- **Configuration → Report Templates** (`/config/report-templates`, page 24, route 57): profile
+  picker, a tab per widget type, create / edit / duplicate / set default / delete, a live PDF preview.
+  The API's CSP now allows a same-origin `blob:` frame for that preview.
+- **Report snapshot v3** freezes the header, logo and footer of a templated report; v2 (the page
+  reports) replays as before.
+
 ## [Unreleased] - TCP/IP instruments CR-1: Slave ID and Read every per instrument, Quantity, byte-order names, per-key Test (2026-11-02)
 
 Operator: "slave id should comes in instrument page … read every should come in instrument page,

@@ -560,6 +560,16 @@ node apps/api/dist/app.js
   drift guard empty) adds `instruments.modbus_unit_id` / `modbus_interval_sec`, copies each MODBUS_TCP
   profile's values to its instruments as stored and DROPS the two profile columns — the
   Slave ID and Read every are the INSTRUMENT's; a profile body carrying either is a 400. No count moved.
+- **2026-11-02 — WIDGET REPORTS AND REPORT TEMPLATES.** New module `modules/report-templates` (26 → **27**;
+  registered in `app.ts` AND `src/e2e/test-helper.ts`), model `ReportTemplate` (39 → **40**, enums 13; migration
+  `20261102150000_report_templates`, hand-authored, both databases, drift guard empty; FK → profile CASCADE; a
+  hand-written unique index on `(profile_id, widget_type, lower(name))` Prisma cannot express). Writes SUPER_ADMIN by
+  ROLE in `preValidation` (the dashboards precedent) + `enforceReauth('UPDATE_REPORT_TEMPLATE')`; one default per
+  profile × widget type set in one transaction; a profile DELETE audits each template the cascade removes. The
+  catalogue response DECLARES `perKey` / `unit` / `measured` (the tenth time the response filter mattered). The helmet
+  CSP gained `frameSrc: ["'self'", 'blob:']` for the Report Templates preview. `report-reviews.e2e` pins
+  `/api/config/report-downloads/current` to EVERY `REPORT_KINDS` key (22). Rules: `docs/feature-notes.md` WIDGET
+  REPORTS AND REPORT TEMPLATES.
 - **2026-10-28 — WIDGET DATA KEYS, phase 2 (dashboard widgets).** Both layout PUTs
   (`/api/config/my-dashboard-layout`, `/api/roles/dashboard-layout/role/:name`) go through ONE
   `checkLayoutWrite` (`modules/config/dashboard-layout.ts`): the strict shared writer

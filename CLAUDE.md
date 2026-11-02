@@ -152,11 +152,12 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
 - **Verify TLS up** — `curl -sk --ssl-revoke-best-effort -o /dev/null -w "%{http_code}" https://localhost:3001/api/system-health` should return a code (401 is a pass — TLS terminated and the route rejected an unauthenticated call). **CORRECTED 2026-08-29: `/api/health` DOES exist and is load-bearing.** This file said "There is no `/health` route" on the evidence of `grep "get('/health'"` → 0 hits. That pattern could never have matched: the route is registered at `app.ts:297` as `app.get('/api/health', ...)`, top level, with no prefix. It is the deploy and installer health probe (`scripts/aws/deploy-on-ubuntu.sh`, `scripts/install.ps1`, `scripts/upgrade.ps1`, `scripts/linux/digilog-lib.sh`, `.github/workflows/build-deb.yml`), and `app.ts` deliberately returns 200 even when the job runner is down — and its `PUBLIC_PATHS` entry is REQUIRED. (It was also the tablet liveness probe via `apps/web/src/lib/connectivity.ts probeServer`; that file was deleted in `a92ca5d`, 2026-07-18, and this line said otherwise until 2026-10-12.) The 2026-08-29 audit repeated this claim as finding L1 and an agent began removing the allowlist entry before catching it. **A 0-hit grep is evidence only if the pattern could have matched.**
 
 ## System Stats (re-derived 2026-08-27 — every number below came from the command beside it)
-- **Backend:** **26** API modules under `apps/api/src/modules/` (`ls | wc -l`).
+- **Backend:** **27** API modules under `apps/api/src/modules/` (`ls | wc -l`).
+  26 → 27 (2026-11-02): `report-templates`, report templates per profile × widget type — see `docs/feature-notes.md` WIDGET REPORTS AND REPORT TEMPLATES.
   25 → 26 (2026-10-31): `modbus`, TCP/IP (Modbus) instruments — Test connection, the status route, the Reader.
   24 → 25 (2026-09-07): `report-reviews`, the report review workflow.
   23 → 24 (2026-08-27): `alarm-webhooks`, the alarm annunciator.
-- **Database:** **39 Prisma models, 13 enums** (38 → 39 on 2026-10-31: `ModbusPollStatus`, migration `20261031130000_modbus_poll_status` — the TCP/IP reading status; `20261031120000_tcpip_instruments` added columns and a partial unique index only, and `connection` is a validated string, not an enum; 37 → 38 on 2026-10-26: `MeasurementType`, migration `20261026120000_profile_measurements`; 36/13 → 37/13 on 2026-09-22: `FloorplanRoomLink`, migration `20260922120000_floorplan_polygons_links`; the link `kind` is a validated string, NOT an enum — see the Layout Designer note) (35/12 → 36/13 on 2026-09-07: `ReportReview` + `ReportReviewStatus`, migration `20260907120000_report_reviews`) (36/13 → 35/12 on 2026-08-31: `AlarmRule` + `AlarmComparison` removed with the alarm-rules feature) (`grep -cE "^model " / "^enum "`).
+- **Database:** **40 Prisma models, 13 enums** (39 → 40 on 2026-11-02: `ReportTemplate`, migration `20261102150000_report_templates` — `widget_type` a validated string, no enum; 38 → 39 on 2026-10-31: `ModbusPollStatus`, migration `20261031130000_modbus_poll_status` — the TCP/IP reading status; `20261031120000_tcpip_instruments` added columns and a partial unique index only, and `connection` is a validated string, not an enum; 37 → 38 on 2026-10-26: `MeasurementType`, migration `20261026120000_profile_measurements`; 36/13 → 37/13 on 2026-09-22: `FloorplanRoomLink`, migration `20260922120000_floorplan_polygons_links`; the link `kind` is a validated string, NOT an enum — see the Layout Designer note) (35/12 → 36/13 on 2026-09-07: `ReportReview` + `ReportReviewStatus`, migration `20260907120000_report_reviews`) (36/13 → 35/12 on 2026-08-31: `AlarmRule` + `AlarmComparison` removed with the alarm-rules feature) (`grep -cE "^model " / "^enum "`).
   34 → 36 (2026-08-27): `AlarmWebhookTarget` + `AlarmWebhookDelivery`
   (migration `20260827120000_alarm_webhooks`). **The enum count did NOT move** —
   that target's `method`, `event` and `status` are validated strings, the same
@@ -172,7 +173,7 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   Only `compliance_core_db` + `compliance_core_db_test` exist — **no TimescaleDB,
   no `digilog_tsdb`**. The test database is migrated **separately**; a migration
   applied to only one of them makes every instrument-touching e2e 500.
-- **Permissions:** **45** constants, **57** reauth actions in **8** categories,
+- **Permissions:** **45** constants, **58** reauth actions in **8** categories (57 → 58 on 2026-11-02: `UPDATE_REPORT_TEMPLATE` under the EXISTING `Reports` category, ships OFF),
   **15** sidebar items (`grep -cE` against `permissions.ts` / `reauth-actions.ts`
   / `sidebar-items.ts`), **15** permission-tree groups / **56** nodes / **39** feature
   privileges, **39** shared type files (`ls packages/shared/src/types/*.ts | grep -v test | wc -l`; 38 → 39 on 2026-10-31: `modbus.ts`).
@@ -208,7 +209,8 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   downloads; no permission or sidebar item was added for it.
   The "102 / 83 / 92 / 26" this file carried for months was upstream DigiLog's and
   was never true here.
-- **Audit registries:** **102** audit actions, **115** audit templates in **7**
+- **Audit registries:** **105** audit actions, **118** audit templates in **7**
+  categories (102 → 105 / 115 → 118 on 2026-11-02: `REPORT_TEMPLATE_CREATED` / `UPDATED` / `DELETED`, `Data & Approvals` category — see the WIDGET REPORTS feature note). Earlier **102** / **115** in **7**
   categories (100 → 102 / 113 → 115 on 2026-10-31: `MODBUS_DEVICE_NOT_ANSWERING` /
   `MODBUS_DEVICE_ANSWERING`, SYSTEM actions, Instruments category — see the TCP/IP INSTRUMENTS
   feature note. Earlier 98 → 100 / 111 → 113 on 2026-10-27: `DEVICE_CERTIFICATE_ISSUED` /
@@ -272,7 +274,7 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   2026-08-31: `sensor-range-alarms.def.ts`, the fifth alarm source; 26 → 27 on
   2026-08-31: `rs485-alarms.def.ts`, the fourth alarm source; 25 → 26 the same day:
   `inactivity-alarms.def.ts`),
-  **23** pages under `apps/web/src/routes/config/` (22 → 23 on 2026-10-24: `attribute-access.tsx`, Configuration → Attribute Edit Access; 23 → 22 on 2026-10-05: `alarm-rule-dialog.tsx` DELETED — dead since the 2026-08-31 alarm-rules removal and never a page, but `ls *.tsx` counted it; audit WEB-8; 22 → 23 on 2026-10-01: `report-settings.tsx`, Report Approvers + Report Downloads on one page; 23 → 22 on 2026-09-22: `floorplans.tsx`
+  **24** pages under `apps/web/src/routes/config/` (23 → 24 on 2026-11-02: `report-templates.tsx`, Configuration → Report Templates; 22 → 23 on 2026-10-24: `attribute-access.tsx`, Configuration → Attribute Edit Access; 23 → 22 on 2026-10-05: `alarm-rule-dialog.tsx` DELETED — dead since the 2026-08-31 alarm-rules removal and never a page, but `ls *.tsx` counted it; audit WEB-8; 22 → 23 on 2026-10-01: `report-settings.tsx`, Report Approvers + Report Downloads on one page; 23 → 22 on 2026-09-22: `floorplans.tsx`
   DELETED, replaced by the `layout-designer/` FOLDER at the same route — `ls *.tsx`
   counts files, so the count moved while the `<Route` count did not; an `attribute-labels.tsx` existed
   for a few hours on 2026-09-16 and was folded into `instrument-attributes.tsx` at
@@ -285,7 +287,7 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   `alarm-webhooks.tsx`. **The def count did NOT move** — alarm webhooks are a
   real CRUD module with their own tables, not a `system_config` row, so there
   is no `*.def.ts` for them.
-- **Frontend:** **56** `<Route`s in `main.tsx` (54 → 56, 2026-10-29: `/dashboards` and `/dashboards/:id`, the dashboard builder; 53 → 54, 2026-10-24: `/config/attribute-access`; 52 → 53, 2026-10-01: `/config/report-settings`; 53 → 52, 2026-09-19: `/home`, the
+- **Frontend:** **57** `<Route`s in `main.tsx` (56 → 57, 2026-11-02: `/config/report-templates`; 54 → 56, 2026-10-29: `/dashboards` and `/dashboards/:id`, the dashboard builder; 53 → 54, 2026-10-24: `/config/attribute-access`; 52 → 53, 2026-10-01: `/config/report-settings`; 53 → 52, 2026-09-19: `/home`, the
   Module Guide, removed with the `home` sidebar item; a `/config/attribute-labels` route existed for a few hours on 2026-09-16 and was removed the same day — unchanged; 52 → 53, 2026-09-08: `/settings`; 51 → 52, 2026-09-07: `/reports`; 50 → 51 the same day: `/data-report`) (51 → 50, 2026-08-31: `/config/alarm-rules` removed with the rule feature) (50 → 51, 2026-08-29: `/config/export-options`, a page that had a config def and a dashboard card but no route, so it was unreachable. Earlier 49 → 50, 2026-08-27:
   `/config/alarm-webhooks`).
 - **Queue backend:** graphile-worker (Postgres-backed), **7** tasks (6 → 7 on 2026-10-12: `notification_retry`, the durable email/SMS retry, event-driven, no crontab line).

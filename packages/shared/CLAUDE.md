@@ -128,7 +128,7 @@ someone may be using was not part of that change.
 
 ### Type files (live, re-derived 2026-10-05)
 
-`packages/shared/src/types/` contains **39 type files** (2026-10-31, 38 → 39 with `modbus.ts` — the TCP/IP register map, device networks and keys-file converter; 2026-10-29, 37 → 38 with `dashboard-document.ts`; 36 → 37 with `profile-display-keys.ts`; 35 → 36 with `dashboard-widgets.ts`; 34 → 35 with `data-keys.ts`; `ls packages/shared/src/types/*.ts | grep -v test | wc -l`, 2026-10-26; 33 → 34 with `profile-measurements.ts`). The ones that carry a count:
+`packages/shared/src/types/` contains **40 type files** (2026-11-02, 39 → 40 with `report-templates.ts` — the report template document, the per-widget-type report fields, the built-in templates, placeholders; `report-downloads.ts` builds 14 `widget:<type>` kinds, 8 → 22; 2026-10-31, 38 → 39 with `modbus.ts` — the TCP/IP register map, device networks and keys-file converter; 2026-10-29, 37 → 38 with `dashboard-document.ts`; 36 → 37 with `profile-display-keys.ts`; 35 → 36 with `dashboard-widgets.ts`; 34 → 35 with `data-keys.ts`; `ls packages/shared/src/types/*.ts | grep -v test | wc -l`, 2026-10-26; 33 → 34 with `profile-measurements.ts`). The ones that carry a count:
 
 | File | Live count (command, 2026-10-05) |
 |---|---|
