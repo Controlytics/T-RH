@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import rateLimit from '@fastify/rate-limit';
-import { modbusRegisterMapSchema } from '@digilog/shared';
+import { modbusRegisterMapSchema, MODBUS_UNIT_ID_MESSAGE } from '@digilog/shared';
 import { prisma } from '../../lib/prisma.js';
 import { buildContext } from '../../lib/build-context.js';
 import { resolveVisibility, withVisibility } from '../instruments/visibility.js';
@@ -9,7 +9,7 @@ import { slotConfigForProfile } from '../instruments/profile-measurements.js';
 import { loadModbusReaderConfig } from './config.js';
 import { checkModbusAddress } from './address.js';
 import { readDevice } from './protocol/index.js';
-import { explainReadTarget, isSendableUnitId, unitIdRefusal } from './reader.js';
+import { explainReadTarget, isSendableUnitId, isReadInterval } from './reader.js';
 import { loadInactivityConfig } from '../alarms/load-inactivity.js';
 
 /** Exact wording (plan Global Constraints, "Failure wording"). */
@@ -30,6 +30,8 @@ interface TestBody {
   modbusHost: string;
   modbusPort: number;
   modbusRegisters: unknown[];
+  /** The Slave ID to read with — the form's, as the address and map are (CR-1). */
+  modbusUnitId: number;
   instrumentId?: string | null;
 }
 
@@ -61,36 +63,43 @@ const modbusRoutes: FastifyPluginAsync<ModbusRoutesOptions> = async (app, opts) 
     schema: {
       tags: ['Instruments'],
       summary: 'Test connection to a TCP/IP (Modbus) device',
-      description: 'Reads the device once with the given address and register map and returns what it answered. Stores nothing, audits nothing. A device failure, reading switched off and an address already in use are 200 answers with ok:false; a malformed body or a refused address is 400.',
+      description: 'Reads the device once with the given address, Slave ID and register map and returns what it answered. Stores nothing, audits nothing. A device failure, reading switched off and an address already in use are 200 answers with ok:false; a malformed body or a refused address is 400.',
       body: {
         type: 'object',
-        required: ['profileId', 'modbusHost', 'modbusPort', 'modbusRegisters'],
+        required: ['profileId', 'modbusHost', 'modbusPort', 'modbusRegisters', 'modbusUnitId'],
         properties: {
           profileId: { type: 'string', format: 'uuid' },
           modbusHost: { type: 'string' },
           modbusPort: { type: 'integer' },
           modbusRegisters: { type: 'array', items: { type: 'object' } },
+          // The form's Slave ID (CR-1, 2026-11-02 — the instrument's own, no
+          // longer the profile's). 0..255, judged in the handler so the answer
+          // is the field's one sentence.
+          modbusUnitId: { type: 'integer', description: 'The Modbus unit (Slave) ID to read with, 0..255.' },
           instrumentId: { type: ['string', 'null'], format: 'uuid' },
         },
       },
     },
   }, async (req, reply) => {
-    const { profileId, modbusHost, modbusPort, modbusRegisters } = req.body;
+    const { profileId, modbusHost, modbusPort, modbusRegisters, modbusUnitId } = req.body;
     const instrumentId = req.body.instrumentId ?? undefined;
 
     const profile = await prisma.instrumentProfile.findUnique({
       where: { id: profileId },
-      select: { id: true, connection: true, modbusUnitId: true },
+      select: { id: true, connection: true },
     });
     if (!profile) return reply.code(404).send({ error: 'PROFILE_NOT_FOUND', message: 'That instrument profile does not exist.' });
-    if (profile.connection !== 'MODBUS_TCP' || profile.modbusUnitId === null) {
+    if (profile.connection !== 'MODBUS_TCP') {
       return reply.code(400).send({ error: 'NOT_A_TCPIP_PROFILE', message: 'Test connection is only for a TCP/IP (Modbus) profile.' });
     }
-    // The STORED unit id, by the Reader's own rule (final review F-6): no route
-    // can store 300, a hand-edited row can, and it must never reach a socket.
-    // `INVALID_CONFIG` is the Reader's word for the same stored row.
-    if (!isSendableUnitId(profile.modbusUnitId)) {
-      return reply.code(400).send({ error: 'INVALID_CONFIG', message: unitIdRefusal(profile.modbusUnitId) });
+    // The form's Slave ID, by the Reader's own range rule (final review F-6):
+    // nothing outside 0..255 reaches a socket. It is the instrument's since
+    // 2026-11-02 (CR-1), so it comes with the address, never from the profile.
+    if (!isSendableUnitId(modbusUnitId)) {
+      return reply.code(400).send({
+        error: 'VALIDATION_ERROR', message: MODBUS_UNIT_ID_MESSAGE,
+        details: { formErrors: [], fieldErrors: { modbusUnitId: [MODBUS_UNIT_ID_MESSAGE] } },
+      });
     }
 
     // A malformed map is a 400 here, never a throw out of readDevice's planner.
@@ -130,7 +139,7 @@ const modbusRoutes: FastifyPluginAsync<ModbusRoutesOptions> = async (app, opts) 
     // An unexpected throw here is a bug: it propagates to the global handler
     // (logged, 500) instead of being turned into a quiet ok:false.
     const result = await readDevice({
-      host: modbusHost, port: modbusPort, unitId: profile.modbusUnitId, map,
+      host: modbusHost, port: modbusPort, unitId: modbusUnitId, map,
     });
     if (!result.ok) return { ok: false, code: result.code, message: result.message };
 
@@ -166,7 +175,7 @@ export const modbusStatusRoutes: FastifyPluginAsync<ModbusRoutesOptions> = async
     schema: {
       tags: ['Instruments'],
       summary: 'Is the application reaching this TCP/IP (Modbus) instrument?',
-      description: 'State (reading / failing / not-read), why it is not read, the read interval, the last success and failure, readings stored in the last 24 h against the number expected, and whether Inactivity Alarms are off. 400 for a Gateway (push) instrument; 404 outside the caller\'s instrument scope.',
+      description: 'State (reading / failing / not-read), why it is not read, the instrument\'s read interval, the last success and failure, readings stored in the last 24 h against the number expected, and whether Inactivity Alarms are off. `intervalSec` / `expected24h` are null when the stored interval is not one the Reader reads at (a hand-edited row; `notReadReason` INVALID_CONFIG). 400 for a Gateway (push) instrument; 404 outside the caller\'s instrument scope.',
       params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
     },
   }, async (req, reply) => {
@@ -174,16 +183,21 @@ export const modbusStatusRoutes: FastifyPluginAsync<ModbusRoutesOptions> = async
     const visibility = await resolveVisibility(buildContext(req));
     const inst = await prisma.instrument.findFirst({
       where: withVisibility({ id }, visibility.where) as { id: string },
-      select: { id: true, profile: { select: { connection: true, modbusIntervalSec: true } } },
+      select: { id: true, modbusIntervalSec: true, profile: { select: { connection: true } } },
     });
     if (!inst) return reply.code(404).send({ error: 'INSTRUMENT_NOT_FOUND', message: 'Instrument not found.' });
-    const intervalSec = inst.profile.modbusIntervalSec;
-    if (inst.profile.connection !== 'MODBUS_TCP' || intervalSec === null) {
+    // Its PROFILE says whether it is a TCP/IP instrument; the interval is the
+    // instrument's own (CR-1, 2026-11-02).
+    if (inst.profile.connection !== 'MODBUS_TCP') {
       return reply.code(400).send({ error: 'NOT_A_TCPIP_INSTRUMENT', message: 'This instrument is not a TCP/IP (Modbus) instrument.' });
     }
+    // Only an interval the Reader reads at gives an expected count. A stored
+    // value outside 10..3600 (hand-edited; no route writes one) is NOT read —
+    // `notReadReason` says INVALID_CONFIG — so nothing is expected, never NaN.
+    const intervalSec = isReadInterval(inst.modbusIntervalSec) ? inst.modbusIntervalSec : null;
 
     const since = new Date(Date.now() - 86_400_000);
-    const [row, target, inactivity, stored] = await Promise.all([
+    const [row, target, inactivity, storedCount] = await Promise.all([
       prisma.modbusPollStatus.findUnique({ where: { instrumentId: id } }),
       explainReadTarget(id, { allowLoopbackForTests: opts.allowLoopbackForTests === true }),
       loadInactivityConfig(),
@@ -210,8 +224,8 @@ export const modbusStatusRoutes: FastifyPluginAsync<ModbusRoutesOptions> = async
       ...(row?.lastErrorCode && row.lastErrorAt
         ? { lastError: { code: row.lastErrorCode, message: row.lastErrorMessage ?? '', at: row.lastErrorAt } }
         : {}),
-      stored24h: Number(stored[0]?.n ?? 0),
-      expected24h: Math.floor(86_400 / intervalSec),
+      stored24h: Number(storedCount[0]?.n ?? 0),
+      expected24h: intervalSec === null ? null : Math.floor(86_400 / intervalSec),
       inactivityAlarmsOff: !inactivity.enabled,
     };
   });

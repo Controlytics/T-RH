@@ -128,7 +128,10 @@ async function loadOwnCounts(visibility?: ScopeWhere): Promise<Map<string, Locat
         functionalLocationId: true,
         lastSeenAt: true,
         expectedIntervalSec: true,
-        profile: { select: { connection: true, modbusIntervalSec: true } },
+        // A TCP/IP instrument's OWN read interval (CR-1, 2026-11-02); the
+        // profile is asked only for its connection.
+        modbusIntervalSec: true,
+        profile: { select: { connection: true } },
       },
     }),
     loadActiveWindowMinutes(),

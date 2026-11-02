@@ -424,11 +424,12 @@ describe('telemetry-overview placement columns (Area and Location)', () => {
 describe('telemetry-overview - TCP/IP reporting', () => {
   it('reads a TCP/IP instrument silent past its read interval as NOT reporting; a push one is unchanged', async () => {
     const tcp = await prisma.instrumentProfile.create({
-      data: { name: `TOV-TCP-${s}`, connection: 'MODBUS_TCP', modbusIntervalSec: 60, modbusUnitId: 1 },
+      data: { name: `TOV-TCP-${s}`, connection: 'MODBUS_TCP' },
     });
     const threeMinAgo = new Date(Date.now() - 3 * 60 * 1000);
     const a = await prisma.instrument.create({
-      data: { code: `TOV-TCPA-${s}`, name: `TOV-TCPA-${s}`, profileId: tcp.id, lastSeenAt: threeMinAgo, modbusHost: '10.254.2.1', modbusPort: 502 },
+      // Its OWN read interval (CR-1): 3 min silent is past 2 x 45 s.
+      data: { code: `TOV-TCPA-${s}`, name: `TOV-TCPA-${s}`, profileId: tcp.id, lastSeenAt: threeMinAgo, modbusHost: '10.254.2.1', modbusPort: 502, modbusUnitId: 1, modbusIntervalSec: 45 },
     });
     const b = await prisma.instrument.create({
       data: { code: `TOV-PUSHB-${s}`, name: `TOV-PUSHB-${s}`, profileId: await fixtureProfileId('fixture:telemetry-overview'), lastSeenAt: threeMinAgo },

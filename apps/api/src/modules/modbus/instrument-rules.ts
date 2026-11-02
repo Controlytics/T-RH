@@ -23,7 +23,7 @@ export const NOT_A_TCPIP_PROFILE: RuleRefusal = {
   status: 400,
   body: {
     error: 'NOT_A_TCPIP_PROFILE',
-    message: 'An IP address, port and register map belong to instruments of a TCP/IP (Modbus) profile; this is a Gateway profile.',
+    message: 'An IP address, port, register map, Slave ID and read interval belong to instruments of a TCP/IP (Modbus) profile; this is a Gateway profile.',
   },
 };
 
@@ -58,6 +58,9 @@ export interface ModbusWriteFields {
   modbusHost?: string | null;
   modbusPort?: number | null;
   modbusRegisters?: ModbusRegisterMap | null;
+  /** The instrument's Slave ID and read interval (CR-1, 2026-11-02). */
+  modbusUnitId?: number | null;
+  modbusIntervalSec?: number | null;
 }
 
 /**
@@ -72,7 +75,8 @@ export function connectionRefusal(fields: ModbusWriteFields, connection: ModbusC
     if (fields.isGateway === true || (fields.gatewayId ?? null) !== null) return NOT_FOR_TCPIP;
     return null;
   }
-  if ((fields.modbusHost ?? null) !== null || (fields.modbusPort ?? null) !== null || (fields.modbusRegisters ?? null) !== null) {
+  if ((fields.modbusHost ?? null) !== null || (fields.modbusPort ?? null) !== null || (fields.modbusRegisters ?? null) !== null
+    || (fields.modbusUnitId ?? null) !== null || (fields.modbusIntervalSec ?? null) !== null) {
     return NOT_A_TCPIP_PROFILE;
   }
   return null;
@@ -97,6 +101,57 @@ export function missingAddressRefusal(host: string | null | undefined, port: num
       details: { formErrors: [], fieldErrors },
     },
   };
+}
+
+/**
+ * A TCP/IP instrument always has a Slave ID and a read interval (CR-1,
+ * 2026-11-02): an explicit `null` on an update would leave a device the Reader
+ * refuses as INVALID_CONFIG. Answered in the routes' validation shape, so a form
+ * puts the message under the field. Omitted (`undefined`) = unchanged.
+ */
+export function missingReadingRefusal(unitId: number | null | undefined, intervalSec: number | null | undefined): RuleRefusal | null {
+  const fieldErrors: Record<string, string[]> = {};
+  if (unitId === null) fieldErrors.modbusUnitId = ['A TCP/IP instrument needs its Slave ID'];
+  if (intervalSec === null) fieldErrors.modbusIntervalSec = ['A TCP/IP instrument needs its read interval'];
+  const fields = Object.keys(fieldErrors);
+  if (fields.length === 0) return null;
+  return {
+    status: 400,
+    body: {
+      error: 'VALIDATION_ERROR',
+      message: fields.length === 2 ? 'A TCP/IP instrument needs its Slave ID and read interval.' : (Object.values(fieldErrors)[0]![0] + '.'),
+      details: { formErrors: [], fieldErrors },
+    },
+  };
+}
+
+/** Which TCP/IP settings one write changes. */
+export interface TcpipChanged { address?: boolean; map?: boolean; unitId?: boolean; interval?: boolean }
+
+/**
+ * The changed TCP/IP settings in words — ONE list for the PUT's reason refusal
+ * and every INSTRUMENT_UPDATED meaning, single or bulk, so they read the same.
+ * Two parts read "A and B", more "A, B and C"; `null` when nothing changed.
+ */
+export function tcpipChangedParts(changed: TcpipChanged, addressWord = 'TCP/IP address'): string | null {
+  const parts = [
+    changed.address ? addressWord : null,
+    changed.map ? 'register map' : null,
+    changed.unitId ? 'Slave ID' : null,
+    changed.interval ? 'read interval' : null,
+  ].filter((p): p is string => p !== null);
+  if (parts.length === 0) return null;
+  return parts.length === 1 ? parts[0]! : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+}
+
+/**
+ * The INSTRUMENT_UPDATED meaning for a TCP/IP change, or null when nothing
+ * TCP/IP changed. The caller passes the code already clipped (`codeLabel`):
+ * signature_meaning is VARCHAR(255), and the longest list here is ~60 chars.
+ */
+export function tcpipChangeMeaning(code: string, changed: TcpipChanged): string | null {
+  const what = tcpipChangedParts(changed);
+  return what ? `Instrument "${code}" ${what} changed` : null;
 }
 
 /**

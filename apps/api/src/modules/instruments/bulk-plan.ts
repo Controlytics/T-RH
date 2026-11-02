@@ -27,7 +27,10 @@
  *   and nothing of it is read into the answer.
  * - a row is all or nothing: one refused cell fails the row.
  */
-import { parseOffsetValue, formatOffsetValue, SENSOR_OFFSET_VALUE_MESSAGE, modbusHostSchema, MODBUS_PORT_DEFAULT } from '@digilog/shared';
+import {
+  parseOffsetValue, formatOffsetValue, SENSOR_OFFSET_VALUE_MESSAGE, modbusHostSchema, MODBUS_PORT_DEFAULT,
+  MODBUS_UNIT_ID, MODBUS_INTERVAL, MODBUS_UNIT_ID_MESSAGE, MODBUS_INTERVAL_MESSAGE,
+} from '@digilog/shared';
 import type { InstrumentDraft, RowError } from './bulk-csv.js';
 
 export interface ExistingInstrument {
@@ -43,12 +46,21 @@ export interface ExistingInstrument {
   /** A TCP/IP instrument's stored address (2026-10-31); absent or null on any other. */
   modbusHost?: string | null;
   modbusPort?: number | null;
+  /** Its stored Slave ID and read interval (CR-1, 2026-11-02); absent or null on any other. */
+  modbusUnitId?: number | null;
+  modbusIntervalSec?: number | null;
 }
 
 /** A TCP/IP instrument's address, as stored and as the file would set it. */
 export interface PlannedAddress {
   from: { host: string | null; port: number | null };
   to: { host: string; port: number };
+}
+
+/** A TCP/IP instrument's Slave ID and read interval, as stored and as the file would set them (CR-1). */
+export interface PlannedReading {
+  from: { unitId: number | null; intervalSec: number | null };
+  to: { unitId: number; intervalSec: number };
 }
 
 export interface PlannedChange {
@@ -62,9 +74,13 @@ export interface PlannedChange {
 }
 
 export type RowPlan =
-  | { kind: 'create'; index: number; row: number; code: string; attributes?: Record<string, string>; modbusHost?: string; modbusPort?: number }
-  // `changes` is empty when the row changes only the address.
-  | { kind: 'update'; index: number; row: number; id: string; code: string; changes: PlannedChange[]; address?: PlannedAddress }
+  | {
+    kind: 'create'; index: number; row: number; code: string; attributes?: Record<string, string>;
+    // A TCP/IP row: its address, Slave ID and read interval (blank = 502 / 1 / 60 s).
+    modbusHost?: string; modbusPort?: number; modbusUnitId?: number; modbusIntervalSec?: number;
+  }
+  // `changes` is empty when the row changes only the TCP/IP settings.
+  | { kind: 'update'; index: number; row: number; id: string; code: string; changes: PlannedChange[]; address?: PlannedAddress; reading?: PlannedReading }
   | { kind: 'unchanged'; index: number; row: number; id: string; code: string };
 
 export interface BulkPlanInput {
@@ -75,6 +91,8 @@ export interface BulkPlanInput {
   identityColumns: string[];
   /** The "IP address" / "Port" headings as the file spells them (2026-10-31). */
   addressHeadings?: { host?: string; port?: string };
+  /** The "Slave ID" / "Read every" headings as the file spells them (CR-1). */
+  readingHeadings?: { unitId?: string; interval?: string };
   /** The chosen profile's connection; an upload for any other than a TCP/IP profile takes no address column. Default `PUSH`. */
   connection?: 'PUSH' | 'MODBUS_TCP';
   /** The profile chosen for the upload. */
@@ -93,6 +111,15 @@ const fold = (s: string) => s.trim().toLowerCase();
 const HOST_COLUMN = 'IP address';
 const PORT_COLUMN = 'Port';
 const PORT_MESSAGE = 'Port must be a whole number from 1 to 65535.';
+const UNIT_COLUMN = 'Slave ID';
+const INTERVAL_COLUMN = 'Read every';
+
+/** A filled cell as a whole number in [min, max], or null — digits only, as the Port cell is read. */
+function wholeCell(raw: string, min: number, max: number): number | null {
+  if (!/^\d+$/.test(raw)) return null;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= min && n <= max ? n : null;
+}
 
 /** The stored attribute a column writes: the exact key, else the first that differs only by case. */
 function storedFor(attributes: ExistingInstrument['attributes'], key: string) {
@@ -125,9 +152,26 @@ export function planBulkUpload(input: BulkPlanInput): { plans: RowPlan[]; errors
     // address that silently does nothing is a device nobody reads.
     const hostColumn = input.addressHeadings?.host ?? HOST_COLUMN;
     const portColumn = input.addressHeadings?.port ?? PORT_COLUMN;
+    const unitColumn = input.readingHeadings?.unitId ?? UNIT_COLUMN;
+    const intervalColumn = input.readingHeadings?.interval ?? INTERVAL_COLUMN;
     let hostCell: string | undefined;
     let portCell: number | undefined;
+    let unitCell: number | undefined;
+    let intervalCell: number | undefined;
     if (tcpip) {
+      // The Slave ID and read interval cells (CR-1, 2026-11-02), each read to
+      // its one sentence — the range is in the words, so the operator can fix
+      // the cell without looking anything up.
+      if (draft.modbusUnitId !== undefined) {
+        const n = wholeCell(draft.modbusUnitId, MODBUS_UNIT_ID.min, MODBUS_UNIT_ID.max);
+        if (n !== null) unitCell = n;
+        else { errors.push({ row, column: unitColumn, message: MODBUS_UNIT_ID_MESSAGE }); bad = true; }
+      }
+      if (draft.modbusIntervalSec !== undefined) {
+        const n = wholeCell(draft.modbusIntervalSec, MODBUS_INTERVAL.min, MODBUS_INTERVAL.max);
+        if (n !== null) intervalCell = n;
+        else { errors.push({ row, column: intervalColumn, message: MODBUS_INTERVAL_MESSAGE }); bad = true; }
+      }
       if (draft.modbusHost !== undefined) {
         const shape = modbusHostSchema.safeParse(draft.modbusHost);
         if (shape.success && shape.data) hostCell = shape.data;
@@ -142,7 +186,10 @@ export function planBulkUpload(input: BulkPlanInput): { plans: RowPlan[]; errors
         else { errors.push({ row, column: portColumn, message: PORT_MESSAGE }); bad = true; }
       }
     } else {
-      for (const [cell, heading, name] of [[draft.modbusHost, hostColumn, HOST_COLUMN], [draft.modbusPort, portColumn, PORT_COLUMN]] as const) {
+      for (const [cell, heading, name] of [
+        [draft.modbusHost, hostColumn, HOST_COLUMN], [draft.modbusPort, portColumn, PORT_COLUMN],
+        [draft.modbusUnitId, unitColumn, UNIT_COLUMN], [draft.modbusIntervalSec, intervalColumn, INTERVAL_COLUMN],
+      ] as const) {
         if (cell === undefined) continue;
         errors.push({ row, column: heading, message: `This is not a TCP/IP profile, so "${name}" has no meaning here - remove the column from the file.` });
         bad = true;
@@ -159,7 +206,10 @@ export function planBulkUpload(input: BulkPlanInput): { plans: RowPlan[]; errors
       plans.push({
         kind: 'create', index, row, code: draft.code,
         ...(values.length ? { attributes: Object.fromEntries(values) } : {}),
-        ...(tcpip ? { modbusHost: hostCell, modbusPort: portCell ?? MODBUS_PORT_DEFAULT } : {}),
+        ...(tcpip ? {
+          modbusHost: hostCell, modbusPort: portCell ?? MODBUS_PORT_DEFAULT,
+          modbusUnitId: unitCell ?? MODBUS_UNIT_ID.default, modbusIntervalSec: intervalCell ?? MODBUS_INTERVAL.default,
+        } : {}),
       });
       return;
     }
@@ -195,7 +245,21 @@ export function planBulkUpload(input: BulkPlanInput): { plans: RowPlan[]; errors
         address = { from: { host: found.modbusHost ?? null, port: found.modbusPort ?? null }, to: { host: toHost, port: toPort } };
       }
     }
-    if (changes.length === 0 && !address) {
+    // The Slave ID and read interval (CR-1): the same rule — a blank cell keeps
+    // the stored value; a filled cell that differs changes it. A stored value no
+    // route could have left empty (hand-edited) takes its default beside a
+    // filled one, and the preview shows that as the change it is.
+    let reading: PlannedReading | undefined;
+    if (tcpip && (unitCell !== undefined || intervalCell !== undefined)) {
+      const fromUnit = found.modbusUnitId ?? null;
+      const fromInterval = found.modbusIntervalSec ?? null;
+      const toUnit = unitCell ?? fromUnit ?? MODBUS_UNIT_ID.default;
+      const toInterval = intervalCell ?? fromInterval ?? MODBUS_INTERVAL.default;
+      if (toUnit !== fromUnit || toInterval !== fromInterval) {
+        reading = { from: { unitId: fromUnit, intervalSec: fromInterval }, to: { unitId: toUnit, intervalSec: toInterval } };
+      }
+    }
+    if (changes.length === 0 && !address && !reading) {
       plans.push({ kind: 'unchanged', index, row, id: found.id, code: found.code });
       return;
     }
@@ -210,7 +274,7 @@ export function planBulkUpload(input: BulkPlanInput): { plans: RowPlan[]; errors
       for (const { c, message } of refused) errors.push({ row, column: c.column, message });
       return;
     }
-    plans.push({ kind: 'update', index, row, id: found.id, code: found.code, changes, ...(address ? { address } : {}) });
+    plans.push({ kind: 'update', index, row, id: found.id, code: found.code, changes, ...(address ? { address } : {}), ...(reading ? { reading } : {}) });
   });
 
   // One address, one instrument - across the file (2026-10-31). Both rows of a
@@ -254,5 +318,10 @@ export function planBulkUpload(input: BulkPlanInput): { plans: RowPlan[]; errors
  * preview so the page asks exactly when the upload will demand it.
  */
 export function remarkRequired(plans: RowPlan[]): boolean {
-  return plans.some((p) => p.kind === 'update' && (p.changes.some((c) => c.from !== null) || (p.address?.from.host ?? null) !== null));
+  return plans.some((p) => p.kind === 'update' && (
+    p.changes.some((c) => c.from !== null)
+    || (p.address?.from.host ?? null) !== null
+    // A recorded Slave ID or read interval changed (CR-1): the address rule.
+    || (p.reading !== undefined && (p.reading.from.unitId !== null || p.reading.from.intervalSec !== null))
+  ));
 }

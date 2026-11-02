@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { profileMeasurementsSchema } from '../types/profile-measurements.js';
-import { MODBUS_CONNECTIONS, MODBUS_INTERVAL, MODBUS_UNIT_ID } from '../types/modbus.js';
+import { MODBUS_CONNECTIONS } from '../types/modbus.js';
 
 /**
  * An instrument profile is a named container for instruments.
@@ -32,32 +32,20 @@ const attributeKeysField = z.string()
   .max(2000, 'Attribute keys must be 2000 characters or fewer');
 
 
-// TCP/IP (Modbus) profile settings (2026-10-31). `connection` absent = PUSH
-// ("Gateway", today's behaviour). The two modbus fields exist only on a
-// MODBUS_TCP profile and are NULL on a PUSH one.
+// TCP/IP (Modbus) profiles (2026-10-31). `connection` absent = PUSH
+// ("Gateway", today's behaviour). The profile ONLY chooses the kind: since
+// 2026-11-02 (change request CR-1) the Slave ID and the read interval belong to
+// each instrument (`createInstrumentSchema`).
 const connectionField = z.enum(MODBUS_CONNECTIONS);
-const modbusIntervalField = z.number({ invalid_type_error: 'Read interval must be a number' })
-  .int('Read interval must be a whole number of seconds')
-  .min(MODBUS_INTERVAL.min, `Read interval must be at least ${MODBUS_INTERVAL.min} seconds`)
-  .max(MODBUS_INTERVAL.max, `Read interval must be at most ${MODBUS_INTERVAL.max} seconds`);
-const modbusUnitField = z.number({ invalid_type_error: 'Unit ID must be a number' })
-  .int('Unit ID must be a whole number')
-  .min(MODBUS_UNIT_ID.min, `Unit ID must be ${MODBUS_UNIT_ID.min} to ${MODBUS_UNIT_ID.max}`)
-  .max(MODBUS_UNIT_ID.max, `Unit ID must be ${MODBUS_UNIT_ID.min} to ${MODBUS_UNIT_ID.max}`);
 
-function refuseModbusFieldsOnPush(
-  v: { connection?: string; modbusIntervalSec?: number | null; modbusUnitId?: number | null },
-  ctx: z.RefinementCtx,
-) {
-  if (v.connection !== 'PUSH' && v.connection !== undefined) return;
-  // On update an absent `connection` means "unchanged", which the route checks
-  // against the stored profile; only an explicit PUSH is refused here.
-  for (const f of ['modbusIntervalSec', 'modbusUnitId'] as const) {
-    if (v[f] !== undefined && v[f] !== null && (v.connection === 'PUSH')) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [f], message: 'Only a TCP/IP (Modbus) profile has a read interval and unit ID' });
-    }
-  }
-}
+/**
+ * The two fields the profile used to carry are REFUSED by name, never silently
+ * dropped (zod strips an unknown key and the route would answer 200): a client
+ * written for the old contract must learn that the value it sent went nowhere.
+ * Any value, `null` included, is a 400 on that field.
+ */
+export const PROFILE_READING_MOVED_MESSAGE = 'Slave ID and Read every belong to each TCP/IP instrument now, not to its profile.';
+const movedToInstrument = z.undefined({ invalid_type_error: PROFILE_READING_MOVED_MESSAGE });
 
 export const createInstrumentProfileSchema = z.object({
   name: z.string().trim()
@@ -74,18 +62,9 @@ export const createInstrumentProfileSchema = z.object({
   // may send anything else (the route enforces it).
   measurements: profileMeasurementsSchema.optional(),
   connection: connectionField.optional(),
-  modbusIntervalSec: modbusIntervalField.nullish(),
-  modbusUnitId: modbusUnitField.nullish(),
-}).superRefine((v, ctx) => {
-  // A create without `connection` is a Gateway profile, so the fields are refused there too.
-  for (const f of ['modbusIntervalSec', 'modbusUnitId'] as const) {
-    if (v.connection !== 'MODBUS_TCP' && v[f] !== undefined && v[f] !== null) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [f], message: 'Only a TCP/IP (Modbus) profile has a read interval and unit ID' });
-    }
-  }
-}).transform((v) => (v.connection === 'MODBUS_TCP'
-  ? { ...v, modbusIntervalSec: v.modbusIntervalSec ?? MODBUS_INTERVAL.default, modbusUnitId: v.modbusUnitId ?? MODBUS_UNIT_ID.default }
-  : v));
+  modbusIntervalSec: movedToInstrument,
+  modbusUnitId: movedToInstrument,
+});
 
 export const updateInstrumentProfileSchema = z.object({
   name: z.string().trim()
@@ -114,9 +93,9 @@ export const updateInstrumentProfileSchema = z.object({
   // needs `reason`, and ON is refused while the server has no device CA.
   requireDeviceCertificate: z.boolean().optional(),
   connection: connectionField.optional(),
-  modbusIntervalSec: modbusIntervalField.nullish(),
-  modbusUnitId: modbusUnitField.nullish(),
-}).superRefine(refuseModbusFieldsOnPush);
+  modbusIntervalSec: movedToInstrument,
+  modbusUnitId: movedToInstrument,
+});
 
 export type CreateInstrumentProfileInput = z.infer<typeof createInstrumentProfileSchema>;
 export type UpdateInstrumentProfileInput = z.infer<typeof updateInstrumentProfileSchema>;

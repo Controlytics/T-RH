@@ -13,8 +13,6 @@ import {
   coerceProfileDisplayKeys,
   displayKeysEqual,
   profileDisplayKeysSchema,
-  MODBUS_INTERVAL,
-  MODBUS_UNIT_ID,
   type ProfileMeasurement,
 } from '@digilog/shared';
 import { invalidateProfileMeasurementsCache, loadMeasurementTypes } from '../instruments/profile-measurements.js';
@@ -115,9 +113,9 @@ const profileProps = {
   measurements: { type: 'array', items: measurementItem },
   requireDeviceCertificate: { type: 'boolean' },
   // TCP/IP (MODBUS) INSTRUMENTS (2026-10-31): Fastify strips what is not named here.
+  // The profile only says Gateway or TCP/IP; the Slave ID and read interval are
+  // each instrument's own since 2026-11-02 (CR-1).
   connection: { type: 'string' },
-  modbusIntervalSec: { type: 'integer', nullable: true },
-  modbusUnitId: { type: 'integer', nullable: true },
   // WIDGET DATA KEYS phase 3 (2026-10-29): the trend page's extra keys. Every
   // inner key DECLARED — Fastify strips what this block does not name.
   displayKeys: {
@@ -150,8 +148,6 @@ type ProfileRow = {
   measurements: unknown;
   requireDeviceCertificate: boolean;
   connection: string;
-  modbusIntervalSec: number | null;
-  modbusUnitId: number | null;
   displayKeys?: unknown;
   createdAt: Date;
   updatedAt: Date;
@@ -442,9 +438,7 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
           isActive: { type: 'boolean' },
           attributeKeys: { type: 'string' },
           measurements: { type: 'array', items: { type: 'object' } },
-          connection: { type: 'string', enum: ['PUSH', 'MODBUS_TCP'], description: "'PUSH' = Gateway (default); 'MODBUS_TCP' = this server reads the device." },
-          modbusIntervalSec: { type: 'integer', description: 'TCP/IP only; seconds between reads, 10..3600, default 60.' },
-          modbusUnitId: { type: 'integer', description: 'TCP/IP only; Modbus unit id, 0..255, default 1.' },
+          connection: { type: 'string', enum: ['PUSH', 'MODBUS_TCP'], description: "'PUSH' = Gateway (default); 'MODBUS_TCP' = this server reads the device. The Slave ID and read interval are each instrument's (CR-1): `modbusIntervalSec` / `modbusUnitId` here are a 400." },
         },
       },
       response: { 201: { type: 'object', properties: profileProps }, ...errorResponses },
@@ -516,8 +510,6 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
             attributeKeys: parseInstrumentAttributeKeys(created.attributeKeys),
             measurements,
             connection: created.connection,
-            modbusIntervalSec: created.modbusIntervalSec,
-            modbusUnitId: created.modbusUnitId,
           },
           signatureMeaning: `Instrument profile "${created.name}" created`,
           ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
@@ -557,9 +549,7 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
           attributeKeys: { type: ['string', 'null'] },
           measurements: { type: 'array', items: { type: 'object' }, description: 'What the profile measures. A change is super-admin only and requires `reason`; an equivalent list is a no-op.' },
           requireDeviceCertificate: { type: 'boolean', description: 'Every instrument of the profile must connect with its own device certificate. A change is super-admin only and requires `reason`; ON is 409 DEVICE_CA_NOT_CONFIGURED while the server has no device CA.' },
-          connection: { type: 'string', enum: ['PUSH', 'MODBUS_TCP'], description: 'Absent = unchanged. Changing it is 409 PROFILE_HAS_INSTRUMENTS once the profile holds an instrument.' },
-          modbusIntervalSec: { type: ['integer', 'null'], description: 'TCP/IP profiles only (400 on a Gateway profile).' },
-          modbusUnitId: { type: ['integer', 'null'], description: 'TCP/IP profiles only (400 on a Gateway profile).' },
+          connection: { type: 'string', enum: ['PUSH', 'MODBUS_TCP'], description: 'Absent = unchanged. Changing it is 409 PROFILE_HAS_INSTRUMENTS once the profile holds an instrument. The Slave ID and read interval are each instrument\'s (CR-1): `modbusIntervalSec` / `modbusUnitId` here are a 400.' },
           reason: { type: 'string', description: 'Required when a removed key is carried by instruments (recorded on each INSTRUMENT_ATTRIBUTE_REMOVED row), when the measurements change, and when requireDeviceCertificate changes.' },
         },
       },
@@ -665,31 +655,12 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
     // against the instruments INSIDE the transaction below (a count taken here
     // could be stale by the write); everything that needs no database read is
     // decided here so nothing is half-applied.
+    // The profile carries nothing else of the connection: the Slave ID and the
+    // read interval are each instrument's own since 2026-11-02 (CR-1), and the
+    // shared schema has already refused a body still carrying them.
     const connectionChanged = data.connection !== undefined && data.connection !== before.connection;
     const effectiveConnection = connectionChanged ? (data.connection as string) : before.connection;
     if (!connectionChanged) delete data.connection;
-    if (effectiveConnection === 'MODBUS_TCP') {
-      if (data.modbusIntervalSec === null || data.modbusUnitId === null) {
-        return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'A TCP/IP profile needs a read interval and a unit ID.' });
-      }
-      if (connectionChanged) {
-        data.modbusIntervalSec = data.modbusIntervalSec ?? MODBUS_INTERVAL.default;
-        data.modbusUnitId = data.modbusUnitId ?? MODBUS_UNIT_ID.default;
-      } else {
-        // The stored value sent back is no change (nothing written, nothing audited).
-        if (data.modbusIntervalSec === before.modbusIntervalSec) delete data.modbusIntervalSec;
-        if (data.modbusUnitId === before.modbusUnitId) delete data.modbusUnitId;
-      }
-    } else {
-      // A Gateway profile has no interval or unit. `null` is the cleared state,
-      // so it is accepted; a number is refused.
-      if ((data.modbusIntervalSec ?? null) !== null || (data.modbusUnitId ?? null) !== null) {
-        return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'The read interval and unit ID belong to TCP/IP profiles only.' });
-      }
-      delete data.modbusIntervalSec;
-      delete data.modbusUnitId;
-      if (connectionChanged) { data.modbusIntervalSec = null; data.modbusUnitId = null; }
-    }
     // A device certificate is a property of a PUSHING device's TLS session; a
     // device this server reads over Modbus presents none. Judged on the state
     // AFTER this request, and before the super-admin / CA checks so the answer
@@ -860,8 +831,6 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
             measurements: storedMeasurements,
             requireDeviceCertificate: before.requireDeviceCertificate,
             connection: before.connection,
-            modbusIntervalSec: before.modbusIntervalSec,
-            modbusUnitId: before.modbusUnitId,
           },
           afterValue: {
             name: row.name, description: row.description, isActive: row.isActive,
@@ -869,8 +838,6 @@ export default async function instrumentProfileRoutes(app: FastifyInstance) {
             measurements: coerceProfileMeasurements(row.measurements),
             requireDeviceCertificate: row.requireDeviceCertificate,
             connection: row.connection,
-            modbusIntervalSec: row.modbusIntervalSec,
-            modbusUnitId: row.modbusUnitId,
           },
           // A rename is called out first: it changes what an inspector reads
           // against every instrument in the profile, so "updated" alone would

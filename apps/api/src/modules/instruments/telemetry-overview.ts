@@ -419,8 +419,11 @@ export async function buildTelemetryOverview(
     select: {
       id: true, code: true, name: true, isActive: true,
       expectedIntervalSec: true, lastSeenAt: true, profileId: true,
-      // A TCP/IP instrument is expected at its profile's read interval.
-      profile: { select: { connection: true, modbusIntervalSec: true } },
+      // A TCP/IP instrument is expected at its OWN read interval (the
+      // instrument's since 2026-11-02, CR-1); the profile says only whether it
+      // is a TCP/IP one.
+      modbusIntervalSec: true,
+      profile: { select: { connection: true } },
       // Two string columns per instrument, for the rows already being returned.
       //
       // The alarm evaluator calls this function AND separately loads the whole

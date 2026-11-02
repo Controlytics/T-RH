@@ -666,11 +666,9 @@ model InstrumentProfile {
   /// the platform. 'PUSH' = a Gateway sends readings in (today's behaviour);
   /// 'MODBUS_TCP' = this server reads the device. A validated string, not a
   /// Postgres enum (vocabulary: MODBUS_CONNECTIONS in @digilog/shared).
+  /// The read interval and the Modbus unit (Slave) id moved to each INSTRUMENT
+  /// on 2026-11-02 (change request CR-1): the profile only chooses the kind.
   connection        String @default("PUSH")
-  /// Seconds between reads (10..3600) and the Modbus unit id (0..255). Both NULL
-  /// on a PUSH profile, both set on a MODBUS_TCP one.
-  modbusIntervalSec Int?   @map("modbus_interval_sec")
-  modbusUnitId      Int?   @map("modbus_unit_id")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
   createdBy   String?  @map("created_by")
@@ -1099,6 +1097,12 @@ model Instrument {
   modbusHost      String? @map("modbus_host")
   modbusPort      Int?    @map("modbus_port")
   modbusRegisters Json?   @map("modbus_registers")
+  /// The Modbus unit (Slave) id this server sends (0..255) and the seconds
+  /// between its reads (10..3600) — the INSTRUMENT's own since 2026-11-02
+  /// (CR-1; they were the profile's). Set on every TCP/IP instrument (defaults
+  /// 1 and 60 on create), NULL on a Gateway-profile one.
+  modbusUnitId      Int? @map("modbus_unit_id")
+  modbusIntervalSec Int? @map("modbus_interval_sec")
   /// The server Reader's state for this device (Part 2) — one row once it has
   /// been read at least once; cascades with the instrument.
   modbusPollStatus ModbusPollStatus?

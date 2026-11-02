@@ -21,6 +21,24 @@ export type ModbusConnection = (typeof MODBUS_CONNECTIONS)[number];
 export const MODBUS_INTERVAL = { min: 10, max: 3600, default: 60 } as const;
 export const MODBUS_UNIT_ID = { min: 0, max: 255, default: 1 } as const;
 export const MODBUS_PORT_DEFAULT = 502;
+
+/**
+ * The Modbus unit ("Slave") ID this server sends and the seconds between its
+ * reads — each TCP/IP INSTRUMENT's own since 2026-11-02 (change request CR-1;
+ * they were the profile's). SHAPE only: whether an instrument takes them at all
+ * is its profile's connection, which the API decides. ONE wording each, so the
+ * form, the single routes, a bulk row and the Reader say the same thing.
+ */
+export const MODBUS_UNIT_ID_MESSAGE = `Slave ID must be a whole number from ${MODBUS_UNIT_ID.min} to ${MODBUS_UNIT_ID.max}.`;
+export const MODBUS_INTERVAL_MESSAGE = `Read every must be a whole number of seconds from ${MODBUS_INTERVAL.min} to ${MODBUS_INTERVAL.max}.`;
+// One refinement, not .int().min().max(): 1.5 would otherwise fail two of them
+// and the field would show the same sentence twice.
+const wholeIn = (min: number, max: number) => (v: number) => Number.isInteger(v) && v >= min && v <= max;
+export const modbusUnitIdSchema = z.number({ invalid_type_error: MODBUS_UNIT_ID_MESSAGE })
+  .refine(wholeIn(MODBUS_UNIT_ID.min, MODBUS_UNIT_ID.max), MODBUS_UNIT_ID_MESSAGE);
+export const modbusIntervalSchema = z.number({ invalid_type_error: MODBUS_INTERVAL_MESSAGE })
+  .refine(wholeIn(MODBUS_INTERVAL.min, MODBUS_INTERVAL.max), MODBUS_INTERVAL_MESSAGE);
+
 export const MODBUS_MAX_KEYS = 100;
 export const MODBUS_MAX_REGISTERS_PER_REQUEST = 125;
 

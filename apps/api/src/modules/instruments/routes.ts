@@ -30,7 +30,7 @@ import { sanitizeStrings } from '../../lib/sanitize.js';
 import { generateToken, hashToken, tokenPrefix, tokenMatches } from './token.js';
 import { encryptToken, decryptToken, tokenKeyConfigured } from './token-crypto.js';
 import { parseInstrumentCsv, type AttributeColumn, type RowError } from './bulk-csv.js';
-import { planBulkUpload, remarkRequired, type ExistingInstrument, type PlannedAddress, type PlannedChange, type RowPlan } from './bulk-plan.js';
+import { planBulkUpload, remarkRequired, type ExistingInstrument, type PlannedAddress, type PlannedChange, type PlannedReading, type RowPlan } from './bulk-plan.js';
 import { buildTelemetryOverview, instrumentLimitsWithText, NO_LIMIT_TEXT, loadActiveWindowMinutes } from './telemetry-overview.js';
 import { enabledBoundsFor } from '../alarms/load-limits.js';
 import { decimalsFor, annotateAttribute } from './decimals.js';
@@ -65,10 +65,11 @@ import { publishChildRoster, clearChildRoster } from './child-roster.js';
 import { announceChildAttributeChange } from './child-attributes-bundle.js';
 import { logger } from '../../lib/logger.js';
 import { roleHasPermission } from '../../plugins/rbac.js';
-import { MODBUS_CONNECTIONS, coerceModbusRegisterMap } from '@digilog/shared';
+import { MODBUS_CONNECTIONS, MODBUS_UNIT_ID, MODBUS_INTERVAL, coerceModbusRegisterMap } from '@digilog/shared';
 import { checkModbusAddress } from '../modbus/address.js';
 import {
-  connectionRefusal, missingAddressRefusal, hostOnlyRefusal, registerMapsEqual,
+  connectionRefusal, missingAddressRefusal, missingReadingRefusal, hostOnlyRefusal, registerMapsEqual,
+  tcpipChangedParts, tcpipChangeMeaning,
   CONNECTION_DIFFERS, NO_TOKEN_FOR_TCPIP, NOT_A_TCPIP_PROFILE, REGISTER_MAP_SA_ONLY, type ModbusWriteFields,
 } from '../modbus/instrument-rules.js';
 
@@ -155,6 +156,9 @@ const instrumentProps = {
   connection: { type: 'string', nullable: true },
   modbusHost: { type: 'string', nullable: true },
   modbusPort: { type: 'integer', nullable: true },
+  /** The Modbus unit ("Slave") ID and seconds between reads — the instrument's own since 2026-11-02 (CR-1). */
+  modbusUnitId: { type: 'integer', nullable: true },
+  modbusIntervalSec: { type: 'integer', nullable: true },
   modbusRegisters: {
     type: 'array', nullable: true,
     items: {
@@ -277,13 +281,16 @@ type InstrumentRow = Record<string, unknown> & { credentials?: CredentialRow[] }
 function present(row: InstrumentRow, activeWindowMinutes: number) {
   const { credentials, profile, ...rest } =
     row as InstrumentRow & {
-      profile?: { name: string; connection?: string; modbusIntervalSec?: number | null } | null;
+      profile?: { name: string; connection?: string } | null;
     };
-  // The interval this instrument is expected at (its own, else a TCP/IP profile's
-  // read interval) and the verdict that follows: decided HERE, once, so no page
-  // recomputes it from the bare column.
-  const own = { expectedIntervalSec: (rest.expectedIntervalSec as number | null | undefined) ?? null };
-  const mode = { connection: profile?.connection ?? 'PUSH', modbusIntervalSec: profile?.modbusIntervalSec ?? null };
+  // The interval this instrument is expected at (its own expected interval, else
+  // a TCP/IP instrument's own read interval — CR-1) and the verdict that
+  // follows: decided HERE, once, so no page recomputes it from the bare column.
+  const own = {
+    expectedIntervalSec: (rest.expectedIntervalSec as number | null | undefined) ?? null,
+    modbusIntervalSec: (rest.modbusIntervalSec as number | null | undefined) ?? null,
+  };
+  const mode = { connection: profile?.connection ?? 'PUSH' };
   const active = credentials?.[0];
   return {
     ...rest,
@@ -313,8 +320,8 @@ function present(row: InstrumentRow, activeWindowMinutes: number) {
   };
 }
 
-/** Reads join the profile only for its name (see `present`). */
-const withProfileName = { profile: { select: { name: true, connection: true, modbusIntervalSec: true } } };
+/** Reads join the profile for its name and its connection (see `present`). */
+const withProfileName = { profile: { select: { name: true, connection: true } } };
 
 const activeCredential = {
   where: { revokedAt: null },
@@ -493,7 +500,7 @@ async function createWithCredential(
     `;
     const connection = profileRow?.connection ?? 'PUSH';
     const tcpip = connection === 'MODBUS_TCP';
-    const { modbusHost, modbusPort, modbusRegisters, ...identity } = draft;
+    const { modbusHost, modbusPort, modbusRegisters, modbusUnitId, modbusIntervalSec, ...identity } = draft;
     const misfit = connectionRefusal(draft as ModbusWriteFields, connection);
     if (misfit) throw new HandledRouteError(misfit.status, misfit.body);
     if (tcpip) {
@@ -508,8 +515,15 @@ async function createWithCredential(
         ...identity,
         // Written ONLY for a TCP/IP profile, an omitted map stored as [] (an
         // instrument "not read until it has keys", spec §5.2). A Gateway-profile
-        // instrument keeps SQL NULL in all three — a raw JSON null is a Prisma error.
-        ...(tcpip ? { modbusHost, modbusPort, modbusRegisters: modbusRegisters ?? [] } : {}),
+        // instrument keeps SQL NULL in all of them — a raw JSON null is a Prisma
+        // error. The Slave ID and read interval are the instrument's own (CR-1,
+        // 2026-11-02): omitted or null = 1 and 60 s, so a TCP/IP instrument is
+        // never stored without them.
+        ...(tcpip ? {
+          modbusHost, modbusPort, modbusRegisters: modbusRegisters ?? [],
+          modbusUnitId: (modbusUnitId as number | null | undefined) ?? MODBUS_UNIT_ID.default,
+          modbusIntervalSec: (modbusIntervalSec as number | null | undefined) ?? MODBUS_INTERVAL.default,
+        } : {}),
         createdBy: ctx.userId,
       } as unknown as Prisma.InstrumentCreateInput,
     });
@@ -556,7 +570,10 @@ async function createWithCredential(
         // A TCP/IP instrument's address and register map are what was
         // registered (spec §10) — on the record from birth.
         ...(tcpip
-          ? { modbusHost: instrument.modbusHost, modbusPort: instrument.modbusPort, modbusRegisters: instrument.modbusRegisters }
+          ? {
+            modbusHost: instrument.modbusHost, modbusPort: instrument.modbusPort, modbusRegisters: instrument.modbusRegisters,
+            modbusUnitId: instrument.modbusUnitId, modbusIntervalSec: instrument.modbusIntervalSec,
+          }
           : {}),
       },
       signatureMeaning: tcpip
@@ -656,9 +673,11 @@ function auditedInstrument(i: InstrumentAuditRow) {
     // inspector finds it under; the design records that through this row
     // rather than a dedicated action.
     profileId: i.profileId,
-    // TCP/IP (2026-10-31): the device's address and register map. `reason`
-    // is NOT here - it is the change's reason, on the row's own column.
+    // TCP/IP (2026-10-31): the device's address and register map, and (CR-1,
+    // 2026-11-02) its Slave ID and read interval. `reason` is NOT here - it is
+    // the change's reason, on the row's own column.
     modbusHost: i.modbusHost, modbusPort: i.modbusPort, modbusRegisters: i.modbusRegisters,
+    modbusUnitId: i.modbusUnitId, modbusIntervalSec: i.modbusIntervalSec,
   };
 }
 
@@ -689,46 +708,86 @@ async function registerMapSource(
 }
 
 /**
- * Change one existing TCP/IP instrument's address from a bulk upload
- * (2026-10-31) INSIDE the transaction `applyBulkChanges` opened for the row, so
- * the row's address and attributes commit together or not at all. The caller
- * has already locked the instrument row (FIRST, as the PUT does, before any
- * attribute key and before the audit chain); the stored address is read again
- * here and checked again. Writes one INSTRUMENT_UPDATED row with the upload's
- * remark as its reason. Returns what was applied, `from` as read under the
- * lock, or null when the instrument already holds that address.
+ * Change one existing TCP/IP instrument's address and/or Slave ID and read
+ * interval from a bulk upload (address 2026-10-31; Slave ID / read interval
+ * CR-1, 2026-11-02) INSIDE the transaction `applyBulkChanges` opened for the
+ * row, so the row's TCP/IP settings and attributes commit together or not at
+ * all. The caller has already locked the instrument row (FIRST, as the PUT does,
+ * before any attribute key and before the audit chain); the stored values are
+ * read again here and the address checked again. Writes ONE INSTRUMENT_UPDATED
+ * row (the PUT's wording) with the upload's remark as its reason. Returns what
+ * was applied, `from` as read under the lock; a part the instrument already
+ * holds is null.
  */
-async function writeBulkAddress(
+async function writeBulkTcpip(
   tx: Prisma.TransactionClient,
   instrumentId: string,
-  planned: PlannedAddress,
+  planned: { address?: PlannedAddress; reading?: PlannedReading },
   reason: string | null,
   ctx: ReturnType<typeof buildContext>,
   visibility: ScopeWhere | undefined,
-): Promise<PlannedAddress | null> {
+): Promise<{ address: PlannedAddress | null; reading: PlannedReading | null }> {
   const before = await tx.instrument.findUnique({ where: { id: instrumentId } });
   if (!before) throw new HandledRouteError(404, { error: 'NOT_FOUND', message: 'Instrument not found.' });
-  if (before.modbusHost === planned.to.host && before.modbusPort === planned.to.port) return null;
-  const recorded = before.modbusHost !== null || before.modbusPort !== null;
-  if (recorded && !reason) {
+  // Only what the FILE changes is written. A blank cell is planned as the value
+  // stored when the file was checked; writing that back would silently undo a
+  // change someone made to that field since. So each field is taken from the
+  // plan only where the plan changes it, and from the LOCKED row otherwise.
+  const { address: pa, reading: pr } = planned;
+  const next = {
+    host: pa && pa.from.host !== pa.to.host ? pa.to.host : before.modbusHost,
+    port: pa && pa.from.port !== pa.to.port ? pa.to.port : before.modbusPort,
+    unitId: pr && pr.from.unitId !== pr.to.unitId ? pr.to.unitId : before.modbusUnitId,
+    intervalSec: pr && pr.from.intervalSec !== pr.to.intervalSec ? pr.to.intervalSec : before.modbusIntervalSec,
+  };
+  const addressMoves = next.host !== before.modbusHost || next.port !== before.modbusPort;
+  const unitMoves = next.unitId !== before.modbusUnitId;
+  const intervalMoves = next.intervalSec !== before.modbusIntervalSec;
+  if (!addressMoves && !unitMoves && !intervalMoves) return { address: null, reading: null };
+  // A value recorded since the file was checked (it planned a first fill, so
+  // asked for no remark) is not overwritten without one.
+  const addressRecorded = addressMoves && (before.modbusHost !== null || before.modbusPort !== null);
+  const readingRecorded = (unitMoves || intervalMoves) && (before.modbusUnitId !== null || before.modbusIntervalSec !== null);
+  if ((addressRecorded || readingRecorded) && !reason) {
     throw new HandledRouteError(409, {
       error: 'CHANGED_SINCE_CHECKED',
-      message: `The address of "${before.code}" was recorded while the file was being checked. Upload the file again.`,
+      message: addressRecorded
+        ? `The address of "${before.code}" was recorded while the file was being checked. Upload the file again.`
+        : `The Slave ID or read interval of "${before.code}" was recorded while the file was being checked. Upload the file again.`,
     });
   }
-  const address = await checkModbusAddress(planned.to.host, planned.to.port, { excludeInstrumentId: instrumentId, visibility: { where: visibility } });
-  if (!address.ok) throw new HandledRouteError(address.status, { error: address.code, message: address.message });
-  const row = await tx.instrument.update({ where: { id: instrumentId }, data: { modbusHost: planned.to.host, modbusPort: planned.to.port } });
+  const data: Prisma.InstrumentUpdateInput = {};
+  if (addressMoves) {
+    // A moved address has both halves: the plan only plans one when it does.
+    if (next.host === null || next.port === null) {
+      throw new HandledRouteError(409, { error: 'CHANGED_SINCE_CHECKED', message: `The address of "${before.code}" changed while the file was being checked. Upload the file again.` });
+    }
+    const address = await checkModbusAddress(next.host, next.port, { excludeInstrumentId: instrumentId, visibility: { where: visibility } });
+    if (!address.ok) throw new HandledRouteError(address.status, { error: address.code, message: address.message });
+    data.modbusHost = next.host;
+    data.modbusPort = next.port;
+  }
+  if (unitMoves) data.modbusUnitId = next.unitId;
+  if (intervalMoves) data.modbusIntervalSec = next.intervalSec;
+  const row = await tx.instrument.update({ where: { id: instrumentId }, data });
   await auditLog({
     action: 'INSTRUMENT_UPDATED', targetType: 'Instrument', targetId: instrumentId,
     beforeValue: auditedInstrument(before),
     afterValue: auditedInstrument(row),
-    signatureMeaning: `Instrument "${codeLabel(row.code)}" TCP/IP address changed`,
-    ...(recorded && reason ? { reason: reason.trim() } : {}),
+    signatureMeaning: tcpipChangeMeaning(codeLabel(row.code), { address: addressMoves, unitId: unitMoves, interval: intervalMoves })
+      ?? `Instrument "${codeLabel(row.code)}" updated`,
+    ...((addressRecorded || readingRecorded) && reason ? { reason: reason.trim() } : {}),
     userId: ctx.userId, userRole: ctx.userRole,
     ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
   }, tx);
-  return { from: { host: before.modbusHost, port: before.modbusPort }, to: planned.to };
+  // `next` is never null where it is returned: a planned part carries both
+  // halves, and an unplanned half is the locked row's (set on every TCP/IP row).
+  return {
+    address: addressMoves ? { from: { host: before.modbusHost, port: before.modbusPort }, to: { host: next.host as string, port: next.port as number } } : null,
+    reading: unitMoves || intervalMoves
+      ? { from: { unitId: before.modbusUnitId, intervalSec: before.modbusIntervalSec }, to: { unitId: next.unitId as number, intervalSec: next.intervalSec as number } }
+      : null,
+  };
 }
 
 /**
@@ -743,6 +802,7 @@ const bulkChangeProps = {
   to: { type: 'string' },
 } as const;
 const bulkAddressSideProps = { host: { type: 'string', nullable: true }, port: { type: 'integer', nullable: true } } as const;
+const bulkReadingSideProps = { unitId: { type: 'integer', nullable: true }, intervalSec: { type: 'integer', nullable: true } } as const;
 const bulkUpdatedProps = {
   id: { type: 'string' },
   code: { type: 'string' },
@@ -754,6 +814,14 @@ const bulkUpdatedProps = {
     properties: {
       from: { type: 'object', properties: bulkAddressSideProps },
       to: { type: 'object', properties: bulkAddressSideProps },
+    },
+  },
+  // ...whose Slave ID and/or read interval the file changes (CR-1, 2026-11-02); absent otherwise.
+  reading: {
+    type: 'object',
+    properties: {
+      from: { type: 'object', properties: bulkReadingSideProps },
+      to: { type: 'object', properties: bulkReadingSideProps },
     },
   },
 } as const;
@@ -1017,7 +1085,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         select: {
           lastSeenAt: true,
           expectedIntervalSec: true,
-          profile: { select: { connection: true, modbusIntervalSec: true } },
+          // A TCP/IP instrument's own read interval (CR-1, 2026-11-02).
+          modbusIntervalSec: true,
+          profile: { select: { connection: true } },
         },
       }),
       loadActiveWindowMinutes(),
@@ -2017,7 +2087,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Instruments'],
       summary: 'Create instrument',
-      description: 'Creates an instrument. In a Gateway profile it issues the access token, returned ONCE and never again; in a TCP/IP (Modbus) profile the instrument has its own IP address, port and register map and NO token (the server reads the device).',
+      description: 'Creates an instrument. In a Gateway profile it issues the access token, returned ONCE and never again; in a TCP/IP (Modbus) profile the instrument has its own IP address, port, Slave ID, read interval and register map and NO token (the server reads the device).',
       body: {
         type: 'object',
         required: ['name', 'code', 'profileId'],
@@ -2037,6 +2107,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           modbusHost: { type: ['string', 'null'], description: 'IPv4 address of the device (TCP/IP profile only)' },
           modbusPort: { type: ['integer', 'null'], description: '1..65535 (TCP/IP profile only)' },
           modbusRegisters: { type: ['array', 'null'], items: { type: 'object' }, description: 'The register map (TCP/IP profile only), validated by the shared schema; omitted = an empty map' },
+          modbusUnitId: { type: ['integer', 'null'], description: 'The Modbus unit (Slave) ID, 0..255 (TCP/IP profile only); omitted or null = 1' },
+          modbusIntervalSec: { type: ['integer', 'null'], description: 'Seconds between reads, 10..3600 (TCP/IP profile only); omitted or null = 60' },
         },
       },
       response: {
@@ -2232,16 +2304,17 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       if (problem) return reply.code(400).send({ error: 'REMARK_REQUIRED', message: problem });
     }
 
-    // An existing TCP/IP instrument's ADDRESS is signed as the single edit signs
-    // it (final review F-1): `PUT /:id` moves an address under the configurable
-    // UPDATE_INSTRUMENT re-auth, and a policy that challenged one device but not a
-    // file of a hundred would be bypassed by the CSV. Asked only when the role's
-    // policy requires it (`enforceReauth`, never Always: bulk is not stricter than
-    // the PUT) and the request is not already signed; the password this request
+    // An existing TCP/IP instrument's ADDRESS — and (CR-1, 2026-11-02) its Slave
+    // ID or read interval — is signed as the single edit signs it (final review
+    // F-1): `PUT /:id` changes them under the configurable UPDATE_INSTRUMENT
+    // re-auth, and a policy that challenged one device but not a file of a
+    // hundred would be bypassed by the CSV. Asked only when the role's policy
+    // requires it (`enforceReauth`, never Always: bulk is not stricter than the
+    // PUT) and the request is not already signed; the password this request
     // carried for CREATE_INSTRUMENT is reused (`enforceReauth` keeps it), so one
     // upload asks once.
-    const movesAddress = plan.plans.some((p) => p.kind === 'update' && p.address !== undefined);
-    if (movesAddress && !(req as unknown as { _reauthVerified?: boolean })._reauthVerified) {
+    const movesTcpip = plan.plans.some((p) => p.kind === 'update' && (p.address !== undefined || p.reading !== undefined));
+    if (movesTcpip && !(req as unknown as { _reauthVerified?: boolean })._reauthVerified) {
       const { ok: signed } = await enforceReauth('UPDATE_INSTRUMENT', req, reply);
       if (!signed) return;
     }
@@ -2258,7 +2331,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     }
 
     const created: { id: string; code: string; name: string; token: string | null }[] = [];
-    const updated: { id: string; code: string; row: number; changes: PlannedChange[]; address?: PlannedAddress }[] = [];
+    const updated: { id: string; code: string; row: number; changes: PlannedChange[]; address?: PlannedAddress; reading?: PlannedReading }[] = [];
     const unchanged: { row: number; code: string }[] = [];
     // One transaction per ROW, not one for the file: a row that fails — a code
     // registered meanwhile, a value changed meanwhile — becomes an error row
@@ -2266,12 +2339,17 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     for (const p of plan.plans) {
       if (p.kind === 'unchanged') { unchanged.push({ row: p.row, code: p.code }); continue; }
       if (p.kind === 'update') {
-        // The row's address AND attributes are written in ONE transaction: any
-        // failure rolls the whole row back and the row reports only the error.
+        // The row's TCP/IP settings AND attributes are written in ONE
+        // transaction: any failure rolls the whole row back and the row reports
+        // only the error.
         try {
-          const done = await applyBulkChanges(p.id, p.code, p.changes, reason, ctx, p.address ? { planned: p.address, visibility } : undefined);
-          if (done.changes.length > 0 || done.address) {
-            updated.push({ id: p.id, code: p.code, row: p.row, changes: done.changes, ...(done.address ? { address: done.address } : {}) });
+          const done = await applyBulkChanges(p.id, p.code, p.changes, reason, ctx,
+            p.address || p.reading ? { address: p.address, reading: p.reading, visibility } : undefined);
+          if (done.changes.length > 0 || done.address || done.reading) {
+            updated.push({
+              id: p.id, code: p.code, row: p.row, changes: done.changes,
+              ...(done.address ? { address: done.address } : {}), ...(done.reading ? { reading: done.reading } : {}),
+            });
           } else unchanged.push({ row: p.row, code: p.code });
         } catch (err) {
           if (isDuplicateAddress(err) && p.address) {
@@ -2296,8 +2374,13 @@ export default async function instrumentRoutes(app: FastifyInstance) {
             // One profile, and one location, for the whole upload — see the body schema.
             profileId: parsed.data.profileId,
             ...(locationId ? { functionalLocationId: locationId } : {}),
-            // A TCP/IP row: its own address, and the copied map (or none, stored as []).
-            ...(p.modbusHost ? { modbusHost: p.modbusHost, modbusPort: p.modbusPort, modbusRegisters: copy.registers ? structuredClone(copy.registers) : undefined } : {}),
+            // A TCP/IP row: its own address, Slave ID and read interval, and the
+            // copied map (or none, stored as []).
+            ...(p.modbusHost ? {
+              modbusHost: p.modbusHost, modbusPort: p.modbusPort,
+              modbusUnitId: p.modbusUnitId, modbusIntervalSec: p.modbusIntervalSec,
+              modbusRegisters: copy.registers ? structuredClone(copy.registers) : undefined,
+            } : {}),
           },
           ctx,
           visibility,
@@ -2405,7 +2488,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     if (refusal) return reply.code(refusal.status).send(refusal.body);
     return {
       create: plan.plans.filter((p) => p.kind === 'create').map((p) => ({ row: p.row, code: p.code })),
-      update: plan.plans.flatMap((p) => (p.kind === 'update' ? [{ id: p.id, code: p.code, row: p.row, changes: p.changes, ...(p.address ? { address: p.address } : {}) }] : [])),
+      update: plan.plans.flatMap((p) => (p.kind === 'update'
+        ? [{ id: p.id, code: p.code, row: p.row, changes: p.changes, ...(p.address ? { address: p.address } : {}), ...(p.reading ? { reading: p.reading } : {}) }]
+        : [])),
       unchanged: plan.plans.filter((p) => p.kind === 'unchanged').map((p) => ({ row: p.row, code: p.code })),
       errors: plan.errors,
       warnings: plan.warnings,
@@ -2441,7 +2526,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           modbusHost: { type: ['string', 'null'] },
           modbusPort: { type: ['integer', 'null'] },
           modbusRegisters: { type: ['array', 'null'], items: { type: 'object' } },
-          reason: { type: 'string', description: 'Required when the TCP/IP address or register map changes; recorded on the INSTRUMENT_UPDATED row' },
+          // The Slave ID and read interval (CR-1, 2026-11-02): the address rule.
+          modbusUnitId: { type: ['integer', 'null'], description: '0..255 (TCP/IP instrument only); a change needs `reason`; null is refused on a TCP/IP instrument' },
+          modbusIntervalSec: { type: ['integer', 'null'], description: '10..3600 s (TCP/IP instrument only); a change needs `reason`; null is refused on a TCP/IP instrument' },
+          reason: { type: 'string', description: 'Required when the TCP/IP address, register map, Slave ID or read interval changes; recorded on the INSTRUMENT_UPDATED row' },
         },
       },
       response: { 200: { type: 'object', properties: instrumentProps }, ...errorResponses },
@@ -2460,11 +2548,12 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       if (hostOnly) return reply.code(hostOnly.status).send(hostOnly.body);
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
-    // TCP/IP (2026-10-31, ledger ruling T1-2): `reason` and the three Modbus
-    // fields are taken OUT of what is written. `reason` is the change's reason
-    // (the audit row's own column, never an instrument field), and the Modbus
-    // fields reach the row only through the checks in the transaction below.
-    const { reason, modbusHost, modbusPort, modbusRegisters, ...fields } = parsed.data;
+    // TCP/IP (2026-10-31, ledger ruling T1-2): `reason` and the Modbus fields
+    // (address, map, and — CR-1 — Slave ID and read interval) are taken OUT of
+    // what is written. `reason` is the change's reason (the audit row's own
+    // column, never an instrument field), and the Modbus fields reach the row
+    // only through the checks in the transaction below.
+    const { reason, modbusHost, modbusPort, modbusRegisters, modbusUnitId, modbusIntervalSec, ...fields } = parsed.data;
 
     const existing = await prisma.instrument.findFirst({
       where: await visibleInstrumentWhere(req, id),
@@ -2604,6 +2693,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       const modbusWrite: Record<string, unknown> = {};
       let addressChanged = false;
       let mapChanged = false;
+      let unitChanged = false;
+      let intervalChanged = false;
       if (connection === 'MODBUS_TCP') {
         const touchesAddress = modbusHost !== undefined || modbusPort !== undefined;
         const nextHost = modbusHost === undefined ? before.modbusHost : modbusHost;
@@ -2612,6 +2703,12 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           const missing = missingAddressRefusal(nextHost, nextPort);
           if (missing) throw new HandledRouteError(missing.status, missing.body);
         }
+        // The Slave ID and read interval (CR-1, 2026-11-02): never cleared on a
+        // TCP/IP instrument; the stored value sent back is no change.
+        const missingReading = missingReadingRefusal(modbusUnitId, modbusIntervalSec);
+        if (missingReading) throw new HandledRouteError(missingReading.status, missingReading.body);
+        unitChanged = modbusUnitId !== undefined && modbusUnitId !== before.modbusUnitId;
+        intervalChanged = modbusIntervalSec !== undefined && modbusIntervalSec !== before.modbusIntervalSec;
         addressChanged = touchesAddress && (nextHost !== before.modbusHost || nextPort !== before.modbusPort);
         mapChanged = modbusRegisters !== undefined && !registerMapsEqual(modbusRegisters ?? [], before.modbusRegisters);
         // Changing an existing instrument's map is SUPER_ADMIN only (spec §9, the
@@ -2621,10 +2718,13 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         if (mapChanged && req.user?.role !== 'SUPER_ADMIN') {
           throw new HandledRouteError(REGISTER_MAP_SA_ONLY.status, REGISTER_MAP_SA_ONLY.body);
         }
-        if (addressChanged || mapChanged) {
+        // Each of them changes what is read, how often, or how it is stored —
+        // signed with a reason under the PUT's UPDATE_INSTRUMENT re-auth
+        // (ruling CR1-3: the Slave ID and read interval govern like the address).
+        const what = tcpipChangedParts({ address: addressChanged, map: mapChanged, unitId: unitChanged, interval: intervalChanged }, 'address');
+        if (what) {
           const problem = validateAttributeRemark(reason);
           if (problem) {
-            const what = addressChanged && mapChanged ? 'address and register map' : addressChanged ? 'address' : 'register map';
             throw new HandledRouteError(400, {
               error: 'REASON_REQUIRED',
               message: `Changing a TCP/IP instrument's ${what} changes what is read and stored. ${problem}`,
@@ -2638,8 +2738,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           modbusWrite.modbusPort = nextPort;
         }
         if (mapChanged) modbusWrite.modbusRegisters = modbusRegisters ?? [];
+        if (unitChanged) modbusWrite.modbusUnitId = modbusUnitId;
+        if (intervalChanged) modbusWrite.modbusIntervalSec = modbusIntervalSec;
       }
-      const modbusChanged = addressChanged || mapChanged;
+      const modbusChanged = addressChanged || mapChanged || unitChanged || intervalChanged;
 
       priorCode = before.code;
       // Name follows the code when it WAS the code (the 2026-09-04 rule: name =
@@ -2674,13 +2776,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         action: 'INSTRUMENT_UPDATED', targetType: 'Instrument', targetId: id,
         beforeValue: audited(before),
         afterValue: audited(row),
-        signatureMeaning: addressChanged && mapChanged
-          ? `Instrument "${codeLabel(row.code)}" TCP/IP address and register map changed`
-          : addressChanged
-            ? `Instrument "${codeLabel(row.code)}" TCP/IP address changed`
-            : mapChanged
-              ? `Instrument "${codeLabel(row.code)}" register map changed`
-              : `Instrument "${codeLabel(row.code)}" updated`,
+        signatureMeaning: tcpipChangeMeaning(codeLabel(row.code), { address: addressChanged, map: mapChanged, unitId: unitChanged, interval: intervalChanged })
+          ?? `Instrument "${codeLabel(row.code)}" updated`,
         // The remark the change was signed with (spec §9), recorded as the
         // profile and attribute edits record theirs; absent when none was needed.
         ...(modbusChanged && reason ? { reason: reason.trim() } : {}),
@@ -3425,7 +3522,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const planned = planBulkUpload({
       rows: parsed.rows, rowNumbers: parsed.rowNumbers, codeHeading: parsed.codeHeading,
       headings: parsed.headings, identityColumns: parsed.identityColumns,
-      addressHeadings: parsed.addressHeadings, connection,
+      addressHeadings: parsed.addressHeadings, readingHeadings: parsed.readingHeadings, connection,
       profileId: data.profileId, existing, isOffset, mayUpdate,
       accessRefusal: (key, isNewKey) => attributeAccessRefusal({ access, hasUpdatePermission: mayUpdate, key, isNewKey }),
     });
@@ -3489,7 +3586,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       where: { id: { in: [...seen] } },
       select: {
         id: true, code: true, profileId: true, profile: { select: { name: true } },
-        modbusHost: true, modbusPort: true,
+        modbusHost: true, modbusPort: true, modbusUnitId: true, modbusIntervalSec: true,
         attributes: { select: { key: true, value: true }, orderBy: { key: 'asc' } },
       },
     });
@@ -3498,6 +3595,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       out.set(r.code.toLowerCase(), {
         id: r.id, code: r.code, profileId: r.profileId, profileName: r.profile.name, visible: true, attributes: r.attributes,
         modbusHost: r.modbusHost, modbusPort: r.modbusPort,
+        modbusUnitId: r.modbusUnitId, modbusIntervalSec: r.modbusIntervalSec,
       });
     }
     return out;
@@ -3514,10 +3612,11 @@ export default async function instrumentRoutes(app: FastifyInstance) {
    * exactly as `PUT /:id/attributes/:key` writes it; the device is told after
    * the commit. Returns what was applied, each `from` as read under the lock.
    *
-   * With `address` (a TCP/IP instrument whose address the file changes) the
-   * address is written in the SAME transaction (2026-10-31): lock order is the
-   * instrument row, then the attribute keys in key order, then the audit chain,
-   * so a failure anywhere leaves the row untouched.
+   * With `tcpip` (a TCP/IP instrument whose address, Slave ID or read interval
+   * the file changes) those are written in the SAME transaction (2026-10-31;
+   * Slave ID / read interval CR-1, 2026-11-02): lock order is the instrument
+   * row, then the attribute keys in key order, then the audit chain, so a
+   * failure anywhere leaves the row untouched.
    */
   async function applyBulkChanges(
     instrumentId: string,
@@ -3525,14 +3624,14 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     changes: PlannedChange[],
     reason: string | null,
     ctx: ReturnType<typeof buildContext>,
-    address?: { planned: PlannedAddress; visibility: ScopeWhere | undefined },
-  ): Promise<{ changes: PlannedChange[]; address: PlannedAddress | null }> {
+    tcpip?: { address?: PlannedAddress; reading?: PlannedReading; visibility: ScopeWhere | undefined },
+  ): Promise<{ changes: PlannedChange[]; address: PlannedAddress | null; reading: PlannedReading | null }> {
     const ordered = [...changes].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-    let addressApplied: PlannedAddress | null = null;
+    let tcpipApplied: { address: PlannedAddress | null; reading: PlannedReading | null } = { address: null, reading: null };
     const applied = await prisma.$transaction(async (tx) => {
-      if (address) await tx.$queryRaw`SELECT id FROM instruments WHERE id = ${instrumentId} FOR UPDATE`;
+      if (tcpip) await tx.$queryRaw`SELECT id FROM instruments WHERE id = ${instrumentId} FOR UPDATE`;
       for (const c of ordered) await lockAttribute(tx, instrumentId, c.key);
-      if (address) addressApplied = await writeBulkAddress(tx, instrumentId, address.planned, reason, ctx, address.visibility);
+      if (tcpip) tcpipApplied = await writeBulkTcpip(tx, instrumentId, tcpip, reason, ctx, tcpip.visibility);
       const done: PlannedChange[] = [];
       for (const c of ordered) {
         const before = await tx.instrumentAttribute.findUnique({
@@ -3571,7 +3670,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       if (owner) for (const c of applied) await announceAttributeChange(instrumentId, owner, c.key, c.to);
     }
     // In the file's column order, as the preview showed them.
-    return { changes: changes.flatMap((c) => applied.filter((a) => a.key === c.key)), address: addressApplied as PlannedAddress | null };
+    return { changes: changes.flatMap((c) => applied.filter((a) => a.key === c.key)), address: tcpipApplied.address, reading: tcpipApplied.reading };
   }
 
   /**

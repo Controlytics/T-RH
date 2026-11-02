@@ -51,8 +51,6 @@ const TEST_NETWORKS = '192.0.2.0/24';
 const CONFIG_KEY = 'modbus-reader';
 
 let profileId = '';
-let profile10Id = '';
-let badProfileId = '';
 let readerRowBefore: { configValue: unknown; configType: string; requiresReauth: boolean; updatedAt: Date; updatedBy: string | null } | null = null;
 const slaves: FakeSlave[] = [];
 const instrumentIds: string[] = [];
@@ -112,11 +110,16 @@ async function deadPort(): Promise<number> {
   await sl.close();
   return sl.port;
 }
+/**
+ * A TCP/IP instrument as the create route stores one: Slave ID 1 and a 60 s read
+ * interval unless `extra` says otherwise — both the INSTRUMENT's own since CR-1
+ * (2026-11-02), so a fixture that left them out would be skipped INVALID_CONFIG.
+ */
 async function inst(n: string, port: number, map: unknown = SIX, extra: Record<string, unknown> = {}) {
   const row = await prisma.instrument.create({
     data: {
       name: C(n), code: C(n), profileId, modbusHost: '127.0.0.1', modbusPort: port,
-      modbusRegisters: map as never, ...extra,
+      modbusRegisters: map as never, modbusUnitId: 1, modbusIntervalSec: 60, ...extra,
     },
   });
   instrumentIds.push(row.id);
@@ -138,9 +141,7 @@ beforeAll(async () => {
   readerRowBefore = row
     ? { configValue: row.configValue, configType: row.configType, requiresReauth: row.requiresReauth, updatedAt: row.updatedAt, updatedBy: row.updatedBy }
     : null;
-  profileId = (await prisma.instrumentProfile.create({ data: { name: `MBR Modbus ${s}`, connection: 'MODBUS_TCP', modbusIntervalSec: 60, modbusUnitId: 1 } })).id;
-  profile10Id = (await prisma.instrumentProfile.create({ data: { name: `MBR Modbus 10s ${s}`, connection: 'MODBUS_TCP', modbusIntervalSec: 10, modbusUnitId: 1 } })).id;
-  badProfileId = (await prisma.instrumentProfile.create({ data: { name: `MBR Modbus bad ${s}`, connection: 'MODBUS_TCP', modbusIntervalSec: 60, modbusUnitId: 300 } })).id;
+  profileId = (await prisma.instrumentProfile.create({ data: { name: `MBR Modbus ${s}`, connection: 'MODBUS_TCP' } })).id;
 });
 
 afterAll(async () => {
@@ -156,7 +157,7 @@ afterAll(async () => {
   await step(() => prisma.$executeRaw`DELETE FROM instrument_telemetry_latest WHERE instrument_id = ANY(${instrumentIds}::text[])`);
   await step(() => prisma.deadLetter.deleteMany({ where: { instrumentId: { in: instrumentIds } } }));
   await step(() => prisma.instrument.deleteMany({ where: { id: { in: instrumentIds } } }));
-  await step(() => prisma.instrumentProfile.deleteMany({ where: { id: { in: [profileId, profile10Id, badProfileId].filter(Boolean) } } }));
+  await step(() => prisma.instrumentProfile.deleteMany({ where: { id: { in: [profileId].filter(Boolean) } } }));
   if (failures.length > 0) throw new AggregateError(failures, 'reader teardown failed');
 });
 
@@ -208,6 +209,22 @@ describe('readOnce — the read the scheduler runs', () => {
     expect(sl.connections()).toBe(1);
     await until(() => sl.closedConnections() === 1, 2000, 'socket closed');
     expect(await audits(i.id)).toEqual([]);
+  });
+
+  it('reads with the INSTRUMENT\'s Slave ID: a slave that answers only unit 7 is read by the instrument set to 7, and not by one set to 1 (CR-1)', async () => {
+    const seven = await slave({ holding: HOLDING, input: INPUT, unitId: 7 });
+    const i7 = await inst('unit7', seven.port, SIX, { modbusUnitId: 7 });
+    expect(await readOnce(i7.id, ON)).toEqual({ outcome: 'stored' });
+    expect((await history(i7.id)).map((x) => x.key)).toEqual(SIX_KEYS);
+
+    // Same slave behaviour, the instrument left at 1: the device ignores the
+    // request — the read fails, nothing is stored.
+    const sevenAgain = await slave({ holding: HOLDING, input: INPUT, unitId: 7 });
+    const i1 = await inst('unit1', sevenAgain.port);
+    const r = await readOnce(i1.id, ON);
+    expect(r.outcome).toBe('failed');
+    expect(await history(i1.id)).toEqual([]);
+    expect(sevenAgain.requests().length).toBeGreaterThan(0);
   });
 
   it('refused keys (NaN, infinity) are ONE dead letter per read naming each, and the other keys are stored', async () => {
@@ -435,13 +452,24 @@ describe('readOnce — the read the scheduler runs', () => {
     expect(await history(i.id)).toEqual([]);
   });
 
-  it('an invalid stored config (unit id 300) is skipped with a warning and never read; an empty map is skipped quietly', async () => {
+  it('an invalid stored config (the instrument\'s Slave ID 300, read interval 5 s or none) is skipped with a warning and never read; an empty map is skipped quietly', async () => {
     const warn = vi.spyOn(logger, 'warn');
     try {
       const sl = await slave();
-      const bad = await inst('badunit', sl.port, SIX, { profileId: badProfileId });
+      const bad = await inst('badunit', sl.port, SIX, { modbusUnitId: 300 });
       expect(await readOnce(bad.id, ON)).toEqual({ outcome: 'skipped', code: 'INVALID_CONFIG' });
       expect(warn).toHaveBeenCalled();
+      expect(JSON.stringify(warn.mock.calls.at(-1))).toContain("The instrument's Slave ID 300 is not 0 to 255.");
+
+      const slI = await slave();
+      const badInterval = await inst('badint', slI.port, SIX, { modbusIntervalSec: 5 });
+      warn.mockClear();
+      expect(await readOnce(badInterval.id, ON)).toEqual({ outcome: 'skipped', code: 'INVALID_CONFIG' });
+      expect(JSON.stringify(warn.mock.calls.at(-1))).toContain("The instrument's read interval 5 s is not 10 to 3600 s.");
+      const slN = await slave();
+      const noInterval = await inst('noint', slN.port, SIX, { modbusIntervalSec: null });
+      expect(await readOnce(noInterval.id, ON)).toEqual({ outcome: 'skipped', code: 'INVALID_CONFIG' });
+      expect(slI.connections() + slN.connections()).toBe(0);
 
       const sl2 = await slave();
       const brokenMap = await inst('badmap', sl2.port, [{ key: 'Temperature' }]);
@@ -477,13 +505,23 @@ describe('the schedule — Review Focus 3: configuration changes apply at the ne
       // Nothing changed: no rebuild.
       expect(await core.reload()).toBe(false);
 
-      // The profile's interval: the next schedule is on the new grid.
-      await prisma.instrumentProfile.update({ where: { id: profileId }, data: { modbusIntervalSec: 120 } });
+      // The INSTRUMENT's interval (CR-1): the next schedule is on the new grid.
+      await prisma.instrument.update({ where: { id: i.id }, data: { modbusIntervalSec: 120 } });
       clock += 1000;
       expect(await core.reload()).toBe(true);
       expect(entry()?.intervalSec).toBe(120);
       expect(entry()!.nextDueAt).toBe(firstSlotAtOrAfter(clock, 120, phaseFor(i.id, 120)));
-      await prisma.instrumentProfile.update({ where: { id: profileId }, data: { modbusIntervalSec: 60 } });
+      // ...and one written WITHOUT Prisma, which leaves `updated_at` alone: the
+      // reload signature hashes the two columns, so it is seen all the same.
+      const stampBefore = (await prisma.instrument.findUniqueOrThrow({ where: { id: i.id } })).updatedAt;
+      await prisma.$executeRaw`UPDATE instruments SET modbus_interval_sec = 90 WHERE id = ${i.id}`;
+      expect((await prisma.instrument.findUniqueOrThrow({ where: { id: i.id } })).updatedAt).toEqual(stampBefore);
+      clock += 1000;
+      expect(await core.reload()).toBe(true);
+      expect(entry()?.intervalSec).toBe(90);
+      await prisma.$executeRaw`UPDATE instruments SET modbus_unit_id = 2 WHERE id = ${i.id}`;
+      expect(await core.reload()).toBe(true);
+      await prisma.instrument.update({ where: { id: i.id }, data: { modbusIntervalSec: 60, modbusUnitId: 1 } });
       await core.reload();
       expect(entry()?.intervalSec).toBe(60);
 
@@ -609,8 +647,8 @@ describe('the schedule — one read at a time', () => {
     // schedule run in a few seconds with no socket. The reload reads the two
     // instruments from the database as the real Reader does.
     expect(FAILING_RETRY_SEC).toBe(60);
-    const failingInst = await inst('backoff-failing', await deadPort(), SIX, { profileId: profile10Id });
-    const healthyInst = await inst('backoff-healthy', await deadPort(), SIX, { profileId: profile10Id });
+    const failingInst = await inst('backoff-failing', await deadPort(), SIX, { modbusIntervalSec: 10 });
+    const healthyInst = await inst('backoff-healthy', await deadPort(), SIX, { modbusIntervalSec: 10 });
     const attempts = new Map<string, number[]>([[failingInst.id, []], [healthyInst.id, []]]);
     let answering = false;
     let clock = Math.ceil(Date.now() / 1000) * 1000;
@@ -694,7 +732,7 @@ describe('Review Focus 2 — the Reader stopped mid-read', () => {
     expect(sl.connections()).toBe(1);
   });
 
-  it('startModbusReader: real unref\'d timers read on the profile interval, and stop() clears every timer', async () => {
+  it('startModbusReader: real unref\'d timers read on the instrument\'s interval, and stop() clears every timer', async () => {
     // An id whose first slot on a 10 s interval is 2-5 s away.
     let id = randomUUID();
     for (let n = 0; n < 1000; n++) {
@@ -703,7 +741,7 @@ describe('Review Focus 2 — the Reader stopped mid-read', () => {
       id = randomUUID();
     }
     const sl = await slave();
-    const i = await inst('timers', sl.port, SIX, { id, profileId: profile10Id });
+    const i = await inst('timers', sl.port, SIX, { id, modbusIntervalSec: 10 });
 
     const setSpy = vi.spyOn(globalThis, 'setInterval');
     const clearSpy = vi.spyOn(globalThis, 'clearInterval');

@@ -32,7 +32,6 @@ let blockIn = '';
 let blockOut = '';
 let tcpProfileId = '';
 let pushProfileId = '';
-let badUnitProfileId = '';
 let readerRowBefore: { configValue: unknown; configType: string; requiresReauth: boolean } | null = null;
 const slaves: FakeSlave[] = [];
 let inactivityBefore: { configValue: unknown; configType: string; requiresReauth: boolean } | null = null;
@@ -66,8 +65,9 @@ async function user(name: string, role: string): Promise<Record<string, string>>
 
 const test = (headers: Record<string, string>, payload: Record<string, unknown>) =>
   app.inject({ method: 'POST', url: '/api/instruments/modbus/test', headers, payload });
+/** The form's body: its address, map and Slave ID (CR-1 — the instrument's, sent with the address). */
 const body = (slave: FakeSlave, extra: Record<string, unknown> = {}) => ({
-  profileId: tcpProfileId, modbusHost: slave.host, modbusPort: slave.port, modbusRegisters: SIX, ...extra,
+  profileId: tcpProfileId, modbusHost: slave.host, modbusPort: slave.port, modbusRegisters: SIX, modbusUnitId: 1, ...extra,
 });
 async function setReading(on: boolean) {
   const res = await app.inject({
@@ -105,7 +105,7 @@ beforeAll(async () => {
   blockOut = (await prisma.functionalLocation.create({ data: { name: `MBT-out-${s}`, type: 'BLOCK' } })).id;
   await prisma.roleConfig.create({ data: { role: ROLE, instrumentScope: { locationIds: [blockIn], instrumentIds: [] } as never } });
 
-  tcpProfileId = (await prisma.instrumentProfile.create({ data: { name: `MBT Modbus ${s}`, connection: 'MODBUS_TCP', modbusIntervalSec: 60, modbusUnitId: 1 } })).id;
+  tcpProfileId = (await prisma.instrumentProfile.create({ data: { name: `MBT Modbus ${s}`, connection: 'MODBUS_TCP' } })).id;
   pushProfileId = (await prisma.instrumentProfile.create({ data: { name: `MBT Push ${s}` } })).id;
 });
 
@@ -126,7 +126,7 @@ afterAll(async () => {
     else await prisma.systemConfig.deleteMany({ where: { configKey: 'inactivity-alarms' } });
   });
   await step(() => prisma.instrument.deleteMany({ where: { code: { startsWith: `MBT-${s}-` } } }));
-  await step(() => prisma.instrumentProfile.deleteMany({ where: { id: { in: [tcpProfileId, pushProfileId, badUnitProfileId].filter(Boolean) } } }));
+  await step(() => prisma.instrumentProfile.deleteMany({ where: { id: { in: [tcpProfileId, pushProfileId].filter(Boolean) } } }));
   await step(() => prisma.functionalLocation.deleteMany({ where: { id: { in: [blockIn, blockOut].filter(Boolean) } } }));
   await step(() => prisma.roleConfig.deleteMany({ where: { role: ROLE } }));
   await step(() => prisma.session.deleteMany({ where: { userId: { in: userIds } } }));
@@ -216,7 +216,7 @@ describe('POST /api/instruments/modbus/test', () => {
   });
 
   it('a refused address is a 400 ADDRESS_NOT_ALLOWED', async () => {
-    const res = await test(a, { profileId: tcpProfileId, modbusHost: '8.8.8.8', modbusPort: 502, modbusRegisters: ONE });
+    const res = await test(a, { profileId: tcpProfileId, modbusHost: '8.8.8.8', modbusPort: 502, modbusRegisters: ONE, modbusUnitId: 1 });
     expect(res.statusCode, res.body).toBe(400);
     expect(res.json().error).toBe('ADDRESS_NOT_ALLOWED');
   });
@@ -230,18 +230,31 @@ describe('POST /api/instruments/modbus/test', () => {
     expect(empty.statusCode).toBe(400);
   });
 
-  it('a profile whose STORED unit id is outside 0..255 is a 400 INVALID_CONFIG and the device sees no connection (final review F-6)', async () => {
-    // No route can store it; a hand-edited row can. It used to reach the socket
-    // and throw inside its 'connect' listener — an uncaught exception.
-    badUnitProfileId = (await prisma.instrumentProfile.create({
-      data: { name: `MBT Modbus bad unit ${s}`, connection: 'MODBUS_TCP', modbusIntervalSec: 60, modbusUnitId: 300 },
-    })).id;
+  it('reads with the Slave ID it is SENT: a slave answering only unit 7 answers 7 and not 1 (CR-1)', async () => {
+    await setReading(true);
+    const own = await user(U('u7'), ROLE); // its own user: the 10-a-minute limit
+    const sl = await slave({ holding: HOLDING, input: INPUT, unitId: 7 });
+    const seven = await test(own, body(sl, { modbusRegisters: ONE, modbusUnitId: 7 }));
+    expect(seven.statusCode, seven.body).toBe(200);
+    expect(seven.json()).toMatchObject({ ok: true, values: [{ key: 'Temperature', value: 22.4 }] });
+    const one = await test(own, body(sl, { modbusRegisters: ONE, modbusUnitId: 1 }));
+    expect(one.statusCode, one.body).toBe(200);
+    expect(one.json()).toMatchObject({ ok: false, code: 'BAD_RESPONSE' });
+  });
+
+  it('a Slave ID outside 0..255 is a 400 with the field\'s sentence, a missing one a 400, and the device sees no connection (final review F-6)', async () => {
+    // It used to come from the profile; a hand-edited 300 reached the socket and
+    // threw inside its 'connect' listener — an uncaught exception.
     await setReading(true);
     const sl = await slave();
     const own = await user(U('unit'), ROLE); // its own user: the 10-a-minute limit
-    const res = await test(own, body(sl, { profileId: badUnitProfileId, modbusRegisters: ONE }));
-    expect(res.statusCode, res.body).toBe(400);
-    expect(res.json()).toEqual({ error: 'INVALID_CONFIG', message: "The profile's unit ID 300 is not 0 to 255." });
+    for (const modbusUnitId of [300, -1]) {
+      const res = await test(own, body(sl, { modbusRegisters: ONE, modbusUnitId }));
+      expect(res.statusCode, res.body).toBe(400);
+      expect(res.json()).toMatchObject({ error: 'VALIDATION_ERROR', message: 'Slave ID must be a whole number from 0 to 255.' });
+    }
+    const { modbusUnitId: _omit, ...withoutUnit } = body(sl, { modbusRegisters: ONE });
+    expect((await test(own, withoutUnit)).statusCode).toBe(400);
     await new Promise((r) => setTimeout(r, 100));
     expect(sl.connections()).toBe(0);
   });
@@ -270,7 +283,7 @@ describe('POST /api/instruments/modbus/test', () => {
       hiddenId = await mk('hidden', '10.99.0.6', blockOut);
     });
     const at = (host: string, extra: Record<string, unknown> = {}) =>
-      test(b, { profileId: tcpProfileId, modbusHost: host, modbusPort: 502, modbusRegisters: ONE, ...extra });
+      test(b, { profileId: tcpProfileId, modbusHost: host, modbusPort: 502, modbusRegisters: ONE, modbusUnitId: 1, ...extra });
 
     it('is ADDRESS_IN_USE (200, ok:false) for a new instrument', async () => {
       const res = await at('10.99.0.5');
@@ -346,13 +359,14 @@ describe('GET /api/instruments/:id/modbus-status', () => {
   let n = 0;
   const status = (headers: Record<string, string>, id: string) =>
     app.inject({ method: 'GET', url: `/api/instruments/${id}/modbus-status`, headers });
-  /** A TCP/IP instrument on its own address (each test gets a free one). */
+  /** A TCP/IP instrument on its own address (each test gets a free one), Slave ID 1 and read every 60 s unless `extra` says otherwise. */
   async function inst(tag: string, extra: Record<string, unknown> = {}, location: string | null = blockIn) {
     n += 1;
     return prisma.instrument.create({
       data: {
         name: C(tag), code: C(tag), profileId: tcpProfileId, modbusHost: `10.201.${n}.1`, modbusPort: 502,
-        modbusRegisters: SIX as never, ...(location ? { functionalLocationId: location } : {}), ...extra,
+        modbusRegisters: SIX as never, modbusUnitId: 1, modbusIntervalSec: 60,
+        ...(location ? { functionalLocationId: location } : {}), ...extra,
       },
     });
   }
@@ -378,6 +392,24 @@ describe('GET /api/instruments/:id/modbus-status', () => {
     });
     expect(res.json().notReadReason).toBeUndefined();
     expect(res.json().lastError).toBeUndefined();
+  });
+
+  it('the interval and the expected count are the INSTRUMENT\'s own (CR-1): 30 s -> 2880 a day', async () => {
+    await setReading(true);
+    const i = await inst('own-interval', { modbusIntervalSec: 30 });
+    const res = await status(a, i.id);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toMatchObject({ state: 'reading', intervalSec: 30, expected24h: 2880 });
+  });
+
+  it('a stored interval the Reader does not read at (hand-edited 5 s, or none) is not-read INVALID_CONFIG, nothing expected — never NaN', async () => {
+    await setReading(true);
+    for (const modbusIntervalSec of [5, null]) {
+      const i = await inst(`bad-interval-${modbusIntervalSec}`, { modbusIntervalSec });
+      const res = await status(a, i.id);
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json()).toMatchObject({ state: 'not-read', notReadReason: 'INVALID_CONFIG', intervalSec: null, expected24h: null });
+    }
   });
 
   it('stored24h counts distinct instants, not rows, and only the last 24 h', async () => {

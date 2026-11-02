@@ -571,8 +571,8 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
       // for the frozen snapshot, neither of which the overview holds.
       prisma.instrument.findMany({
         select: {
-          id: true, lastSeenAt: true, expectedIntervalSec: true,
-          profile: { select: { connection: true, modbusIntervalSec: true } },
+          id: true, lastSeenAt: true, expectedIntervalSec: true, modbusIntervalSec: true,
+          profile: { select: { connection: true } },
         },
       }),
     ]);
@@ -605,7 +605,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
           // get the threshold as it stood, not as it stands.
           activeWindowMinutes,
           // The interval the overview judged `reporting` against: a TCP/IP
-          // instrument's is its profile's read interval.
+          // instrument's is its own read interval (CR-1, 2026-11-02).
           expectedIntervalSec: inst ? effectiveExpectedIntervalSec(inst, inst.profile) : null,
           lastSeenAt: inst?.lastSeenAt?.toISOString() ?? null,
           description: condition,

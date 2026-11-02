@@ -236,7 +236,7 @@ export type { CreateUserInput, UpdateUserInput, ResetPasswordInput, UserQueryInp
 export { brandingConfigSchema, BRANDING_TAB_TITLE_DEFAULT, passwordPolicySchema, loginSecuritySchema, sessionConfigSchema, datetimeConfigSchema, userIdConfigSchema, auditTemplatesSchema, paginationConfigSchema, offlineCacheConfigSchema, exportLimitConfigSchema, EXPORT_LIMIT_HARD_CEILING, EXPORT_LIMIT_DEFAULT_MAX, EXPORT_LIMIT_DEFAULT_MESSAGE, instrumentAttributesConfigSchema, INSTRUMENT_ATTRIBUTE_KEYS_DEFAULT, INSTRUMENT_PLACEMENT_COLUMNS, placementColumnFor, parseInstrumentAttributeKeys, instrumentActivityConfigSchema, INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN, INSTRUMENT_ACTIVE_INTERVAL_SLACK, isInstrumentReporting, effectiveExpectedIntervalSec } from './schemas/config.js';
 export type { BrandingConfig, PasswordPolicyConfig, LoginSecurityConfig, SessionConfig, DatetimeConfig, UserIdConfig, AuditTemplatesConfig, PaginationConfig, OfflineCacheConfig, ExportLimitConfig } from './schemas/config.js';
 
-export { createInstrumentProfileSchema, updateInstrumentProfileSchema } from './schemas/instrument-profiles.js';
+export { createInstrumentProfileSchema, updateInstrumentProfileSchema, PROFILE_READING_MOVED_MESSAGE } from './schemas/instrument-profiles.js';
 export type { CreateInstrumentProfileInput, UpdateInstrumentProfileInput } from './schemas/instrument-profiles.js';
 
 export { auditQuerySchema } from './schemas/audit.js';
@@ -296,5 +296,5 @@ export type {
   TrendWidgetId, TrendWidgetLabelKey, TrendWidgetConfig,
   TrendWidgetFormat, TrendWidgetTexts,
 } from './types/trend-widgets.js';
-export { MODBUS_CONNECTIONS, MODBUS_INTERVAL, MODBUS_UNIT_ID, MODBUS_PORT_DEFAULT, MODBUS_MAX_KEYS, MODBUS_MAX_REGISTERS_PER_REQUEST, MODBUS_DATA_TYPES, MODBUS_BYTE_ORDERS, PAYLOAD_META_KEYS, DEVICE_NETWORKS_DEFAULT, modbusRegisterSchema, modbusRegisterMapSchema, coerceModbusRegisterMap, parseModiconRef, registersFor, modbusHostSchema, parseDeviceNetworks, ipInNetworks, fromDesktopKeysFile } from './types/modbus.js';
+export { MODBUS_CONNECTIONS, MODBUS_INTERVAL, MODBUS_UNIT_ID, MODBUS_UNIT_ID_MESSAGE, MODBUS_INTERVAL_MESSAGE, modbusUnitIdSchema, modbusIntervalSchema, MODBUS_PORT_DEFAULT, MODBUS_MAX_KEYS, MODBUS_MAX_REGISTERS_PER_REQUEST, MODBUS_DATA_TYPES, MODBUS_BYTE_ORDERS, PAYLOAD_META_KEYS, DEVICE_NETWORKS_DEFAULT, modbusRegisterSchema, modbusRegisterMapSchema, coerceModbusRegisterMap, parseModiconRef, registersFor, modbusHostSchema, parseDeviceNetworks, ipInNetworks, fromDesktopKeysFile } from './types/modbus.js';
 export type { ModbusConnection, ModbusDataType, ModbusByteOrder, ModbusRegister, ModbusRegisterMap } from './types/modbus.js';

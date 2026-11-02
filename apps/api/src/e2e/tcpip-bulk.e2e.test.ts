@@ -19,14 +19,19 @@ import { invalidateReauthCache } from '../lib/reauth-check.js';
  * `STALE` makes the address check blind to ONE host - the race the unique index
  * exists for: another instrument takes the address after the check and before
  * the insert. Everything else passes straight through to the real check.
+ * `STALE.onCheck` runs ONCE, at the first check of its host — which is the
+ * file's check, before the write: a change someone makes in between.
  */
-const STALE = vi.hoisted(() => ({ hosts: new Set<string>() }));
+const STALE = vi.hoisted(() => ({ hosts: new Set<string>(), onCheck: new Map<string, () => Promise<unknown>>() }));
 vi.mock('../modules/modbus/address.js', async (importActual) => {
   const actual = await importActual<typeof import('../modules/modbus/address.js')>();
   return {
     ...actual,
-    checkModbusAddress: (host: string, ...rest: unknown[]) =>
-      STALE.hosts.has(host) ? Promise.resolve({ ok: true }) : (actual.checkModbusAddress as (...a: unknown[]) => unknown)(host, ...rest),
+    checkModbusAddress: async (host: string, ...rest: unknown[]) => {
+      const hook = STALE.onCheck.get(host);
+      if (hook) { STALE.onCheck.delete(host); await hook(); }
+      return STALE.hosts.has(host) ? { ok: true } : (actual.checkModbusAddress as (...a: unknown[]) => unknown)(host, ...rest);
+    },
   };
 });
 
@@ -86,7 +91,7 @@ beforeAll(async () => {
   await prisma.roleConfig.create({ data: { role: ROLE, instrumentScope: { locationIds: [blockIn], instrumentIds: [] } as never } });
   pushProfileId = (await prisma.instrumentProfile.create({ data: { name: `TBULK Push ${s}`, attributeKeys: 'Room' } })).id;
   tcpProfileId = (await prisma.instrumentProfile.create({
-    data: { name: `TBULK Modbus ${s}`, connection: 'MODBUS_TCP', modbusIntervalSec: 60, modbusUnitId: 1, attributeKeys: 'Room' },
+    data: { name: `TBULK Modbus ${s}`, connection: 'MODBUS_TCP', attributeKeys: 'Room' },
   })).id;
   sa = { authorization: `Bearer ${await loginAs(app, SA_NAME, SA_PW)}`, 'x-reauth-password': SA_PW };
   op = { authorization: `Bearer ${await loginAs(app, OP_NAME, OP_PW)}`, 'x-reauth-password': OP_PW };
@@ -302,6 +307,138 @@ describe('bulk upload — an existing TCP/IP instrument\'s address', () => {
   });
 });
 
+/**
+ * CR-1 (2026-11-02): "Slave ID" and "Read every" (seconds) are each TCP/IP
+ * instrument's own, so they are optional columns of a TCP/IP upload: blank on a
+ * create = 1 and 60 s; on an existing instrument a change is the address's
+ * governance (the upload's remark, one INSTRUMENT_UPDATED row, the row's one
+ * transaction); refused in a Gateway upload.
+ */
+describe('bulk upload — Slave ID and Read every', () => {
+  it('creates each row with its own Slave ID and read interval; blank cells are 1 and 60 s', async () => {
+    const csv = `Instrument ID,IP address,Slave ID,Read every\n${C('rd1')},${ip(130)},7,45\n${C('rd2')},${ip(131)},,`;
+    const pv = await preview(csv);
+    expect(pv.statusCode, pv.body).toBe(200);
+    expect(pv.json().create.map((r: { code: string }) => r.code)).toEqual([C('rd1'), C('rd2')]);
+    const res = await upload(csv);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().errors).toEqual([]);
+    const rows = await prisma.instrument.findMany({ where: { code: { in: [C('rd1'), C('rd2')] } }, orderBy: { code: 'asc' } });
+    expect(rows.map((r) => [r.modbusUnitId, r.modbusIntervalSec])).toEqual([[7, 45], [1, 60]]);
+    const audit = await prisma.auditTrail.findFirstOrThrow({ where: { action: 'INSTRUMENT_CREATED', targetId: rows[0].id } });
+    expect(audit.afterValue).toMatchObject({ modbusUnitId: 7, modbusIntervalSec: 45 });
+  });
+
+  it('a value outside its range is a row error saying the range — in the preview and the upload — and only that row fails', async () => {
+    const csv = `Instrument ID,IP address,Slave ID,Read every\n${C('rdx1')},${ip(132)},300,60\n${C('rdx2')},${ip(133)},1,5\n${C('rdx3')},${ip(134)},2,20`;
+    const pv = await preview(csv);
+    expect(pv.json().errors).toEqual([
+      { row: 2, column: 'Slave ID', message: 'Slave ID must be a whole number from 0 to 255.' },
+      { row: 3, column: 'Read every', message: 'Read every must be a whole number of seconds from 10 to 3600.' },
+    ]);
+    const res = await upload(csv);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().errors).toEqual(pv.json().errors);
+    expect(res.json().created.map((c: { code: string }) => c.code)).toEqual([C('rdx3')]);
+    expect(await prisma.instrument.count({ where: { code: { in: [C('rdx1'), C('rdx2')] } } })).toBe(0);
+  });
+
+  it("a Gateway profile's upload refuses a filled Slave ID or Read every cell: not a TCP/IP profile", async () => {
+    const res = await preview(`Instrument ID,Slave ID,Read every\n${C('rdp1')},7,\n${C('rdp2')},,`, {}, sa, pushProfileId);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().create.map((r: { code: string }) => r.code)).toEqual([C('rdp2')]);
+    expect(res.json().errors).toEqual([
+      { row: 2, column: 'Slave ID', message: 'This is not a TCP/IP profile, so "Slave ID" has no meaning here - remove the column from the file.' },
+    ]);
+  });
+
+  it("an existing instrument's change needs the upload's remark and is ONE INSTRUMENT_UPDATED row with it", async () => {
+    const id = await tcp('rdmv', ip(135), 502, { modbusUnitId: 3, modbusIntervalSec: 30 });
+    const csv = `Instrument ID,Slave ID,Read every\n${C('rdmv')},7,45`;
+    const pv = await preview(csv);
+    expect(pv.statusCode, pv.body).toBe(200);
+    expect(pv.json().remarkRequired).toBe(true);
+    // Every inner key DECLARED, or Fastify strips it and the review shows nothing.
+    expect(pv.json().update).toEqual([{
+      id, code: C('rdmv'), row: 2, changes: [],
+      reading: { from: { unitId: 3, intervalSec: 30 }, to: { unitId: 7, intervalSec: 45 } },
+    }]);
+
+    const without = await upload(csv);
+    expect(without.statusCode).toBe(400);
+    expect(without.json().error).toBe('REMARK_REQUIRED');
+    const kept = await prisma.instrument.findUniqueOrThrow({ where: { id } });
+    expect([kept.modbusUnitId, kept.modbusIntervalSec]).toEqual([3, 30]);
+
+    const REMARK = 'Gateway replaced; new slave address per CC-2301';
+    const auditsBefore = await prisma.auditTrail.count({ where: { action: 'INSTRUMENT_UPDATED', targetId: id } });
+    const done = await upload(csv, { reason: REMARK });
+    expect(done.statusCode, done.body).toBe(200);
+    expect(done.json().errors).toEqual([]);
+    expect(done.json().updated).toEqual([{
+      id, code: C('rdmv'), row: 2, changes: [],
+      reading: { from: { unitId: 3, intervalSec: 30 }, to: { unitId: 7, intervalSec: 45 } },
+    }]);
+    const row = await prisma.instrument.findUniqueOrThrow({ where: { id } });
+    expect([row.modbusUnitId, row.modbusIntervalSec, row.modbusHost]).toEqual([7, 45, ip(135)]);
+    expect(await prisma.auditTrail.count({ where: { action: 'INSTRUMENT_UPDATED', targetId: id } })).toBe(auditsBefore + 1);
+    const audit = await prisma.auditTrail.findFirstOrThrow({ where: { action: 'INSTRUMENT_UPDATED', targetId: id }, orderBy: { timestamp: 'desc' } });
+    expect(audit.reason).toBe(REMARK);
+    expect(audit.beforeValue).toMatchObject({ modbusUnitId: 3, modbusIntervalSec: 30 });
+    expect(audit.afterValue).toMatchObject({ modbusUnitId: 7, modbusIntervalSec: 45 });
+    expect(audit.signatureMeaning).toBe(`Instrument "${C('rdmv')}" Slave ID and read interval changed`);
+  });
+
+  it('a blank cell never undoes a change made after the file was checked: only what the file changes is written', async () => {
+    // The file moves the address and sets Slave ID 9, Read every BLANK. Between
+    // its check and its write someone sets Read every to 77 — the blank cell was
+    // planned as the 30 s stored then, and must not write that back.
+    const id = await tcp('race-rd', ip(138), 502, { modbusUnitId: 3, modbusIntervalSec: 30 });
+    STALE.onCheck.set(ip(139), () => prisma.instrument.update({ where: { id }, data: { modbusIntervalSec: 77 } }));
+    try {
+      const res = await upload(`Instrument ID,IP address,Slave ID,Read every
+${C('race-rd')},${ip(139)},9,`, { reason: 'Panel rewired, CC-2303' });
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json().updated[0].reading).toEqual({ from: { unitId: 3, intervalSec: 77 }, to: { unitId: 9, intervalSec: 77 } });
+    } finally {
+      STALE.onCheck.clear();
+    }
+    const row = await prisma.instrument.findUniqueOrThrow({ where: { id } });
+    expect([row.modbusHost, row.modbusUnitId, row.modbusIntervalSec]).toEqual([ip(139), 9, 77]);
+  });
+
+  it('...and a blank Port never undoes a port changed meanwhile (the same rule for the address)', async () => {
+    const id = await tcp('race-port', ip(140), 502);
+    STALE.onCheck.set(ip(141), () => prisma.instrument.update({ where: { id }, data: { modbusPort: 1502 } }));
+    try {
+      const res = await upload(`Instrument ID,IP address,Port
+${C('race-port')},${ip(141)},`, { reason: 'Moved to the new switch, CC-2304' });
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json().updated[0].address).toEqual({ from: { host: ip(140), port: 1502 }, to: { host: ip(141), port: 1502 } });
+    } finally {
+      STALE.onCheck.clear();
+    }
+    const row = await prisma.instrument.findUniqueOrThrow({ where: { id } });
+    expect([row.modbusHost, row.modbusPort]).toEqual([ip(141), 1502]);
+  });
+
+  it('address and Slave ID on one existing row: one record names both; matching cells are unchanged', async () => {
+    const id = await tcp('rdboth', ip(136), 502);
+    const res = await upload(`Instrument ID,IP address,Slave ID,Read every\n${C('rdboth')},${ip(137)},9,60`, { reason: 'Panel rewired, CC-2302' });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().updated).toEqual([{
+      id, code: C('rdboth'), row: 2, changes: [],
+      address: { from: { host: ip(136), port: 502 }, to: { host: ip(137), port: 502 } },
+      reading: { from: { unitId: 1, intervalSec: 60 }, to: { unitId: 9, intervalSec: 60 } },
+    }]);
+    const audit = await prisma.auditTrail.findFirstOrThrow({ where: { action: 'INSTRUMENT_UPDATED', targetId: id }, orderBy: { timestamp: 'desc' } });
+    expect(audit.signatureMeaning).toBe(`Instrument "${C('rdboth')}" TCP/IP address and Slave ID changed`);
+    const again = await preview(`Instrument ID,Slave ID,Read every\n${C('rdboth')},9,60`);
+    expect(again.json().unchanged).toEqual([{ row: 2, code: C('rdboth') }]);
+    expect(again.json().remarkRequired).toBe(false);
+  });
+});
+
 describe('bulk upload - an existing row is all or nothing', () => {
   it('an address change whose attribute step fails is rolled back with it: the row is only an error', async () => {
     const id = await tcp('half', ip(110), 502);
@@ -390,6 +527,19 @@ describe('bulk upload - an address change is signed like the single edit (UPDATE
     expect(signed.statusCode, signed.body).toBe(200);
     expect(signed.json().updated.map((u: { id: string }) => u.id)).toEqual([id]);
     expect(await hostOf(id)).toBe(ip(121));
+  });
+
+  it('a Slave ID or Read every change alone is signed like an address change (CR-1)', async () => {
+    const id = await tcp('sig-rd', ip(128), 502, { functionalLocationId: blockIn });
+    await setPolicy({ UPDATE_INSTRUMENT: [ROLE] });
+    const csv = `Instrument ID,Read every\n${C('sig-rd')},45`;
+    const refused = await upload(csv, { reason: REMARK, functionalLocationId: blockIn }, unsigned());
+    expect(refused.statusCode, refused.body).toBe(401);
+    expect(refused.json()).toMatchObject({ error: 'REAUTH_REQUIRED', action: 'UPDATE_INSTRUMENT' });
+    expect((await prisma.instrument.findUniqueOrThrow({ where: { id } })).modbusIntervalSec).toBe(60);
+    const signed = await upload(csv, { reason: REMARK, functionalLocationId: blockIn, _currentPassword: OP_PW }, unsigned());
+    expect(signed.statusCode, signed.body).toBe(200);
+    expect((await prisma.instrument.findUniqueOrThrow({ where: { id } })).modbusIntervalSec).toBe(45);
   });
 
   it('...is asked only when an address changes: a file that only creates is not', async () => {

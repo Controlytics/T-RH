@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { modbusHostSchema, modbusRegisterMapSchema, MODBUS_CONNECTIONS } from '../types/modbus.js';
+import { modbusHostSchema, modbusRegisterMapSchema, modbusUnitIdSchema, modbusIntervalSchema, MODBUS_CONNECTIONS } from '../types/modbus.js';
 
 /**
  * The seven transport values (four protocol families — http/https, mqtt/mqtts,
@@ -112,6 +112,12 @@ export const createInstrumentSchema = z.object({
   modbusHost: modbusHostSchema.nullish(),
   modbusPort: z.number({ invalid_type_error: 'Port must be a number' }).int('Port must be a whole number').min(1, 'Port must be 1 to 65535').max(65535, 'Port must be 1 to 65535').nullish(),
   modbusRegisters: modbusRegisterMapSchema.nullish(),
+  // The Modbus unit ("Slave") ID and the seconds between reads — the
+  // INSTRUMENT's own since 2026-11-02 (CR-1; they were the profile's). Omitted
+  // or null on a TCP/IP create = 1 and 60 s, written by the API; refused on a
+  // Gateway profile's instrument.
+  modbusUnitId: modbusUnitIdSchema.nullish(),
+  modbusIntervalSec: modbusIntervalSchema.nullish(),
 });
 
 export const updateInstrumentSchema = z.object({
@@ -146,7 +152,14 @@ export const updateInstrumentSchema = z.object({
   modbusHost: modbusHostSchema.nullish(),
   modbusPort: z.number({ invalid_type_error: 'Port must be a number' }).int('Port must be a whole number').min(1, 'Port must be 1 to 65535').max(65535, 'Port must be 1 to 65535').nullish(),
   modbusRegisters: modbusRegisterMapSchema.nullish(),
-  // The remark recorded when a register map / address is changed (2026-10-31).
+  // Slave ID and read interval (CR-1, 2026-11-02). A change on an existing
+  // TCP/IP instrument needs `reason`, as the address does; `null` is refused
+  // there (a TCP/IP instrument always has both) and is the "off" value on a
+  // Gateway profile's instrument.
+  modbusUnitId: modbusUnitIdSchema.nullish(),
+  modbusIntervalSec: modbusIntervalSchema.nullish(),
+  // The remark recorded when a register map / address / Slave ID / read
+  // interval is changed (2026-10-31).
   reason: z.string().max(500).optional(),
 });
 

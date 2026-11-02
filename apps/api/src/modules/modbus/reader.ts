@@ -107,7 +107,11 @@ const INSTRUMENT_SELECT = {
   modbusHost: true,
   modbusPort: true,
   modbusRegisters: true,
-  profile: { select: { isActive: true, connection: true, modbusIntervalSec: true, modbusUnitId: true } },
+  // The Slave ID and read interval are the INSTRUMENT's (CR-1, 2026-11-02); the
+  // profile says only whether it is a TCP/IP one and whether it is enabled.
+  modbusUnitId: true,
+  modbusIntervalSec: true,
+  profile: { select: { isActive: true, connection: true } },
 } satisfies Prisma.InstrumentSelect;
 
 type InstrumentRow = Prisma.InstrumentGetPayload<{ select: typeof INSTRUMENT_SELECT }>;
@@ -120,13 +124,16 @@ const isInt = (v: unknown, min: number, max: number): v is number =>
   typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
 
 /**
- * A STORED unit id this server may send (0..255) and the sentence for one it may
- * not — the Reader's rule, also applied by Test connection (final review F-6), so
- * a hand-edited profile is refused in one wording before it reaches a socket.
+ * A unit (Slave) id this server may send (0..255) — the Reader's rule for the
+ * STORED value (final review F-6), also applied by Test connection to the one it
+ * is sent, so nothing outside the range reaches a socket. The stored value is
+ * the INSTRUMENT's since 2026-11-02 (CR-1).
  */
 export const isSendableUnitId = (v: unknown): v is number => isInt(v, MODBUS_UNIT_ID.min, MODBUS_UNIT_ID.max);
-export const unitIdRefusal = (v: unknown): string =>
-  `The profile's unit ID ${String(v)} is not ${MODBUS_UNIT_ID.min} to ${MODBUS_UNIT_ID.max}.`;
+const unitIdRefusal = (v: unknown): string =>
+  `The instrument's Slave ID ${String(v)} is not ${MODBUS_UNIT_ID.min} to ${MODBUS_UNIT_ID.max}.`;
+/** A STORED read interval the Reader reads at (10..3600 s) — also the status route's rule for an expected count. */
+export const isReadInterval = (v: unknown): v is number => isInt(v, MODBUS_INTERVAL.min, MODBUS_INTERVAL.max);
 
 /**
  * Is this instrument read, and with what? The ONE answer to spec §7.1, used by
@@ -144,9 +151,9 @@ function readTarget(row: InstrumentRow, config: ModbusReaderConfig, opts: { allo
   if (!p.isActive) return { ok: false, code: 'PROFILE_DISABLED', detail: 'The instrument\'s profile is disabled.' };
   if (row.modbusHost === null || row.modbusPort === null) return { ok: false, code: 'NO_ADDRESS', detail: 'The instrument has no IP address or port.' };
   if (!isInt(row.modbusPort, 1, 65535)) return { ok: false, code: 'INVALID_CONFIG', detail: `Stored port ${row.modbusPort} is not 1 to 65535.` };
-  if (!isSendableUnitId(p.modbusUnitId)) return { ok: false, code: 'INVALID_CONFIG', detail: unitIdRefusal(p.modbusUnitId) };
-  if (!isInt(p.modbusIntervalSec, MODBUS_INTERVAL.min, MODBUS_INTERVAL.max)) {
-    return { ok: false, code: 'INVALID_CONFIG', detail: `The profile's read interval ${String(p.modbusIntervalSec)} s is not ${MODBUS_INTERVAL.min} to ${MODBUS_INTERVAL.max} s.` };
+  if (!isSendableUnitId(row.modbusUnitId)) return { ok: false, code: 'INVALID_CONFIG', detail: unitIdRefusal(row.modbusUnitId) };
+  if (!isReadInterval(row.modbusIntervalSec)) {
+    return { ok: false, code: 'INVALID_CONFIG', detail: `The instrument's read interval ${String(row.modbusIntervalSec)} s is not ${MODBUS_INTERVAL.min} to ${MODBUS_INTERVAL.max} s.` };
   }
   const stored = row.modbusRegisters;
   const map = coerceModbusRegisterMap(stored);
@@ -160,7 +167,7 @@ function readTarget(row: InstrumentRow, config: ModbusReaderConfig, opts: { allo
   }
   const address = checkModbusAddressAllowed(row.modbusHost, row.modbusPort, config.deviceNetworks, opts);
   if (!address.ok) return { ok: false, code: 'ADDRESS_NOT_ALLOWED', detail: address.message };
-  return { ok: true, host: row.modbusHost, port: row.modbusPort, unitId: p.modbusUnitId, intervalSec: p.modbusIntervalSec, map };
+  return { ok: true, host: row.modbusHost, port: row.modbusPort, unitId: row.modbusUnitId, intervalSec: row.modbusIntervalSec, map };
 }
 
 /**
@@ -509,22 +516,31 @@ export function createModbusReader(opts: {
 
   /**
    * What the schedule is built from, in one string: the TCP/IP instruments'
-   * count and newest `updated_at`, the TCP/IP profiles' newest `updated_at`,
-   * and the `modbus-reader` row's `updated_at` AND value (`system_config
-   * .updated_at` is a column default, not `@updatedAt`: a write that does not
-   * set it would otherwise go unseen). The count catches a delete, which moves
-   * no max. A successful read moves `instruments.updated_at` (last-seen), so a
-   * rebuild after reads is normal — it keeps every entry's slot unless its
-   * interval changed.
+   * count and newest `updated_at`, a hash of every TCP/IP instrument's Slave ID
+   * and read interval, the TCP/IP profiles' newest `updated_at`, and the
+   * `modbus-reader` row's `updated_at` AND value (`system_config.updated_at` is
+   * a column default, not `@updatedAt`: a write that does not set it would
+   * otherwise go unseen). The count catches a delete, which moves no max. The
+   * hash (CR-1, 2026-11-02 — the two became the instrument's) catches a change
+   * to either that did not go through Prisma, which `updated_at` would miss: they
+   * decide what is read and how often. A successful read moves
+   * `instruments.updated_at` (last-seen), so a rebuild after reads is normal —
+   * it keeps every entry's slot unless its interval changed.
    */
   async function readSignature(): Promise<string> {
-    const [inst, prof, cfg] = await Promise.all([
+    const [inst, reading, prof, cfg] = await Promise.all([
       prisma.instrument.aggregate({ where: { profile: { connection: 'MODBUS_TCP' } }, _count: { _all: true }, _max: { updatedAt: true } }),
+      prisma.$queryRaw<Array<{ h: string | null }>>`
+        SELECT md5(string_agg(
+                 i.id || ':' || coalesce(i.modbus_unit_id::text, '-') || ':' || coalesce(i.modbus_interval_sec::text, '-'),
+                 ',' ORDER BY i.id)) AS h
+          FROM instruments i JOIN instrument_profiles p ON p.id = i.profile_id
+         WHERE p.connection = 'MODBUS_TCP'`,
       prisma.instrumentProfile.aggregate({ where: { connection: 'MODBUS_TCP' }, _count: { _all: true }, _max: { updatedAt: true } }),
       prisma.systemConfig.findUnique({ where: { configKey: MODBUS_READER_CONFIG_KEY }, select: { updatedAt: true, configValue: true } }),
     ]);
     return JSON.stringify([
-      inst._count._all, inst._max.updatedAt?.toISOString() ?? null,
+      inst._count._all, inst._max.updatedAt?.toISOString() ?? null, reading[0]?.h ?? null,
       prof._count._all, prof._max.updatedAt?.toISOString() ?? null,
       cfg ? cfg.updatedAt.toISOString() : null, cfg ? cfg.configValue : null,
     ]);

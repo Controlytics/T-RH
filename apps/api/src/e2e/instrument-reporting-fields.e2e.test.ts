@@ -23,13 +23,15 @@ describe('instrument list and detail: reporting + effectiveExpectedIntervalSec',
     app = await buildApp();
     token = await loginAs(app);
     tcpProfileId = (await prisma.instrumentProfile.create({
-      data: { name: `RPT-TCP-${tag}`, connection: 'MODBUS_TCP', modbusIntervalSec: 60, modbusUnitId: 1 },
+      data: { name: `RPT-TCP-${tag}`, connection: 'MODBUS_TCP' },
     })).id;
     const pushProfileId = await fixtureProfileId('fixture:instrument-reporting-fields');
     const threeMinAgo = new Date(Date.now() - 3 * 60 * 1000);
     const specs = [
-      { key: 'tcp', code: `RPT-TCP-${tag}`, profileId: tcpProfileId, extra: { modbusHost: '10.254.4.1', modbusPort: 502 } },
-      { key: 'tcpOwn', code: `RPT-OWN-${tag}`, profileId: tcpProfileId, extra: { modbusHost: '10.254.4.2', modbusPort: 502, expectedIntervalSec: 600 } },
+      // 45 s is each instrument's OWN read interval (CR-1) — no default, so the
+      // answer cannot come from a constant or from the profile.
+      { key: 'tcp', code: `RPT-TCP-${tag}`, profileId: tcpProfileId, extra: { modbusHost: '10.254.4.1', modbusPort: 502, modbusUnitId: 1, modbusIntervalSec: 45 } },
+      { key: 'tcpOwn', code: `RPT-OWN-${tag}`, profileId: tcpProfileId, extra: { modbusHost: '10.254.4.2', modbusPort: 502, modbusUnitId: 1, modbusIntervalSec: 45, expectedIntervalSec: 600 } },
       { key: 'push', code: `RPT-PUSH-${tag}`, profileId: pushProfileId, extra: {} },
     ];
     for (const sp of specs) {
@@ -54,7 +56,7 @@ describe('instrument list and detail: reporting + effectiveExpectedIntervalSec',
   };
 
   it('DETAIL: a TCP/IP instrument silent 3 min is not reporting and says its read interval', async () => {
-    expect(await detail(ids.tcp)).toMatchObject({ reporting: false, effectiveExpectedIntervalSec: 60 });
+    expect(await detail(ids.tcp)).toMatchObject({ reporting: false, effectiveExpectedIntervalSec: 45 });
   });
 
   it('DETAIL: its own expected interval wins; 3 min is inside 2 x 600 s', async () => {
@@ -70,7 +72,7 @@ describe('instrument list and detail: reporting + effectiveExpectedIntervalSec',
     expect(res.statusCode).toBe(200);
     const rows = (JSON.parse(res.body) as { data: { id: string; reporting: boolean; effectiveExpectedIntervalSec: number | null }[] }).data;
     const by = (id: string) => rows.find((r) => r.id === id)!;
-    expect(by(ids.tcp)).toMatchObject({ reporting: false, effectiveExpectedIntervalSec: 60 });
+    expect(by(ids.tcp)).toMatchObject({ reporting: false, effectiveExpectedIntervalSec: 45 });
     expect(by(ids.tcpOwn)).toMatchObject({ reporting: true, effectiveExpectedIntervalSec: 600 });
     expect(by(ids.push)).toMatchObject({ reporting: true, effectiveExpectedIntervalSec: null });
   });

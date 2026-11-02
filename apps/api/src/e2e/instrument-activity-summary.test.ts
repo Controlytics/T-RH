@@ -189,7 +189,7 @@ describe('TCP/IP instrument reporting follows the read interval', () => {
     app = await buildApp();
     token = await loginAs(app);
     const tcp = await prisma.instrumentProfile.create({
-      data: { name: `ZZ tcp ${tag}`, connection: 'MODBUS_TCP', modbusIntervalSec: 60, modbusUnitId: 1 },
+      data: { name: `ZZ tcp ${tag}`, connection: 'MODBUS_TCP' },
     });
     tcpProfileId = tcp.id;
     const push = await prisma.instrumentProfile.create({ data: { name: `ZZ push ${tag}` } });
@@ -199,7 +199,8 @@ describe('TCP/IP instrument reporting follows the read interval', () => {
     })).id;
     const threeMinAgo = new Date(Date.now() - 3 * 60 * 1000);
     const specs = [
-      { code: `ZZTCP-a-${tag}`, profileId: tcpProfileId, extra: { modbusHost: '10.254.1.1', modbusPort: 502 } },
+      // Its OWN read interval (CR-1, 2026-11-02): 3 min silent is past 2 x 45 s.
+      { code: `ZZTCP-a-${tag}`, profileId: tcpProfileId, extra: { modbusHost: '10.254.1.1', modbusPort: 502, modbusUnitId: 1, modbusIntervalSec: 45 } },
       { code: `ZZTCP-b-${tag}`, profileId: pushProfileId, extra: {} },
     ];
     for (const sp of specs) {

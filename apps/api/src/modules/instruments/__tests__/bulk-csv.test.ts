@@ -283,3 +283,31 @@ describe('parseInstrumentCsv — TCP/IP address columns (Task 11)', () => {
     expect(r.rows[0].modbusPort).toBeUndefined();
   });
 });
+
+describe('parseInstrumentCsv — TCP/IP Slave ID and Read every columns (CR-1, 2026-11-02)', () => {
+  it('reads "Slave ID" and "Read every" raw into the draft and names the headings as the file spells them', () => {
+    const r = parseInstrumentCsv('Instrument ID,IP address,SLAVE id,read EVERY\nT-1,10.0.0.9,7,45\nT-2,10.0.0.10,,', [], { tcpip: true });
+    expect(r.errors).toEqual([]);
+    expect(r.rows[0]).toMatchObject({ code: 'T-1', modbusUnitId: '7', modbusIntervalSec: '45' });
+    expect(r.rows[1].modbusUnitId).toBeUndefined();
+    expect(r.rows[1].modbusIntervalSec).toBeUndefined();
+    expect(r.readingHeadings).toEqual({ unitId: 'SLAVE id', interval: 'read EVERY' });
+    expect(r.warnings).toEqual([]);
+  });
+
+  it("a Gateway profile's file still recognises them (the plan refuses them) rather than ignoring them as unknown", () => {
+    const r = parseInstrumentCsv('Instrument ID,Slave ID,Read every\nT-1,7,45', []);
+    expect(r.rows[0]).toMatchObject({ modbusUnitId: '7', modbusIntervalSec: '45' });
+    expect(r.warnings).toEqual([]);
+  });
+
+  it("a Gateway profile's own attribute called Slave ID stays an attribute; in a TCP/IP upload the column is the Slave ID", () => {
+    const cols = [{ key: 'Slave ID', label: 'Slave ID' }];
+    const push = parseInstrumentCsv('Instrument ID,Slave ID\nT-1,7', cols);
+    expect(push.rows[0].attributes).toEqual({ 'Slave ID': '7' });
+    expect(push.rows[0].modbusUnitId).toBeUndefined();
+    const tcp = parseInstrumentCsv('Instrument ID,Slave ID\nT-1,7', cols, { tcpip: true });
+    expect(tcp.rows[0].modbusUnitId).toBe('7');
+    expect(tcp.rows[0].attributes).toBeUndefined();
+  });
+});

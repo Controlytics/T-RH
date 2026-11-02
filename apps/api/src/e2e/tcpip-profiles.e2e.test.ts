@@ -2,11 +2,16 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp, ADMIN_PASSWORD } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
+import { PROFILE_READING_MOVED_MESSAGE } from '@digilog/shared';
 
 /**
  * TCP/IP (Modbus) instruments, Task 3 — a profile is a Gateway ('PUSH') or a
  * TCP/IP ('MODBUS_TCP') profile. The rules live on the server: the browser
  * never decides what a connection change is allowed to do.
+ *
+ * CR-1 (2026-11-02): the profile ONLY chooses the kind. The Slave ID and the
+ * read interval are each instrument's (tcpip-instrument-reading.e2e.test.ts);
+ * a profile body still carrying them is a 400 on the field, never ignored.
  */
 
 let app: FastifyInstance;
@@ -37,40 +42,32 @@ afterAll(async () => { await cleanup(); await app.close(); });
 beforeEach(cleanup);
 
 describe('POST /api/instrument-profiles — connection', () => {
-  it('creates a TCP/IP profile with the default interval and unit', async () => {
+  it('creates a TCP/IP profile that carries no Slave ID and no read interval', async () => {
     const res = await post({ name: 'TCP Default', connection: 'MODBUS_TCP' });
     expect(res.statusCode).toBe(201);
-    expect(res.json()).toMatchObject({ connection: 'MODBUS_TCP', modbusIntervalSec: 60, modbusUnitId: 1 });
+    expect(res.json()).toMatchObject({ connection: 'MODBUS_TCP' });
+    expect(res.json()).not.toHaveProperty('modbusIntervalSec');
+    expect(res.json()).not.toHaveProperty('modbusUnitId');
   });
 
-  it('keeps an interval and unit that were sent', async () => {
-    const res = await post({ name: 'TCP Custom', connection: 'MODBUS_TCP', modbusIntervalSec: 10, modbusUnitId: 0 });
-    expect(res.statusCode).toBe(201);
-    expect(res.json()).toMatchObject({ modbusIntervalSec: 10, modbusUnitId: 0 });
-  });
-
-  it('creates a Gateway profile with both fields null (and no connection means Gateway)', async () => {
+  it('creates a Gateway profile (and no connection means Gateway)', async () => {
     const a = await post({ name: 'TCP Push', connection: 'PUSH' });
     expect(a.statusCode).toBe(201);
-    expect(a.json()).toMatchObject({ connection: 'PUSH', modbusIntervalSec: null, modbusUnitId: null });
+    expect(a.json()).toMatchObject({ connection: 'PUSH' });
     const b = await post({ name: 'TCP Bare' });
-    expect(b.json()).toMatchObject({ connection: 'PUSH', modbusIntervalSec: null, modbusUnitId: null });
+    expect(b.json()).toMatchObject({ connection: 'PUSH' });
   });
 
-  it.each([[9], [3601]])('refuses an interval of %i', async (n) => {
-    const res = await post({ name: `TCP Bad ${n}`, connection: 'MODBUS_TCP', modbusIntervalSec: n });
+  it.each([
+    ['MODBUS_TCP', 'modbusIntervalSec', 60], ['MODBUS_TCP', 'modbusUnitId', 1],
+    ['MODBUS_TCP', 'modbusIntervalSec', null], ['PUSH', 'modbusUnitId', 3], [undefined, 'modbusIntervalSec', 30],
+  ] as const)('refuses a %s body carrying %s = %s — by name, nothing created', async (connection, field, value) => {
+    const name = `TCP Old ${connection}-${field}-${value}`;
+    const res = await post({ name, ...(connection ? { connection } : {}), [field]: value });
     expect(res.statusCode).toBe(400);
-    expect(await prisma.instrumentProfile.count({ where: { name: `TCP Bad ${n}` } })).toBe(0);
-  });
-
-  it('refuses a unit id of 256', async () => {
-    const res = await post({ name: 'TCP Bad Unit', connection: 'MODBUS_TCP', modbusUnitId: 256 });
-    expect(res.statusCode).toBe(400);
-  });
-
-  it('refuses the Modbus fields on a Gateway profile', async () => {
-    const res = await post({ name: 'TCP Push Fields', connection: 'PUSH', modbusIntervalSec: 30 });
-    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: 'VALIDATION_ERROR' });
+    expect(res.json().details.fieldErrors[field]).toEqual([PROFILE_READING_MOVED_MESSAGE]);
+    expect(await prisma.instrumentProfile.count({ where: { name } })).toBe(0);
   });
 });
 
@@ -82,7 +79,7 @@ describe('PUT /api/instrument-profiles/:id — connection', () => {
     expect(res.statusCode).toBe(409);
     expect(res.json().error).toBe('PROFILE_HAS_INSTRUMENTS');
     const row = await prisma.instrumentProfile.findUniqueOrThrow({ where: { id: p.id } });
-    expect(row).toMatchObject({ connection: 'PUSH', modbusIntervalSec: null, modbusUnitId: null });
+    expect(row.connection).toBe('PUSH');
   });
 
   it('refuses it for an INACTIVE instrument too', async () => {
@@ -91,20 +88,15 @@ describe('PUT /api/instrument-profiles/:id — connection', () => {
     expect((await put(p.id, { connection: 'PUSH' })).json().error).toBe('PROFILE_HAS_INSTRUMENTS');
   });
 
-  it('sets the defaults when an empty Gateway profile becomes TCP/IP, and clears them going back', async () => {
+  it('an empty Gateway profile becomes TCP/IP and back — the connection is all that changes', async () => {
     const p = (await post({ name: 'TCP Switch' })).json();
     const to = await put(p.id, { connection: 'MODBUS_TCP' });
     expect(to.statusCode).toBe(200);
-    expect(to.json()).toMatchObject({ connection: 'MODBUS_TCP', modbusIntervalSec: 60, modbusUnitId: 1 });
+    expect(to.json()).toMatchObject({ connection: 'MODBUS_TCP' });
+    expect(to.json()).not.toHaveProperty('modbusIntervalSec');
     const back = await put(p.id, { connection: 'PUSH' });
     expect(back.statusCode).toBe(200);
-    expect(back.json()).toMatchObject({ connection: 'PUSH', modbusIntervalSec: null, modbusUnitId: null });
-  });
-
-  it('takes the interval and unit sent with the switch', async () => {
-    const p = (await post({ name: 'TCP Switch Vals' })).json();
-    const res = await put(p.id, { connection: 'MODBUS_TCP', modbusIntervalSec: 120, modbusUnitId: 7 });
-    expect(res.json()).toMatchObject({ modbusIntervalSec: 120, modbusUnitId: 7 });
+    expect(back.json()).toMatchObject({ connection: 'PUSH' });
   });
 
   it('allows the SAME connection sent back on a populated profile (a page saving other fields)', async () => {
@@ -114,23 +106,17 @@ describe('PUT /api/instrument-profiles/:id — connection', () => {
     expect(res.statusCode).toBe(200);
   });
 
-  it('changes the interval and unit of a TCP/IP profile, even with instruments', async () => {
-    const p = (await post({ name: 'TCP Tune', connection: 'MODBUS_TCP' })).json();
-    await prisma.instrument.create({ data: { name: 'TCP-D', code: 'TCP-D', profileId: p.id } });
-    const res = await put(p.id, { modbusIntervalSec: 300, modbusUnitId: 5 });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ connection: 'MODBUS_TCP', modbusIntervalSec: 300, modbusUnitId: 5 });
-  });
-
-  it('refuses an interval or unit on a Gateway profile, and a null or out-of-range one on a TCP/IP profile', async () => {
-    const g = (await post({ name: 'TCP Gw' })).json();
-    expect((await put(g.id, { modbusIntervalSec: 30 })).statusCode).toBe(400);
-    expect((await put(g.id, { modbusUnitId: 3 })).statusCode).toBe(400);
-    const m = (await post({ name: 'TCP Mb', connection: 'MODBUS_TCP' })).json();
-    expect((await put(m.id, { modbusIntervalSec: null })).statusCode).toBe(400);
-    expect((await put(m.id, { modbusIntervalSec: 9 })).statusCode).toBe(400);
-    const row = await prisma.instrumentProfile.findUniqueOrThrow({ where: { id: m.id } });
-    expect(row).toMatchObject({ modbusIntervalSec: 60, modbusUnitId: 1 });
+  it.each([
+    ['modbusIntervalSec', 300], ['modbusUnitId', 5], ['modbusIntervalSec', null], ['modbusUnitId', null],
+  ] as const)('refuses %s = %s on a PUT — Gateway or TCP/IP — and writes nothing', async (field, value) => {
+    for (const connection of ['PUSH', 'MODBUS_TCP'] as const) {
+      const p = (await post({ name: `TCP Put ${connection} ${field} ${value}`, connection })).json();
+      const res = await put(p.id, { [field]: value, description: 'changed' });
+      expect(res.statusCode, connection).toBe(400);
+      expect(res.json().details.fieldErrors[field]).toEqual([PROFILE_READING_MOVED_MESSAGE]);
+      const row = await prisma.instrumentProfile.findUniqueOrThrow({ where: { id: p.id } });
+      expect(row.description).toBeNull();
+    }
   });
 
   it('refuses a device-certificate requirement on a TCP/IP profile', async () => {
@@ -155,26 +141,30 @@ describe('PUT /api/instrument-profiles/:id — connection', () => {
     expect(res.json()).toMatchObject({ connection: 'MODBUS_TCP', requireDeviceCertificate: false });
   });
 
-  it('writes the three fields into the INSTRUMENT_PROFILE_UPDATED audit before/after', async () => {
+  it('the INSTRUMENT_PROFILE_UPDATED audit carries the connection, and no Slave ID or read interval', async () => {
     const p = (await post({ name: 'TCP Audit' })).json();
-    expect((await put(p.id, { connection: 'MODBUS_TCP', modbusIntervalSec: 45, modbusUnitId: 9 })).statusCode).toBe(200);
+    expect((await put(p.id, { connection: 'MODBUS_TCP' })).statusCode).toBe(200);
     const row = await prisma.auditTrail.findFirstOrThrow({
       where: { action: 'INSTRUMENT_PROFILE_UPDATED', targetId: p.id }, orderBy: { timestamp: 'desc' },
     });
-    expect(row.beforeValue).toMatchObject({ connection: 'PUSH', modbusIntervalSec: null, modbusUnitId: null });
-    expect(row.afterValue).toMatchObject({ connection: 'MODBUS_TCP', modbusIntervalSec: 45, modbusUnitId: 9 });
+    expect(row.beforeValue).toMatchObject({ connection: 'PUSH' });
+    expect(row.afterValue).toMatchObject({ connection: 'MODBUS_TCP' });
+    expect(row.afterValue).not.toHaveProperty('modbusIntervalSec');
+    expect(row.afterValue).not.toHaveProperty('modbusUnitId');
   });
 
-  it('records the three fields in the INSTRUMENT_PROFILE_CREATED audit', async () => {
+  it('records the connection in the INSTRUMENT_PROFILE_CREATED audit', async () => {
     const p = (await post({ name: 'TCP AuditNew', connection: 'MODBUS_TCP' })).json();
     const row = await prisma.auditTrail.findFirstOrThrow({ where: { action: 'INSTRUMENT_PROFILE_CREATED', targetId: p.id } });
-    expect(row.afterValue).toMatchObject({ connection: 'MODBUS_TCP', modbusIntervalSec: 60, modbusUnitId: 1 });
+    expect(row.afterValue).toMatchObject({ connection: 'MODBUS_TCP' });
+    expect(row.afterValue).not.toHaveProperty('modbusUnitId');
   });
 
-  it('GET returns the fields', async () => {
+  it('GET returns the connection', async () => {
     const p = (await post({ name: 'TCP Get', connection: 'MODBUS_TCP' })).json();
     const res = await app.inject({ method: 'GET', url: '/api/instrument-profiles', headers: auth() });
     const row = res.json().data.find((x: { id: string }) => x.id === p.id);
-    expect(row).toMatchObject({ connection: 'MODBUS_TCP', modbusIntervalSec: 60, modbusUnitId: 1 });
+    expect(row).toMatchObject({ connection: 'MODBUS_TCP' });
+    expect(row).not.toHaveProperty('modbusIntervalSec');
   });
 });

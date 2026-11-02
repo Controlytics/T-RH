@@ -187,19 +187,69 @@ describe('planBulkUpload — TCP/IP profiles', () => {
     return planBulkUpload({
       rows: parsed.rows, rowNumbers: parsed.rowNumbers, codeHeading: parsed.codeHeading,
       headings: parsed.headings, identityColumns: parsed.identityColumns,
-      addressHeadings: parsed.addressHeadings, connection: 'MODBUS_TCP',
+      addressHeadings: parsed.addressHeadings, readingHeadings: parsed.readingHeadings, connection: 'MODBUS_TCP',
       profileId: PROFILE,
       existing: new Map(instruments.map((i) => [i.code.toLowerCase(), i])),
       isOffset: () => false, mayUpdate: true, accessRefusal: () => null,
       ...over,
     });
   };
-  const stored = (over: Partial<ExistingInstrument> = {}) => existing({ modbusHost: '10.0.0.5', modbusPort: 502, ...over });
+  const stored = (over: Partial<ExistingInstrument> = {}) => existing({ modbusHost: '10.0.0.5', modbusPort: 502, modbusUnitId: 3, modbusIntervalSec: 30, ...over });
 
-  it('a row with an IP address and a port is a create carrying its address', () => {
+  it('a row with an IP address and a port is a create carrying its address, Slave ID 1 and read every 60 s (CR-1 defaults)', () => {
     const r = tcpPlan('Instrument ID,IP address,Port\nT-1,10.0.0.9,1502');
     expect(r.errors).toEqual([]);
-    expect(r.plans).toEqual([{ kind: 'create', index: 0, row: 2, code: 'T-1', modbusHost: '10.0.0.9', modbusPort: 1502 }]);
+    expect(r.plans).toEqual([{ kind: 'create', index: 0, row: 2, code: 'T-1', modbusHost: '10.0.0.9', modbusPort: 1502, modbusUnitId: 1, modbusIntervalSec: 60 }]);
+  });
+
+  it('a create row takes its own "Slave ID" and "Read every" cells (CR-1)', () => {
+    const r = tcpPlan('Instrument ID,IP address,Slave ID,Read every\nT-1,10.0.0.9,7,45\nT-2,10.0.0.10,,');
+    expect(r.errors).toEqual([]);
+    expect(r.plans[0]).toMatchObject({ kind: 'create', modbusUnitId: 7, modbusIntervalSec: 45 });
+    expect(r.plans[1]).toMatchObject({ kind: 'create', modbusUnitId: 1, modbusIntervalSec: 60 });
+  });
+
+  it('a Slave ID or Read every outside its range is a row error saying the range, naming the cell as the file spells it', () => {
+    const r = tcpPlan('Instrument ID,IP address,slave id,READ EVERY\nT-1,10.0.0.9,256,60\nT-2,10.0.0.10,1,9\nT-3,10.0.0.11,x,60\nT-4,10.0.0.12,1,3601\nT-5,10.0.0.13,1.5,60\nT-6,10.0.0.14,0,3600');
+    expect(r.plans.map((p) => p.code)).toEqual(['T-6']);
+    expect(r.errors).toEqual([
+      { row: 2, column: 'slave id', message: 'Slave ID must be a whole number from 0 to 255.' },
+      { row: 3, column: 'READ EVERY', message: 'Read every must be a whole number of seconds from 10 to 3600.' },
+      { row: 4, column: 'slave id', message: 'Slave ID must be a whole number from 0 to 255.' },
+      { row: 5, column: 'READ EVERY', message: 'Read every must be a whole number of seconds from 10 to 3600.' },
+      { row: 6, column: 'slave id', message: 'Slave ID must be a whole number from 0 to 255.' },
+    ]);
+  });
+
+  it("an existing instrument's Slave ID / Read every change is an update carrying what it replaces, and needs the remark", () => {
+    const r = tcpPlan('Instrument ID,Slave ID,Read every\nCWH/RDU/001-00,7,', {}, [stored()]);
+    expect(r.errors).toEqual([]);
+    expect(r.plans).toEqual([{
+      kind: 'update', index: 0, row: 2, id: 'i-1', code: 'CWH/RDU/001-00', changes: [],
+      // A blank Read every keeps the stored 30 s.
+      reading: { from: { unitId: 3, intervalSec: 30 }, to: { unitId: 7, intervalSec: 30 } },
+    }]);
+    expect(remarkRequired(r.plans)).toBe(true);
+  });
+
+  it('matching or blank Slave ID / Read every cells are no change', () => {
+    expect(tcpPlan('Instrument ID,Slave ID,Read every\nCWH/RDU/001-00,3,30', {}, [stored()]).plans.map((p) => p.kind)).toEqual(['unchanged']);
+    expect(tcpPlan('Instrument ID,Slave ID,Read every\nCWH/RDU/001-00,,', {}, [stored()]).plans.map((p) => p.kind)).toEqual(['unchanged']);
+  });
+
+  it('a Slave ID / Read every change needs Instrument Update, like an address change', () => {
+    const r = tcpPlan('Instrument ID,Read every\nCWH/RDU/001-00,45', { mayUpdate: false }, [stored()]);
+    expect(r.plans).toEqual([]);
+    expect(r.errors[0].message).toMatch(/may not change instruments/i);
+  });
+
+  it('address and reading change on one row travel together in one update', () => {
+    const r = tcpPlan('Instrument ID,IP address,Slave ID\nCWH/RDU/001-00,10.0.0.7,9', {}, [stored()]);
+    expect(r.plans[0]).toMatchObject({
+      kind: 'update',
+      address: { from: { host: '10.0.0.5', port: 502 }, to: { host: '10.0.0.7', port: 502 } },
+      reading: { from: { unitId: 3, intervalSec: 30 }, to: { unitId: 9, intervalSec: 30 } },
+    });
   });
 
   it('a blank port is 502', () => {
@@ -253,6 +303,20 @@ describe('planBulkUpload — TCP/IP profiles', () => {
     expect(r.plans.map((p) => p.code)).toEqual(['P-2']);
     expect(r.errors.map((e) => [e.row, e.column])).toEqual([[2, 'IP address'], [2, 'Port']]);
     expect(r.errors[0].message).toMatch(/not a TCP\/IP profile/i);
+  });
+
+  it("a PUSH profile's upload refuses a filled Slave ID or Read every cell: not a TCP/IP profile (CR-1)", () => {
+    const parsed = parseInstrumentCsv('Instrument ID,Slave ID,Read every\nP-1,7,\nP-2,,45\nP-3,,\n', COLUMNS);
+    const r = planBulkUpload({
+      rows: parsed.rows, rowNumbers: parsed.rowNumbers, codeHeading: parsed.codeHeading,
+      headings: parsed.headings, identityColumns: parsed.identityColumns, readingHeadings: parsed.readingHeadings,
+      connection: 'PUSH', profileId: PROFILE, existing: new Map(), isOffset: () => false, mayUpdate: true, accessRefusal: () => null,
+    });
+    expect(r.plans.map((p) => p.code)).toEqual(['P-3']);
+    expect(r.errors).toEqual([
+      { row: 2, column: 'Slave ID', message: 'This is not a TCP/IP profile, so "Slave ID" has no meaning here - remove the column from the file.' },
+      { row: 3, column: 'Read every', message: 'This is not a TCP/IP profile, so "Read every" has no meaning here - remove the column from the file.' },
+    ]);
   });
 
   it("an existing instrument's new address is an update carrying what it replaces", () => {

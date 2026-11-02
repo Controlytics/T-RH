@@ -4,9 +4,12 @@ import {
   MODBUS_MAX_REGISTERS_PER_REQUEST, DEVICE_NETWORKS_DEFAULT, PAYLOAD_META_KEYS,
   parseModiconRef, registersFor, modbusRegisterMapSchema, coerceModbusRegisterMap,
   modbusHostSchema, parseDeviceNetworks, ipInNetworks, fromDesktopKeysFile,
+  modbusUnitIdSchema, modbusIntervalSchema, MODBUS_UNIT_ID_MESSAGE, MODBUS_INTERVAL_MESSAGE,
 } from '../modbus.js';
 import { effectiveExpectedIntervalSec } from '../../schemas/config.js';
-import { createInstrumentProfileSchema, updateInstrumentProfileSchema } from '../../schemas/instrument-profiles.js';
+import {
+  createInstrumentProfileSchema, updateInstrumentProfileSchema, PROFILE_READING_MOVED_MESSAGE,
+} from '../../schemas/instrument-profiles.js';
 import { createInstrumentSchema, updateInstrumentSchema, bulkCreateInstrumentsSchema } from '../../schemas/instruments.js';
 
 const SIX_KEYS = [
@@ -176,41 +179,43 @@ describe('fromDesktopKeysFile', () => {
 });
 
 describe('effectiveExpectedIntervalSec', () => {
-  it('resolves', () => {
-    expect(effectiveExpectedIntervalSec({ expectedIntervalSec: null }, { connection: 'MODBUS_TCP', modbusIntervalSec: 60 })).toBe(60);
-    expect(effectiveExpectedIntervalSec({ expectedIntervalSec: 300 }, { connection: 'MODBUS_TCP', modbusIntervalSec: 60 })).toBe(300);
-    expect(effectiveExpectedIntervalSec({ expectedIntervalSec: null }, { connection: 'PUSH', modbusIntervalSec: null })).toBeNull();
-    expect(effectiveExpectedIntervalSec({ expectedIntervalSec: 120 }, { connection: 'PUSH', modbusIntervalSec: null })).toBe(120);
+  // CR-1 (2026-11-02): the read interval is the INSTRUMENT's; the profile is
+  // asked only for its connection. 45 is no default, so a hard-coded 60 fails.
+  it('a TCP/IP instrument with no own expected interval is expected at its OWN read interval', () => {
+    expect(effectiveExpectedIntervalSec({ expectedIntervalSec: null, modbusIntervalSec: 45 }, { connection: 'MODBUS_TCP' })).toBe(45);
+  });
+  it('the instrument\'s own expected interval wins', () => {
+    expect(effectiveExpectedIntervalSec({ expectedIntervalSec: 300, modbusIntervalSec: 45 }, { connection: 'MODBUS_TCP' })).toBe(300);
+    expect(effectiveExpectedIntervalSec({ expectedIntervalSec: 120, modbusIntervalSec: null }, { connection: 'PUSH' })).toBe(120);
+  });
+  it('a Gateway instrument with no expected interval is exempt, whatever a read-interval column holds', () => {
+    expect(effectiveExpectedIntervalSec({ expectedIntervalSec: null, modbusIntervalSec: null }, { connection: 'PUSH' })).toBeNull();
+    expect(effectiveExpectedIntervalSec({ expectedIntervalSec: null, modbusIntervalSec: 45 }, { connection: 'PUSH' })).toBeNull();
+  });
+  it('a TCP/IP instrument with no read interval stored (a hand-edited row) is exempt, never 0 or a default', () => {
+    expect(effectiveExpectedIntervalSec({ expectedIntervalSec: null, modbusIntervalSec: null }, { connection: 'MODBUS_TCP' })).toBeNull();
   });
 });
 
-describe('profile schemas', () => {
-  it('a MODBUS_TCP create defaults interval 60 and unit 1', () => {
+describe('profile schemas — the profile only chooses Gateway or TCP/IP (CR-1)', () => {
+  it('a MODBUS_TCP create carries no Slave ID and no read interval', () => {
     const r = createInstrumentProfileSchema.parse({ name: 'P', connection: 'MODBUS_TCP' });
-    expect(r.modbusIntervalSec).toBe(60);
-    expect(r.modbusUnitId).toBe(1);
+    expect(r).toEqual({ name: 'P', connection: 'MODBUS_TCP', isActive: true });
   });
-  it('a PUSH create carries neither field and refuses them', () => {
-    const r = createInstrumentProfileSchema.parse({ name: 'P' });
-    expect(r.modbusIntervalSec ?? null).toBeNull();
-    expect(createInstrumentProfileSchema.safeParse({ name: 'P', connection: 'PUSH', modbusIntervalSec: 60 }).success).toBe(false);
-    expect(createInstrumentProfileSchema.safeParse({ name: 'P', modbusUnitId: 1 }).success).toBe(false);
-    expect(createInstrumentProfileSchema.safeParse({ name: 'P', connection: 'PUSH', modbusIntervalSec: null, modbusUnitId: null }).success).toBe(true);
+  it('a body still carrying either old field is REFUSED on that field, by name — any value, null included', () => {
+    for (const schema of [createInstrumentProfileSchema, updateInstrumentProfileSchema]) {
+      for (const connection of ['MODBUS_TCP', 'PUSH', undefined]) {
+        for (const [field, value] of [['modbusIntervalSec', 60], ['modbusUnitId', 1], ['modbusIntervalSec', null], ['modbusUnitId', null]] as const) {
+          const r = schema.safeParse({ name: 'P', ...(connection ? { connection } : {}), [field]: value });
+          expect(r.success, `${field}=${value} on ${connection}`).toBe(false);
+          if (!r.success) expect(r.error.flatten().fieldErrors[field]).toEqual([PROFILE_READING_MOVED_MESSAGE]);
+        }
+      }
+    }
   });
-  it('bounds', () => {
-    for (const modbusIntervalSec of [9, 3601, 1.5]) {
-      expect(createInstrumentProfileSchema.safeParse({ name: 'P', connection: 'MODBUS_TCP', modbusIntervalSec }).success).toBe(false);
-    }
-    for (const modbusUnitId of [-1, 256]) {
-      expect(createInstrumentProfileSchema.safeParse({ name: 'P', connection: 'MODBUS_TCP', modbusUnitId }).success).toBe(false);
-    }
-    expect(createInstrumentProfileSchema.safeParse({ name: 'P', connection: 'MODBUS_TCP', modbusIntervalSec: 10, modbusUnitId: 0 }).success).toBe(true);
+  it('a connection is still validated', () => {
     expect(createInstrumentProfileSchema.safeParse({ name: 'P', connection: 'SMOKE' }).success).toBe(false);
-  });
-  it('update accepts the fields', () => {
-    expect(updateInstrumentProfileSchema.safeParse({ modbusIntervalSec: 30, modbusUnitId: 2 }).success).toBe(true);
-    expect(updateInstrumentProfileSchema.safeParse({ modbusIntervalSec: 5 }).success).toBe(false);
-    expect(updateInstrumentProfileSchema.safeParse({ connection: 'PUSH', modbusIntervalSec: 30 }).success).toBe(false);
+    expect(updateInstrumentProfileSchema.safeParse({ connection: 'PUSH' }).success).toBe(true);
   });
 });
 
@@ -230,6 +235,31 @@ describe('instrument schemas', () => {
     expect(updateInstrumentSchema.safeParse({ modbusHost: null, modbusPort: null, modbusRegisters: null, reason: 'moved' }).success).toBe(true);
     expect(updateInstrumentSchema.safeParse({ modbusHost: '10.0.0.5', modbusPort: 1502 }).success).toBe(true);
     expect(updateInstrumentSchema.safeParse({ reason: 'x'.repeat(501) }).success).toBe(false);
+  });
+  it('Slave ID (0..255) and read interval (10..3600 s) are the INSTRUMENT\'s, on create and update (CR-1)', () => {
+    for (const schema of [createInstrumentSchema, updateInstrumentSchema]) {
+      const ok = schema.safeParse({ ...base, modbusUnitId: 7, modbusIntervalSec: 45 });
+      expect(ok.success).toBe(true);
+      if (ok.success) expect([ok.data.modbusUnitId, ok.data.modbusIntervalSec]).toEqual([7, 45]);
+      for (const modbusUnitId of [0, 255, null]) expect(schema.safeParse({ ...base, modbusUnitId }).success, String(modbusUnitId)).toBe(true);
+      for (const modbusIntervalSec of [10, 3600, null]) expect(schema.safeParse({ ...base, modbusIntervalSec }).success, String(modbusIntervalSec)).toBe(true);
+      for (const modbusUnitId of [-1, 256, 1.5, '7']) {
+        const r = schema.safeParse({ ...base, modbusUnitId });
+        expect(r.success, String(modbusUnitId)).toBe(false);
+        if (!r.success) expect(r.error.flatten().fieldErrors.modbusUnitId).toEqual([MODBUS_UNIT_ID_MESSAGE]);
+      }
+      for (const modbusIntervalSec of [9, 3601, 1.5, '60']) {
+        const r = schema.safeParse({ ...base, modbusIntervalSec });
+        expect(r.success, String(modbusIntervalSec)).toBe(false);
+        if (!r.success) expect(r.error.flatten().fieldErrors.modbusIntervalSec).toEqual([MODBUS_INTERVAL_MESSAGE]);
+      }
+    }
+  });
+  it('the field schemas say the range in one sentence each', () => {
+    expect(MODBUS_UNIT_ID_MESSAGE).toBe('Slave ID must be a whole number from 0 to 255.');
+    expect(MODBUS_INTERVAL_MESSAGE).toBe('Read every must be a whole number of seconds from 10 to 3600.');
+    expect(modbusUnitIdSchema.safeParse(7).success).toBe(true);
+    expect(modbusIntervalSchema.safeParse(45).success).toBe(true);
   });
   it('bulk takes copyRegisterMapFrom uuid', () => {
     const b = { csv: 'a', profileId: base.profileId };

@@ -240,7 +240,7 @@ describe('a TCP/IP (Modbus) instrument', () => {
   const tcpUrl = () => `/api/instruments/${tcpId}/device-certificate`;
   beforeAll(async () => {
     tcpProfileId = (await prisma.instrumentProfile.create({
-      data: { name: `fixture:devcert-tcpip-${s}`, connection: 'MODBUS_TCP', modbusIntervalSec: 60, modbusUnitId: 1 },
+      data: { name: `fixture:devcert-tcpip-${s}`, connection: 'MODBUS_TCP' },
     })).id;
     tcpId = (await prisma.instrument.create({ data: { name: `DCR-TCP-${s}`, code: `DCR-TCP-${s}`, profileId: tcpProfileId } })).id;
   });

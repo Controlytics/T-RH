@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { Prisma } from '@prisma/client';
-import { DEVICE_NETWORKS_DEFAULT } from '@digilog/shared';
+import { DEVICE_NETWORKS_DEFAULT, MODBUS_UNIT_ID_MESSAGE, MODBUS_INTERVAL_MESSAGE } from '@digilog/shared';
 import { buildApp, loginAs } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 import { hashPassword } from '../lib/password.js';
@@ -103,8 +103,8 @@ beforeAll(async () => {
   await prisma.roleConfig.create({ data: { role: ROLE, instrumentScope: { locationIds: [blockIn], instrumentIds: [] } as never } });
 
   pushProfileId = (await prisma.instrumentProfile.create({ data: { name: `TCPI Push ${s}` } })).id;
-  tcpProfileId = (await prisma.instrumentProfile.create({ data: { name: `TCPI Modbus ${s}`, connection: 'MODBUS_TCP', modbusIntervalSec: 60, modbusUnitId: 1 } })).id;
-  tcpProfile2Id = (await prisma.instrumentProfile.create({ data: { name: `TCPI Modbus2 ${s}`, connection: 'MODBUS_TCP', modbusIntervalSec: 30, modbusUnitId: 2 } })).id;
+  tcpProfileId = (await prisma.instrumentProfile.create({ data: { name: `TCPI Modbus ${s}`, connection: 'MODBUS_TCP' } })).id;
+  tcpProfile2Id = (await prisma.instrumentProfile.create({ data: { name: `TCPI Modbus2 ${s}`, connection: 'MODBUS_TCP' } })).id;
 
   sa = { authorization: `Bearer ${await loginAs(app, SA_NAME, SA_PW)}`, 'x-reauth-password': SA_PW };
   op = { authorization: `Bearer ${await loginAs(app, OP_NAME, OP_PW)}`, 'x-reauth-password': OP_PW };
@@ -220,6 +220,42 @@ describe('POST /api/instruments — a TCP/IP profile', () => {
     expect(audit.signatureMeaning).not.toContain('token');
   });
 
+  it('an omitted Slave ID and read interval are stored as 1 and 60 s — on the row, the response and the record (CR-1)', async () => {
+    const res = await create(sa, { name: C('dflt'), code: C('dflt'), profileId: tcpProfileId, modbusHost: '192.168.77.15', modbusPort: 502 });
+    expect(res.statusCode, res.body).toBe(201);
+    // Both DECLARED on the response, or Fastify strips them.
+    expect(res.json()).toMatchObject({ modbusUnitId: 1, modbusIntervalSec: 60 });
+    const row = await prisma.instrument.findUniqueOrThrow({ where: { id: res.json().id } });
+    expect([row.modbusUnitId, row.modbusIntervalSec]).toEqual([1, 60]);
+    const audit = await prisma.auditTrail.findFirstOrThrow({ where: { targetId: row.id, action: 'INSTRUMENT_CREATED' } });
+    expect(audit.afterValue).toMatchObject({ modbusUnitId: 1, modbusIntervalSec: 60 });
+    // null is "not given" too.
+    const nul = await create(sa, { name: C('dflt-null'), code: C('dflt-null'), profileId: tcpProfileId, modbusHost: '192.168.77.16', modbusPort: 502, modbusUnitId: null, modbusIntervalSec: null });
+    expect(nul.statusCode, nul.body).toBe(201);
+    expect(nul.json()).toMatchObject({ modbusUnitId: 1, modbusIntervalSec: 60 });
+  });
+
+  it('a Slave ID and read interval that were sent are the instrument\'s own — two instruments of ONE profile differ (CR-1)', async () => {
+    const a = await create(sa, { name: C('own-a'), code: C('own-a'), profileId: tcpProfileId, modbusHost: '192.168.77.17', modbusPort: 502, modbusUnitId: 7, modbusIntervalSec: 45 });
+    const b = await create(sa, { name: C('own-b'), code: C('own-b'), profileId: tcpProfileId, modbusHost: '192.168.77.18', modbusPort: 502, modbusUnitId: 0, modbusIntervalSec: 3600 });
+    expect(a.statusCode, a.body).toBe(201);
+    expect(b.statusCode, b.body).toBe(201);
+    expect(a.json()).toMatchObject({ modbusUnitId: 7, modbusIntervalSec: 45 });
+    expect(b.json()).toMatchObject({ modbusUnitId: 0, modbusIntervalSec: 3600 });
+    expect(await prisma.instrument.findUniqueOrThrow({ where: { id: a.json().id }, select: { modbusUnitId: true, modbusIntervalSec: true } }))
+      .toEqual({ modbusUnitId: 7, modbusIntervalSec: 45 });
+  });
+
+  it.each([
+    ['modbusUnitId', 256, MODBUS_UNIT_ID_MESSAGE], ['modbusUnitId', -1, MODBUS_UNIT_ID_MESSAGE],
+    ['modbusIntervalSec', 9, MODBUS_INTERVAL_MESSAGE], ['modbusIntervalSec', 3601, MODBUS_INTERVAL_MESSAGE],
+  ] as const)('refuses %s = %s with the field\'s one sentence, and creates nothing', async (field, value, message) => {
+    const res = await create(sa, { name: C('range'), code: C('range'), profileId: tcpProfileId, modbusHost: '192.168.77.19', modbusPort: 502, [field]: value });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().details.fieldErrors[field]).toEqual([message]);
+    expect(await prisma.instrument.count({ where: { code: C('range') } })).toBe(0);
+  });
+
   it('an omitted map is stored as an empty map (an instrument not read until it has one)', async () => {
     const res = await create(sa, { name: C('nomap'), code: C('nomap'), profileId: tcpProfileId, modbusHost: '192.168.77.11', modbusPort: 502 });
     expect(res.statusCode, res.body).toBe(201);
@@ -301,6 +337,9 @@ describe('POST /api/instruments — a Gateway (PUSH) profile', () => {
     ['modbusHost', { modbusHost: '192.168.77.30' }],
     ['modbusPort', { modbusPort: 502 }],
     ['modbusRegisters', { modbusRegisters: [] }],
+    // CR-1 (2026-11-02): the Slave ID and read interval are TCP/IP-only too.
+    ['modbusUnitId', { modbusUnitId: 1 }],
+    ['modbusIntervalSec', { modbusIntervalSec: 60 }],
   ])('refuses %s (NOT_A_TCPIP_PROFILE)', async (_f, extra) => {
     const res = await create(sa, { name: C('push-x'), code: C('push-x'), profileId: pushProfileId, ...extra });
     expect(res.statusCode, res.body).toBe(400);
@@ -312,7 +351,7 @@ describe('POST /api/instruments — a Gateway (PUSH) profile', () => {
     const res = await create(sa, { name: C('push-ok'), code: C('push-ok'), profileId: pushProfileId });
     expect(res.statusCode, res.body).toBe(201);
     expect(typeof res.json().token).toBe('string');
-    expect(res.json()).toMatchObject({ connection: 'PUSH', modbusHost: null, modbusPort: null, modbusRegisters: null });
+    expect(res.json()).toMatchObject({ connection: 'PUSH', modbusHost: null, modbusPort: null, modbusRegisters: null, modbusUnitId: null, modbusIntervalSec: null });
   });
 });
 
@@ -383,6 +422,56 @@ describe('PUT /api/instruments/:id — a TCP/IP instrument', () => {
     expect(audit.reason).toBe('register map from the vendor sheet');
   });
 
+  it('a Slave ID or read interval change needs a reason, by any Instrument Update role, and is audited with it (CR-1)', async () => {
+    const id = await tcp('rd', '192.168.77.58', 502, { functionalLocationId: blockIn, modbusUnitId: 3, modbusIntervalSec: 30 });
+    for (const [field, to] of [['modbusUnitId', 7], ['modbusIntervalSec', 45]] as const) {
+      const bare = await put(op, id, { [field]: to });
+      expect(bare.statusCode, field).toBe(400);
+      expect(bare.json().error).toBe('REASON_REQUIRED');
+      expect(bare.json().message).toContain(field === 'modbusUnitId' ? 'Slave ID' : 'read interval');
+    }
+    expect(await prisma.instrument.findUniqueOrThrow({ where: { id }, select: { modbusUnitId: true, modbusIntervalSec: true } }))
+      .toEqual({ modbusUnitId: 3, modbusIntervalSec: 30 });
+
+    // Not super-admin only (ruling CR1-3: the address's governance) — the role holds INSTRUMENT_UPDATE.
+    const ok = await put(op, id, { modbusUnitId: 7, modbusIntervalSec: 45, reason: 'slave moved to unit 7, read faster' });
+    expect(ok.statusCode, ok.body).toBe(200);
+    expect(ok.json()).toMatchObject({ modbusUnitId: 7, modbusIntervalSec: 45, effectiveExpectedIntervalSec: 45 });
+    const audit = await prisma.auditTrail.findFirstOrThrow({ where: { targetId: id, action: 'INSTRUMENT_UPDATED' }, orderBy: { timestamp: 'desc' } });
+    expect(audit.beforeValue).toMatchObject({ modbusUnitId: 3, modbusIntervalSec: 30 });
+    expect(audit.afterValue).toMatchObject({ modbusUnitId: 7, modbusIntervalSec: 45 });
+    expect(audit.reason).toBe('slave moved to unit 7, read faster');
+    expect(audit.signatureMeaning).toBe(`Instrument "${C('rd')}" Slave ID and read interval changed`);
+  });
+
+  it('one PUT changing the address, map, Slave ID and read interval names all four in one record', async () => {
+    const id = await tcp('all4', '192.168.77.59', 502);
+    const res = await put(sa, id, { modbusHost: '192.168.77.61', modbusRegisters: MAP2, modbusUnitId: 9, modbusIntervalSec: 120, reason: 'panel rebuilt' });
+    expect(res.statusCode, res.body).toBe(200);
+    const audit = await prisma.auditTrail.findFirstOrThrow({ where: { targetId: id, action: 'INSTRUMENT_UPDATED' }, orderBy: { timestamp: 'desc' } });
+    expect(audit.signatureMeaning).toBe(`Instrument "${C('all4')}" TCP/IP address, register map, Slave ID and read interval changed`);
+  });
+
+  it('the stored Slave ID and read interval sent back are no change; null is refused and nothing is written', async () => {
+    const id = await tcp('rd-same', '192.168.77.62', 502, { modbusUnitId: 4, modbusIntervalSec: 20 });
+    const same = await put(sa, id, { modbusUnitId: 4, modbusIntervalSec: 20, description: 'whole-form save' });
+    expect(same.statusCode, same.body).toBe(200);
+    const audit = await prisma.auditTrail.findFirstOrThrow({ where: { targetId: id, action: 'INSTRUMENT_UPDATED' }, orderBy: { timestamp: 'desc' } });
+    expect(audit.reason).toBeNull();
+    expect(audit.signatureMeaning).toBe(`Instrument "${C('rd-same')}" updated`);
+    for (const field of ['modbusUnitId', 'modbusIntervalSec'] as const) {
+      const cleared = await put(sa, id, { [field]: null, reason: 'clearing' });
+      expect(cleared.statusCode, field).toBe(400);
+      expect(cleared.json().error).toBe('VALIDATION_ERROR');
+      expect(cleared.json().details.fieldErrors[field][0]).toBeTruthy();
+    }
+    const out = await put(sa, id, { modbusIntervalSec: 5, reason: 'too fast' });
+    expect(out.statusCode).toBe(400);
+    expect(out.json().details.fieldErrors.modbusIntervalSec).toEqual([MODBUS_INTERVAL_MESSAGE]);
+    expect(await prisma.instrument.findUniqueOrThrow({ where: { id }, select: { modbusUnitId: true, modbusIntervalSec: true } }))
+      .toEqual({ modbusUnitId: 4, modbusIntervalSec: 20 });
+  });
+
   it('refuses an address in use, a refused address, and clearing the address', async () => {
     await tcp('busy', '192.168.77.54', 502);
     const id = await tcp('mover', '192.168.77.55', 502);
@@ -432,6 +521,19 @@ describe('PUT /api/instruments/:id — a Gateway (PUSH) instrument', () => {
     const withReason = await put(sa, id, { description: 'note', reason: 'housekeeping', modbusHost: null });
     expect(withReason.statusCode, withReason.body).toBe(200);
   });
+
+  it('refuses a Slave ID or read interval (NOT_A_TCPIP_PROFILE); their "off" value null is accepted (CR-1)', async () => {
+    const id = await pushInstrument('push-rd');
+    for (const extra of [{ modbusUnitId: 1 }, { modbusIntervalSec: 60 }]) {
+      const res = await put(sa, id, extra);
+      expect(res.statusCode, JSON.stringify(extra)).toBe(400);
+      expect(res.json().error).toBe('NOT_A_TCPIP_PROFILE');
+    }
+    const off = await put(sa, id, { modbusUnitId: null, modbusIntervalSec: null, description: 'whole-form save' });
+    expect(off.statusCode, off.body).toBe(200);
+    expect(await prisma.instrument.findUniqueOrThrow({ where: { id }, select: { modbusUnitId: true, modbusIntervalSec: true } }))
+      .toEqual({ modbusUnitId: null, modbusIntervalSec: null });
+  });
 });
 
 describe('reading TCP/IP instruments back', () => {
@@ -473,11 +575,13 @@ describe('reading TCP/IP instruments back', () => {
     expect(link.json().error).toBe('NOT_FOR_TCPIP');
   });
 
-  it('GET /:id returns the address, the port and the whole map', async () => {
-    const id = await tcp('detail', '192.168.77.72', 1502);
+  it('GET /:id returns the address, the port, the Slave ID, the read interval and the whole map', async () => {
+    const id = await tcp('detail', '192.168.77.72', 1502, { modbusUnitId: 12, modbusIntervalSec: 90 });
     const res = await app.inject({ method: 'GET', url: `/api/instruments/${id}`, headers: sa });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ modbusHost: '192.168.77.72', modbusPort: 1502, connection: 'MODBUS_TCP' });
+    expect(res.json()).toMatchObject({ modbusHost: '192.168.77.72', modbusPort: 1502, connection: 'MODBUS_TCP', modbusUnitId: 12, modbusIntervalSec: 90 });
+    // The server's reporting verdict judges a TCP/IP instrument by ITS OWN interval.
+    expect(res.json().effectiveExpectedIntervalSec).toBe(90);
     expect(res.json().modbusRegisters).toEqual(MAP);
   });
 });
@@ -516,7 +620,7 @@ describe('a connection change and an instrument create serialise on the profile 
     // A profile PUT mid-flight: row locked, switched to TCP/IP, not committed.
     const held = await holdOpen(async (t) => {
       await t.$queryRaw`SELECT id FROM instrument_profiles WHERE id = ${p} FOR UPDATE`;
-      await t.instrumentProfile.update({ where: { id: p }, data: { connection: 'MODBUS_TCP', modbusIntervalSec: 60, modbusUnitId: 1 } });
+      await t.instrumentProfile.update({ where: { id: p }, data: { connection: 'MODBUS_TCP' } });
     });
     const pending = create(sa, { name: C('race'), code: C('race'), profileId: p });
     await settle();

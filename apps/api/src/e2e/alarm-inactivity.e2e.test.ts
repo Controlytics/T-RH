@@ -47,8 +47,8 @@ let activityBefore: { value: unknown; existed: boolean } = { value: null, existe
 async function setConfig(key: string, value: Record<string, unknown>) {
   await prisma.systemConfig.upsert({
     where: { configKey: key },
-    create: { configKey: key, configValue: value, configType: 'object' },
-    update: { configValue: value },
+    create: { configKey: key, configValue: value as never, configType: 'object' },
+    update: { configValue: value as never },
   });
 }
 
@@ -301,22 +301,28 @@ describe('clearing', () => {
 });
 
 describe('a TCP/IP instrument', () => {
-  it('is judged against its read interval: raises after the grace, while a push one with the same last-seen does not', async () => {
+  it('is judged against its OWN read interval: raises after the grace, while a push one with the same last-seen does not', async () => {
     await setConfig(KEY, { enabled: true, graceMinutes: 1, severity: 'MAJOR' });
     const tcp = await prisma.instrumentProfile.create({
-      data: { name: `INACT-TCP-${STAMP}`, connection: 'MODBUS_TCP', modbusIntervalSec: 60, modbusUnitId: 1 },
+      data: { name: `INACT-TCP-${STAMP}`, connection: 'MODBUS_TCP' },
     });
-    // 2.1 min silent: past 2 x 60 s read interval and past the 1 min grace, but
-    // INSIDE... no: the pinned fallback window is 3 min, so the push instrument
-    // (same last-seen) is still "reporting" and must not raise.
+    // 2.1 min silent: past 2 x 50 s (the instrument's own read interval, CR-1)
+    // and past the 1 min grace. The pinned fallback window is 3 min, so the push
+    // instrument (same last-seen) is still "reporting" and must not raise.
     const silentSince = new Date(Date.now() - 2.1 * 60_000);
     const t = await prisma.instrument.create({
-      data: { code: `INACT-TCP-${STAMP}`, name: 'tcp', profileId: tcp.id, lastSeenAt: silentSince, modbusHost: '10.254.3.1', modbusPort: 502 },
+      data: {
+        code: `INACT-TCP-${STAMP}`, name: 'tcp', profileId: tcp.id, lastSeenAt: silentSince,
+        modbusHost: '10.254.3.1', modbusPort: 502, modbusUnitId: 1, modbusIntervalSec: 50,
+      },
     });
     try {
       await lastSeen(2.1);
       await evaluateAlarms();
-      expect(await prisma.alarm.findFirst({ where: { instrumentId: t.id, source: 'INACTIVITY', state: 'ACTIVE' } })).toBeTruthy();
+      const raised = await prisma.alarm.findFirst({ where: { instrumentId: t.id, source: 'INACTIVITY', state: 'ACTIVE' } });
+      expect(raised).toBeTruthy();
+      // The frozen snapshot names the interval it was judged by: the instrument's.
+      expect(raised!.ruleSnapshot).toMatchObject({ expectedIntervalSec: 50 });
       expect(await openAlarm()).toBeNull();
     } finally {
       await prisma.alarm.deleteMany({ where: { instrumentId: t.id } });
