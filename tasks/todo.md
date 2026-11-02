@@ -304,3 +304,4 @@ Spec `docs/superpowers/specs/2026-10-27-device-certificates-design.md`, plan `do
 - [x] T9 docs + counts (CHANGELOG, feature note, CLAUDE x3, AGENTS, endpoints, runbooks)
 - [ ] Push to trh, deploy (lockfile moved -> npm ci; one migration), then `enable-device-certificates.sh` dry run -> --apply (operator-confirmed)
 - [ ] In the app on AWS: issue `Test`'s certificate, switch "Testing Profile" ON (reason), device engineer loads client.crt + client.key (Quectel seclevel 2) and retests
+- ## Widget reports (2026-11-02): parked m9 — a key outside the profile's measurements / displayKeys cannot be a collapsed key: column (prints in the long form only); extend the catalogue if a profile needs it.
