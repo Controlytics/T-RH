@@ -15,13 +15,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN } from '@digilog/shared';
+import { INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN, type ModbusRegisterMap } from '@digilog/shared';
 import { ConnectionInstructions } from './connection-instructions';
 import { TokenDialog } from './token-dialog';
 import { GatewayPanel } from './gateway-panel';
 import { TokenPanel } from './token-panel';
 import { DeviceCertificateCard } from './device-certificate-card';
 import { AttributesPanel } from './attributes-panel';
+import { ModbusConnectionCard } from './modbus-connection-card';
+import { RegisterMapCard } from './register-map-card';
+import type { JudgedAs } from './register-map-editor';
 import { RejectedPayloadsCard, type DeadLetter } from './rejected-payloads';
 import { SkeletonCard } from '@/components/ui/skeleton';
 import { PageHero } from '@/components/ui/page-hero';
@@ -50,6 +53,9 @@ interface Instrument {
    * (IOTGW01 sits in no location) got a 404 toast from the old by-id lookup.
    */
   gatewayCode?: string | null; gatewayVisible?: boolean;
+  /** The PROFILE's connection ('PUSH' | 'MODBUS_TCP'); the address and map are the instrument's own (TCP/IP only). */
+  connection?: string | null; modbusHost?: string | null; modbusPort?: number | null;
+  modbusRegisters?: ModbusRegisterMap | null;
 }
 interface ChildInstrument { id: string; code: string; name: string; isActive: boolean }
 interface Reading {
@@ -155,6 +161,8 @@ export function InstrumentDetailPage() {
    */
   const [confirmToggle, setConfirmToggle] = useState(false);
   const [toggling, setToggling] = useState(false);
+  /** Test connection's judgement per key, handed from the connection card to the register map. */
+  const [judged, setJudged] = useState<Record<string, JudgedAs>>({});
 
   // The detail page resolves to an identity block over stacked panels.
   if (!inst) {
@@ -213,6 +221,36 @@ export function InstrumentDetailPage() {
       toast.error('Update failed', (err as { message?: string })?.message ?? 'Could not save.');
     }
   };
+
+  /**
+   * A TCP/IP instrument's address or register map, signed with a reason. Same
+   * UPDATE_INSTRUMENT re-auth as `save`; the server decides everything else
+   * (the map is SUPER_ADMIN-only - 403 REGISTER_MAP_SA_ONLY - and a reason is
+   * required: 400 REASON_REQUIRED). Resolves true only once saved.
+   */
+  const saveModbus = (fields: Record<string, unknown>, reason: string) =>
+    new Promise<boolean>((resolve) => {
+      const body = { ...fields, reason };
+      let written = false;
+      setReauthLabel('Update Instrument');
+      void reauth.execute('UPDATE_INSTRUMENT', async (password?: string) => {
+        if (written) return;
+        if (password) await apiClient.putWithReauth(`/api/instruments/${inst.id}`, body, password);
+        else await apiClient.put(`/api/instruments/${inst.id}`, body);
+        written = true;
+      }, {
+        onSuccess: () => {
+          void mutate();
+          toast.success('Instrument updated', `"${inst.code}" saved.`);
+          resolve(true);
+        },
+        onCancel: () => resolve(false),
+        onError: (err: unknown) => {
+          toast.error('Update failed', (err as { message?: string })?.message ?? 'Could not save.');
+          resolve(false);
+        },
+      });
+    });
 
   /**
    * All three token actions go through `reauth.execute()`, and none of them is
@@ -373,6 +411,7 @@ export function InstrumentDetailPage() {
 
   // The server's answer, shown as received (root CLAUDE.md: never re-derive it here).
   const { reporting } = inst;
+  const tcpip = inst.connection === 'MODBUS_TCP';
 
   return (
     <div className="space-y-6">
@@ -515,6 +554,39 @@ export function InstrumentDetailPage() {
           </CardContent>
         </Card>
 
+      {tcpip && (
+        <>
+          <Card>
+            <CardHeader><CardTitle className="flex items-center gap-2">{sectionIcon('bg-sky-100 text-sky-600', ICON.connection)}TCP/IP connection</CardTitle></CardHeader>
+            <CardContent>
+              <ModbusConnectionCard
+                instrumentId={inst.id}
+                profileId={inst.profileId}
+                host={inst.modbusHost ?? null}
+                port={inst.modbusPort ?? null}
+                map={inst.modbusRegisters ?? []}
+                canEdit={can('instruments.edit')}
+                onSave={(fields, reason) => saveModbus(fields, reason)}
+                onJudged={setJudged}
+              />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle className="flex items-center gap-2">{sectionIcon('bg-violet-100 text-violet-600', ICON.details)}Register map</CardTitle></CardHeader>
+            <CardContent>
+              <RegisterMapCard
+                map={inst.modbusRegisters ?? []}
+                judged={judged}
+                canEdit={isSuperAdmin}
+                onSave={(map, reason) => saveModbus({ modbusRegisters: map }, reason)}
+              />
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      {!tcpip && (
+      <>
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2">{sectionIcon('bg-amber-100 text-amber-600', ICON.token)}Access token</CardTitle></CardHeader>
         <CardContent>
@@ -540,8 +612,10 @@ export function InstrumentDetailPage() {
           <DeviceCertificateCard instrumentId={inst.id} canManage={can('instruments.edit')} />
         </CardContent>
       </Card>
+      </>
+      )}
 
-      {isSuperAdmin && (
+      {!tcpip && isSuperAdmin && (
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2">{sectionIcon('bg-sky-100 text-sky-600', ICON.connection)}Connection</CardTitle></CardHeader>
         <CardContent>

@@ -19,6 +19,7 @@ import { slotConfigForProfile } from '../modules/instruments/profile-measurement
 const s = Date.now();
 const ROLE = `MBT_${s}`;
 const ROLE_RO = `MBTRO_${s}`;
+const ROLE_NONE = `MBTNO_${s}`;
 const PW = 'Mbt@Operator1';
 const SA_PW = 'Mbt@SuperAdmin1';
 const U = (n: string) => `mbt${n}${s}`;
@@ -33,6 +34,7 @@ let tcpProfileId = '';
 let pushProfileId = '';
 let readerRowBefore: { configValue: unknown; configType: string; requiresReauth: boolean } | null = null;
 const slaves: FakeSlave[] = [];
+let inactivityBefore: { configValue: unknown; configType: string; requiresReauth: boolean } | null = null;
 const t0 = new Date();
 
 const f32 = (v: number): [number, number] => {
@@ -83,6 +85,8 @@ beforeAll(async () => {
   app = await buildApp();
   const row = await prisma.systemConfig.findUnique({ where: { configKey: 'modbus-reader' } });
   readerRowBefore = row ? { configValue: row.configValue, configType: row.configType, requiresReauth: row.requiresReauth } : null;
+  const inact = await prisma.systemConfig.findUnique({ where: { configKey: 'inactivity-alarms' } });
+  inactivityBefore = inact ? { configValue: inact.configValue, configType: inact.configType, requiresReauth: inact.requiresReauth } : null;
 
   const saUser = await prisma.user.create({
     data: { username: U('sa'), fullName: U('sa'), role: 'SUPER_ADMIN', status: 'ENABLED', passwordHash: await hashPassword(SA_PW), passwordChangedAt: new Date() },
@@ -92,6 +96,7 @@ beforeAll(async () => {
 
   await prisma.role.create({ data: { name: ROLE, displayName: ROLE, hierarchyLevel: 3, isSystem: false, permissions: ['INSTRUMENT_READ', 'INSTRUMENT_CREATE', 'INSTRUMENT_UPDATE'] } });
   await prisma.role.create({ data: { name: ROLE_RO, displayName: ROLE_RO, hierarchyLevel: 3, isSystem: false, permissions: ['INSTRUMENT_READ'] } });
+  await prisma.role.create({ data: { name: ROLE_NONE, displayName: ROLE_NONE, hierarchyLevel: 3, isSystem: false, permissions: [] } });
   invalidateRolePermsCache(ROLE);
   invalidateRolePermsCache(ROLE_RO);
 
@@ -111,6 +116,14 @@ afterAll(async () => {
     else await prisma.systemConfig.deleteMany({ where: { configKey: 'modbus-reader' } });
   });
   for (const sl of slaves) await step(() => sl.close());
+  await step(async () => {
+    const ids = (await prisma.instrument.findMany({ where: { code: { startsWith: `MBT-${s}-` } }, select: { id: true } })).map((i) => i.id);
+    await prisma.$executeRaw`DELETE FROM instrument_telemetry_history WHERE instrument_id = ANY(${ids}::text[])`;
+  });
+  await step(async () => {
+    if (inactivityBefore) await prisma.systemConfig.update({ where: { configKey: 'inactivity-alarms' }, data: inactivityBefore as never });
+    else await prisma.systemConfig.deleteMany({ where: { configKey: 'inactivity-alarms' } });
+  });
   await step(() => prisma.instrument.deleteMany({ where: { code: { startsWith: `MBT-${s}-` } } }));
   await step(() => prisma.instrumentProfile.deleteMany({ where: { id: { in: [tcpProfileId, pushProfileId].filter(Boolean) } } }));
   await step(() => prisma.functionalLocation.deleteMany({ where: { id: { in: [blockIn, blockOut].filter(Boolean) } } }));
@@ -307,5 +320,135 @@ describe('POST /api/instruments/modbus/test', () => {
     // another user is unaffected: the limit is per user
     const other = await user(U('rl2'), ROLE);
     expect((await test(other, body(sl))).statusCode).toBe(200);
+  });
+});
+
+describe('GET /api/instruments/:id/modbus-status', () => {
+  let a: Record<string, string>; // ROLE: scope = blockIn
+  let ro: Record<string, string>;
+  let n = 0;
+  const status = (headers: Record<string, string>, id: string) =>
+    app.inject({ method: 'GET', url: `/api/instruments/${id}/modbus-status`, headers });
+  /** A TCP/IP instrument on its own address (each test gets a free one). */
+  async function inst(tag: string, extra: Record<string, unknown> = {}, location: string | null = blockIn) {
+    n += 1;
+    return prisma.instrument.create({
+      data: {
+        name: C(tag), code: C(tag), profileId: tcpProfileId, modbusHost: `10.201.${n}.1`, modbusPort: 502,
+        modbusRegisters: SIX as never, ...(location ? { functionalLocationId: location } : {}), ...extra,
+      },
+    });
+  }
+  const setInactivity = (value: Record<string, unknown>) => prisma.systemConfig.upsert({
+    where: { configKey: 'inactivity-alarms' },
+    create: { configKey: 'inactivity-alarms', configValue: value as never, configType: 'system', requiresReauth: false, updatedAt: new Date() },
+    update: { configValue: value as never, updatedAt: new Date() },
+  });
+
+  beforeAll(async () => {
+    a = await user(U('sa2'), ROLE);
+    ro = await user(U('ro2'), ROLE_RO);
+  });
+
+  it('a readable instrument with no status row: reading, interval 60, nothing stored', async () => {
+    await setReading(true);
+    const i = await inst('reading');
+    const res = await status(a, i.id);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toMatchObject({
+      state: 'reading', readBy: 'server', intervalSec: 60, lastSuccessAt: null, failingSince: null,
+      stored24h: 0, expected24h: 1440,
+    });
+    expect(res.json().notReadReason).toBeUndefined();
+    expect(res.json().lastError).toBeUndefined();
+  });
+
+  it('stored24h counts distinct instants, not rows, and only the last 24 h', async () => {
+    const i = await inst('count');
+    const at = (minAgo: number) => new Date(Date.now() - minAgo * 60_000);
+    for (const t of [at(10), at(20), at(30)]) {
+      for (const key of ['Temperature', 'Humidity']) {
+        await prisma.$executeRaw`INSERT INTO instrument_telemetry_history (instrument_id, key, value, value_type, ts, raw_value)
+          VALUES (${i.id}, ${key}, '1'::jsonb, 'number', ${t}, '1'::jsonb)`;
+      }
+    }
+    await prisma.$executeRaw`INSERT INTO instrument_telemetry_history (instrument_id, key, value, value_type, ts, raw_value)
+      VALUES (${i.id}, 'Temperature', '1'::jsonb, 'number', ${at(25 * 60)}, '1'::jsonb)`;
+    const res = await status(a, i.id);
+    expect(res.json().stored24h).toBe(3);
+  });
+
+  it('failing only from failingSince; the error is printed with its code, message and time', async () => {
+    const i = await inst('failing');
+    const since = new Date(Date.now() - 600_000);
+    const at = new Date(Date.now() - 5_000);
+    await prisma.modbusPollStatus.create({
+      data: {
+        instrumentId: i.id, lastAttemptAt: at, lastSuccessAt: new Date(Date.now() - 900_000), failingSince: since,
+        failureRunStartedAt: since, consecutiveFailures: 9, lastErrorCode: 'NO_ANSWER', lastErrorMessage: 'did not answer', lastErrorAt: at,
+      },
+    });
+    const j = (await status(a, i.id)).json();
+    expect(j.state).toBe('failing');
+    expect(j.failingSince).toBe(since.toISOString());
+    expect(j.lastSuccessAt).not.toBeNull();
+    expect(j.lastError).toEqual({ code: 'NO_ANSWER', message: 'did not answer', at: at.toISOString() });
+  });
+
+  it('a storage-only error (no failingSince) is NOT failing: reading, with the error shown', async () => {
+    const i = await inst('storage');
+    const at = new Date(Date.now() - 5_000);
+    await prisma.modbusPollStatus.create({
+      data: { instrumentId: i.id, lastAttemptAt: at, lastErrorCode: 'STORAGE_FAILED', lastErrorMessage: 'The reading could not be saved.', lastErrorAt: at },
+    });
+    const j = (await status(a, i.id)).json();
+    expect(j.state).toBe('reading');
+    expect(j.failingSince).toBeNull();
+    expect(j.lastError.code).toBe('STORAGE_FAILED');
+  });
+
+  it('not-read, one reason each: disabled, no map, no address, outside the networks, reading off', async () => {
+    await setReading(true);
+    const disabled = await inst('off', { isActive: false });
+    const noMap = await inst('nomap', { modbusRegisters: [] as never });
+    const noAddr = await inst('noaddr', { modbusHost: null, modbusPort: null });
+    const outside = await inst('outside', { modbusHost: '8.8.8.8' });
+    const cases: Array<[string, string]> = [
+      [disabled.id, 'INSTRUMENT_DISABLED'], [noMap.id, 'NO_REGISTER_MAP'], [noAddr.id, 'NO_ADDRESS'], [outside.id, 'ADDRESS_NOT_ALLOWED'],
+    ];
+    for (const [id, reason] of cases) {
+      const j = (await status(a, id)).json();
+      expect(j.state, reason).toBe('not-read');
+      expect(j.notReadReason).toBe(reason);
+      expect(typeof j.notReadDetail).toBe('string');
+    }
+    await setReading(false);
+    const fine = await inst('fine');
+    expect((await status(a, fine.id)).json()).toMatchObject({ state: 'not-read', notReadReason: 'SERVER_READING_OFF' });
+    await setReading(true);
+  });
+
+  it('inactivityAlarmsOff follows the Inactivity Alarms setting', async () => {
+    const i = await inst('inact');
+    await setInactivity({ enabled: false, graceMinutes: 15 });
+    expect((await status(a, i.id)).json().inactivityAlarmsOff).toBe(true);
+    await setInactivity({ enabled: true, graceMinutes: 15 });
+    expect((await status(a, i.id)).json().inactivityAlarmsOff).toBe(false);
+  });
+
+  it('a PUSH instrument is 400; outside the caller scope or unknown is 404', async () => {
+    const push = await prisma.instrument.create({ data: { name: C('push'), code: C('push'), profileId: pushProfileId, functionalLocationId: blockIn } });
+    expect((await status(a, push.id)).statusCode).toBe(400);
+    const out = await inst('outscope', {}, blockOut);
+    expect((await status(a, out.id)).statusCode).toBe(404);
+    expect((await status(sa, out.id)).statusCode).toBe(200);
+    expect((await status(a, '00000000-0000-4000-8000-000000000000')).statusCode).toBe(404);
+  });
+
+  it('a caller without INSTRUMENT_READ is 403', async () => {
+    const none = await user(U('none'), ROLE_NONE);
+    const i = await inst('noperm');
+    expect((await status(none, i.id)).statusCode).toBe(403);
+    expect((await status(ro, i.id)).statusCode).not.toBe(403); // INSTRUMENT_READ is enough to ask
   });
 });

@@ -9,6 +9,8 @@ import { slotConfigForProfile } from '../instruments/profile-measurements.js';
 import { loadModbusReaderConfig } from './config.js';
 import { checkModbusAddress } from './address.js';
 import { readDevice } from './protocol/index.js';
+import { explainReadTarget } from './reader.js';
+import { loadInactivityConfig } from '../alarms/load-inactivity.js';
 
 /** Exact wording (plan Global Constraints, "Failure wording"). */
 export const READING_OFF_MESSAGE = 'Reading devices from this server is off (Configuration → TCP/IP Reading).';
@@ -138,6 +140,67 @@ const modbusRoutes: FastifyPluginAsync<ModbusRoutesOptions> = async (app, opts) 
         return { key: r.key, value: result.values[r.key], judgedAs: slot ? slot.toUpperCase() : null };
       });
     return { ok: true, elapsedMs: result.elapsedMs, requests: result.requests, values, rejected: result.rejected };
+  });
+};
+
+/**
+ * Whether the application is reaching a TCP/IP instrument (spec §9). Mounted at
+ * `/api/instruments` (not under `/modbus`) so the path is `/:id/modbus-status`.
+ *
+ * Every word is the server's: `state` is `failing` ONLY when the Reader set
+ * `failingSince` (three consecutive DEVICE failures; a storage failure never
+ * does — ruling T9-1), else `reading` or `not-read`, and `not-read` carries the
+ * Reader's own reason from the one rule it runs (`explainReadTarget`). A last
+ * error is reported whatever its cause. The browser prints this, nothing more.
+ */
+export const modbusStatusRoutes: FastifyPluginAsync<ModbusRoutesOptions> = async (app, opts) => {
+  app.get<{ Params: { id: string } }>('/:id/modbus-status', {
+    preHandler: [app.requirePermission('INSTRUMENT_READ')],
+    schema: {
+      tags: ['Instruments'],
+      summary: 'Is the application reaching this TCP/IP (Modbus) instrument?',
+      description: 'State (reading / failing / not-read), why it is not read, the read interval, the last success and failure, readings stored in the last 24 h against the number expected, and whether Inactivity Alarms are off. 400 for a Gateway (push) instrument; 404 outside the caller\'s instrument scope.',
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+    },
+  }, async (req, reply) => {
+    const { id } = req.params;
+    const visibility = await resolveVisibility(buildContext(req));
+    const inst = await prisma.instrument.findFirst({
+      where: withVisibility({ id }, visibility.where) as { id: string },
+      select: { id: true, profile: { select: { connection: true, modbusIntervalSec: true } } },
+    });
+    if (!inst) return reply.code(404).send({ error: 'INSTRUMENT_NOT_FOUND', message: 'Instrument not found.' });
+    const intervalSec = inst.profile.modbusIntervalSec;
+    if (inst.profile.connection !== 'MODBUS_TCP' || intervalSec === null) {
+      return reply.code(400).send({ error: 'NOT_A_TCPIP_INSTRUMENT', message: 'This instrument is not a TCP/IP (Modbus) instrument.' });
+    }
+
+    const since = new Date(Date.now() - 86_400_000);
+    const [row, target, inactivity, stored] = await Promise.all([
+      prisma.modbusPollStatus.findUnique({ where: { instrumentId: id } }),
+      explainReadTarget(id, { allowLoopbackForTests: opts.allowLoopbackForTests === true }),
+      loadInactivityConfig(),
+      prisma.$queryRaw<Array<{ n: bigint }>>`
+        SELECT count(DISTINCT ts)::bigint AS n FROM instrument_telemetry_history
+        WHERE instrument_id = ${id} AND ts >= ${since}`,
+    ]);
+
+    const failing = row?.failingSince != null;
+    const state = failing ? 'failing' : target?.ok ? 'reading' : 'not-read';
+    return {
+      state,
+      ...(target && !target.ok ? { notReadReason: target.code, notReadDetail: target.detail } : {}),
+      readBy: 'server' as const,
+      intervalSec,
+      lastSuccessAt: row?.lastSuccessAt ?? null,
+      failingSince: row?.failingSince ?? null,
+      ...(row?.lastErrorCode && row.lastErrorAt
+        ? { lastError: { code: row.lastErrorCode, message: row.lastErrorMessage ?? '', at: row.lastErrorAt } }
+        : {}),
+      stored24h: Number(stored[0]?.n ?? 0),
+      expected24h: Math.floor(86_400 / intervalSec),
+      inactivityAlarmsOff: !inactivity.enabled,
+    };
   });
 };
 

@@ -136,6 +136,22 @@ function readTarget(row: InstrumentRow, config: ModbusReaderConfig, opts: { allo
   return { ok: true, host: row.modbusHost, port: row.modbusPort, unitId: p.modbusUnitId, intervalSec: p.modbusIntervalSec, map };
 }
 
+/**
+ * Is this STORED instrument read right now, and if not, why? The status route's
+ * answer (spec §9) from the one rule (`readTarget`) the Reader itself runs —
+ * never a second copy. `null` = no such instrument.
+ */
+export async function explainReadTarget(
+  instrumentId: string,
+  opts: { allowLoopbackForTests?: boolean } = {},
+): Promise<{ ok: true } | { ok: false; code: ReaderSkipCode; detail: string } | null> {
+  const config = await loadModbusReaderConfig();
+  const row = await prisma.instrument.findUnique({ where: { id: instrumentId }, select: INSTRUMENT_SELECT });
+  if (!row) return null;
+  const target = readTarget(row, config, opts);
+  return target.ok ? { ok: true } : { ok: false, code: target.code, detail: target.detail };
+}
+
 const isAbortError = (err: unknown): boolean => err instanceof Error && err.name === 'AbortError';
 /** Keeps a code inside `signature_meaning`'s VARCHAR(255) next to the fixed text. */
 const clip = (s: string) => (s.length <= 60 ? s : `${s.slice(0, 60)}…`);

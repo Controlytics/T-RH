@@ -21,7 +21,7 @@ import wsIngestRoutes, { type WsIngestOptions } from '../modules/instruments/lis
 import mqttAuthRoutes from '../modules/instruments/mqtt-auth-routes.js';
 import instrumentProfileRoutes from '../modules/instrument-profiles/routes.js';
 import instrumentRoutes from '../modules/instruments/routes.js';
-import modbusRoutes from '../modules/modbus/routes.js';
+import modbusRoutes, { modbusStatusRoutes } from '../modules/modbus/routes.js';
 import functionalLocationRoutes from '../modules/functional-locations/routes.js';
 import alarmRoutes from '../modules/alarms/routes.js';
 import alarmWebhookRoutes from '../modules/alarm-webhooks/routes.js';
@@ -130,6 +130,7 @@ export async function buildApp(
   await app.register(instrumentProfileRoutes, { prefix: '/api/instrument-profiles' });
   // allowLoopbackForTests (ledger P-1): lets Test connection read an in-process fake slave. app.ts never sets it.
   await app.register(modbusRoutes, { prefix: '/api/instruments/modbus', allowLoopbackForTests: true });
+  await app.register(modbusStatusRoutes, { prefix: '/api/instruments', allowLoopbackForTests: true });
   await app.register(instrumentRoutes, { prefix: '/api/instruments' });
   await app.register(floorplanRoutes, { prefix: '/api/floorplans' });
   // The parked widget-dashboard module (2026-10-12): registered in app.ts, missing here, so it had no HTTP-level test.
