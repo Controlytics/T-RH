@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased] - TCP/IP instruments CR-1: Slave ID and Read every per instrument, Quantity, byte-order names, per-key Test (2026-11-02)
+
+Operator: "slave id should comes in instrument page … read every should come in instrument page,
+give one test button after adding key check data was coming or not and also quantity was not
+there"; answers "Remove from profile" and "Quantity 1 or 2". Spec §18; `docs/feature-notes.md`
+TCP/IP INSTRUMENTS, CR-1 bullet. Commits `8e0dd141` (api), `6ca81daf` (shared), `887ae913` `fbd8b01f` `1a532481` (web). **Built, not pushed, not deployed.**
+
+- **Slave ID** (Modbus unit ID, 0..255, default 1) and **Read every** (10..3600 s, default 60) are
+  each TCP/IP instrument's own: New Instrument, bulk upload ("Slave ID", "Read every" columns) and
+  the instrument page (a change needs a reason). Migration `20261102120000_tcpip_instrument_reading` copies the
+  profile's values to its instruments and **drops** `instrument_profiles.modbus_interval_sec` /
+  `modbus_unit_id`; the profile now chooses only Gateway or TCP/IP.
+- **Register map:** a **Quantity** column (1 or 2 registers) limits the data types and shows the
+  range read ("40001–40002"); byte orders are named (Big-endian / Little-endian, with or without
+  byte swap); every key row has a **Test** button that reads that one key.
+- Test connection takes the instrument's Slave ID and allows 30 tests a minute per user (was 10).
+- Configuration → Instrument Attributes lost its "TCP/IP reading" section.
+
 ## [Unreleased] - Feature: TCP/IP (Modbus) instruments, parts 1–2 — the application reads the device (2026-10-31 .. 2026-11-02)
 
 Operator: "if user selected TCP/IP then in the instrument creation tcp/ip need to integrate, for one
@@ -7,7 +25,7 @@ instrument one ip address and port", "register map should be inside of instrumen
 recommendations". Spec `docs/superpowers/specs/2026-10-31-tcpip-instruments-design.md`, plan
 `docs/superpowers/plans/2026-10-31-tcpip-instruments-parts-1-2.md`; the rules and every build
 ruling are in `docs/feature-notes.md` TCP/IP INSTRUMENTS. Replaces the `TCPIP/` desktop tool.
-Commits `cf02b4ef..` on `data-layer` after the plan `363c7263`. **Built, not pushed, not deployed.**
+Commits `cf02b4ef..` on `data-layer` after the plan `363c7263`. **Deployed to AWS `20bff73` on 2026-11-02.**
 
 - **Profiles** are created as Gateway (`connection 'PUSH'`, today's process, every existing profile)
   or **TCP/IP (Modbus)** (`'MODBUS_TCP'`: read interval 10..3600 s, default 60; unit ID 0..255,

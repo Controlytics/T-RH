@@ -556,6 +556,10 @@ node apps/api/dist/app.js
   plain commands: empty diff against `compliance_core_db` AND `_test`. Def `modbus-reader` (36 →
   **37**); audit 100 → **102** / 113 → **115** (two SYSTEM actions in `SYSTEM_AUDIT_ACTIONS`).
   Every rule and ruling: `docs/feature-notes.md` TCP/IP INSTRUMENTS.
+  **CR-1 (2026-11-02):** migration `20261102120000_tcpip_instrument_reading` (hand-authored, both databases,
+  drift guard empty) adds `instruments.modbus_unit_id` / `modbus_interval_sec`, copies each MODBUS_TCP
+  profile's values to its instruments as stored and DROPS the two profile columns — the
+  Slave ID and Read every are the INSTRUMENT's; a profile body carrying either is a 400. No count moved.
 - **2026-10-28 — WIDGET DATA KEYS, phase 2 (dashboard widgets).** Both layout PUTs
   (`/api/config/my-dashboard-layout`, `/api/roles/dashboard-layout/role/:name`) go through ONE
   `checkLayoutWrite` (`modules/config/dashboard-layout.ts`): the strict shared writer
