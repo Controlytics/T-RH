@@ -139,6 +139,42 @@ function spanOf(r: ModbusRegister): { area: string; start: number; end: number; 
   return { area: p.area, start: p.n, end: p.n + registersFor(r.dataType) - 1, maxN: p.maxN };
 }
 
+/**
+ * Each byte order by the name a Modbus tool gives it (change request CR-1,
+ * ledger Ruling CR1-4 — Modbus Poll's naming). Presentation only: the stored
+ * and sent value is still the code.
+ */
+export const MODBUS_BYTE_ORDER_LABELS: Readonly<Record<ModbusByteOrder, string>> = {
+  ABCD: 'Big-endian (ABCD)',
+  DCBA: 'Little-endian (DCBA)',
+  BADC: 'Big-endian, byte swap (BADC)',
+  CDAB: 'Little-endian, byte swap (CDAB)',
+};
+
+/**
+ * The data types that fill ONE register and those that fill TWO (CR-1's
+ * Quantity column). Derived from `MODBUS_DATA_TYPES` through `registersFor`, so
+ * a new type lands under its quantity without a second list to keep in step.
+ */
+export const MODBUS_QUANTITY_TYPES: Readonly<Record<1 | 2, readonly ModbusDataType[]>> = {
+  1: MODBUS_DATA_TYPES.filter((t) => registersFor(t) === 1),
+  2: MODBUS_DATA_TYPES.filter((t) => registersFor(t) === 2),
+};
+
+/**
+ * The references one map entry reads — `40001` as FLOAT32 reads `40001` and
+ * `40002` — written in the digit form the reference was typed in (5 digits stay
+ * 5, 6 stay 6). `first === last` for a one-register type. `null` when the
+ * reference does not parse, and when the span runs past the end of its area:
+ * the schema's own message covers that row, and a range such as "49999–50000"
+ * would name a register that does not exist.
+ */
+export function registerRange(ref: string, dataType: ModbusDataType): { first: string; last: string } | null {
+  const s = spanOf({ key: '', register: ref, dataType, scale: 1 });
+  if (!s || s.end > s.maxN) return null;
+  return { first: ref, last: ref[0]! + String(s.end).padStart(ref.length - 1, '0') };
+}
+
 export const modbusRegisterMapSchema = z.array(modbusRegisterSchema)
   .max(MODBUS_MAX_KEYS, `At most ${MODBUS_MAX_KEYS} keys`)
   .superRefine((map, ctx) => {

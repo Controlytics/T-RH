@@ -298,3 +298,4 @@ export type {
 } from './types/trend-widgets.js';
 export { MODBUS_CONNECTIONS, MODBUS_INTERVAL, MODBUS_UNIT_ID, MODBUS_UNIT_ID_MESSAGE, MODBUS_INTERVAL_MESSAGE, modbusUnitIdSchema, modbusIntervalSchema, MODBUS_PORT_DEFAULT, MODBUS_MAX_KEYS, MODBUS_MAX_REGISTERS_PER_REQUEST, MODBUS_DATA_TYPES, MODBUS_BYTE_ORDERS, PAYLOAD_META_KEYS, DEVICE_NETWORKS_DEFAULT, modbusRegisterSchema, modbusRegisterMapSchema, coerceModbusRegisterMap, parseModiconRef, registersFor, modbusHostSchema, parseDeviceNetworks, ipInNetworks, fromDesktopKeysFile } from './types/modbus.js';
 export type { ModbusConnection, ModbusDataType, ModbusByteOrder, ModbusRegister, ModbusRegisterMap } from './types/modbus.js';
+export { MODBUS_BYTE_ORDER_LABELS, MODBUS_QUANTITY_TYPES, registerRange } from './types/modbus.js';
