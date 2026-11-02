@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
-import { MODBUS_INTERVAL, MODBUS_UNIT_ID } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
 import { useCan } from '@/hooks/use-can';
 import { useToast } from '@/hooks/use-toast';
@@ -11,7 +10,6 @@ import { themeGradient, themeGradientBr } from '@/lib/theme-styles';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PageHeader } from '@/components/ui/page-header';
-import { ModbusReadingFields, intervalText } from './modbus-reading-fields';
 
 /**
  * The Instruments landing page: profiles first, instruments inside them.
@@ -38,10 +36,12 @@ interface Profile {
   isActive: boolean;
   instrumentCount: number;
   activeCount: number;
-  /** The server's answer: 'PUSH' (Gateway) or 'MODBUS_TCP'. Never derived here. */
+  /**
+   * The server's answer: 'PUSH' (Gateway) or 'MODBUS_TCP'. Never derived here.
+   * All a profile says about TCP/IP since CR-1 (2026-11-02): the Slave ID and
+   * Read every are each instrument's own.
+   */
   connection?: 'PUSH' | 'MODBUS_TCP';
-  modbusIntervalSec?: number | null;
-  modbusUnitId?: number | null;
 }
 
 const CONNECTION_CHOICES = [
@@ -64,8 +64,6 @@ export function InstrumentProfileListPage() {
   const [description, setDescription] = useState('');
   const [saving, setSaving] = useState(false);
   const [connection, setConnection] = useState<'PUSH' | 'MODBUS_TCP'>('PUSH');
-  const [intervalSec, setIntervalSec] = useState<number>(MODBUS_INTERVAL.default);
-  const [unitId, setUnitId] = useState<string>(String(MODBUS_UNIT_ID.default));
   /** The API's refusal, printed under the fields it concerns. */
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -78,15 +76,11 @@ export function InstrumentProfileListPage() {
       await apiClient.post('/api/instrument-profiles', {
         name: name.trim(),
         ...(description.trim() ? { description: description.trim() } : {}),
-        ...(connection === 'MODBUS_TCP'
-          ? { connection, modbusIntervalSec: intervalSec, modbusUnitId: Number(unitId) }
-          : {}),
+        ...(connection === 'MODBUS_TCP' ? { connection } : {}),
       });
       setName('');
       setDescription('');
       setConnection('PUSH');
-      setIntervalSec(MODBUS_INTERVAL.default);
-      setUnitId(String(MODBUS_UNIT_ID.default));
       setCreating(false);
       mutate();
       toast.success('Profile created', `"${name.trim()}" is ready for instruments.`);
@@ -188,24 +182,12 @@ export function InstrumentProfileListPage() {
                 </label>
               ))}
             </div>
-            {connection === 'MODBUS_TCP' && (
-              <>
-                <ModbusReadingFields
-                  idPrefix="new-profile"
-                  intervalSec={intervalSec}
-                  unitId={unitId}
-                  onIntervalChange={setIntervalSec}
-                  onUnitIdChange={setUnitId}
-                />
-                <p className="text-xs text-slate-500">For every instrument in this profile. Keys are set on each instrument.</p>
-              </>
-            )}
             {formError && (
               <p role="alert" className="text-sm text-red-600">{formError}</p>
             )}
           </fieldset>
           <div className="flex justify-end">
-            <Button onClick={create} disabled={!name.trim() || saving || (connection === 'MODBUS_TCP' && !unitId.trim())} style={themeGradient}>
+            <Button onClick={create} disabled={!name.trim() || saving} style={themeGradient}>
               {saving ? 'Creating…' : 'Create Profile'}
             </Button>
           </div>
@@ -264,12 +246,12 @@ export function InstrumentProfileListPage() {
                 </div>
               </Link>
 
-              {/* A TCP/IP profile with nothing in it yet: say how it will be
-                  read (the server's stored values) and offer the next step. */}
-              {p.connection === 'MODBUS_TCP' && p.instrumentCount === 0 && canCreate && p.modbusIntervalSec != null && p.modbusUnitId != null && (
+              {/* A TCP/IP profile with nothing in it yet: offer the next step.
+                  Each instrument brings its own address, Slave ID and Read every. */}
+              {p.connection === 'MODBUS_TCP' && p.instrumentCount === 0 && canCreate && (
                 <div className="flex items-center gap-3 border-t border-slate-100 px-5 py-3">
                   <p className="flex-1 text-xs font-semibold text-slate-700">
-                    {`TCP/IP · read every ${intervalText(p.modbusIntervalSec)} · unit ID ${p.modbusUnitId} — no instruments yet.`}
+                    TCP/IP — no instruments yet.
                   </p>
                   <Link to={`/instruments/new?profileId=${p.id}`}>
                     <Button size="sm" style={themeGradient}>+ New Instrument</Button>

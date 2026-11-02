@@ -24,7 +24,9 @@ const base = {
   isGateway: false, gatewayId: null, lastSeenVia: 'polled',
   profileId: 'p-1', profileName: 'Modbus meter',
 };
-const tcpInstrument = { ...base, connection: 'MODBUS_TCP', modbusHost: '10.1.1.5', modbusPort: 502, modbusRegisters: MAP };
+// The Slave ID and Read every are the INSTRUMENT's own since CR-1 (2026-11-02).
+let tcpInstrument: Record<string, unknown> = {};
+const TCP_INSTRUMENT = { ...base, connection: 'MODBUS_TCP', modbusHost: '10.1.1.5', modbusPort: 502, modbusUnitId: 3, modbusIntervalSec: 60, modbusRegisters: MAP };
 const pushInstrument = { ...base, id: 'i-2', connection: 'PUSH', modbusHost: null, modbusPort: null, modbusRegisters: [], tokenPrefix: 'ABCD1234', tokenRevealable: true };
 
 const READING = {
@@ -45,7 +47,7 @@ vi.mock('swr', () => ({
     if (key === '/api/instruments/i-1') return { data: tcpInstrument, mutate: vi.fn() };
     if (key === '/api/instruments/i-2') return { data: pushInstrument, mutate: vi.fn() };
     if (key === '/api/instruments/i-1/modbus-status') {
-      return statusError ? { data: undefined, error: statusError, mutate: statusMutate } : { data: status, mutate: vi.fn() };
+      return statusError ? { data: undefined, error: statusError, mutate: statusMutate } : { data: status, mutate: statusMutate };
     }
     if (key?.endsWith('/attributes')) return { data: { data: [] }, mutate: vi.fn() };
     if (key?.endsWith('/children')) return { data: { data: [] }, mutate: vi.fn() };
@@ -55,10 +57,12 @@ vi.mock('swr', () => ({
 }));
 
 const put = vi.fn();
+const post = vi.fn();
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
     put: (...a: unknown[]) => put(...a),
-    get: vi.fn(), post: vi.fn(), delete: vi.fn(),
+    post: (...a: unknown[]) => post(...a),
+    get: vi.fn(), delete: vi.fn(),
     getWithReauth: vi.fn(), postWithReauth: vi.fn(), putWithReauth: vi.fn(),
   },
 }));
@@ -96,13 +100,15 @@ const renderPage = (id = 'i-1') => render(
   </MemoryRouter>,
 );
 const REASON = 'Moved the meter to the new panel';
-const sign = async (button = 'Save change') => {
+const sign = async (button = 'Save changes') => {
   fireEvent.change(await screen.findByPlaceholderText('Why is this changing?'), { target: { value: REASON } });
   fireEvent.click(screen.getByRole('button', { name: button }));
 };
 
 beforeEach(() => {
+  tcpInstrument = TCP_INSTRUMENT;
   put.mockReset().mockResolvedValue({});
+  post.mockReset();
   status = READING;
   statusError = undefined;
   statusMutate.mockReset();
@@ -149,11 +155,19 @@ describe('instrument detail - a TCP/IP instrument', () => {
     expect(gridOf(map)).toBeNull();
   });
 
-  it('prints the server\'s state line, address, interval, stored figures and times', () => {
+  it('prints the server\'s state line, address, the instrument\'s Slave ID, interval, stored figures and times', () => {
     renderPage();
     const card = screen.getByTestId('modbus-connection-card');
     expect(within(card).getByText('Reading')).toBeInTheDocument();
     expect(within(card).getByText('10.1.1.5 : 502')).toBeInTheDocument();
+    const rows = Array.from(card.querySelectorAll('dt')).map((dt) => [dt.textContent, dt.nextElementSibling?.textContent]);
+    expect(rows.slice(0, 5)).toEqual([
+      ['Address', '10.1.1.5 : 502'],
+      ['Slave ID', '3'],
+      ['Read by', 'This server, every 60 s'],
+      ['Stored in 24 h', 'stored 1380 of 1440 in 24 h'],
+      ['Last answered', 'D(2026-10-31T09:00:00.000Z) T'],
+    ]);
     expect(within(card).getByText('This server, every 60 s')).toBeInTheDocument();
     expect(within(card).getByText('stored 1380 of 1440 in 24 h')).toBeInTheDocument();
     expect(within(card).getByText(/D\(2026-10-31T09:00:00\.000Z\) T/)).toBeInTheDocument();
@@ -232,13 +246,26 @@ describe('instrument detail - a TCP/IP instrument', () => {
     );
   });
 
-  it('Test connection gets the stored address and map, and the instrument id', () => {
+  it('Test connection gets the stored address, Slave ID and map, and the instrument id', () => {
     renderPage();
     expect(screen.getByTestId('test-panel')).toBeInTheDocument();
-    expect(panelProps[0]).toMatchObject({ profileId: 'p-1', host: '10.1.1.5', port: 502, map: MAP, instrumentId: 'i-1' });
+    expect(panelProps[0]).toMatchObject({ profileId: 'p-1', host: '10.1.1.5', port: 502, unitId: 3, map: MAP, instrumentId: 'i-1' });
   });
 
-  it('Edit address asks for a reason and PUTs host, port and reason under UPDATE_INSTRUMENT', async () => {
+  it('Edit shows IP address, Port, Slave ID and Read every with the stored values', () => {
+    tcpInstrument = { ...TCP_INSTRUMENT, modbusIntervalSec: 300 };
+    renderPage();
+    const card = screen.getByTestId('modbus-connection-card');
+    fireEvent.click(within(card).getByRole('button', { name: 'Edit' }));
+    expect(within(card).getByLabelText('IP address')).toHaveValue('10.1.1.5');
+    expect(within(card).getByLabelText('Port')).toHaveValue('502');
+    expect(within(card).getByRole('spinbutton', { name: 'Slave ID' })).toHaveValue(3);
+    expect(within(card).getByRole('combobox', { name: 'Read every' })).toHaveValue('300');
+    // Nothing changed yet: nothing to sign for.
+    expect(within(card).getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  it('Edit address asks for a reason and PUTs ONLY host, port and reason under UPDATE_INSTRUMENT', async () => {
     renderPage();
     const card = screen.getByTestId('modbus-connection-card');
     fireEvent.click(within(card).getByRole('button', { name: 'Edit' }));
@@ -249,6 +276,77 @@ describe('instrument detail - a TCP/IP instrument', () => {
     await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
     expect(put).toHaveBeenCalledWith('/api/instruments/i-1', { modbusHost: '10.1.1.9', modbusPort: 1502, reason: REASON });
     expect(reauthActions).toEqual(['UPDATE_INSTRUMENT']);
+  });
+
+  it('a Slave ID and Read every change: the dialog names only those two, the PUT carries only those two + the reason, and the status is refreshed', async () => {
+    renderPage();
+    const card = screen.getByTestId('modbus-connection-card');
+    fireEvent.click(within(card).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(within(card).getByRole('spinbutton', { name: 'Slave ID' }), { target: { value: '9' } });
+    fireEvent.change(within(card).getByRole('combobox', { name: 'Read every' }), { target: { value: '300' } });
+    fireEvent.click(within(card).getByRole('button', { name: 'Save' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Change the TCP/IP connection')).toBeInTheDocument();
+    const lines = Array.from(dialog.querySelectorAll('dl > div')).map((d) => d.textContent);
+    expect(lines).toEqual(['Slave ID3→9', 'Read every60 s→300 s']);
+    await sign();
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    expect(put).toHaveBeenCalledWith('/api/instruments/i-1', { modbusUnitId: 9, modbusIntervalSec: 300, reason: REASON });
+    expect(reauthActions).toEqual(['UPDATE_INSTRUMENT']);
+    expect(statusMutate).toHaveBeenCalled();
+  });
+
+  it('a Slave ID outside 0..255 is named in the shared schema\'s words and cannot be saved', () => {
+    renderPage();
+    const card = screen.getByTestId('modbus-connection-card');
+    fireEvent.click(within(card).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(within(card).getByRole('spinbutton', { name: /Slave ID/ }), { target: { value: '300' } });
+    expect(within(card).getByText('Slave ID must be a whole number from 0 to 255.')).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Save' })).toBeDisabled();
+    fireEvent.change(within(card).getByRole('spinbutton', { name: /Slave ID/ }), { target: { value: '' } });
+    expect(within(card).getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  it('per-key Test on the register map reads the STORED address and Slave ID with a one-key map', async () => {
+    post.mockResolvedValue({ ok: true, elapsedMs: 8, requests: 1, values: [{ key: 'Humidity', value: 47.1, judgedAs: 'HUMIDITY' }], rejected: [] });
+    renderPage();
+    const card = screen.getByTestId('register-map-card');
+    fireEvent.click(within(card).getByRole('button', { name: 'Test key, row 2' }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/instruments/modbus/test', {
+      profileId: 'p-1', modbusHost: '10.1.1.5', modbusPort: 502, modbusUnitId: 3, modbusRegisters: [MAP[1]], instrumentId: 'i-1',
+    }));
+    expect(await within(card).findByTestId('map-test-1')).toHaveTextContent('Read now: 47.1 · judged as Humidity');
+  });
+
+  it('…and in Edit too; an instrument with no stored Slave ID is not guessed — Test says what is missing', () => {
+    tcpInstrument = { ...TCP_INSTRUMENT, modbusUnitId: null };
+    renderPage();
+    expect(within(screen.getByTestId('modbus-connection-card')).getByText('—', { selector: 'dd' })).toBeInTheDocument();
+    const card = screen.getByTestId('register-map-card');
+    expect(within(card).getByRole('button', { name: 'Test key, row 1' })).toHaveAttribute('title', 'Set a Slave ID from 0 to 255 to test.');
+    fireEvent.click(within(card).getByRole('button', { name: 'Edit' }));
+    expect(within(card).getByRole('button', { name: 'Test key, row 1' })).toBeDisabled();
+    expect(within(card).getByRole('button', { name: 'Remove row 1' })).toBeInTheDocument();
+  });
+
+  it('read-only map: Quantity and the byte order by its name', () => {
+    renderPage();
+    const card = screen.getByTestId('register-map-card');
+    expect(within(card).getByTestId('map-quantity-0')).toHaveTextContent('2');
+    expect(within(card).getByTestId('map-byte-order-0')).toHaveTextContent('Big-endian (ABCD)');
+    expect(within(card).getByTestId('map-reads-0')).toHaveTextContent('40001–40002');
+  });
+
+  it('a Quantity change in the map editor leaves no data type: the schema says so and Save is disabled', () => {
+    renderPage();
+    const card = screen.getByTestId('register-map-card');
+    fireEvent.click(within(card).getByRole('button', { name: 'Edit' }));
+    expect(within(card).getByRole('button', { name: 'Save' })).toBeEnabled();
+    fireEvent.change(within(card).getByRole('combobox', { name: 'Quantity, row 1' }), { target: { value: '1' } });
+    expect(within(card).getByTestId('map-errors-0')).toHaveTextContent('Data type must be one of');
+    expect(within(card).getByRole('button', { name: 'Save' })).toBeDisabled();
+    fireEvent.change(within(card).getByRole('combobox', { name: 'Data type, row 1' }), { target: { value: 'INT16' } });
+    expect(within(card).getByRole('button', { name: 'Save' })).toBeEnabled();
   });
 
   it('the register map is read-only; Edit is shown to a SUPER_ADMIN only', () => {
@@ -264,7 +362,7 @@ describe('instrument detail - a TCP/IP instrument', () => {
     const card = screen.getByTestId('register-map-card');
     fireEvent.click(within(card).getByRole('button', { name: 'Edit' }));
     fireEvent.click(within(card).getByRole('button', { name: 'Save' }));
-    await sign();
+    await sign('Save change');
     await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
     expect(put).toHaveBeenCalledWith('/api/instruments/i-1', { modbusRegisters: MAP, reason: REASON });
   });

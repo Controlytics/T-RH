@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import useSWR from 'swr';
-import type { ModbusRegisterMap } from '@digilog/shared';
+import { MODBUS_INTERVAL, updateInstrumentSchema, type ModbusRegisterMap } from '@digilog/shared';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { StatusBadge, type StatusTone } from '@/components/ui/status-badge';
 import { ErrorState } from '@/components/ui/empty-state';
-import { RemarkDialog } from './remark-dialog';
+import { RemarkDialog, type RemarkChange } from './remark-dialog';
 import { TestConnectionPanel } from './test-connection-panel';
+import { ModbusReadingFields } from './modbus-reading-fields';
 import type { JudgedAs } from './register-map-editor';
 
 /**
@@ -36,22 +37,42 @@ const STATE: Record<ModbusStatus['state'], { tone: StatusTone; word: string }> =
   'not-read': { tone: 'idle', word: 'Not read' },
 };
 
+/**
+ * What an Edit changes: ONLY the fields that differ from the stored ones
+ * (CR-1 — the Slave ID and Read every are the instrument's own since then).
+ */
+export type ModbusConnectionChange = Partial<{
+  modbusHost: string;
+  modbusPort: number;
+  modbusUnitId: number;
+  modbusIntervalSec: number;
+}>;
+
+/** "60 s" — how Read every is named in the reason dialog. */
+const seconds = (sec: number | null) => (sec === null ? '' : `${sec} s`);
+/** A Port or Slave ID as typed → a number; blank is NaN, which the shared schema names. */
+const asNumber = (raw: string): number => (raw.trim() === '' ? Number.NaN : Number(raw));
+
 /** The sentence an off Inactivity Alarms setting needs beside a device the server reads (spec §7.5). */
 export const INACTIVITY_OFF_SENTENCE =
   'No alarm is raised when this device stops answering — Inactivity Alarms are off (Configuration → Inactivity Alarms).';
 
 export function ModbusConnectionCard({
-  instrumentId, profileId, host, port, map, canEdit, onSave, onJudged,
+  instrumentId, profileId, host, port, unitId, intervalSec, map, canEdit, onSave, onJudged,
 }: {
   instrumentId: string;
   profileId: string;
   host: string | null;
   port: number | null;
+  /** The instrument's stored Slave ID (`modbusUnitId`). */
+  unitId: number | null;
+  /** The instrument's stored Read every, in seconds (`modbusIntervalSec`). */
+  intervalSec: number | null;
   map: ModbusRegisterMap;
   /** `instruments.edit` — the server still decides (INSTRUMENT_UPDATE, re-auth). */
   canEdit: boolean;
-  /** Writes the address with the operator's reason; resolves true once saved. */
-  onSave: (fields: { modbusHost: string; modbusPort: number }, reason: string) => Promise<boolean>;
+  /** Writes ONLY the changed fields with the operator's reason; resolves true once saved. */
+  onSave: (fields: ModbusConnectionChange, reason: string) => Promise<boolean>;
   onJudged: (judged: Record<string, JudgedAs>) => void;
 }) {
   const { formatDate, formatTime } = useDatetimeFormat();
@@ -66,21 +87,46 @@ export function ModbusConnectionCard({
   const [editing, setEditing] = useState(false);
   const [hostDraft, setHostDraft] = useState('');
   const [portDraft, setPortDraft] = useState('');
+  const [unitDraft, setUnitDraft] = useState('');
+  const [intervalDraft, setIntervalDraft] = useState<number>(MODBUS_INTERVAL.default);
   const [reasonOpen, setReasonOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const startEdit = () => {
     setHostDraft(host ?? '');
     setPortDraft(port === null ? '502' : String(port));
+    // A stored Slave ID that is somehow absent is left blank to be filled —
+    // never guessed here.
+    setUnitDraft(unitId === null ? '' : String(unitId));
+    setIntervalDraft(intervalSec ?? MODBUS_INTERVAL.default);
     setEditing(true);
   };
-  const portNumber = Number(portDraft);
-  const draftReady = hostDraft.trim() !== '' && Number.isInteger(portNumber) && portNumber >= 1 && portNumber <= 65535;
+  const portNumber = asNumber(portDraft);
+  const unitNumber = asNumber(unitDraft);
+  // The Slave ID's words are the shared schema's — the ones the API's 400 carries.
+  const unitCheck = updateInstrumentSchema.shape.modbusUnitId.safeParse(unitNumber);
+  const unitError = unitDraft.trim() !== '' && !unitCheck.success ? unitCheck.error.issues[0]!.message : undefined;
   const address = host !== null && port !== null ? `${host} : ${port}` : '—';
+
+  /** Only what differs from the stored values travels, and only that is signed for. */
+  const changed: ModbusConnectionChange = {
+    ...(hostDraft.trim() !== (host ?? '') ? { modbusHost: hostDraft.trim() } : {}),
+    ...(portNumber !== port ? { modbusPort: portNumber } : {}),
+    ...(unitNumber !== unitId ? { modbusUnitId: unitNumber } : {}),
+    ...(intervalDraft !== intervalSec ? { modbusIntervalSec: intervalDraft } : {}),
+  };
+  const changes: RemarkChange[] = [
+    ...('modbusHost' in changed ? [{ label: 'IP address', from: host ?? '', to: hostDraft.trim() }] : []),
+    ...('modbusPort' in changed ? [{ label: 'Port', from: port === null ? '' : String(port), to: portDraft.trim() }] : []),
+    ...('modbusUnitId' in changed ? [{ label: 'Slave ID', from: unitId === null ? '' : String(unitId), to: unitDraft.trim() }] : []),
+    ...('modbusIntervalSec' in changed ? [{ label: 'Read every', from: seconds(intervalSec), to: seconds(intervalDraft) }] : []),
+  ];
+  const draftReady = hostDraft.trim() !== '' && Number.isInteger(portNumber) && portNumber >= 1 && portNumber <= 65535
+    && unitCheck.success && changes.length > 0;
 
   const submit = async (reason: string) => {
     setBusy(true);
-    const saved = await onSave({ modbusHost: hostDraft.trim(), modbusPort: portNumber }, reason);
+    const saved = await onSave(changed, reason);
     setBusy(false);
     if (saved) {
       setReasonOpen(false);
@@ -120,6 +166,8 @@ export function ModbusConnectionCard({
           <dl className="grid grid-cols-2 gap-y-2 text-sm">
             <dt className="text-slate-500">Address</dt>
             <dd className="font-mono text-slate-800">{address}</dd>
+            <dt className="text-slate-500">Slave ID</dt>
+            <dd className="font-mono text-slate-800">{unitId ?? '—'}</dd>
             <dt className="text-slate-500">Read by</dt>
             <dd>This server, every {status.intervalSec} s</dd>
             <dt className="text-slate-500">Stored in 24 h</dt>
@@ -167,6 +215,15 @@ export function ModbusConnectionCard({
               <Input value={portDraft} aria-label="Port" inputMode="numeric" className="w-24 font-mono"
                 onChange={(e) => setPortDraft(e.target.value)} />
             </label>
+            <ModbusReadingFields
+              idPrefix={`instrument-${instrumentId}`}
+              compact
+              unitId={unitDraft}
+              intervalSec={intervalDraft}
+              onUnitIdChange={setUnitDraft}
+              onIntervalChange={setIntervalDraft}
+              unitIdError={unitError}
+            />
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="secondary" size="sm" onClick={() => setEditing(false)}>Cancel</Button>
@@ -183,17 +240,20 @@ export function ModbusConnectionCard({
 
       {!editing && host !== null && port !== null && map.length > 0 && (
         <TestConnectionPanel
-          profileId={profileId} host={host} port={port} map={map}
+          profileId={profileId} host={host} port={port}
+          // An absent stored Slave ID is not guessed: the panel says it needs one.
+          unitId={unitId ?? Number.NaN}
+          map={map}
           instrumentId={instrumentId} onJudged={onJudged}
         />
       )}
 
       <RemarkDialog
         open={reasonOpen}
-        title="Change the TCP/IP address"
+        title="Change the TCP/IP connection"
         attributeKey=""
-        from={address === '—' ? '' : address}
-        to={`${hostDraft.trim()} : ${portDraft}`}
+        from=""
+        changes={changes}
         busy={busy}
         onSubmit={(reason) => void submit(reason)}
         onClose={() => setReasonOpen(false)}

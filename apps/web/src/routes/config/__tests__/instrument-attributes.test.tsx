@@ -412,65 +412,34 @@ describe('InstrumentAttributesConfigPage — Show in Settings', () => {
 });
 
 /**
- * TCP/IP reading (2026-10-31): a TCP/IP (Modbus) profile carries how often the
- * server reads its instruments and the Modbus unit id. The section exists only
- * for such a profile (the server's `connection`), saves through the profile PUT
- * under UPDATE_INSTRUMENT_PROFILE, and shows the API's refusal verbatim.
- * The connection itself is chosen at creation — there is no switch here.
+ * TCP/IP reading — REMOVED from the profile by change request CR-1
+ * (2026-11-02): the Slave ID and Read every are each TCP/IP instrument's own
+ * (New Instrument, the instrument page), and a profile body carrying either is
+ * a 400. A TCP/IP profile's page has no such section and asks for neither.
  */
-describe('InstrumentAttributesConfigPage — TCP/IP reading', () => {
+describe('InstrumentAttributesConfigPage — no TCP/IP reading section (CR-1)', () => {
   const MIXED = {
     data: [
-      { id: 'g1', name: 'Gateway Profile', instrumentCount: 2, attributeKeys: 'Block', connection: 'PUSH', modbusIntervalSec: null, modbusUnitId: null },
-      { id: 't1', name: 'Modbus Profile', instrumentCount: 0, attributeKeys: 'Block', connection: 'MODBUS_TCP', modbusIntervalSec: 60, modbusUnitId: 1 },
+      { id: 'g1', name: 'Gateway Profile', instrumentCount: 2, attributeKeys: 'Block', connection: 'PUSH' },
+      { id: 't1', name: 'Modbus Profile', instrumentCount: 0, attributeKeys: 'Block', connection: 'MODBUS_TCP' },
     ],
     total: 2,
   };
-  const section = () => screen.queryByRole('region', { name: 'TCP/IP reading' });
 
   beforeEach(() => { reauthActions.length = 0; profilesResponse = MIXED; });
 
-  it('is absent for a Gateway profile', () => {
-    renderPage();
-    expect(section()).not.toBeInTheDocument();
-  });
-
-  it('appears for a TCP/IP profile, showing the stored interval and unit id', () => {
+  it('a TCP/IP profile has no TCP/IP reading section, no Read every and no Slave / Unit ID', () => {
     renderPage();
     selectTarget('t1');
-    const s = section()!;
-    expect(within(s).getByLabelText('Read every')).toHaveValue('60');
-    expect(within(s).getByLabelText('Unit ID')).toHaveValue(1);
-    expect(within(s).getByRole('button', { name: /save tcp\/ip reading/i })).toBeDisabled();
+    expect(screen.queryByRole('region', { name: 'TCP/IP reading' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/read every/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/unit id|slave id/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /save tcp\/ip reading/i })).not.toBeInTheDocument();
   });
 
-  it('PUTs the changed interval under UPDATE_INSTRUMENT_PROFILE and refreshes the profiles', async () => {
+  it('nor does a Gateway profile', () => {
     renderPage();
-    selectTarget('t1');
-    const s = section()!;
-    fireEvent.change(within(s).getByLabelText('Read every'), { target: { value: '300' } });
-    fireEvent.click(within(s).getByRole('button', { name: /save tcp\/ip reading/i }));
-    await waitFor(() => expect(put).toHaveBeenCalledWith('/api/instrument-profiles/t1', { modbusIntervalSec: 300 }));
-    expect(reauthActions).toEqual(['UPDATE_INSTRUMENT_PROFILE']);
-    await waitFor(() => expect(mutateProfiles).toHaveBeenCalled());
-  });
-
-  it('PUTs a changed unit id', async () => {
-    renderPage();
-    selectTarget('t1');
-    const s = section()!;
-    fireEvent.change(within(s).getByLabelText('Unit ID'), { target: { value: '9' } });
-    fireEvent.click(within(s).getByRole('button', { name: /save tcp\/ip reading/i }));
-    await waitFor(() => expect(put).toHaveBeenCalledWith('/api/instrument-profiles/t1', { modbusUnitId: 9 }));
-  });
-
-  it('shows the API refusal under the fields', async () => {
-    put.mockRejectedValue(new Error('Unit ID must be 0 to 255'));
-    renderPage();
-    selectTarget('t1');
-    const s = section()!;
-    fireEvent.change(within(s).getByLabelText('Unit ID'), { target: { value: '999' } });
-    fireEvent.click(within(s).getByRole('button', { name: /save tcp\/ip reading/i }));
-    expect(await within(s).findByRole('alert')).toHaveTextContent('Unit ID must be 0 to 255');
+    expect(screen.queryByRole('region', { name: 'TCP/IP reading' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/read every/i)).not.toBeInTheDocument();
   });
 });

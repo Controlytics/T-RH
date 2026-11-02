@@ -4,22 +4,24 @@ import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
 
 /**
  * New Instrument for a TCP/IP (Modbus) profile (2026-10-31, spec §12). The
- * instrument carries its own IP address, port and register map; it is never a
+ * instrument carries its own IP address, port, Slave ID and Read every (CR-1,
+ * 2026-11-02 — no longer the profile's) and register map; it is never a
  * gateway nor behind one; it gets NO token (this server reads the device, so
  * nothing ever logs in as it) — so no token dialog. Which key is judged is the
  * Test-connection RESPONSE's answer and nothing else. A Gateway profile's form
  * is the one `create.test.tsx` pins, unchanged.
  */
 
+// A profile carries only its connection since CR-1: no interval, no unit id.
 const PROFILES = {
   data: [
-    { id: 'g-1', name: 'T&RH Sensors', connection: 'PUSH', modbusIntervalSec: null, modbusUnitId: null },
-    { id: 't-1', name: 'Modbus Room Sensors', connection: 'MODBUS_TCP', modbusIntervalSec: 120, modbusUnitId: 7 },
+    { id: 'g-1', name: 'T&RH Sensors', connection: 'PUSH' },
+    { id: 't-1', name: 'Modbus Room Sensors', connection: 'MODBUS_TCP' },
   ],
 };
 const DETAIL: Record<string, unknown> = {
-  'g-1': { id: 'g-1', attributeKeys: '', connection: 'PUSH', modbusIntervalSec: null, modbusUnitId: null },
-  't-1': { id: 't-1', attributeKeys: '', connection: 'MODBUS_TCP', modbusIntervalSec: 120, modbusUnitId: 7 },
+  'g-1': { id: 'g-1', attributeKeys: '', connection: 'PUSH' },
+  't-1': { id: 't-1', attributeKeys: '', connection: 'MODBUS_TCP' },
 };
 const LABELS = { labels: {} };
 const GATEWAYS = { data: [{ id: 'gw-1', code: 'IOTGW01', name: 'IOTGW01', profileName: 'T&RH Sensors' }] };
@@ -102,6 +104,8 @@ const SIX_MAP = [
 
 const typeInto = (name: string | RegExp, value: string) =>
   fireEvent.change(screen.getByRole('textbox', { name }), { target: { value } });
+const slaveId = () => screen.getByRole('spinbutton', { name: /slave id/i }) as HTMLInputElement;
+const readEvery = () => screen.getByRole('combobox', { name: /read every/i }) as HTMLSelectElement;
 const importSix = async () => {
   fireEvent.change(screen.getByLabelText('Import keys file'), {
     target: { files: [new File([JSON.stringify(SIX_KEYS)], 'ModbusTCPReader_keys.json', { type: 'application/json' })] },
@@ -129,8 +133,18 @@ describe('New Instrument — a TCP/IP profile', () => {
     expect(screen.getByRole('spinbutton', { name: /^port/i })).toHaveValue(502);
     expect(screen.getByRole('region', { name: 'Register map' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Test connection' })).toBeInTheDocument();
-    // The profile's read interval and unit id, as the server returned them.
-    expect(screen.getByText(/Read every 120 s · unit ID 7/)).toBeInTheDocument();
+  });
+
+  it('the TCP/IP connection asks, in order, for IP address, Port, Slave ID (1) and Read every (1 minute) — the profile says nothing about either', () => {
+    renderAt('/instruments/new?profileId=t-1');
+    const section = screen.getByRole('region', { name: 'TCP/IP connection' });
+    const labels = Array.from(section.querySelectorAll('label > span:first-child')).map((s) => s.textContent);
+    expect(labels).toEqual(['IP address *', 'Port *', 'Slave ID', 'Read every']);
+    expect(slaveId()).toHaveValue(1);
+    expect(readEvery()).toHaveValue('60');
+    expect(readEvery().selectedOptions[0]?.textContent).toBe('1 minute');
+    expect(screen.queryByText(/set once on the profile/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/unit ID/)).not.toBeInTheDocument();
   });
 
   it('a Gateway profile keeps the form it had: Is Gateway, the gateway picker, and none of the TCP/IP cards', () => {
@@ -160,9 +174,36 @@ describe('New Instrument — Judged as is the Test-connection response', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Test connection' }));
     await waitFor(() => expect(screen.getByTestId('map-judged-0')).toHaveTextContent('Not judged'));
     expect(post).toHaveBeenCalledWith('/api/instruments/modbus/test', {
-      profileId: 't-1', modbusHost: '192.168.1.24', modbusPort: 502,
+      profileId: 't-1', modbusHost: '192.168.1.24', modbusPort: 502, modbusUnitId: 1,
       modbusRegisters: [{ key: 'Temperature', register: '40001', dataType: 'FLOAT32', byteOrder: 'ABCD', scale: 1 }],
     });
+  });
+
+  it('Test connection and a per-key Test send the Slave ID as typed', async () => {
+    post.mockImplementation((url: string) => url === '/api/instruments/modbus/test'
+      ? Promise.resolve({ ok: true, elapsedMs: 40, requests: 1, values: [{ key: 'Humidity', value: 47.1, judgedAs: 'HUMIDITY' }], rejected: [] })
+      : Promise.resolve(CREATED_TCPIP));
+    renderAt('/instruments/new?profileId=t-1');
+    await importSix();
+    typeInto(/ip address/i, '192.168.1.24');
+    fireEvent.change(slaveId(), { target: { value: '17' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Test connection' }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/instruments/modbus/test', expect.objectContaining({ modbusUnitId: 17, modbusRegisters: SIX_MAP })));
+    fireEvent.click(screen.getByRole('button', { name: 'Test key, row 2' }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/instruments/modbus/test', {
+      profileId: 't-1', modbusHost: '192.168.1.24', modbusPort: 502, modbusUnitId: 17, modbusRegisters: [SIX_MAP[1]],
+    }));
+    expect(await screen.findByTestId('map-test-1')).toHaveTextContent('Read now: 47.1 · judged as Humidity');
+  });
+
+  it('a per-key Test waits for the address and a Slave ID', async () => {
+    renderAt('/instruments/new?profileId=t-1');
+    await importSix();
+    expect(screen.getByRole('button', { name: 'Test key, row 1' })).toHaveAttribute('title', 'Set the IP address to test.');
+    typeInto(/ip address/i, '192.168.1.24');
+    fireEvent.change(slaveId(), { target: { value: '' } });
+    expect(screen.getByRole('button', { name: 'Test key, row 1' })).toHaveAttribute('title', 'Set a Slave ID from 0 to 255 to test.');
+    expect(screen.getByRole('button', { name: 'Test key, row 1' })).toBeDisabled();
   });
 
   it('a READING_OFF answer prints its sentence', async () => {
@@ -200,7 +241,7 @@ describe('New Instrument — Create for a TCP/IP profile', () => {
     await waitFor(() => expect(createCalls()).toHaveLength(1));
     expect(createCalls()[0]![1]).toEqual({
       name: 'CWH/RDU/101-01', code: 'CWH/RDU/101-01', profileId: 't-1',
-      modbusHost: '192.168.1.24', modbusPort: 502, modbusRegisters: SIX_MAP,
+      modbusHost: '192.168.1.24', modbusPort: 502, modbusUnitId: 1, modbusIntervalSec: 60, modbusRegisters: SIX_MAP,
     });
     expect(await screen.findByText('DETAIL i-new')).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -215,6 +256,55 @@ describe('New Instrument — Create for a TCP/IP profile', () => {
     create();
     await waitFor(() => expect(createCalls()).toHaveLength(1));
     expect(createCalls()[0]![1]).toMatchObject({ modbusHost: '10.1.2.3', modbusPort: 5020, modbusRegisters: [] });
+  });
+
+  it('the Slave ID and Read every chosen are sent as numbers', async () => {
+    renderAt('/instruments/new?profileId=t-1');
+    typeInto(/instrument id/i, 'P-6');
+    typeInto(/ip address/i, '10.1.2.3');
+    fireEvent.change(slaveId(), { target: { value: '0' } });
+    fireEvent.change(readEvery(), { target: { value: '300' } });
+    create();
+    await waitFor(() => expect(createCalls()).toHaveLength(1));
+    expect(createCalls()[0]![1]).toMatchObject({ modbusUnitId: 0, modbusIntervalSec: 300 });
+  });
+
+  it('a blank Slave ID is no Slave ID (never 0): named under its field in the shared schema\'s words, nothing posted', async () => {
+    renderAt('/instruments/new?profileId=t-1');
+    typeInto(/instrument id/i, 'P-7');
+    typeInto(/ip address/i, '10.1.2.3');
+    fireEvent.change(slaveId(), { target: { value: '' } });
+    create();
+    expect(await screen.findByText('Slave ID must be a whole number from 0 to 255.')).toBeInTheDocument();
+    expect(slaveId()).toHaveAttribute('aria-invalid', 'true');
+    expect(createCalls()).toHaveLength(0);
+  });
+
+  it('a Slave ID over 255 is stopped by the field\'s own 0..255 bounds (as Port\'s are) — nothing posted', async () => {
+    renderAt('/instruments/new?profileId=t-1');
+    typeInto(/instrument id/i, 'P-7');
+    typeInto(/ip address/i, '10.1.2.3');
+    fireEvent.change(slaveId(), { target: { value: '256' } });
+    expect(slaveId().validity.rangeOverflow).toBe(true);
+    create();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(createCalls()).toHaveLength(0);
+  });
+
+  it('a refusal the form did not foresee is printed under its field, in the API\'s words', async () => {
+    post.mockImplementation((url: string) => url === '/api/instruments'
+      ? Promise.reject(Object.assign(new Error('VALIDATION_ERROR'), {
+        status: 400, code: 'VALIDATION_ERROR',
+        connectionInfo: { formErrors: [], fieldErrors: { modbusIntervalSec: ['Read every must be a whole number of seconds from 10 to 3600.'] } },
+      }))
+      : Promise.resolve({}));
+    renderAt('/instruments/new?profileId=t-1');
+    typeInto(/instrument id/i, 'P-8');
+    typeInto(/ip address/i, '10.1.2.3');
+    create();
+    expect(await screen.findByText('Read every must be a whole number of seconds from 10 to 3600.')).toBeInTheDocument();
+    expect(readEvery()).toHaveAttribute('aria-invalid', 'true');
+    expect(errorToast).toHaveBeenCalled();
   });
 
   it('Is Gateway ticked under a Gateway profile is NOT sent after switching to a TCP/IP one', async () => {
@@ -239,7 +329,8 @@ describe('New Instrument — Create for a TCP/IP profile', () => {
     create();
     await waitFor(() => expect(createCalls()).toHaveLength(1));
     const body = createCalls()[0]![1] as Record<string, unknown>;
-    for (const k of ['modbusHost', 'modbusPort', 'modbusRegisters']) expect(body).not.toHaveProperty(k);
+    for (const k of ['modbusHost', 'modbusPort', 'modbusUnitId', 'modbusIntervalSec', 'modbusRegisters']) expect(body).not.toHaveProperty(k);
+    expect(screen.queryByRole('spinbutton', { name: /slave id/i })).not.toBeInTheDocument();
     // …and its token is shown, as it always was.
     expect(await screen.findByText('TOK')).toBeInTheDocument();
   });
@@ -250,6 +341,19 @@ describe('New Instrument — Create for a TCP/IP profile', () => {
     typeInto(/ip address/i, 'plc.local');
     create();
     expect(await screen.findByText('Enter an IPv4 address such as 192.168.1.24 (hostnames are not accepted)')).toBeInTheDocument();
+    expect(createCalls()).toHaveLength(0);
+  });
+
+  it('a row whose Quantity was changed has no data type until one is chosen: not posted', async () => {
+    renderAt('/instruments/new?profileId=t-1');
+    typeInto(/instrument id/i, 'P-9');
+    typeInto(/ip address/i, '192.168.1.24');
+    await importSix();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Quantity, row 1' }), { target: { value: '1' } });
+    expect(screen.getByTestId('map-errors-0')).toHaveTextContent('Data type must be one of');
+    expect(screen.getByRole('button', { name: 'Test connection' })).toBeDisabled();
+    create();
+    expect(await screen.findByText(/The register map has errors/)).toBeInTheDocument();
     expect(createCalls()).toHaveLength(0);
   });
 

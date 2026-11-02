@@ -33,7 +33,7 @@ interface Instrument {
   id: string; name: string; code: string; isActive: boolean;
   instrumentType: string | null; manufacturer: string | null; model: string | null;
   serialNumber: string | null; description: string | null; expectedIntervalSec: number | null;
-  /** The SERVER's verdict and the interval it judged by (own, else a TCP/IP profile's read interval). */
+  /** The SERVER's verdict and the interval it judged by (own, else a TCP/IP instrument's Read every). */
   reporting: boolean; effectiveExpectedIntervalSec: number | null;
   tokenPrefix: string | null; lastSeenAt: string | null;
   /**
@@ -53,8 +53,13 @@ interface Instrument {
    * (IOTGW01 sits in no location) got a 404 toast from the old by-id lookup.
    */
   gatewayCode?: string | null; gatewayVisible?: boolean;
-  /** The PROFILE's connection ('PUSH' | 'MODBUS_TCP'); the address and map are the instrument's own (TCP/IP only). */
+  /**
+   * The PROFILE's connection ('PUSH' | 'MODBUS_TCP'); the address, Slave ID,
+   * Read every and map are the instrument's own (TCP/IP only — the Slave ID and
+   * Read every since CR-1, 2026-11-02).
+   */
   connection?: string | null; modbusHost?: string | null; modbusPort?: number | null;
+  modbusUnitId?: number | null; modbusIntervalSec?: number | null;
   modbusRegisters?: ModbusRegisterMap | null;
 }
 interface ChildInstrument { id: string; code: string; name: string; isActive: boolean }
@@ -225,7 +230,8 @@ export function InstrumentDetailPage() {
   };
 
   /**
-   * A TCP/IP instrument's address or register map, signed with a reason. Same
+   * A TCP/IP instrument's connection (only the fields that changed: address,
+   * Slave ID, Read every) or register map, signed with a reason. Same
    * UPDATE_INSTRUMENT re-auth as `save`; the server decides everything else
    * (the map is SUPER_ADMIN-only - 403 REGISTER_MAP_SA_ONLY - and a reason is
    * required: 400 REASON_REQUIRED). Resolves true only once saved.
@@ -577,6 +583,8 @@ export function InstrumentDetailPage() {
                 profileId={inst.profileId}
                 host={inst.modbusHost ?? null}
                 port={inst.modbusPort ?? null}
+                unitId={inst.modbusUnitId ?? null}
+                intervalSec={inst.modbusIntervalSec ?? null}
                 map={inst.modbusRegisters ?? []}
                 canEdit={can('instruments.edit')}
                 onSave={(fields, reason) => saveModbus(fields, reason)}
@@ -686,6 +694,15 @@ export function InstrumentDetailPage() {
               judged={judged}
               canEdit={isSuperAdmin}
               onSave={(map, reason) => saveModbus({ modbusRegisters: map }, reason)}
+              // Per-key Test reads the STORED address and Slave ID; an absent
+              // one is not guessed (the button says it is missing).
+              testTarget={{
+                profileId: inst.profileId,
+                host: inst.modbusHost ?? '',
+                port: inst.modbusPort ?? Number.NaN,
+                unitId: inst.modbusUnitId ?? Number.NaN,
+                instrumentId: inst.id,
+              }}
             />
           </CardContent>
         </Card>

@@ -14,7 +14,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@
 import { PageHeader } from '@/components/ui/page-header';
 import { Dialog, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { LocationPicker, NO_PLACEMENT, placedLocationId, usePlacementTree, type Placement } from './location-picker';
-import { BulkReviewDialog, FromValue, addressText, type BulkPreview, type PlannedUpdate } from './bulk-review-dialog';
+import { BulkReviewDialog, FromValue, tcpipLines, type BulkPreview, type PlannedUpdate } from './bulk-review-dialog';
 
 // `token` is null for a TCP/IP instrument: this server reads it, nothing logs in as it.
 interface CreatedRow { id: string; code: string; name: string; token: string | null }
@@ -56,6 +56,8 @@ function summary(res: BulkResult): string {
  * headed by keys (an older template) still imports.
  */
 const INSTRUMENT_ID_HEADING = 'Instrument ID';
+/** A TCP/IP profile's columns, as `bulk-plan.ts` names them. */
+const TCPIP_HEADINGS = ['IP address', 'Port', 'Slave ID', 'Read every'];
 
 function buildTemplate(attributeKeys: string[], labelFor: (key: string) => string, tcpip: boolean): string {
   // Headed as the create form labels it (operator, 2026-09-16); the importer
@@ -63,8 +65,10 @@ function buildTemplate(attributeKeys: string[], labelFor: (key: string) => strin
   // sample row named CWH/RDU/001-00, a REAL instrument, so an untouched
   // template failed every upload ("already exists") — and now that an existing
   // ID is updated, a value typed into it would change that instrument.
-  // A TCP/IP profile's instruments each have their own address (2026-10-31).
-  const header = [INSTRUMENT_ID_HEADING, ...(tcpip ? ['IP address', 'Port'] : []), ...attributeKeys.map(labelFor)];
+  // A TCP/IP profile's instruments each have their own address (2026-10-31),
+  // Slave ID and Read every in seconds (CR-1, 2026-11-02) — the server's
+  // headings, spelled as it reads them.
+  const header = [INSTRUMENT_ID_HEADING, ...(tcpip ? TCPIP_HEADINGS : []), ...attributeKeys.map(labelFor)];
   return `${header.join(',')}\n`;
 }
 
@@ -261,7 +265,7 @@ export function InstrumentBulkCreatePage() {
         <CardHeader><CardTitle>2. Download the template</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-slate-600">
-            Columns: Instrument ID, {tcpip && 'IP address and Port, '}then the attributes of the profile chosen above. A blank cell changes nothing.{tcpip && ' A blank Port is 502.'}
+            Columns: Instrument ID, {tcpip && 'IP address, Port, Slave ID and Read every (seconds), '}then the attributes of the profile chosen above. A blank cell changes nothing.{tcpip && ' On a new instrument a blank Port is 502, a blank Slave ID 1 and a blank Read every 60.'}
           </p>
           <Button
             variant="secondary"
@@ -318,14 +322,14 @@ export function InstrumentBulkCreatePage() {
                     <TableRow><TableHead>Instrument ID</TableHead><TableHead>Field</TableHead><TableHead>Was</TableHead><TableHead>Now</TableHead></TableRow>
                   </TableHeader>
                   <TableBody>
-                    {result.updated!.flatMap((u) => (u.address ? [(
-                      <TableRow key={`${u.id}-address`} data-testid="updated-change">
+                    {result.updated!.flatMap((u) => tcpipLines(u).map((l) => (
+                      <TableRow key={`${u.id}-${l.id}`} data-testid="updated-change">
                         <TableCell className="font-mono text-xs">{u.code}</TableCell>
-                        <TableCell>IP address : Port</TableCell>
-                        <TableCell><FromValue value={u.address.from.host === null ? null : addressText(u.address.from)} /></TableCell>
-                        <TableCell className="font-mono font-semibold text-slate-900">{addressText(u.address.to)}</TableCell>
+                        <TableCell>{l.field}</TableCell>
+                        <TableCell><FromValue value={l.from} /></TableCell>
+                        <TableCell className="font-mono font-semibold text-slate-900">{l.to}</TableCell>
                       </TableRow>
-                    )] : []).concat(u.changes.map((c) => (
+                    )).concat(u.changes.map((c) => (
                       <TableRow key={`${u.id}-${c.key}`} data-testid="updated-change">
                         <TableCell className="font-mono text-xs">{u.code}</TableCell>
                         <TableCell>{c.column}</TableCell>

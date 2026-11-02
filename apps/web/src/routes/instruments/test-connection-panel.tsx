@@ -1,49 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { PlugZap } from 'lucide-react';
-import type { ModbusRegisterMap } from '@digilog/shared';
-import { apiClient } from '@/lib/api-client';
+import { modbusRegisterMapSchema, type ModbusRegisterMap } from '@digilog/shared';
 import { Button } from '@/components/ui/button';
-import { StatusBadge, type StatusTone } from '@/components/ui/status-badge';
+import { StatusBadge } from '@/components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import type { JudgedAs } from './register-map-editor';
-
-/** `POST /api/instruments/modbus/test` — the server's answer, as it sends it. */
-type TestAnswer =
-  | {
-    ok: true;
-    elapsedMs: number;
-    requests: number;
-    values: { key: string; value: unknown; judgedAs: JudgedAs }[];
-    rejected: { key: string; reason: string }[];
-  }
-  | { ok: false; code: string; message: string };
-
-/** A request the server refused outright (400 / 403 / 429): its message and code. */
-interface Refusal { refused: true; code: string | undefined; message: string }
+import {
+  isAnswered, pillFor, runModbusTest, targetProblem, testBody,
+  type Failure, type JudgedAs, type TestAnswer, type TestOutcome,
+} from './modbus-test';
 
 /**
- * The pill for a failure. The CODE picks only the word and the colour; the
- * sentence beside it is the server's `message`, printed verbatim. A device
- * that failed is red; a setting or another instrument standing in the way is
- * amber. A code not listed (a 429, a 403) still prints its message.
- */
-const PILL: Record<string, { tone: StatusTone; word: string }> = {
-  NO_ANSWER: { tone: 'danger', word: 'No answer' },
-  REFUSED: { tone: 'danger', word: 'Refused' },
-  DEVICE_EXCEPTION: { tone: 'danger', word: 'Register refused' },
-  BAD_RESPONSE: { tone: 'danger', word: 'Bad answer' },
-  READING_OFF: { tone: 'warn', word: 'Reading off' },
-  ADDRESS_IN_USE: { tone: 'warn', word: 'In use' },
-  ADDRESS_NOT_ALLOWED: { tone: 'warn', word: 'Not allowed' },
-  VALIDATION_ERROR: { tone: 'warn', word: 'Invalid' },
-};
-const NOT_TESTED = { tone: 'danger' as StatusTone, word: 'Not tested' };
-
-/**
- * Test connection (spec §8): read the device ONCE with this form's address and
- * register map, store nothing, and show every key's value — or why it could
- * not. A wrong byte order does not fail, it reads a believable wrong number,
- * which is what this exists to show before anything is saved.
+ * Test connection (spec §8): read the device ONCE with this form's address,
+ * Slave ID and register map, store nothing, and show every key's value — or
+ * why it could not. A wrong byte order does not fail, it reads a believable
+ * wrong number, which is what this exists to show before anything is saved.
  *
  * Nothing is decided here. The values, the failure sentence and which key is
  * judged (`judgedAs`, handed up through `onJudged` for the map's Judged as
@@ -51,29 +21,29 @@ const NOT_TESTED = { tone: 'danger' as StatusTone, word: 'Not tested' };
  * read with: when any of them changes it is dropped, and the judgement with it,
  * so values read with one map never sit beside another.
  *
+ * The request, the answer's shape and the failure words are `./modbus-test`'s,
+ * shared with the register map's per-key Test (CR-1). A map the shared schema
+ * refuses (a row whose data type was cleared by its Quantity) is not sent.
+ *
  * Shared by New Instrument and the instrument page; `instrumentId` names a
  * stored instrument so its own address is not reported as in use.
  */
 export function TestConnectionPanel({
-  profileId, host, port, map, instrumentId, onJudged,
+  profileId, host, port, unitId, map, instrumentId, onJudged,
 }: {
   profileId: string;
   host: string;
   port: number;
+  /** The Slave ID, sent as `modbusUnitId` (CR-1: each instrument's own). */
+  unitId: number;
   map: ModbusRegisterMap;
   instrumentId?: string;
   onJudged: (judged: Record<string, JudgedAs>) => void;
 }) {
-  const body = {
-    profileId,
-    modbusHost: host,
-    modbusPort: port,
-    modbusRegisters: map,
-    ...(instrumentId ? { instrumentId } : {}),
-  };
+  const body = testBody({ profileId, host, port, unitId, instrumentId }, map);
   /** The request, serialised: what a result was read WITH. */
   const signature = JSON.stringify(body);
-  const [result, setResult] = useState<{ signature: string; answer: TestAnswer | Refusal } | null>(null);
+  const [result, setResult] = useState<{ signature: string; answer: TestOutcome } | null>(null);
   const [busy, setBusy] = useState(false);
   const live = useRef(signature);
   live.current = signature;
@@ -88,26 +58,21 @@ export function TestConnectionPanel({
     }
   }, [signature, result]);
 
-  const ready = host.trim() !== '' && Number.isInteger(port) && map.length > 0;
+  const problem = targetProblem({ host, port, unitId })
+    ?? (map.length === 0 ? 'Add at least one key to test.' : null)
+    ?? (modbusRegisterMapSchema.safeParse(map).success ? null : 'Fix the register map rows marked, to test.');
+  const ready = problem === null;
 
   const run = async () => {
     const sent = signature;
     setBusy(true);
-    let answer: TestAnswer | Refusal;
-    try {
-      answer = await apiClient.post<TestAnswer>('/api/instruments/modbus/test', body);
-    } catch (err) {
-      const e = err as { message?: string; code?: string };
-      answer = { refused: true, code: e.code, message: e.message ?? 'The test could not be run.' };
-    }
+    const answer = await runModbusTest(body);
     setBusy(false);
     // Answered for a form that has since changed: it describes nothing on screen.
     if (live.current !== sent) return;
     setResult({ signature: sent, answer });
     onJudgedRef.current(
-      'ok' in answer && answer.ok
-        ? Object.fromEntries(answer.values.map((v) => [v.key, v.judgedAs]))
-        : {},
+      isAnswered(answer) ? Object.fromEntries(answer.values.map((v) => [v.key, v.judgedAs])) : {},
     );
   };
 
@@ -124,13 +89,11 @@ export function TestConnectionPanel({
           Test connection
         </Button>
         <span className="text-xs text-slate-500">
-          {ready
-            ? 'Reads the device once — nothing is stored.'
-            : 'Enter the IP address and port, and at least one key, to test.'}
+          {ready ? 'Reads the device once — nothing is stored.' : problem}
         </span>
       </div>
 
-      {shown && ('ok' in shown && shown.ok ? <Answered answer={shown} /> : <Failed answer={shown as Refusal | Extract<TestAnswer, { ok: false }>} />)}
+      {shown && (isAnswered(shown) ? <Answered answer={shown} /> : <Failed answer={shown as Failure} />)}
     </div>
   );
 }
@@ -173,8 +136,8 @@ function Answered({ answer }: { answer: Extract<TestAnswer, { ok: true }> }) {
   );
 }
 
-function Failed({ answer }: { answer: Refusal | Extract<TestAnswer, { ok: false }> }) {
-  const pill = (answer.code && PILL[answer.code]) || NOT_TESTED;
+function Failed({ answer }: { answer: Failure }) {
+  const pill = pillFor(answer);
   return (
     <div
       role="alert"

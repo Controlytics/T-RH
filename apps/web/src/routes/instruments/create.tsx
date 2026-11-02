@@ -5,7 +5,8 @@ import useSWR from 'swr';
 import {
   parseInstrumentAttributeKeys, placementColumnFor, ALL_RECORDS_PARAM,
   instrumentCreateFormSchema, formFieldErrors, type FormFieldErrors,
-  MODBUS_PORT_DEFAULT, createInstrumentSchema, modbusHostSchema, modbusRegisterMapSchema,
+  MODBUS_PORT_DEFAULT, MODBUS_UNIT_ID, MODBUS_INTERVAL,
+  createInstrumentSchema, modbusHostSchema, modbusRegisterMapSchema,
   type ModbusRegisterMap,
 } from '@digilog/shared';
 import { ListOrdered, Network, PlugZap } from 'lucide-react';
@@ -23,7 +24,7 @@ import { LocationPicker, NO_PLACEMENT, placedLocationId, usePlacementTree, type 
 import { PageHeader } from '@/components/ui/page-header';
 import { RegisterMapEditor, type JudgedAs } from './register-map-editor';
 import { TestConnectionPanel } from './test-connection-panel';
-import { intervalText } from './modbus-reading-fields';
+import { ModbusReadingFields } from './modbus-reading-fields';
 
 /**
  * The 201. `token` is ABSENT for an instrument of a TCP/IP (Modbus) profile —
@@ -33,8 +34,24 @@ import { intervalText } from './modbus-reading-fields';
  */
 interface CreatedInstrument { id: string; code: string; token?: string }
 
-/** The port as typed → a number; blank is NaN, which the shared schema names. */
+/** A port or Slave ID as typed → a number; blank is NaN, which the shared schema names. */
 const portNumber = (raw: string): number => (raw.trim() === '' ? Number.NaN : Number(raw));
+
+/**
+ * The API's own field errors on a refused create (`400 VALIDATION_ERROR`,
+ * `details.fieldErrors` — the api client carries `details` as
+ * `connectionInfo`), so a refusal the form did not foresee is printed under
+ * its field, as the form's own checks are. Null when the refusal names none.
+ */
+function apiFieldErrors(err: unknown): FormFieldErrors | null {
+  const fields = (err as { connectionInfo?: { fieldErrors?: Record<string, unknown> } })?.connectionInfo?.fieldErrors;
+  if (!fields || typeof fields !== 'object') return null;
+  const out: FormFieldErrors = {};
+  for (const [k, v] of Object.entries(fields)) {
+    if (Array.isArray(v) && v.length > 0 && v.every((m) => typeof m === 'string')) out[k] = v as string[];
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
 
 /**
  * Register an instrument.
@@ -57,9 +74,10 @@ const portNumber = (raw: string): number => (raw.trim() === '' ? Number.NaN : Nu
  * is a prompt, not a constraint: the detail page still accepts any key
  * afterwards.
  *
- * ── A TCP/IP (Modbus) profile (2026-10-31, spec §12) ──
- * The instrument carries its own IP address, port and register map, and this
- * server reads it — so it is never a gateway nor behind one (Is Gateway and
+ * ── A TCP/IP (Modbus) profile (2026-10-31, spec §12; CR-1 2026-11-02) ──
+ * The instrument carries its own IP address, port, Slave ID, read interval and
+ * register map (the Slave ID and the interval were the profile's until CR-1),
+ * and this server reads it — so it is never a gateway nor behind one (Is Gateway and
  * Reports through gateway are hidden, and never SENT, whatever was ticked
  * before the profile changed), and it gets no token, so no token dialog: Create
  * goes to the instrument. Test connection reads the device once and is the
@@ -130,12 +148,7 @@ export function InstrumentCreatePage() {
    * below, which keep "failed" distinct from "asks for nothing".
    */
   const { data: profile, error: profileError, isLoading: profileLoading } =
-    useSWR<{
-      attributeKeys: string | null;
-      connection?: string;
-      modbusIntervalSec?: number | null;
-      modbusUnitId?: number | null;
-    }>(
+    useSWR<{ attributeKeys: string | null; connection?: string }>(
       profileId ? `/api/instrument-profiles/${profileId}` : null,
     );
   const attributeKeys = parseInstrumentAttributeKeys(profile?.attributeKeys);
@@ -150,6 +163,9 @@ export function InstrumentCreatePage() {
   const tcpip = connection === 'MODBUS_TCP';
   const [modbusHost, setModbusHost] = useState('');
   const [modbusPort, setModbusPort] = useState(String(MODBUS_PORT_DEFAULT));
+  /** Slave ID as typed (blank is NaN, named by the shared schema) and Read every, in seconds. */
+  const [modbusUnitId, setModbusUnitId] = useState(String(MODBUS_UNIT_ID.default));
+  const [modbusIntervalSec, setModbusIntervalSec] = useState<number>(MODBUS_INTERVAL.default);
   const [registerMap, setRegisterMap] = useState<ModbusRegisterMap>([]);
   /** Test connection's `judgedAs` per key — the map's Judged as column, and nothing else. */
   const [judged, setJudged] = useState<Record<string, JudgedAs>>({});
@@ -190,10 +206,14 @@ export function InstrumentCreatePage() {
     const host = modbusHost.trim();
     const hostCheck = tcpip ? modbusHostSchema.safeParse(host) : null;
     const portCheck = tcpip ? createInstrumentSchema.shape.modbusPort.safeParse(portNumber(modbusPort)) : null;
+    const unitCheck = tcpip ? createInstrumentSchema.shape.modbusUnitId.safeParse(portNumber(modbusUnitId)) : null;
+    const intervalCheck = tcpip ? createInstrumentSchema.shape.modbusIntervalSec.safeParse(modbusIntervalSec) : null;
     const mapCheck = tcpip ? modbusRegisterMapSchema.safeParse(registerMap) : null;
     const tcpipErrors: FormFieldErrors = {
       ...(hostCheck && !hostCheck.success ? { modbusHost: [hostCheck.error.issues[0]!.message] } : {}),
       ...(portCheck && !portCheck.success ? { modbusPort: [portCheck.error.issues[0]!.message] } : {}),
+      ...(unitCheck && !unitCheck.success ? { modbusUnitId: [unitCheck.error.issues[0]!.message] } : {}),
+      ...(intervalCheck && !intervalCheck.success ? { modbusIntervalSec: [intervalCheck.error.issues[0]!.message] } : {}),
       ...(mapCheck && !mapCheck.success ? { modbusRegisters: ['The register map has errors — see the rows marked.'] } : {}),
     };
     if (!parsed.success || placementMissing || Object.keys(tcpipErrors).length > 0) {
@@ -218,6 +238,10 @@ export function InstrumentCreatePage() {
       // empty map is allowed: the instrument is not read until it has keys.
       payload.modbusHost = host;
       payload.modbusPort = portCheck!.data;
+      // CR-1: each TCP/IP instrument's own. Never sent for a Gateway profile,
+      // whose instrument the API refuses either field (NOT_A_TCPIP_PROFILE).
+      payload.modbusUnitId = unitCheck!.data;
+      payload.modbusIntervalSec = intervalCheck!.data;
       payload.modbusRegisters = mapCheck!.data;
     } else {
       if (isGateway) payload.isGateway = true;
@@ -314,6 +338,8 @@ export function InstrumentCreatePage() {
       },
       onError: (err: unknown) => {
         if (res) { keepRegistered(); return; }
+        const fromApi = apiFieldErrors(err);
+        if (fromApi) setFieldErrors(fromApi);
         toast.error('Create failed', (err as { message?: string })?.message ?? 'Could not create the instrument.');
         setSaving(false);
       },
@@ -444,15 +470,24 @@ export function InstrumentCreatePage() {
                 />
                 {fieldErrors.modbusPort && <p className="mt-1 text-xs text-red-600">{fieldErrors.modbusPort[0]}</p>}
               </label>
-              {typeof profile?.modbusIntervalSec === 'number' && typeof profile?.modbusUnitId === 'number' && (
-                <p className="text-xs text-slate-500 md:col-span-2">
-                  Read every {intervalText(profile.modbusIntervalSec)} · unit ID {profile.modbusUnitId} — set once on the profile.
-                </p>
-              )}
+              <ModbusReadingFields
+                idPrefix="new-instrument"
+                unitId={modbusUnitId}
+                intervalSec={modbusIntervalSec}
+                onUnitIdChange={setModbusUnitId}
+                onIntervalChange={setModbusIntervalSec}
+                unitIdError={fieldErrors.modbusUnitId?.[0]}
+                intervalError={fieldErrors.modbusIntervalSec?.[0]}
+              />
             </FormSection>
 
             <FormSection title="Register map" icon={<ListOrdered className="h-4 w-4" />} columns={1}>
-              <RegisterMapEditor value={registerMap} onChange={setRegisterMap} judged={judged} />
+              <RegisterMapEditor
+                value={registerMap}
+                onChange={setRegisterMap}
+                judged={judged}
+                testTarget={{ profileId, host: modbusHost.trim(), port: portNumber(modbusPort), unitId: portNumber(modbusUnitId) }}
+              />
               {fieldErrors.modbusRegisters && <p className="text-xs text-red-600">{fieldErrors.modbusRegisters[0]}</p>}
             </FormSection>
 
@@ -461,6 +496,7 @@ export function InstrumentCreatePage() {
                 profileId={profileId}
                 host={modbusHost.trim()}
                 port={portNumber(modbusPort)}
+                unitId={portNumber(modbusUnitId)}
                 map={registerMap}
                 onJudged={setJudged}
               />

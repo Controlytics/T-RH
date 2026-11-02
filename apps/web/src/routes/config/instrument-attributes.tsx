@@ -6,7 +6,6 @@ import {
   ATTRIBUTE_LABEL_MAX, type AttributeLabels, type SettingsHidden, type ProfileMeasurement,
 } from '@digilog/shared';
 import { ProfileMeasurementsEditor } from './profile-measurements/editor';
-import { ProfileTcpIpReading } from '@/routes/instruments/profile-tcpip-reading';
 import { ProfileDeviceCertificateSwitch } from './device-certificates/profile-switch';
 import { ATTRIBUTE_LABELS_URL } from '@/hooks/use-attribute-labels';
 import { apiClient } from '@/lib/api-client';
@@ -71,7 +70,7 @@ import { RemarkDialog } from '@/routes/instruments/remark-dialog';
  * as the names — see `mergeSettingsHidden`.
  */
 interface Row { id: number; key: string; name: string; shown: boolean }
-interface Profile { id: string; name: string; instrumentCount: number; attributeKeys: string | null; measurements?: ProfileMeasurement[]; requireDeviceCertificate?: boolean; connection?: 'PUSH' | 'MODBUS_TCP'; modbusIntervalSec?: number | null; modbusUnitId?: number | null }
+interface Profile { id: string; name: string; instrumentCount: number; attributeKeys: string | null; measurements?: ProfileMeasurement[]; requireDeviceCertificate?: boolean; connection?: 'PUSH' | 'MODBUS_TCP' }
 
 const fold = (k: string) => k.trim().toLowerCase();
 const nameOf = (labels: AttributeLabels, key: string): string => {
@@ -625,16 +624,9 @@ export function InstrumentAttributesConfigPage() {
         </section>
       )}
 
-      {/* TCP/IP (Modbus) profiles only (2026-10-31): how often the server reads
-          each instrument and the unit id. `key` re-seeds the fields when the
-          profile (or its stored values) changes. */}
-      {selectedProfile?.connection === 'MODBUS_TCP' && (
-        <ProfileTcpIpReading
-          key={`${selectedProfile.id}:${selectedProfile.modbusIntervalSec}:${selectedProfile.modbusUnitId}`}
-          profile={selectedProfile}
-          onSaved={() => void mutateProfiles()}
-        />
-      )}
+      {/* No "TCP/IP reading" section (CR-1, 2026-11-02): the Slave ID and Read
+          every are each TCP/IP INSTRUMENT's own — New Instrument and the
+          instrument page — and a profile body carrying either is a 400. */}
 
       {/* Device certificates (2026-10-27): every instrument of the profile must
           connect with its own client certificate. Its own signed save. */}

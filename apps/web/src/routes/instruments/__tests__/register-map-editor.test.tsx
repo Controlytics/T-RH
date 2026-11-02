@@ -7,9 +7,16 @@ import type { ModbusRegisterMap } from '@digilog/shared';
  * The register map of a TCP/IP (Modbus) instrument (2026-10-31): the keys this
  * server reads from the device, one row each. What the editor may say on its
  * own is only the SHAPE of what was typed — the shared schema's messages, and
- * the Area a Modicon reference names (a pure parse of the user's own input).
- * Whether a key is judged is the SERVER's answer, read from a Test-connection
- * response and passed in as `judged`; with none, the column says "—".
+ * what a Modicon reference reads (area and range — a pure parse of the user's
+ * own input). Whether a key is judged is the SERVER's answer, read from a
+ * Test-connection response and passed in as `judged`; with none, the column
+ * says "—".
+ *
+ * CR-1 (2026-11-02): a Quantity column (1 or 2 registers) that limits the data
+ * types and CLEARS the type when changed (Ruling CR1-1, revised); the range
+ * read; byte orders by name (Ruling CR1-4); and a per-key Test — the same
+ * route with a one-key map, its answer on a line under the row (Rulings CR1-2,
+ * CR1-5).
  */
 
 /** The desktop Modbus tool's keys file, as the shared converter's tests have it. */
@@ -45,16 +52,20 @@ vi.mock('swr', () => ({
 }));
 
 const get = vi.fn();
+const post = vi.fn();
 vi.mock('@/lib/api-client', () => ({
-  apiClient: { get: (...a: unknown[]) => get(...a), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
+  apiClient: { get: (...a: unknown[]) => get(...a), post: (...a: unknown[]) => post(...a), put: vi.fn(), delete: vi.fn() },
 }));
 
 const { RegisterMapEditor } = await import('../register-map-editor');
 
 type Judged = Record<string, 'TEMPERATURE' | 'HUMIDITY' | null>;
+type Target = { profileId: string; host: string; port: number; unitId: number; instrumentId?: string };
 const changes: ModbusRegisterMap[] = [];
 
-function Harness({ initial = [], judged, readOnly }: { initial?: ModbusRegisterMap; judged?: Judged; readOnly?: boolean }) {
+function Harness({ initial = [], judged, readOnly, testTarget }: {
+  initial?: ModbusRegisterMap; judged?: Judged; readOnly?: boolean; testTarget?: Target;
+}) {
   const [map, setMap] = useState<ModbusRegisterMap>(initial);
   return (
     <RegisterMapEditor
@@ -62,9 +73,12 @@ function Harness({ initial = [], judged, readOnly }: { initial?: ModbusRegisterM
       onChange={(next) => { changes.push(next); setMap(next); }}
       judged={judged}
       readOnly={readOnly}
+      testTarget={testTarget}
     />
   );
 }
+
+const TARGET: Target = { profileId: 't-1', host: '192.168.1.24', port: 502, unitId: 7 };
 
 const ROW_T: ModbusRegisterMap[number] = { key: 'Temperature', register: '40001', dataType: 'FLOAT32', byteOrder: 'ABCD', scale: 1 };
 const ROW_V: ModbusRegisterMap[number] = { key: 'Voltage', register: '30009', dataType: 'UINT16', scale: 0.1 };
@@ -75,58 +89,86 @@ const importFile = (content: string) => {
 };
 const keyInputs = () => screen.queryAllByRole('textbox', { name: /^Key, row \d+$/ }) as HTMLInputElement[];
 
+const select = (name: string) => screen.getByRole('combobox', { name }) as HTMLSelectElement;
+const optionTexts = (name: string) => Array.from(select(name).options).map((o) => o.textContent);
+const shownText = (name: string) => select(name).selectedOptions[0]?.textContent;
+
 beforeEach(() => {
   changes.length = 0;
   swrKeys.length = 0;
   get.mockReset();
+  post.mockReset();
 });
 
 describe('RegisterMapEditor — the rows', () => {
-  it('shows Key, Register, Area, Data type, Byte order, Scale and Judged as — and no Unit column', () => {
+  it('shows Key, Register, Quantity, Reads, Data type, Byte order, Scale and Judged as — in that order, and no Unit column', () => {
     render(<Harness initial={[ROW_T]} />);
     const heads = screen.getAllByRole('columnheader').map((h) => h.textContent);
-    for (const h of ['Key', 'Register', 'Area', 'Data type', 'Byte order', 'Scale', 'Judged as']) expect(heads).toContain(h);
+    expect(heads.slice(0, 8)).toEqual(['Key', 'Register', 'Quantity', 'Reads', 'Data type', 'Byte order', 'Scale', 'Judged as']);
     expect(heads).not.toContain('Unit');
   });
 
-  it('the selects carry their own minimum width — a cell\'s min-width is ignored by Chrome', () => {
+  it('the selects carry their own width — a cell\'s min-width is ignored by Chrome', () => {
     // Render check 2026-11-02: at a 1240 px window with the sidebar open the
     // Data type select was squeezed to "FLOAT3" while its CELL said min-w.
+    // The Byte order select sizes to its longest NAME ("Little-endian, byte
+    // swap (CDAB)") — `w-auto` replacing the primitive's `w-full`.
     render(<Harness initial={[ROW_T]} />);
     const classes = (name: string) => screen.getByRole('combobox', { name }).className.split(/\s+/);
     expect(classes('Data type, row 1')).toContain('min-w-[7rem]');
-    expect(classes('Byte order, row 1')).toContain('min-w-[7rem]');
+    expect(classes('Byte order, row 1')).toContain('w-auto');
+    expect(classes('Byte order, row 1')).not.toContain('w-full');
+    expect(classes('Quantity, row 1')).toContain('w-16');
   });
 
-  it('names the Area from the reference: 4xxxx holding, 3xxxx input', () => {
+  it('Reads names the area and the references read: two registers "40001–40002", one register "30009"', () => {
     render(<Harness initial={[ROW_T, ROW_V]} />);
-    expect(screen.getByTestId('map-area-0')).toHaveTextContent('Holding');
-    expect(screen.getByTestId('map-area-1')).toHaveTextContent('Input');
+    expect(screen.getByTestId('map-reads-0')).toHaveTextContent(/^Holding40001–40002$/);
+    expect(screen.getByTestId('map-reads-1')).toHaveTextContent(/^Input30009$/);
   });
 
-  it('a reference that is not a register: Area "—" and the schema message under the row', () => {
+  it('Reads keeps the 6-digit form the reference was typed in', () => {
+    render(<Harness initial={[{ ...ROW_T, register: '400001' }, { ...ROW_V, register: '300010' }]} />);
+    expect(screen.getByTestId('map-reads-0')).toHaveTextContent(/^Holding400001–400002$/);
+    expect(screen.getByTestId('map-reads-1')).toHaveTextContent(/^Input300010$/);
+  });
+
+  it('a two-register key at the very end of its area: no bogus range, and the schema says why', () => {
+    render(<Harness initial={[{ ...ROW_T, register: '49999' }]} />);
+    expect(screen.getByTestId('map-reads-0')).toHaveTextContent(/^Holding—$/);
+    expect(screen.getByTestId('map-reads-0')).not.toHaveTextContent('50000');
+    expect(screen.getByTestId('map-errors-0')).toHaveTextContent('runs past the end of the register area');
+  });
+
+  it('a reference that is not a register: Reads "—" and the schema message under the row', () => {
     render(<Harness initial={[{ ...ROW_T, register: '00001' }]} />);
-    expect(screen.getByTestId('map-area-0')).toHaveTextContent('—');
+    expect(screen.getByTestId('map-reads-0')).toHaveTextContent(/^—$/);
     expect(screen.getByTestId('map-errors-0')).toHaveTextContent('Register "00001" must be a holding');
   });
 
-  it('offers a byte order only for a 32-bit type', () => {
+  it('offers a byte order only for two registers, each by its name — the value stays the code', () => {
     render(<Harness initial={[ROW_T, ROW_V]} />);
-    expect(screen.getByRole('combobox', { name: 'Byte order, row 1' })).toHaveValue('ABCD');
+    expect(select('Byte order, row 1')).toHaveValue('ABCD');
+    expect(shownText('Byte order, row 1')).toBe('Big-endian (ABCD)');
+    expect(optionTexts('Byte order, row 1')).toEqual([
+      'Choose…', 'Big-endian (ABCD)', 'Big-endian, byte swap (BADC)', 'Little-endian, byte swap (CDAB)', 'Little-endian (DCBA)',
+    ]);
     expect(screen.queryByRole('combobox', { name: 'Byte order, row 2' })).not.toBeInTheDocument();
+    fireEvent.change(select('Byte order, row 1'), { target: { value: 'CDAB' } });
+    expect(changes.at(-1)![0]!.byteOrder).toBe('CDAB');
   });
 
-  it('switching to a 16-bit type drops the byte order', () => {
+  it('another two-register type keeps the byte order already chosen', () => {
     render(<Harness initial={[ROW_T]} />);
-    fireEvent.change(screen.getByRole('combobox', { name: 'Data type, row 1' }), { target: { value: 'INT16' } });
-    const last = changes.at(-1)!;
-    expect(last[0]!.dataType).toBe('INT16');
-    expect(last[0]).not.toHaveProperty('byteOrder');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Data type, row 1' }), { target: { value: 'INT32' } });
+    expect(changes.at(-1)![0]).toEqual({ ...ROW_T, dataType: 'INT32' });
   });
 
-  it('switching to a 32-bit type leaves the byte order for the operator to choose, and says so', () => {
+  it('one register → two: the byte order is left for the operator to choose, and the schema says so', () => {
     render(<Harness initial={[ROW_V]} />);
+    fireEvent.change(select('Quantity, row 1'), { target: { value: '2' } });
     fireEvent.change(screen.getByRole('combobox', { name: 'Data type, row 1' }), { target: { value: 'FLOAT32' } });
+    expect(changes.at(-1)![0]!.dataType).toBe('FLOAT32');
     expect(changes.at(-1)![0]).not.toHaveProperty('byteOrder');
     expect(screen.getByTestId('map-errors-0')).toHaveTextContent('FLOAT32 needs a byte order');
   });
@@ -151,6 +193,245 @@ describe('RegisterMapEditor — the rows', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Key, row 2' }), { target: { value: 'Pressure' } });
     fireEvent.click(screen.getByRole('button', { name: 'Remove row 1' }));
     expect(keyInputs().map((i) => i.value)).toEqual(['Pressure']);
+  });
+});
+
+describe('RegisterMapEditor — Quantity (CR-1, Ruling CR1-1)', () => {
+  it('is 2 for a 32-bit type and 1 for a 16-bit one, and limits the data types offered to it', () => {
+    render(<Harness initial={[ROW_T, ROW_V]} />);
+    expect(select('Quantity, row 1')).toHaveValue('2');
+    expect(select('Quantity, row 2')).toHaveValue('1');
+    expect(optionTexts('Data type, row 1')).toEqual(['UINT32', 'INT32', 'FLOAT32']);
+    expect(optionTexts('Data type, row 2')).toEqual(['UINT16', 'INT16']);
+  });
+
+  it('a new row is FLOAT32 — Quantity 2 — with its byte order left to choose', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: '+ Add key' }));
+    expect(select('Quantity, row 1')).toHaveValue('2');
+    expect(select('Data type, row 1')).toHaveValue('FLOAT32');
+    expect(select('Byte order, row 1')).toHaveValue('');
+    expect(changes.at(-1)![0]).toEqual({ key: '', register: '', dataType: 'FLOAT32', scale: 1 });
+  });
+
+  it('changing Quantity 2 → 1 CLEARS the data type and drops the byte order: "Choose…", the schema\'s message, nothing guessed', () => {
+    render(<Harness initial={[ROW_T]} />);
+    fireEvent.change(select('Quantity, row 1'), { target: { value: '1' } });
+    const row = changes.at(-1)![0]!;
+    expect(row.dataType).toBe('');
+    expect(row).not.toHaveProperty('byteOrder');
+    expect(row.key).toBe('Temperature');
+    expect(row.register).toBe('40001');
+    // The chosen quantity survives while the type is unset.
+    expect(select('Quantity, row 1')).toHaveValue('1');
+    expect(select('Data type, row 1')).toHaveValue('');
+    expect(optionTexts('Data type, row 1')).toEqual(['Choose…', 'UINT16', 'INT16']);
+    expect(screen.getByTestId('map-byte-order-0')).toHaveTextContent('—');
+    expect(screen.queryByRole('combobox', { name: 'Byte order, row 1' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('map-reads-0')).toHaveTextContent(/^Holding40001$/);
+    expect(screen.getByTestId('map-errors-0')).toHaveTextContent('Data type must be one of');
+  });
+
+  it('changing Quantity 1 → 2 clears the type too and leaves the byte order to choose', () => {
+    render(<Harness initial={[ROW_V]} />);
+    fireEvent.change(select('Quantity, row 1'), { target: { value: '2' } });
+    expect(changes.at(-1)![0]!.dataType).toBe('');
+    expect(select('Quantity, row 1')).toHaveValue('2');
+    expect(optionTexts('Data type, row 1')).toEqual(['Choose…', 'UINT32', 'INT32', 'FLOAT32']);
+    expect(select('Byte order, row 1')).toHaveValue('');
+    expect(screen.getByTestId('map-reads-0')).toHaveTextContent(/^Input30009–30010$/);
+    expect(screen.getByTestId('map-errors-0')).toHaveTextContent('Data type must be one of');
+  });
+
+  it('choosing a type after the clear makes the row whole again', () => {
+    render(<Harness initial={[ROW_T]} />);
+    fireEvent.change(select('Quantity, row 1'), { target: { value: '1' } });
+    fireEvent.change(select('Data type, row 1'), { target: { value: 'INT16' } });
+    expect(changes.at(-1)![0]).toEqual({ key: 'Temperature', register: '40001', dataType: 'INT16', scale: 1 });
+    expect(select('Quantity, row 1')).toHaveValue('1');
+    expect(screen.queryByTestId('map-errors-0')).not.toBeInTheDocument();
+  });
+
+  it('the same Quantity again changes nothing', () => {
+    render(<Harness initial={[ROW_T]} />);
+    fireEvent.change(select('Quantity, row 1'), { target: { value: '2' } });
+    expect(changes).toHaveLength(0);
+  });
+
+  it('a removed row takes its Quantity with it — the row after it keeps its own', () => {
+    render(<Harness initial={[ROW_V, ROW_T]} />);
+    fireEvent.change(select('Quantity, row 1'), { target: { value: '2' } }); // row 1 cleared at 2
+    fireEvent.change(select('Quantity, row 2'), { target: { value: '1' } }); // row 2 cleared at 1
+    fireEvent.click(screen.getByRole('button', { name: 'Remove row 1' }));
+    expect(keyInputs().map((i) => i.value)).toEqual(['Temperature']);
+    expect(select('Quantity, row 1')).toHaveValue('1');
+  });
+
+  it('an imported map replaces the rows: no Quantity chosen for an old row follows its index', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<Harness initial={[ROW_T]} />);
+    fireEvent.change(select('Quantity, row 1'), { target: { value: '1' } });
+    importFile(JSON.stringify(SIX_KEYS));
+    await waitFor(() => expect(keyInputs()).toHaveLength(6));
+    expect(select('Quantity, row 1')).toHaveValue('2');
+    expect(select('Data type, row 1')).toHaveValue('FLOAT32');
+    expect(select('Quantity, row 5')).toHaveValue('1');
+    expect(confirm).toHaveBeenCalledTimes(1);
+    confirm.mockRestore();
+  });
+});
+
+describe('RegisterMapEditor — per-key Test (CR-1, Rulings CR1-2 / CR1-5)', () => {
+  const ANSWER = (value: unknown, judgedAs: 'TEMPERATURE' | 'HUMIDITY' | null) =>
+    ({ ok: true, elapsedMs: 12, requests: 1, values: [{ key: 'Temperature', value, judgedAs }], rejected: [] });
+  const testKey = (n: number) => fireEvent.click(screen.getByRole('button', { name: `Test key, row ${n}` }));
+
+  it('sends the SAME route with a ONE-key map and the target\'s Slave ID', async () => {
+    post.mockResolvedValue(ANSWER(22.4, 'TEMPERATURE'));
+    render(<Harness initial={[ROW_T, ROW_V]} testTarget={{ ...TARGET, instrumentId: 'i-9' }} />);
+    testKey(2);
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post).toHaveBeenCalledWith('/api/instruments/modbus/test', {
+      profileId: 't-1', modbusHost: '192.168.1.24', modbusPort: 502, modbusUnitId: 7,
+      modbusRegisters: [ROW_V], instrumentId: 'i-9',
+    });
+  });
+
+  it('prints the value read and the server\'s judgement on a line under the row — not in Judged as', async () => {
+    post.mockResolvedValue(ANSWER(22.4, 'TEMPERATURE'));
+    render(<Harness initial={[ROW_T, ROW_V]} testTarget={TARGET} />);
+    testKey(1);
+    expect(await screen.findByTestId('map-test-0')).toHaveTextContent('Read now: 22.4 · judged as Temperature');
+    expect(screen.queryByTestId('map-test-1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('map-judged-0')).toHaveTextContent('—');
+  });
+
+  it('a key the server did not judge prints its value alone', async () => {
+    post.mockResolvedValue(ANSWER(101.7, null));
+    render(<Harness initial={[ROW_T]} testTarget={TARGET} />);
+    testKey(1);
+    const line = await screen.findByTestId('map-test-0');
+    expect(line).toHaveTextContent('Read now: 101.7');
+    expect(line).not.toHaveTextContent('judged');
+  });
+
+  it('a key the device could not decode: "Not readable — " and the server\'s reason', async () => {
+    post.mockResolvedValue({ ok: true, elapsedMs: 9, requests: 1, values: [], rejected: [{ key: 'Temperature', reason: 'Temperature decoded to NaN from 7FC0 0000' }] });
+    render(<Harness initial={[ROW_T]} testTarget={TARGET} />);
+    testKey(1);
+    expect(await screen.findByTestId('map-test-0')).toHaveTextContent('Not readable — Temperature decoded to NaN from 7FC0 0000');
+  });
+
+  it('a device that did not answer: the pill word and the server\'s sentence, verbatim', async () => {
+    const message = '192.168.1.24 : 502 did not answer within 3 s — check the IP, the cable, and that the device is on.';
+    post.mockResolvedValue({ ok: false, code: 'NO_ANSWER', message });
+    render(<Harness initial={[ROW_T]} testTarget={TARGET} />);
+    testKey(1);
+    const line = await screen.findByTestId('map-test-0');
+    expect(line).toHaveTextContent('No answer');
+    expect(line).toHaveTextContent(message);
+  });
+
+  it('a 429 (30 tests a minute) has its own pill word and prints the server\'s sentence', async () => {
+    post.mockRejectedValue(Object.assign(new Error('Rate limit exceeded, retry in 1 minute'), { status: 429, code: 'Too Many Requests' }));
+    render(<Harness initial={[ROW_T]} testTarget={TARGET} />);
+    testKey(1);
+    const line = await screen.findByTestId('map-test-0');
+    expect(line).toHaveTextContent('Too many tests');
+    expect(line).toHaveTextContent('Rate limit exceeded, retry in 1 minute');
+  });
+
+  it('a refused request (400) prints its message under the row', async () => {
+    post.mockRejectedValue(Object.assign(new Error('192.168.1.24 is outside the device networks this server may read.'), { status: 400, code: 'ADDRESS_NOT_ALLOWED' }));
+    render(<Harness initial={[ROW_T]} testTarget={TARGET} />);
+    testKey(1);
+    const line = await screen.findByTestId('map-test-0');
+    expect(line).toHaveTextContent('Not allowed');
+    expect(line).toHaveTextContent('outside the device networks');
+  });
+
+  it('the answer is dropped when its row changes', async () => {
+    post.mockResolvedValue(ANSWER(22.4, 'TEMPERATURE'));
+    render(<Harness initial={[ROW_T]} testTarget={TARGET} />);
+    testKey(1);
+    await screen.findByTestId('map-test-0');
+    fireEvent.change(select('Byte order, row 1'), { target: { value: 'DCBA' } });
+    expect(screen.queryByTestId('map-test-0')).not.toBeInTheDocument();
+  });
+
+  it('a dropped answer does not come back when the row is put back as it was', async () => {
+    // Scale is edited in place (the row keeps its key order), so putting it
+    // back makes the SAME request again — the answer must still be gone.
+    post.mockResolvedValue(ANSWER(22.4, 'TEMPERATURE'));
+    render(<Harness initial={[ROW_T]} testTarget={TARGET} />);
+    testKey(1);
+    await screen.findByTestId('map-test-0');
+    const scale = screen.getByRole('spinbutton', { name: 'Scale, row 1' });
+    fireEvent.change(scale, { target: { value: '2' } });
+    expect(screen.queryByTestId('map-test-0')).not.toBeInTheDocument();
+    fireEvent.change(scale, { target: { value: '1' } });
+    expect(changes.at(-1)![0]).toEqual(ROW_T);
+    expect(screen.queryByTestId('map-test-0')).not.toBeInTheDocument();
+  });
+
+  it('the answer is dropped when the target changes (another Slave ID)', async () => {
+    post.mockResolvedValue(ANSWER(22.4, 'TEMPERATURE'));
+    const { rerender } = render(<Harness initial={[ROW_T]} testTarget={TARGET} />);
+    testKey(1);
+    await screen.findByTestId('map-test-0');
+    rerender(<Harness initial={[ROW_T]} testTarget={{ ...TARGET, unitId: 8 }} />);
+    expect(screen.queryByTestId('map-test-0')).not.toBeInTheDocument();
+  });
+
+  it('an answer that arrives after its row changed is not shown', async () => {
+    let resolve!: (v: unknown) => void;
+    post.mockReturnValue(new Promise((r) => { resolve = r; }));
+    render(<Harness initial={[ROW_T]} testTarget={TARGET} />);
+    testKey(1);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Key, row 1' }), { target: { value: 'Temp' } });
+    resolve(ANSWER(22.4, 'TEMPERATURE'));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByTestId('map-test-0')).not.toBeInTheDocument();
+  });
+
+  it('is disabled, saying why, while the target is incomplete', () => {
+    const cases: Array<[Partial<Target>, string]> = [
+      [{ host: '' }, 'Set the IP address to test.'],
+      [{ port: Number.NaN }, 'Set a port from 1 to 65535 to test.'],
+      [{ port: 70000 }, 'Set a port from 1 to 65535 to test.'],
+      [{ unitId: Number.NaN }, 'Set a Slave ID from 0 to 255 to test.'],
+      [{ unitId: 256 }, 'Set a Slave ID from 0 to 255 to test.'],
+    ];
+    for (const [over, why] of cases) {
+      const { unmount } = render(<Harness initial={[ROW_T]} testTarget={{ ...TARGET, ...over }} />);
+      const button = screen.getByRole('button', { name: 'Test key, row 1' });
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute('title', why);
+      unmount();
+    }
+  });
+
+  it('is disabled for a row the schema refuses — a cleared data type included', () => {
+    render(<Harness initial={[ROW_T, { ...ROW_V, key: '' }]} testTarget={TARGET} />);
+    expect(screen.getByRole('button', { name: 'Test key, row 1' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Test key, row 2' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Test key, row 2' })).toHaveAttribute('title', 'Fix this row first — see the message under it.');
+    fireEvent.change(select('Quantity, row 1'), { target: { value: '1' } });
+    expect(screen.getByRole('button', { name: 'Test key, row 1' })).toBeDisabled();
+  });
+
+  it('no target, no Test buttons', () => {
+    render(<Harness initial={[ROW_T]} />);
+    expect(screen.queryByRole('button', { name: /^Test key/ })).not.toBeInTheDocument();
+  });
+
+  it('read-only rows still have Test (and nothing else to press)', async () => {
+    post.mockResolvedValue(ANSWER(22.4, 'TEMPERATURE'));
+    render(<Harness initial={[ROW_T, ROW_V]} readOnly testTarget={TARGET} />);
+    expect(screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Test key, row 1', 'Test key, row 2']);
+    testKey(1);
+    expect(await screen.findByTestId('map-test-0')).toHaveTextContent('Read now: 22.4');
   });
 });
 
@@ -244,6 +525,15 @@ describe('RegisterMapEditor — read only', () => {
     expect(screen.queryAllByRole('button')).toHaveLength(0);
     expect(screen.queryByLabelText('Import keys file')).not.toBeInTheDocument();
     expect(screen.getByText('Temperature')).toBeInTheDocument();
-    expect(screen.getByTestId('map-area-1')).toHaveTextContent('Input');
+    expect(screen.getByTestId('map-reads-1')).toHaveTextContent(/^Input30009$/);
+  });
+
+  it('prints the Quantity, and the byte order by its name', () => {
+    render(<Harness initial={[ROW_T, { ...ROW_T, key: 'Humidity', register: '40003', byteOrder: 'CDAB' }, ROW_V]} readOnly />);
+    expect(screen.getByTestId('map-quantity-0')).toHaveTextContent(/^2$/);
+    expect(screen.getByTestId('map-quantity-2')).toHaveTextContent(/^1$/);
+    expect(screen.getByTestId('map-byte-order-0')).toHaveTextContent(/^Big-endian \(ABCD\)$/);
+    expect(screen.getByTestId('map-byte-order-1')).toHaveTextContent(/^Little-endian, byte swap \(CDAB\)$/);
+    expect(screen.getByTestId('map-byte-order-2')).toHaveTextContent(/^—$/);
   });
 });

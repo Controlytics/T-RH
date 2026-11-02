@@ -11,11 +11,48 @@ export interface PlannedAddress {
   from: { host: string | null; port: number | null };
   to: { host: string; port: number };
 }
-export interface PlannedUpdate { id: string; code: string; row: number; changes: PlannedChange[]; address?: PlannedAddress }
+/** A TCP/IP instrument's Slave ID and Read every as the server would change them (CR-1, 2026-11-02). */
+export interface PlannedReading {
+  from: { unitId: number | null; intervalSec: number | null };
+  to: { unitId: number; intervalSec: number };
+}
+export interface PlannedUpdate {
+  id: string; code: string; row: number; changes: PlannedChange[]; address?: PlannedAddress; reading?: PlannedReading;
+}
 
 /** "10.0.0.5 : 502" - the one way an address is printed. */
 export const addressText = (a: { host: string | null; port: number | null }) =>
   a.host === null ? 'Not set' : `${a.host} : ${a.port ?? ''}`;
+
+/**
+ * The TCP/IP lines of one planned update, as the review dialog and the
+ * Updated table both list them: the address as one line, then the Slave ID
+ * and Read every each on its own line when the server's `from` and `to`
+ * differ. `from: null` = the instrument had none. Field names are the file's
+ * own headings.
+ */
+export function tcpipLines(u: PlannedUpdate): { id: string; field: string; from: string | null; to: string }[] {
+  const lines: { id: string; field: string; from: string | null; to: string }[] = [];
+  if (u.address) {
+    lines.push({
+      id: 'address', field: 'IP address : Port',
+      from: u.address.from.host === null ? null : addressText(u.address.from), to: addressText(u.address.to),
+    });
+  }
+  if (u.reading) {
+    const { from, to } = u.reading;
+    if (from.unitId !== to.unitId) {
+      lines.push({ id: 'unit', field: 'Slave ID', from: from.unitId === null ? null : String(from.unitId), to: String(to.unitId) });
+    }
+    if (from.intervalSec !== to.intervalSec) {
+      lines.push({
+        id: 'interval', field: 'Read every',
+        from: from.intervalSec === null ? null : `${from.intervalSec} s`, to: `${to.intervalSec} s`,
+      });
+    }
+  }
+  return lines;
+}
 /** `POST /api/instruments/bulk/preview` — what the upload WOULD do. */
 export interface BulkPreview {
   create: { row: number; code: string }[];
@@ -87,14 +124,14 @@ export function BulkReviewDialog({ plan, onConfirm, onClose }: {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {plan.update.flatMap((u) => (u.address ? [(
-                  <TableRow key={`${u.id}-address`} data-testid="review-change">
+                {plan.update.flatMap((u) => tcpipLines(u).map((l) => (
+                  <TableRow key={`${u.id}-${l.id}`} data-testid="review-change">
                     <TableCell className="font-mono text-xs">{u.code}</TableCell>
-                    <TableCell>IP address : Port</TableCell>
-                    <TableCell><FromValue value={u.address.from.host === null ? null : addressText(u.address.from)} /></TableCell>
-                    <TableCell className="font-mono font-semibold text-slate-900">{addressText(u.address.to)}</TableCell>
+                    <TableCell>{l.field}</TableCell>
+                    <TableCell><FromValue value={l.from} /></TableCell>
+                    <TableCell className="font-mono font-semibold text-slate-900">{l.to}</TableCell>
                   </TableRow>
-                )] : []).concat(u.changes.map((c) => (
+                )).concat(u.changes.map((c) => (
                   <TableRow key={`${u.id}-${c.key}`} data-testid="review-change">
                     <TableCell className="font-mono text-xs">{u.code}</TableCell>
                     <TableCell>{c.column}</TableCell>

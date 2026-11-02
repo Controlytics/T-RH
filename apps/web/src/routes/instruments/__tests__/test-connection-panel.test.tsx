@@ -4,7 +4,7 @@ import type { ModbusRegisterMap } from '@digilog/shared';
 
 /**
  * Test connection (TCP/IP instruments spec §8): read the device once with the
- * form's own address and map and show what came back — every key's value, or
+ * form's own address, Slave ID (CR-1) and map and show what came back — every key's value, or
  * the failure in the SERVER's words. The browser decides nothing: the sentence
  * is printed verbatim, the code only picks the pill, and which key is judged is
  * the response's `judgedAs`, handed up through `onJudged`.
@@ -37,12 +37,13 @@ const IN_USE = { ok: false, code: 'ADDRESS_IN_USE', message: '192.168.1.24 : 502
 const NO_ANSWER = { ok: false, code: 'NO_ANSWER', message: '192.168.1.24 : 502 did not answer within 3 s — check the IP, the cable, and that the device is on.' };
 
 const onJudged = vi.fn();
-const renderPanel = (over: Partial<{ host: string; port: number; map: ModbusRegisterMap; instrumentId: string }> = {}) =>
+const renderPanel = (over: Partial<{ host: string; port: number; unitId: number; map: ModbusRegisterMap; instrumentId: string }> = {}) =>
   render(
     <TestConnectionPanel
       profileId="t-1"
       host={over.host ?? '192.168.1.24'}
       port={over.port ?? 502}
+      unitId={over.unitId ?? 7}
       map={over.map ?? MAP}
       instrumentId={over.instrumentId}
       onJudged={onJudged}
@@ -56,13 +57,20 @@ beforeEach(() => {
 });
 
 describe('TestConnectionPanel — the request', () => {
-  it('sends the form\'s profile, address and map — nothing else for a new instrument', async () => {
+  it('sends the form\'s profile, address, Slave ID and map — nothing else for a new instrument', async () => {
     post.mockResolvedValue(OK);
     renderPanel();
     runTest();
     await waitFor(() => expect(post).toHaveBeenCalledWith('/api/instruments/modbus/test', {
-      profileId: 't-1', modbusHost: '192.168.1.24', modbusPort: 502, modbusRegisters: MAP,
+      profileId: 't-1', modbusHost: '192.168.1.24', modbusPort: 502, modbusUnitId: 7, modbusRegisters: MAP,
     }));
+  });
+
+  it('the Slave ID reaches the request as typed — 0 is a real unit id', async () => {
+    post.mockResolvedValue(OK);
+    renderPanel({ unitId: 0 });
+    runTest();
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/instruments/modbus/test', expect.objectContaining({ modbusUnitId: 0 })));
   });
 
   it('names the stored instrument when it has one (its own address is not "in use")', async () => {
@@ -75,6 +83,23 @@ describe('TestConnectionPanel — the request', () => {
   it('cannot test without an address and at least one key', () => {
     renderPanel({ map: [] });
     expect(screen.getByRole('button', { name: 'Test connection' })).toBeDisabled();
+    expect(screen.getByText('Add at least one key to test.')).toBeInTheDocument();
+  });
+
+  it('cannot test without a whole-number Slave ID from 0 to 255, and says so', () => {
+    for (const unitId of [Number.NaN, 256, -1, 1.5]) {
+      const { unmount } = renderPanel({ unitId });
+      expect(screen.getByRole('button', { name: 'Test connection' })).toBeDisabled();
+      expect(screen.getByText('Set a Slave ID from 0 to 255 to test.')).toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it('cannot test a map the shared schema refuses (a row whose data type was cleared)', () => {
+    renderPanel({ map: [{ ...MAP[0]!, dataType: '' as never }] });
+    expect(screen.getByRole('button', { name: 'Test connection' })).toBeDisabled();
+    expect(screen.getByText('Fix the register map rows marked, to test.')).toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
   });
 });
 
@@ -103,7 +128,19 @@ describe('TestConnectionPanel — a device that answered', () => {
     runTest();
     await screen.findByText(/Connected in 42 ms/);
     rerender(
-      <TestConnectionPanel profileId="t-1" host="192.168.1.24" port={502} map={MAP.slice(0, 2)} onJudged={onJudged} />,
+      <TestConnectionPanel profileId="t-1" host="192.168.1.24" port={502} unitId={7} map={MAP.slice(0, 2)} onJudged={onJudged} />,
+    );
+    expect(screen.queryByText(/Connected in 42 ms/)).not.toBeInTheDocument();
+    expect(onJudged).toHaveBeenLastCalledWith({});
+  });
+
+  it('drops the result when the Slave ID changes after the test', async () => {
+    post.mockResolvedValue(OK);
+    const { rerender } = renderPanel();
+    runTest();
+    await screen.findByText(/Connected in 42 ms/);
+    rerender(
+      <TestConnectionPanel profileId="t-1" host="192.168.1.24" port={502} unitId={8} map={MAP} onJudged={onJudged} />,
     );
     expect(screen.queryByText(/Connected in 42 ms/)).not.toBeInTheDocument();
     expect(onJudged).toHaveBeenLastCalledWith({});
@@ -145,11 +182,19 @@ describe('TestConnectionPanel — a failure is said in the server\'s words', () 
     expect(screen.getByTestId('test-pill')).toHaveTextContent('Not allowed');
   });
 
-  it('a code it does not know still prints the message', async () => {
+  it('a 429 (30 tests a minute) has its own pill and prints the rate-limit plugin\'s own sentence', async () => {
     post.mockRejectedValue(Object.assign(new Error('Rate limit exceeded, retry in 1 minute'), { status: 429, code: 'Too Many Requests' }));
     renderPanel();
     runTest();
     expect(await screen.findByText('Rate limit exceeded, retry in 1 minute')).toBeInTheDocument();
+    expect(screen.getByTestId('test-pill')).toHaveTextContent('Too many tests');
+  });
+
+  it('a code it does not know still prints the message', async () => {
+    post.mockRejectedValue(Object.assign(new Error('You do not have permission to test this connection.'), { status: 403, code: 'FORBIDDEN' }));
+    renderPanel();
+    runTest();
+    expect(await screen.findByText('You do not have permission to test this connection.')).toBeInTheDocument();
     expect(screen.getByTestId('test-pill')).toHaveTextContent('Not tested');
   });
 });

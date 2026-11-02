@@ -384,17 +384,25 @@ describe('InstrumentBulkCreatePage — updating instruments that already exist',
  * words for a refused row.
  */
 describe('InstrumentBulkCreatePage - a TCP/IP profile', () => {
-  it('puts IP address and Port after Instrument ID in the template', async () => {
+  it('puts IP address, Port, Slave ID and Read every after Instrument ID in the template (CR-1)', async () => {
     renderPage();
     choose('p-tcp');
     downloadTemplate();
     await waitFor(() => expect(saved).toHaveLength(1));
-    expect(await saved[0].text).toBe('Instrument ID,IP address,Port,Room\n');
+    expect(await saved[0].text).toBe('Instrument ID,IP address,Port,Slave ID,Read every,Room\n');
+  });
+
+  it('the help line names the four columns and what a blank cell means on a new instrument', () => {
+    renderPage();
+    choose('p-tcp');
+    expect(screen.getByText(/Columns: Instrument ID, IP address, Port, Slave ID and Read every \(seconds\), then the attributes/))
+      .toHaveTextContent('On a new instrument a blank Port is 502, a blank Slave ID 1 and a blank Read every 60.');
   });
 
   it('a Gateway profile keeps its template and has no register-map picker', () => {
     renderPage();
     choose('p-1');
+    expect(screen.queryByText(/Slave ID/)).toBeNull();
     expect(screen.queryByRole('combobox', { name: /copy register map from/i })).toBeNull();
     expect(swrKeys.some((k) => typeof k === 'string' && k.startsWith('/api/instruments?connection='))).toBe(false);
   });
@@ -457,5 +465,39 @@ describe('InstrumentBulkCreatePage - a TCP/IP profile', () => {
     expect(row).toHaveTextContent('10.0.0.7 : 1502');
     expect(within(dlg).getByTestId('review-errors')).toHaveTextContent('repeated in this file');
     expect(uploads()).toHaveLength(0);
+  });
+
+  it('a Slave ID / Read every change is reviewed line by line in the server\'s from and to — only what differs', async () => {
+    const preview = {
+      create: [], unchanged: [], warnings: [], errors: [], remarkRequired: true,
+      update: [
+        { id: 'i-9', code: 'MTR-9', row: 2, changes: [], reading: { from: { unitId: 1, intervalSec: 60 }, to: { unitId: 7, intervalSec: 300 } } },
+        { id: 'i-8', code: 'MTR-8', row: 3, changes: [], reading: { from: { unitId: 2, intervalSec: 60 }, to: { unitId: 2, intervalSec: 120 } } },
+      ],
+    };
+    respond({ created: [], updated: [], errors: [], warnings: [] }, preview);
+    renderPage();
+    choose('p-tcp');
+    await uploadCsv('Instrument ID,Slave ID,Read every\nMTR-9,7,300\nMTR-8,,120');
+    const dlg = await screen.findByRole('dialog');
+    const rows = within(dlg).getAllByTestId('review-change').map((r) => Array.from(r.querySelectorAll('td')).map((td) => td.textContent));
+    expect(rows).toEqual([
+      ['MTR-9', 'Slave ID', '1', '7'],
+      ['MTR-9', 'Read every', '60 s', '300 s'],
+      ['MTR-8', 'Read every', '60 s', '120 s'],
+    ]);
+  });
+
+  it('after the upload, the Updated table lists the Slave ID and Read every the server changed', async () => {
+    respond({
+      created: [], errors: [], warnings: [],
+      updated: [{ id: 'i-9', code: 'MTR-9', row: 2, changes: [], reading: { from: { unitId: null, intervalSec: 60 }, to: { unitId: 4, intervalSec: 60 } } }],
+    });
+    renderPage();
+    choose('p-tcp');
+    await uploadCsv('Instrument ID,Slave ID\nMTR-9,4');
+    await waitFor(() => expect(uploads()).toHaveLength(1));
+    const rows = (await screen.findAllByTestId('updated-change')).map((r) => Array.from(r.querySelectorAll('td')).map((td) => td.textContent));
+    expect(rows).toEqual([['MTR-9', 'Slave ID', 'Not set', '4']]);
   });
 });
