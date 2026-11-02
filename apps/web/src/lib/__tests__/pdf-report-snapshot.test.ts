@@ -354,16 +354,24 @@ describe('ReportSnapshot v3 — the chrome is frozen', () => {
       signatureTable: [{ label: 'Approved By', name: 'rra', role: 'QA_MANAGER', dateTime: '2026-11-02 15:10' }],
     });
     approved.save('approved-v3.pdf');
-    const a = pageTexts(approved.doc).join(' ');
-    for (const w of ['Approved By', 'rra', 'QA_MANAGER']) expect(a).toContain(w);
+    const a = pageTexts(approved.doc);
+    for (const w of ['Approved By', 'rra', 'QA_MANAGER']) expect(a.join(' ')).toContain(w);
     // A wet-ink line under an e-signed record would invite a second signature.
-    expect(a).not.toContain('Signature:');
+    expect(a.join(' ')).not.toContain('Signature:');
+    // "Page x of N" is the record's completeness mark (GDP): a signed copy
+    // carries it on EVERY page whatever the template's flag says (review m6).
+    a.forEach((p, i) => expect(p).toContain(`Page ${i + 1} of ${a.length}`));
 
     const draft = await renderSnapshotToPdf(snap, { formatDateTime, draft: true });
     draft.save('draft-v3.pdf');
     const d = pageTexts(draft.doc);
     for (const p of d) expect(p).toContain('DRAFT');
+    d.forEach((p, i) => expect(p).toContain(`Page ${i + 1} of ${d.length}`));
     expect(d.join(' ')).not.toContain('Signature:');
+
+    const lines = await renderSnapshotToPdf(snap, { formatDateTime, signatures: [{ label: 'Approved By', value: 'rra' }] });
+    lines.save('lines-v3.pdf');
+    expect(pageTexts(lines.doc)[0]).toContain('Page 1 of');
   });
 
   it('a footer text keeps the records clear of it: no table row reaches into the footer', async () => {

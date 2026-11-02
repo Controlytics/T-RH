@@ -33,8 +33,6 @@ import {
 import { createReport, loadReportChrome, type ReportDoc, type TableCell } from './pdf-report';
 import { DATA_REPORT_TYPOGRAPHY } from '@/routes/instruments/data-report';
 
-export { loadReportChrome, type ReportChrome } from './pdf-report';
-
 export type WidgetReportValue = string | number | null;
 /** Field id → value. Field ids are catalogue ids; `REPORT_ROW_GROUP` and `text` are the two non-column keys. */
 export type WidgetReportRow = Record<string, WidgetReportValue>;
@@ -62,10 +60,14 @@ export interface WidgetReportSection {
   availableIds: string[];
   /** Field id → value, already formatted by the caller's datetime hook. A fieldless type (text card) passes `{ text }`. */
   rows: WidgetReportRow[];
-  /** A raster of what the widget draws (a chart, the floor plan), printed above the table. */
+  /**
+   * A raster of what the widget draws (a chart, the floor plan): the text
+   * column wide at its own proportions, scaled down to fit a page. Printed
+   * above the table — or, in a report of several profiles, the FIRST
+   * section's once, before the first "Profile:" title (it is the widget's,
+   * not one profile's).
+   */
   imageDataUrl?: string;
-  /** Its size on the page; scaled down to the text column and the page. Absent = full width at the image's own proportions. */
-  imageSize?: { wMm: number; hMm: number };
   /** Values for THIS section's info block (e.g. its own `instrumentCount`), over the report's. `profile` defaults to `profileName`. */
   values?: Partial<Record<Placeholder, string>>;
 }
@@ -90,14 +92,17 @@ export interface WidgetReportResult {
 
 const isBlank = (v: unknown) => v === null || v === undefined || (typeof v === 'string' && v.trim() === '');
 
-/** A plain decimal number written as text ("21.5", "-3"); "21.5 °C", "1e3", "Error" are not. */
-const PLAIN_NUMBER = /^-?\d+(\.\d+)?$/;
-
 /**
- * One cell as printed. Absent / blank / not a finite number → `—`. A column's
- * `decimals` apply to a number and to a PLAIN numeric string (the server's
- * display text of a reading); any other text — `Error`, `OL`, `NA`, a value
- * with its unit — prints exactly as given, never coerced.
+ * One cell as printed. Absent / blank / not a finite number → `—`.
+ *
+ * A column's `decimals` apply to a NUMBER only — a raw, unjudged key, the one
+ * value the widget hands over unformatted. TEXT is the server's or the
+ * widget's own formatting (a measured reading at the instrument's
+ * administered precision, a range figure, `Error` / `OL` / `NA`) and prints
+ * VERBATIM whatever `decimals` says (review C1, 2026-11-02): re-rounding it
+ * could hide an excursion (25.4 → "25") or state a precision never recorded
+ * (21.5 → "21.500"). A number with no `decimals` prints as the widget prints a
+ * raw key with none (`formatKeyValue` → `String(n)`).
  */
 export function formatReportCell(value: WidgetReportValue | undefined, column: ReportTemplateColumn): string {
   if (isBlank(value)) return REPORT_VALUE_MISSING;
@@ -105,11 +110,7 @@ export function formatReportCell(value: WidgetReportValue | undefined, column: R
     if (!Number.isFinite(value)) return REPORT_VALUE_MISSING;
     return column.decimals !== undefined ? formatDecimals(value, column.decimals) ?? REPORT_VALUE_MISSING : String(value);
   }
-  const text = String(value);
-  if (column.decimals !== undefined && PLAIN_NUMBER.test(text.trim())) {
-    return formatDecimals(text.trim(), column.decimals) ?? text;
-  }
-  return text;
+  return String(value);
 }
 
 /** A column's heading as printed: the document's heading, its `unit` beside it when set. */
@@ -178,10 +179,12 @@ export function printedRows(widgetType: WidgetType, document: ReportTemplateDocu
  * through the shared substitution, the ONE rule). `attr:<key>` → the
  * attribute of the section's ONE instrument; a section of several instruments
  * (or none) prints `—` — an attribute of one of them would read as all of
- * theirs.
+ * theirs — and so does an attribute this profile's catalogue does not have
+ * (`available`), which the caller names as not available (review m3).
  */
-function infoValue(source: string, values: Partial<Record<Placeholder, string>>, rows: WidgetReportRow[]): string {
+function infoValue(source: string, values: Partial<Record<Placeholder, string>>, rows: WidgetReportRow[], available?: ReadonlySet<string>): string {
   if (source.startsWith('attr:')) {
+    if (available && !available.has(source)) return REPORT_VALUE_MISSING;
     const instruments = new Set(rows.map((r) => r['instrument.code']).filter((v) => !isBlank(v)).map(String));
     if (instruments.size !== 1) return REPORT_VALUE_MISSING;
     const v = rows.map((r) => r[source]).find((x) => !isBlank(x));
@@ -190,56 +193,65 @@ function infoValue(source: string, values: Partial<Record<Placeholder, string>>,
   return substitutePlaceholders(`{${source}}`, values);
 }
 
-function printInfoBlock(report: ReportDoc, document: ReportTemplateDocument, values: Partial<Record<Placeholder, string>>, rows: WidgetReportRow[]): void {
-  if (!document.infoBlock.length) return;
+/**
+ * The info block; returns the LABELS of its rows this profile's catalogue
+ * cannot fill (an `attr:` source not in `available`). Placeholders are the
+ * report's own values, never the catalogue's. No `available` = nothing is
+ * checked (no section: there is no profile to ask).
+ */
+function printInfoBlock(
+  report: ReportDoc, document: ReportTemplateDocument, values: Partial<Record<Placeholder, string>>,
+  rows: WidgetReportRow[], available?: ReadonlySet<string>,
+): string[] {
+  if (!document.infoBlock.length) return [];
   // The value is always given: `addKeyValue` would print a bare "-" for a blank one.
-  report.addKeyValue(document.infoBlock.map((r) => [r.label, infoValue(r.source, values, rows)] as [string, string]));
+  report.addKeyValue(document.infoBlock.map((r) => [r.label, infoValue(r.source, values, rows, available)] as [string, string]));
+  return available
+    ? document.infoBlock.filter((r) => r.source.startsWith('attr:') && !available.has(r.source)).map((r) => r.label)
+    : [];
 }
 
-/** The text column (14mm gutters) and a page less its top margin and footer zone. */
-function printImage(report: ReportDoc, dataUrl: string, size: WidgetReportSection['imageSize']): void {
+/**
+ * A picture across the text column (14mm gutters) at its own proportions —
+ * read from its own bytes — scaled down to fit a page less its top margin and
+ * footer zone. An unreadable image throws here exactly as `addImage` would: a
+ * caller's bug, not swallowed.
+ */
+function printImage(report: ReportDoc, dataUrl: string): void {
   const maxW = report.pw - 28;
   const maxH = report.ph - 14 - 24;
-  let w: number;
-  let h: number;
-  if (size && size.wMm > 0 && size.hMm > 0) {
-    ({ wMm: w, hMm: h } = size);
-  } else {
-    // Its own proportions, from its own bytes. An unreadable image throws
-    // here exactly as `addImage` would below — a caller's bug, not swallowed.
-    const p = report.doc.getImageProperties(dataUrl);
-    w = maxW;
-    h = (maxW * p.height) / p.width;
-  }
-  const k = Math.min(1, maxW / w, maxH / h);
-  report.addImage(dataUrl, w * k, h * k);
+  const p = report.doc.getImageProperties(dataUrl);
+  const h = (maxW * p.height) / p.width;
+  const k = Math.min(1, maxH / h);
+  report.addImage(dataUrl, maxW * k, h * k);
 }
 
-/** The section's table; returns the records printed. */
-function printTable(report: ReportDoc, section: WidgetReportSection, rows: WidgetReportRow[]): number {
+/** The section's table; returns the records printed and the headings of the shown columns this profile does not have. */
+function printTable(
+  report: ReportDoc, section: WidgetReportSection, rows: WidgetReportRow[], available: ReadonlySet<string>,
+): { records: number; missing: string[] } {
   const shown = section.document.columns.filter((c) => c.show);
-  if (!shown.length) return 0;
-  const available = new Set(section.availableIds);
+  if (!shown.length) return { records: 0, missing: [] };
   const body: TableCell[][] = rows.map((row) => shown.map((c) => (available.has(c.id) ? formatReportCell(row[c.id], c) : '')));
   report.addTable({
     head: shown.map(reportColumnHeading),
     // A heading row over nothing reads as a broken table; say so instead.
     body: body.length ? body : [[{ content: 'No records.', colSpan: shown.length }]],
   });
-  // Spec §6: a column this profile's catalogue does not have is NAMED, under
-  // the table, never dropped and never invented.
-  const missing = shown.filter((c) => !available.has(c.id));
-  if (missing.length) report.addNote(`Not available for this profile: ${missing.map(reportColumnHeading).join(', ')}`, 'muted');
-  return body.length;
+  return { records: body.length, missing: shown.filter((c) => !available.has(c.id)).map(reportColumnHeading) };
 }
 
 /**
  * Build the widget's report: the first section's template titles it and
- * draws the chrome; each section prints, in order, its "Profile: <name>"
- * title (only when there are several), its info block, a fieldless widget's
- * text, its image, its table and the "not available" line. No sections (no
- * instruments in the selection) = the widget type's built-in chrome and a
- * line saying so.
+ * draws the chrome (its footer text's placeholders filled with the title's
+ * values, so the FROZEN chrome carries the filled text — review I1). In a
+ * report of several profiles the first section's picture prints ONCE, before
+ * the sections (review m4). Each section then prints, in order, its
+ * "Profile: <name>" title (only when there are several), its info block, a
+ * fieldless widget's text, its picture, its table, and ONE "Not available for
+ * this profile" line naming every info row and shown column its profile's
+ * catalogue does not have (spec §6, review m3). No sections (no instruments in
+ * the selection) = the widget type's built-in chrome and a line saying so.
  */
 export async function buildWidgetReport(input: WidgetReportInput): Promise<WidgetReportResult> {
   const { widgetType, sections } = input;
@@ -251,13 +263,17 @@ export async function buildWidgetReport(input: WidgetReportInput): Promise<Widge
   };
   const title = substitutePlaceholders(first.header.title, titleValues);
   const subtitle = first.header.subtitle?.trim() ? substitutePlaceholders(first.header.subtitle, titleValues) : undefined;
+  const loaded = await loadReportChrome(first);
+  const chrome = loaded.footer.text
+    ? { ...loaded, footer: { ...loaded.footer, text: substitutePlaceholders(loaded.footer.text, titleValues) } }
+    : loaded;
 
   const report = await createReport({
     title,
     subtitle,
     formatDateTime: input.formatDateTime,
     reportKey: widgetReportType(widgetType),
-    chrome: await loadReportChrome(first),
+    chrome,
     ...(first.page.typography === 'data-report' ? { typography: DATA_REPORT_TYPOGRAPHY } : {}),
   });
 
@@ -268,16 +284,29 @@ export async function buildWidgetReport(input: WidgetReportInput): Promise<Widge
   }
 
   const fieldless = WIDGET_REPORT_FIELDS[widgetType].length === 0;
+  // The widget's picture covers every profile; under "Profile: <first>" it
+  // would read as the first profile's alone.
+  const sharedImage = sections.length > 1 ? sections[0].imageDataUrl : undefined;
+  if (sharedImage) printImage(report, sharedImage);
   let recordCount = 0;
-  for (const s of sections) {
+  sections.forEach((s, i) => {
     if (sections.length > 1) report.addSectionTitle(`Profile: ${s.profileName}`);
+    const available = new Set(s.availableIds);
     const rows = printedRows(widgetType, s.document, s.rows);
-    printInfoBlock(report, s.document, { ...input.values, profile: s.profileName, ...s.values }, rows);
+    const missing = printInfoBlock(report, s.document, { ...input.values, profile: s.profileName, ...s.values }, rows, available);
     // Ruling T1-C1: a type with no fields (text card, floor plan) prints what
     // it shows — its text as a paragraph, then its image — and no table.
     if (fieldless && !isBlank(s.rows[0]?.text)) report.addNote(String(s.rows[0].text), 'text');
-    if (s.imageDataUrl) printImage(report, s.imageDataUrl, s.imageSize);
-    if (!fieldless) recordCount += printTable(report, s, rows);
-  }
+    if (s.imageDataUrl && !(sharedImage && i === 0)) printImage(report, s.imageDataUrl);
+    if (!fieldless) {
+      const table = printTable(report, s, rows, available);
+      recordCount += table.records;
+      missing.push(...table.missing);
+    }
+    // Spec §6: what this profile cannot fill is NAMED, under the table — never
+    // dropped, never invented. One line, each name once.
+    const names = [...new Set(missing)];
+    if (names.length) report.addNote(`Not available for this profile: ${names.join(', ')}`, 'muted');
+  });
   return { report, title, subtitle, recordCount };
 }

@@ -25,6 +25,8 @@ vi.mock('@/lib/api-client', () => ({
 
 const PNG_1x1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 const PNG_BYTES = Uint8Array.from(atob(PNG_1x1.split(',')[1]), (c) => c.charCodeAt(0));
+/** A valid 1 x 4 greyscale PNG: four times taller than wide. */
+const PNG_1x4 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAECAAAAABqswrmAAAADElEQVR4nGNoYABDAAgIAgGxLR1jAAAAAElFTkSuQmCC';
 const formatDateTime = (d: string) => d.slice(0, 16).replace('T', ' ');
 
 /** Branding (public) and the branding logo; anything else is unexpected. */
@@ -118,11 +120,16 @@ describe('buildWidgetReport — columns', () => {
 });
 
 describe('formatReportCell / reportColumnHeading', () => {
-  it('decimals apply to a number and to a plain numeric string; words and blanks are never coerced', () => {
+  it('decimals apply to a NUMBER only (a raw, unjudged key); TEXT — the server\'s or the widget\'s formatting — prints verbatim (review C1)', () => {
     const c = col('reading.value', 'Value', { decimals: 2 });
     expect(formatReportCell(21.456, c)).toBe('21.46');
-    expect(formatReportCell('21.4', c)).toBe('21.40');
-    expect(formatReportCell('-3', c)).toBe('-3.00');
+    expect(formatReportCell(21.46, col('reading.value', 'Value', { decimals: 1 }))).toBe('21.5');
+    // A measured reading already at the instrument's administered precision is
+    // never re-rounded: fewer decimals could hide an excursion (25.4 → "25"),
+    // more would state a precision never recorded (21.5 → "21.500").
+    expect(formatReportCell('21.4', c)).toBe('21.4');
+    expect(formatReportCell('25.4', col('summary.max', 'Maximum', { decimals: 0 }))).toBe('25.4');
+    expect(formatReportCell('-3', c)).toBe('-3');
     for (const w of ['Error', 'OL', 'NA', '21.5 °C', '1e3']) expect(formatReportCell(w, c)).toBe(w);
     expect(formatReportCell(null, c)).toBe(REPORT_VALUE_MISSING);
     expect(formatReportCell(undefined, c)).toBe(REPORT_VALUE_MISSING);
@@ -153,6 +160,20 @@ describe('buildWidgetReport — the title, the chrome, the sections', () => {
     expect(snap.title).toBe(r.title);
     expect(snap.subtitle).toBe(r.subtitle);
     expect(snap.reportType).toBe('Widget: Value cards');
+  });
+
+  it('the footer text\'s placeholders are filled with the title\'s values, and the FROZEN chrome carries the filled text (review I1)', async () => {
+    const document = docFor('gauge', (d) => { d.footer = { ...d.footer, text: 'Printed {date} by {user} for {profile} {nope}' }; });
+    const r = await buildWidgetReport({
+      widgetType: 'gauge', values: { date: '02/11/2026', user: 'superadmin' }, formatDateTime,
+      sections: [section({ document, rows: [], availableIds: ALL_BUILTIN('gauge') })],
+    });
+    const filled = 'Printed 02/11/2026 by superadmin for T&RH —';
+    expect(r.report.getSnapshot().chrome?.footer.text).toBe(filled);
+    r.report.save('footer-filled.pdf');
+    const stream = (r.report.doc.internal as any).pages.filter(Boolean).flat().join('\n');
+    expect(stream).toContain('(Printed 02/11/2026 by superadmin for T&RH');
+    expect(stream).not.toContain('{date}');
   });
 
   it('two profiles → two sections titled "Profile: <name>", each with its own columns; the chrome is the FIRST\'s', async () => {
@@ -232,6 +253,30 @@ describe('buildWidgetReport — the info block', () => {
     expect(pairsOf(r.report.getSnapshot().sections)[0].pairs).toEqual([
       ['Selection', 'QC Block'], ['Instruments', '2'], ['Profile', 'T&RH'], ['To', REPORT_VALUE_MISSING],
     ]);
+  });
+
+  it('an info row whose source the profile does not have prints — and is named in the ONE "Not available" line with the columns (review m3)', async () => {
+    const document = docFor('latest_table', (d) => {
+      d.infoBlock = [{ label: 'Building', source: 'attr:Building' }, { label: 'Selection', source: 'selection' }];
+      d.columns = [col('instrument.code', 'Instrument ID'), col('key:Pressure', 'Pressure')];
+    });
+    const r = await buildWidgetReport({
+      widgetType: 'latest_table', values: { selection: 'QC' }, formatDateTime,
+      // The row CARRIES a Building value; the catalogue says this profile has no such attribute.
+      sections: [section({ document, availableIds: ['instrument.code'], rows: [{ 'instrument.code': 'A', 'attr:Building': 'CWH', 'key:Pressure': 5 }] })],
+    });
+    const s = r.report.getSnapshot().sections;
+    expect(pairsOf(s)[0].pairs).toEqual([['Building', REPORT_VALUE_MISSING], ['Selection', 'QC']]);
+    expect(notes(s)).toEqual([{ kind: 'note', text: 'Not available for this profile: Building, Pressure', color: 'muted' }]);
+  });
+
+  it('a fieldless widget still names an info row its profile does not have', async () => {
+    const document = docFor('floorplan', (d) => { d.infoBlock = [{ label: 'Building', source: 'attr:Building' }]; });
+    const r = await buildWidgetReport({
+      widgetType: 'floorplan', values: {}, formatDateTime,
+      sections: [section({ document, availableIds: [], rows: [], imageDataUrl: PNG_1x1 })],
+    });
+    expect(notes(r.report.getSnapshot().sections).map((n) => n.text)).toEqual(['Not available for this profile: Building']);
   });
 
   it('an attr: row prints the attribute of a ONE-instrument section; several instruments → —', async () => {
@@ -315,12 +360,12 @@ describe('buildWidgetReport — what a widget SHOWS', () => {
     expect(r.recordCount).toBe(0);
   });
 
-  it('a chart prints its image before its table, kept inside the text column with its proportions', async () => {
+  it('a chart prints its image before its table, the text column wide at its own proportions', async () => {
     const r = await buildWidgetReport({
       widgetType: 'trend_chart', values: {}, formatDateTime,
       sections: [section({
         document: builtinReportTemplate('trend_chart'), availableIds: ALL_BUILTIN('trend_chart'),
-        rows: [{ 'instrument.code': 'A', 'summary.min': 20 }], imageDataUrl: PNG_1x1, imageSize: { wMm: 400, hMm: 100 },
+        rows: [{ 'instrument.code': 'A', 'summary.min': 20 }], imageDataUrl: PNG_1x1,
       })],
     });
     const s = r.report.getSnapshot().sections;
@@ -330,7 +375,31 @@ describe('buildWidgetReport — what a widget SHOWS', () => {
     const img = s.find((x) => x.kind === 'image') as Extract<SnapshotSection, { kind: 'image' }>;
     const textW = r.report.pw - 28;
     expect(img.widthMm).toBeCloseTo(textW, 5);
-    expect(img.heightMm).toBeCloseTo(100 * textW / 400, 5);
+    expect(img.heightMm).toBeCloseTo(textW, 5); // a 1 x 1 picture stays square
+  });
+
+  it('a picture taller than the page is scaled DOWN to fit it, keeping its proportions', async () => {
+    const r = await buildWidgetReport({
+      widgetType: 'trend_chart', values: {}, formatDateTime,
+      sections: [section({ document: builtinReportTemplate('trend_chart'), availableIds: ALL_BUILTIN('trend_chart'), rows: [], imageDataUrl: PNG_1x4 })],
+    });
+    const img = r.report.getSnapshot().sections.find((x) => x.kind === 'image') as Extract<SnapshotSection, { kind: 'image' }>;
+    expect(img.heightMm).toBeCloseTo(r.report.ph - 38, 5);
+    expect(img.widthMm).toBeCloseTo(img.heightMm / 4, 5);
+  });
+
+  it('several profiles: the widget\'s ONE picture prints once, BEFORE the first "Profile:" title (review m4)', async () => {
+    const r = await buildWidgetReport({
+      widgetType: 'trend_chart', values: {}, formatDateTime,
+      sections: [
+        section({ profileName: 'Alpha', document: builtinReportTemplate('trend_chart'), availableIds: ALL_BUILTIN('trend_chart'), rows: [], imageDataUrl: PNG_1x1 }),
+        section({ profileName: 'Beta', document: builtinReportTemplate('trend_chart'), availableIds: ALL_BUILTIN('trend_chart'), rows: [] }),
+      ],
+    });
+    const s = r.report.getSnapshot().sections;
+    expect(s.filter((x) => x.kind === 'image')).toHaveLength(1);
+    expect(s[0].kind).toBe('image');
+    expect(pairsOf(s).map((p) => p.title)).toEqual(['Profile: Alpha', 'Profile: Beta']);
   });
 
   it('a floor plan prints its image and no table', async () => {

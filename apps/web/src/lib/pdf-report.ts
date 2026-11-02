@@ -424,7 +424,7 @@ export type NoteColor = 'red' | 'muted' | 'text';
  * between instruments, so v2 records those too, plus the `config` that shapes
  * the chrome (legend, typography, app-name line). No v1 snapshot exists in any
  * database — the table they lived in was dropped in the 2026-07-18 strip — so
- * `normaliseSnapshot` refuses anything but v2 rather than migrating.
+ * `normaliseSnapshot` refuses v1 rather than migrating it (it accepts v2 and v3).
  *
  * v3 (2026-11-02) = v2 + `chrome`: a report drawn from a template's chrome
  * (`ReportConfig.chrome`) freezes it, and the replay draws from it with no
@@ -568,6 +568,13 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     loadCurrentUser(), loadSignatories(),
   ]);
   const footer = chrome?.footer ?? DEFAULT_FOOTER;
+  /**
+   * "Page x of N" is a record's COMPLETENESS mark (GDP): a template may leave
+   * it off a plain download, never off a draft under review or a signed copy
+   * (review m6, 2026-11-02).
+   */
+  const showPageNumbers = footer.showPageNumbers || !!config.draft
+    || !!config.signatures?.length || !!config.signatureTable?.length;
   const accent = hexRgb(chrome?.accentColor);
   const orientation = chrome?.orientation ?? config.orientation;
   const t: ReportTypography = { ...DEFAULT_TYPOGRAPHY, ...config.typography };
@@ -716,7 +723,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
        * needs at the bottom is its place in the set — which is why the one thing
        * left is emphasised rather than greyed.
        */
-      if (footer.showPageNumbers) {
+      if (showPageNumbers) {
         doc.setFontSize(t.smallprintPt);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(0, 0, 0);
