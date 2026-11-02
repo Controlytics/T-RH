@@ -44,6 +44,7 @@ Commits `cf02b4ef..` on `data-layer` after the plan `363c7263`. **Built, not pus
   diff against both). **Counts:** models 38 → 39 (`ModbusPollStatus`), modules 25 → 26 (`modbus`),
   audit actions 100 → 102 / templates 113 → 115, config defs 36 → 37, shared type files 38 → 39;
   enums 13, routes 56, config pages 23, reauth 57, sidebar 15, queue tasks 7 unchanged.
+- **Final review fixes (2026-11-02, `87b157a2..11ab0e21`):** a bulk address change on an existing TCP/IP instrument takes the `UPDATE_INSTRUMENT` re-auth like the single edit; "Not read", never "Not answering", for an instrument the server is not reading; no device certificate for a TCP/IP instrument (revoke still works); a storage failure resets a run of misses (overturns ruling T9-3); a "not answering" device is retried every max(interval, 60 s); a hand-edited unit id or port is refused before any socket (it could crash the API); a dropped line has its own sentence; the status card shows a failed request; nothing offers Gateway for a TCP/IP instrument.
 - **Owed by the operator:** turn TCP/IP Reading on locally / at the plant (it is OFF); check
   Inactivity Alarms on AWS at deploy; 101-01 is registered FRESH as a TCP/IP instrument after the
   deploy and its old token withdrawn (spec §15 Q1). Part 3 (the Plant Reader for an AWS server) is
