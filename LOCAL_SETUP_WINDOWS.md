@@ -1115,8 +1115,8 @@ compliance-core/
 │   │   │   └── migrations/     # hand-checked SQL migrations (partitioned telemetry table)
 │   │   ├── scripts/            # operational + one-shot scripts (one-shots carry a `// ONE-SHOT` header)
 │   │   └── src/
-│   │       ├── app.ts          # entry point; registers the 25 modules, ingest listeners, job runner
-│   │       ├── modules/        # 25 API modules (`ls | wc -l`, 2026-10-05); config/defs/ holds 36 config defs
+│   │       ├── app.ts          # entry point; registers the 26 modules, ingest listeners, the Modbus Reader, job runner
+│   │       ├── modules/        # 26 API modules (`ls | wc -l`, 2026-11-02); config/defs/ holds 37 config defs
 │   │       ├── plugins/        # auth, rbac, cors, …
 │   │       ├── workers/        # the 6 graphile-worker tasks
 │   │       └── lib/            # audit hash chain, config discovery/registry, sanitize, …

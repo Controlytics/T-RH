@@ -12,7 +12,7 @@
 > 2026-08-27, which was wrong; verified against `ls apps/api/src/modules/`),
 > **56** frontend
 > routes (not 76; 54 → 56 on 2026-10-29, `/dashboards` + `/dashboards/:id` — this line read 53, stale since 2026-10-24), **38 models / 13 enums** (not 61/23), **45 permissions / 57 reauth
-> actions** (not 102/92; 56 → 57 on 2026-10-29, `UPDATE_DASHBOARD`), **100 audit actions / 113 audit templates** (re-derived 2026-10-27; 98 / 111 until the device-certificate pair), **15** sidebar items (14 → 15 on 2026-10-29, `dashboards`; 15 → 14 on 2026-09-19, `home` removed),
+> actions** (not 102/92; 56 → 57 on 2026-10-29, `UPDATE_DASHBOARD`), **102 audit actions / 115 audit templates** (re-derived 2026-11-02; 100 / 113 until the TCP/IP pair, 98 / 111 until the device-certificate pair), **15** sidebar items (14 → 15 on 2026-10-29, `dashboards`; 15 → 14 on 2026-09-19, `home` removed),
 > **7** graphile-worker tasks. There is
 > no `orgId` review note needed either way (still true: single-tenant). See `CLAUDE.md` for
 > the accurate module/count inventory before using this file for review guidance.
@@ -23,11 +23,11 @@ Monorepo: Fastify API (apps/api), React SPA (apps/web), shared packages.
 Branch: RFID (active development) → merges to DigitalFMS → main.
 
 ## Current Module Count (re-derived 2026-08-27)
-- **Backend:** **25** API modules (`ls apps/api/src/modules/ | wc -l`; 24 → 25 on 2026-09-07, `report-reviews`)
+- **Backend:** **26** API modules (`ls apps/api/src/modules/ | wc -l`; 25 → 26 on 2026-10-31, `modbus`; 24 → 25 on 2026-09-07, `report-reviews`)
 - **Frontend:** **56** `<Route`s in `apps/web/src/main.tsx` (`grep -cE "<Route"`; 54 → 56, 2026-10-29: `/dashboards`, `/dashboards/:id`; 53 → 54, 2026-10-24: `/config/attribute-access`; unchanged 2026-09-16; 52 → 53 on 2026-09-08, `/settings`; 51 → 52 on 2026-09-07, `/reports`; 50 → 51 the same day, `/data-report`)
-- **Database:** **38** Prisma models, **13** enums (re-derived 2026-10-29 — this line read 36, stale since 2026-09-22; 37 → 38 on 2026-10-26: `MeasurementType`; 36 → 37 on 2026-09-22: `FloorplanRoomLink`; 35/12 → 36/13 on 2026-09-07: `ReportReview` + `ReportReviewStatus`; single database `compliance_core_db`, plus `compliance_core_db_test`; TimescaleDB `digilog_tsdb` dropped 2026-06-11)
+- **Database:** **39** Prisma models, **13** enums (re-derived 2026-11-02; 38 → 39 on 2026-10-31: `ModbusPollStatus`; earlier this line read 36, stale since 2026-09-22; 37 → 38 on 2026-10-26: `MeasurementType`; 36 → 37 on 2026-09-22: `FloorplanRoomLink`; 35/12 → 36/13 on 2026-09-07: `ReportReview` + `ReportReviewStatus`; single database `compliance_core_db`, plus `compliance_core_db_test`; TimescaleDB `digilog_tsdb` dropped 2026-06-11)
 - **Permissions:** **45** constants, **39** feature privileges, **57** reauth actions across **8** categories, **15** sidebar items (re-derived 2026-10-29: reauth 56 → 57 — `UPDATE_DASHBOARD`, `Configuration` — and sidebar items / tree groups 14 → 15 — `dashboards`, whose group reuses `dashboard.view`, so feature privileges stay 39; re-derived 2026-10-26: permissions 44 → 45 and feature privileges 38 → 39 — `REPORT_REVIEW_REJECT` / `reports.reject`, Approve and Reject Reports split into two toggles; 2026-10-24: feature privileges 45 → 38 — seven Permissions-tab toggles that could never take effect left the tab, see `docs/feature-notes.md` "Roles & Access → PERMISSIONS"; the reauth and sidebar numbers here had been stale since 2026-10-12 / 2026-09-19; 2026-09-08: sidebar 14 → 15 and feature privileges 43 → 45 with the Settings page, `settings.view` / `settings.edit`; 2026-09-07: permissions 42 → 44, reauth 48 → 50, feature privileges 41 → 43 and sidebar items 13 → 14 with the report review workflow; earlier that day 40 → 41 / 12 → 13 with `data-report`)
-- **Audit registries:** **100** audit actions, **113** audit templates across **7** categories (re-derived 2026-10-29 — this line read 103 / 97, stale since 2026-09-22; see root `CLAUDE.md` System Stats for 103 → 106 → 89 → 98 → 100 and 97 → 100 → 102 → 111 → 113. Earlier 102 → 103 / 96 → 97 on 2026-09-21: `ALARMS_PURGED`; earlier 98 → 102 / 92 → 96 on 2026-09-07, report review)
+- **Audit registries:** **102** audit actions, **115** audit templates across **7** categories (100 → 102 / 113 → 115 on 2026-10-31, `MODBUS_DEVICE_NOT_ANSWERING` / `MODBUS_DEVICE_ANSWERING`; re-derived 2026-10-29 — this line read 103 / 97, stale since 2026-09-22; see root `CLAUDE.md` System Stats for 103 → 106 → 89 → 98 → 100 and 97 → 100 → 102 → 111 → 113. Earlier 102 → 103 / 96 → 97 on 2026-09-21: `ALARMS_PURGED`; earlier 98 → 102 / 92 → 96 on 2026-09-07, report review)
 - **Queue:** **6** graphile-worker tasks (`notification`, `password_expiry_check`, `session_sweep`, `telemetry_partition_maintenance`, `alarm_evaluation`, `alarm_webhook`)
 
 > The figures this section carried until 2026-08-27 — "33 API modules, 76 routes,
@@ -38,8 +38,8 @@ Branch: RFID (active development) → merges to DigitalFMS → main.
 
 > Many modules/models were removed across 2026 tear-outs: multi-tenancy (`org-admin`/`tenant-admin` + org scoping, 2026-04-30), rule-chain + alarms (2026-05-17), data-ingestion + UNS + connectivity + queries + TimescaleDB (2026-06-11..17), qr-code (2026-06-06), and the reports generate/sign + report-templates engine (2026-07-04). See `CLAUDE.md` System Stats + `CHANGELOG.md`.
 
-## Backend Modules (24 — `ls apps/api/src/modules/`, 2026-08-27)
-admin-requests, alarm-webhooks, alarms, audit, auth, backup, config (25 auto-discovered defs), dashboards, debug-traces, floorplans, functional-locations, help, instrument-profiles, instruments, ldap, notification-delivery, notification-rules, notifications, roles, super-admin, system-health, uploads, user-groups, users.
+## Backend Modules (26 — `ls apps/api/src/modules/`, 2026-11-02)
+admin-requests, alarm-webhooks, alarms, audit, auth, backup, config (37 auto-discovered defs), dashboards, debug-traces, floorplans, functional-locations, help, instrument-profiles, instruments, ldap, modbus, notification-delivery, notification-rules, notifications, report-reviews, roles, super-admin, system-health, uploads, user-groups, users.
 
 > The 33-module list this section carried until 2026-08-27 named `assets`,
 > `block-change-requests`, `checklist-profiles`, `cleaning-profiles`,

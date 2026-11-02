@@ -1,0 +1,775 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TCP/IP Instruments — flow and screens</title>
+<style>
+/*FONT*/
+@page { size: A4 landscape; margin: 0; }
+:root {
+  --from: #0891b2; --to: #2563eb;
+  --band: linear-gradient(90deg, #06718b, #1d4db7);
+  --band-d: linear-gradient(135deg, #06718b, #1d4db7);
+  --sb: linear-gradient(180deg, #164e63, #1e3a5f);
+  --ink: #0f172a; --body: #334155; --muted: #64748b; --faint: #94a3b8;
+  --rule: #e2e8f0; --rule2: #cbd5e1; --ground: #f8fafc;
+  --ok: #059669; --ok-bg: #ecfdf5; --warn: #b45309; --warn-bg: #fffbeb; --bad: #dc2626; --bad-bg: #fef2f2;
+  --new: #db2777; --new-bg: #fdf2f8;
+  --temp: #ea580c; --rh: #2563eb;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #fff; }
+body { font-family: 'Inter Variable', Inter, 'Segoe UI', sans-serif; color: var(--ink); font-size: 11px; line-height: 1.4;
+       -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.page { width: 297mm; height: 210mm; position: relative; overflow: hidden; page-break-after: always; break-after: page;
+        padding: 13mm 14mm 12mm; display: flex; flex-direction: column; }
+.page:last-child { page-break-after: auto; break-after: auto; }
+
+/* page header / footer */
+.ph { display: flex; align-items: center; gap: 12px; margin-bottom: 9px; }
+.ph-step { width: 34px; height: 34px; border-radius: 9px; background: var(--band-d); color: #fff; font-weight: 800; font-size: 16px;
+           display: flex; align-items: center; justify-content: center; flex: none; }
+.ph-eyebrow { font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #0e7490; }
+.ph h2 { font-size: 21px; font-weight: 800; letter-spacing: -.01em; line-height: 1.15; }
+.ph-right { margin-left: auto; text-align: right; font-size: 9.5px; color: var(--muted); }
+.lead { font-size: 12px; color: var(--body); max-width: 230mm; margin-bottom: 10px; }
+.pf { position: absolute; left: 14mm; right: 14mm; bottom: 6mm; display: flex; justify-content: space-between;
+      font-size: 8.5px; color: var(--faint); border-top: 1px solid var(--rule); padding-top: 4px; }
+
+/* tags */
+.new { display: inline-flex; align-items: center; gap: 3px; background: var(--new); color: #fff; font-size: 8px; font-weight: 800;
+       letter-spacing: .08em; padding: 2px 6px; border-radius: 999px; vertical-align: middle; }
+.same { display: inline-flex; background: #e2e8f0; color: #475569; font-size: 8px; font-weight: 800; letter-spacing: .08em;
+        padding: 2px 6px; border-radius: 999px; vertical-align: middle; }
+.mark { outline: 2px dashed var(--new); outline-offset: 3px; border-radius: 8px; position: relative; }
+.pin { position: absolute; width: 19px; height: 19px; border-radius: 50%; background: var(--new); color: #fff; font-size: 10px;
+       font-weight: 800; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px #fff; z-index: 5; }
+
+/* ======= cover ======= */
+.cover { padding: 0; }
+.cover-band { background: var(--band-d); color: #fff; padding: 22mm 18mm 16mm; position: relative; overflow: hidden; }
+.cover-band::before, .cover-band::after { content: ''; position: absolute; border-radius: 50%; background: rgba(255,255,255,.07); }
+.cover-band::before { width: 340px; height: 340px; right: -80px; top: -150px; }
+.cover-band::after { width: 220px; height: 220px; right: 140px; bottom: -150px; }
+.cover-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; opacity: .85; }
+.cover h1 { font-size: 40px; font-weight: 800; letter-spacing: -.02em; margin: 6px 0 8px; }
+.cover-sub { font-size: 15px; opacity: .92; max-width: 190mm; }
+.cover-meta { margin-top: 16px; display: flex; gap: 8px; }
+.chip-w { background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.28); padding: 4px 11px; border-radius: 999px; font-size: 10.5px; font-weight: 600; }
+.cover-body { padding: 10mm 18mm 0; display: grid; grid-template-columns: 1.25fr 1fr; gap: 12mm; }
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+.tile { border: 1px solid var(--rule); border-radius: 12px; padding: 12px 13px; background: #fff; box-shadow: 0 1px 2px rgba(15,23,42,.06); }
+.tile-n { font-size: 26px; font-weight: 800; color: #0e7490; line-height: 1; }
+.tile-t { font-size: 11.5px; font-weight: 700; margin-top: 6px; }
+.tile-d { font-size: 10px; color: var(--muted); margin-top: 2px; }
+.cover h3 { font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #0e7490; margin-bottom: 7px; }
+.answer { font-size: 12px; color: var(--body); }
+.answer p { margin-bottom: 7px; }
+.toc { list-style: none; counter-reset: t; }
+.toc li { counter-increment: t; display: flex; gap: 9px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--rule); font-size: 12px; }
+.toc li::before { content: counter(t); font-weight: 800; color: #fff; background: var(--band-d); width: 20px; height: 20px; border-radius: 6px;
+                  display: inline-flex; align-items: center; justify-content: center; font-size: 10px; flex: none; }
+.toc li span { margin-left: auto; color: var(--faint); font-size: 10px; }
+.legend-row { display: flex; gap: 14px; margin-top: 10px; font-size: 10px; color: var(--muted); align-items: center; }
+
+/* ======= flow ======= */
+.lane { border: 1px solid var(--rule); border-radius: 14px; padding: 10px 12px 12px; margin-bottom: 9px; background: #fff; }
+.lane-h { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+.lane-h b { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #0e7490; }
+.lane-h span { font-size: 10px; color: var(--muted); }
+.row { display: flex; align-items: stretch; gap: 0; }
+.box { flex: 1; border-radius: 11px; padding: 9px 10px; background: #fff; border: 1.5px solid var(--rule2); position: relative; }
+.box.n { border-color: var(--new); background: var(--new-bg); }
+.box.u { background: var(--ground); }
+.box.dev { background: #0f172a; color: #e2e8f0; border-color: #0f172a; }
+.box.ing { background: var(--band-d); color: #fff; border: none; }
+.box-k { font-size: 8.5px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; opacity: .7; margin-bottom: 2px; }
+.box-t { font-size: 12px; font-weight: 800; line-height: 1.2; }
+.box-d { font-size: 9.5px; margin-top: 4px; color: var(--body); line-height: 1.35; }
+.box.dev .box-d, .box.ing .box-d { color: rgba(255,255,255,.85); }
+.arrow { flex: none; width: 26px; display: flex; align-items: center; justify-content: center; }
+.arrow svg { width: 22px; height: 14px; }
+.mono { font-family: Consolas, 'Cascadia Mono', monospace; font-size: 9px; }
+.code { font-family: Consolas, 'Cascadia Mono', monospace; font-size: 9px; background: rgba(15,23,42,.06); padding: 1px 4px; border-radius: 4px; }
+.box.dev .code { background: rgba(255,255,255,.12); }
+.mini-list { margin-top: 4px; font-size: 9.5px; }
+.mini-list div { display: flex; justify-content: space-between; border-top: 1px solid rgba(15,23,42,.07); padding: 2px 0; }
+.box.dev .mini-list div { border-color: rgba(255,255,255,.12); }
+.chain { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.chain span { background: rgba(255,255,255,.16); border-radius: 6px; padding: 2px 6px; font-size: 9px; font-weight: 600; }
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.cycle { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 10px; }
+.cycle .st { background: var(--ground); border: 1px solid var(--rule); border-radius: 7px; padding: 4px 8px; font-weight: 600; }
+.cycle .st.bad { background: var(--bad-bg); border-color: #fecaca; color: #991b1b; }
+.cycle .st.ok { background: var(--ok-bg); border-color: #a7f3d0; color: #065f46; }
+.cycle i { color: var(--faint); font-style: normal; }
+
+/* ======= deployment ======= */
+.opt { border: 1px solid var(--rule); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
+.opt-h { background: var(--band); color: #fff; padding: 9px 13px; display: flex; align-items: baseline; gap: 9px; }
+.opt-h b { font-size: 15px; font-weight: 800; }
+.opt-h span { font-size: 10.5px; opacity: .88; }
+.opt-b { padding: 11px 13px; flex: 1; display: flex; flex-direction: column; gap: 9px; }
+.net { display: flex; align-items: center; gap: 0; }
+.zone { border: 1.5px dashed var(--rule2); border-radius: 12px; padding: 18px 9px 9px; position: relative; display: flex; flex-direction: column; gap: 6px; }
+.zone-l { position: absolute; top: -8px; left: 10px; background: #fff; padding: 0 6px; font-size: 8.5px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.zone.plant { border-color: #94a3b8; }
+.zone.cloud { border-color: #93c5fd; background: #f8fbff; }
+.node { border-radius: 9px; padding: 6px 8px; font-size: 10px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.node small { display: block; font-weight: 500; font-size: 8.5px; opacity: .8; }
+.node.d { background: #0f172a; color: #fff; }
+.node.s { background: var(--band-d); color: #fff; }
+.node.r { background: var(--new); color: #fff; }
+.node.b { background: #fff; border: 1px solid var(--rule2); color: var(--ink); }
+.link { flex: 1; min-width: 40px; text-align: center; font-size: 8.5px; color: var(--muted); padding: 0 4px; }
+.link hr { border: none; border-top: 2px solid #94a3b8; margin: 3px 0; }
+.link.out hr { border-top-color: var(--new); }
+.pros { list-style: none; font-size: 10.5px; }
+.pros li { padding: 3px 0 3px 17px; position: relative; color: var(--body); }
+.pros li::before { content: '✓'; position: absolute; left: 0; color: var(--ok); font-weight: 800; }
+.pros li.c::before { content: '!'; color: var(--warn); left: 3px; }
+.ask { margin-top: 9px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 12px; padding: 9px 13px; display: flex; gap: 10px; align-items: center; }
+.ask b { color: #9a3412; font-size: 12px; white-space: nowrap; }
+.cmp { width: 100%; border-collapse: collapse; font-size: 10px; }
+.cmp td { padding: 4px 6px; border-top: 1px solid var(--rule); vertical-align: top; }
+.cmp td:first-child { color: var(--muted); width: 34%; }
+.cmp td:last-child { font-weight: 600; color: var(--ink); }
+.amsg { display: flex; gap: 7px; align-items: flex-start; padding: 5px 0; border-top: 1px solid var(--rule); font-size: 9.6px; color: var(--body); }
+.amsg:first-child { border-top: none; }
+.amsg b { color: var(--ink); }
+.phase { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+.phase > div { border: 1px solid var(--rule); border-radius: 12px; padding: 9px 11px; background: #fff; }
+.phase h5 { font-size: 11.5px; font-weight: 800; margin-bottom: 4px; display: flex; gap: 6px; align-items: center; }
+.phase h5 i { font-style: normal; background: var(--band-d); color: #fff; border-radius: 6px; font-size: 9px; padding: 1px 6px; }
+.phase p { font-size: 9.8px; color: var(--body); }
+.ask span { font-size: 11px; color: #7c2d12; }
+
+/* ======= app mock ======= */
+.screen { display: grid; grid-template-columns: 1fr 66mm; gap: 9mm; flex: 1; min-height: 0; }
+.app { border: 1px solid var(--rule2); border-radius: 12px; overflow: hidden; display: flex; background: #fff;
+       box-shadow: 0 10px 30px -12px rgba(15,23,42,.35); height: 100%; }
+.sb { width: 118px; background: var(--sb); color: #cbd5e1; padding: 11px 8px; flex: none; font-size: 9.5px; }
+.sb-logo { display: flex; align-items: center; gap: 6px; color: #fff; font-weight: 800; font-size: 10.5px; margin: 0 2px 12px; }
+.sb-logo i { width: 20px; height: 20px; border-radius: 6px; background: linear-gradient(135deg, #22d3ee, #3b82f6); display: inline-block; }
+.sb-i { padding: 5px 8px; border-radius: 7px; margin-bottom: 2px; display: flex; align-items: center; gap: 6px; }
+.sb-i::before { content: ''; width: 9px; height: 9px; border-radius: 3px; border: 1.5px solid currentColor; opacity: .7; }
+.sb-i.on { background: #fff; color: #0e7490; font-weight: 700; }
+.main { flex: 1; background: #fff; padding: 10px 12px; overflow: hidden; display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.main > * { flex-shrink: 0; }
+.hero { background: var(--band-d); color: #fff; border-radius: 11px; padding: 10px 13px; position: relative; overflow: hidden; }
+.hero::after { content: ''; position: absolute; right: -40px; top: -60px; width: 170px; height: 170px; border-radius: 50%; background: rgba(255,255,255,.08); }
+.crumbs { font-size: 8.5px; opacity: .8; }
+.hero-t { font-size: 15px; font-weight: 800; margin-top: 2px; display: flex; align-items: center; gap: 7px; }
+.hero-d { font-size: 9.5px; opacity: .85; margin-top: 1px; }
+.hero-a { position: absolute; right: 12px; top: 12px; display: flex; gap: 6px; z-index: 2; }
+.hchip { background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.3); border-radius: 999px; padding: 2px 8px; font-size: 8.5px; font-weight: 700; }
+.btn { white-space: nowrap; border-radius: 7px; padding: 5px 11px; font-size: 9.5px; font-weight: 700; display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--rule2); background: #fff; color: var(--ink); }
+.btn.p { background: linear-gradient(90deg, var(--from), var(--to)); color: #fff; border: none; }
+.btn.w { background: #fff; color: #0e7490; border: none; }
+.btn.g { background: var(--ok); color: #fff; border: none; }
+.card { border: 1px solid var(--rule); border-radius: 10px; background: #fff; box-shadow: 0 1px 2px rgba(15,23,42,.06); }
+.card-h { padding: 7px 11px; border-bottom: 1px solid var(--rule); font-size: 11px; font-weight: 800; display: flex; align-items: center; gap: 7px; }
+.card-h.band { background: var(--band); color: #fff; border-radius: 10px 10px 0 0; border-bottom: none; }
+.card-b { padding: 9px 11px; }
+.fl { display: block; font-size: 9.5px; font-weight: 600; color: #334155; margin-bottom: 3px; }
+.fl em { font-style: normal; color: var(--faint); font-weight: 400; }
+.inp { border: 1px solid var(--rule2); border-radius: 6px; padding: 5px 8px; font-size: 10px; background: #fff; color: var(--ink); min-height: 24px; }
+.inp.sel { display: flex; justify-content: space-between; }
+.inp.sel::after { content: '▾'; color: var(--faint); }
+.inp.ph { color: var(--faint); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.grid3 { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; }
+.hint { font-size: 8.5px; color: var(--muted); margin-top: 3px; }
+.err { font-size: 8.5px; color: var(--bad); margin-top: 3px; font-weight: 600; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.seg-o { border: 1.5px solid var(--rule2); border-radius: 9px; padding: 8px 10px; display: flex; gap: 8px; align-items: flex-start; }
+.seg-o.on { border-color: #0891b2; background: #ecfeff; box-shadow: 0 0 0 3px rgba(8,145,178,.12); }
+.radio { width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid var(--rule2); flex: none; margin-top: 1px; }
+.seg-o.on .radio { border: 4px solid #0891b2; }
+.seg-t { font-size: 10.5px; font-weight: 800; }
+.seg-d { font-size: 8.8px; color: var(--muted); margin-top: 1px; line-height: 1.35; }
+.pcards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+.pc { border: 1px solid var(--rule); border-radius: 9px; padding: 8px 10px; }
+.pc h4 { font-size: 10.5px; font-weight: 800; display: flex; align-items: center; gap: 5px; }
+.pc p { font-size: 8.5px; color: var(--muted); margin-top: 1px; }
+.pc .nums { display: flex; gap: 14px; margin-top: 5px; }
+.pc .nums b { font-size: 15px; display: block; line-height: 1.1; }
+.pc .nums small { font-size: 8px; color: var(--faint); }
+.ctype { font-size: 7.5px; font-weight: 800; letter-spacing: .06em; padding: 1px 5px; border-radius: 999px; }
+.ctype.gw { background: #e0f2fe; color: #075985; }
+.ctype.tcp { background: #fce7f3; color: #9d174d; }
+
+/* tables */
+table { border-collapse: collapse; width: 100%; }
+.tb tr:first-child { background: var(--band); }
+.tb.wrap td { white-space: normal; }
+.tb th { background: transparent; color: #fff; font-size: 8.5px; font-weight: 700; text-align: left; padding: 5px 7px; letter-spacing: .02em; white-space: nowrap; }
+.tb th:first-child { border-radius: 7px 0 0 0; } .tb th:last-child { border-radius: 0 7px 0 0; }
+.tb td { font-size: 9.5px; padding: 4px 7px; border: 1px solid var(--rule); white-space: nowrap; }
+.tb tr:nth-child(even) td { background: #f8fafc; }
+.tb td.k { font-weight: 700; }
+.pill { display: inline-block; white-space: nowrap; font-size: 8px; font-weight: 700; padding: 1px 6px; border-radius: 999px; }
+.pill.ok { background: var(--ok-bg); color: #065f46; border: 1px solid #a7f3d0; }
+.pill.nj { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+.pill.bad { background: var(--bad-bg); color: #991b1b; border: 1px solid #fecaca; }
+.pill.warn { background: var(--warn-bg); color: #92400e; border: 1px solid #fde68a; }
+.t-ch { color: var(--temp); font-weight: 700; } .h-ch { color: var(--rh); font-weight: 700; }
+
+/* notes column */
+.notes { display: flex; flex-direction: column; gap: 7px; }
+.notes h3 { font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: #0e7490; }
+.note { display: flex; gap: 8px; align-items: flex-start; font-size: 10.2px; color: var(--body); line-height: 1.38; }
+.note .num { width: 18px; height: 18px; border-radius: 50%; background: var(--new); color: #fff; font-size: 9.5px; font-weight: 800; display: flex; align-items: center; justify-content: center; flex: none; margin-top: 1px; }
+.note b { color: var(--ink); }
+.note-box { border: 1px solid var(--rule); background: var(--ground); border-radius: 10px; padding: 8px 10px; font-size: 9.8px; color: var(--body); }
+.note-box b { color: var(--ink); }
+
+/* status card */
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 9.8px; }
+.kv dt { color: var(--muted); }
+.kv dd { font-weight: 600; }
+.statusbar { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; font-size: 10px; font-weight: 700; }
+.statusbar.ok { background: var(--ok-bg); color: #065f46; border: 1px solid #a7f3d0; }
+.statusbar.bad { background: var(--bad-bg); color: #991b1b; border: 1px solid #fecaca; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.readings { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.rd { border: 1px solid var(--rule); border-radius: 8px; padding: 6px 8px; }
+.rd small { font-size: 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+.rd b { display: block; font-size: 14px; margin-top: 1px; }
+.rd b span { font-size: 9px; color: var(--muted); font-weight: 600; }
+
+/* rules page */
+.cols3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 9px; }
+.rule-card { border: 1px solid var(--rule); border-radius: 12px; padding: 10px 12px; }
+.rule-card h4 { font-size: 12px; font-weight: 800; margin-bottom: 6px; display: flex; align-items: center; gap: 7px; }
+.rule-card ul { list-style: none; }
+.rule-card li { font-size: 10.2px; color: var(--body); padding: 3.5px 0 3.5px 14px; position: relative; border-top: 1px solid #f1f5f9; }
+.rule-card li:first-child { border-top: none; }
+.rule-card li::before { content: ''; position: absolute; left: 2px; top: 9px; width: 5px; height: 5px; border-radius: 50%; background: #0891b2; }
+.rule-card li b { color: var(--ink); }
+
+/* decisions */
+.dec { display: grid; grid-template-columns: 26px 1fr 82mm; gap: 10px; align-items: start; border: 1px solid var(--rule); border-radius: 12px; padding: 10px 12px; margin-bottom: 7px; }
+.dec-n { width: 26px; height: 26px; border-radius: 8px; background: var(--band-d); color: #fff; font-weight: 800; display: flex; align-items: center; justify-content: center; font-size: 13px; }
+.dec h4 { font-size: 12.5px; font-weight: 800; }
+.dec p { font-size: 10.2px; color: var(--body); margin-top: 2px; }
+.rec { background: var(--ok-bg); border: 1px solid #a7f3d0; border-radius: 9px; padding: 6px 9px; font-size: 10px; color: #065f46; }
+.rec b { display: block; font-size: 8.5px; letter-spacing: .1em; text-transform: uppercase; margin-bottom: 1px; }
+</style>
+</head>
+<body>
+
+<!-- =============================== 1. COVER =============================== -->
+<section class="page cover">
+  <div class="cover-band">
+    <div class="cover-eyebrow">T&amp;RH-Monitoring · proposal for review</div>
+    <h1>TCP/IP Instruments</h1>
+    <div class="cover-sub">How a Modbus TCP/IP device becomes an instrument in the application — the flow, where it runs, and every screen that changes.</div>
+    <div class="cover-meta"><span class="chip-w">Draft · 31-10-2026</span><span class="chip-w">Concept only — nothing is built yet</span><span class="chip-w">Controlytics</span></div>
+  </div>
+  <div class="cover-body">
+    <div>
+      <div class="tiles">
+        <div class="tile"><div class="tile-n">1</div><div class="tile-t">choice on the profile</div><div class="tile-d">Gateway (today's process) or TCP/IP</div></div>
+        <div class="tile"><div class="tile-n">1</div><div class="tile-t">address and key list per instrument</div><div class="tile-d">its own IP, port and register map</div></div>
+        <div class="tile"><div class="tile-n">1</div><div class="tile-t">path for every reading</div><div class="tile-d">limits, alarms, audit, reports — unchanged</div></div>
+      </div>
+      <h3>The answer in short</h3>
+      <div class="answer">
+        <p><b>The application does the reading itself.</b> A small part of the application — the <b>TCP/IP Reader</b> — connects to each TCP/IP instrument's IP address and port, reads its registers every 60 seconds, and turns them into that instrument's own keys. The desktop program in <span class="code">TCPIP/</span> is no longer needed.</p>
+        <p><b>Each instrument holds its own IP address, port and register map</b> — so instruments in one profile can carry different keys. <b>The profile holds only how they are read</b> (every 60 s, unit ID 1) and which key names are judged. Every reading then enters the same path MQTT, HTTP and gateway readings use today, so offsets, limits, alarms, history, dashboards, reports and the audit trail work without any change.</p>
+        <p><b>Gateway profiles do not change at all.</b></p>
+      </div>
+      <div class="legend-row"><span><span class="new">NEW</span>&nbsp; new on this screen</span><span><span class="same">SAME</span>&nbsp; as today</span><span><span class="pin" style="position:static;display:inline-flex">1</span>&nbsp; numbered note beside each screen</span></div>
+    </div>
+    <div>
+      <h3>Contents</h3>
+      <ol class="toc">
+        <li>The whole flow — set up once, then read every minute<span>2</span></li>
+        <li>Where the Reader runs — the one decision<span>3</span></li>
+        <li>Screen · New profile: Gateway or TCP/IP<span>4</span></li>
+        <li>Screen · New instrument: its own IP, port and keys<span>5</span></li>
+        <li>Screen · Test connection before it is saved<span>6</span></li>
+        <li>Screen · Instrument page: connection status<span>7</span></li>
+        <li>Screen · Plant Readers (only if the server is in AWS)<span>8</span></li>
+        <li>Rules, and what stays the same<span>9</span></li>
+        <li>Decisions needed from you<span>10</span></li>
+      </ol>
+    </div>
+  </div>
+  <div class="pf"><span>Controlytics · T&amp;RH-Monitoring · TCP/IP Instruments — flow and screens · Draft</span><span>1</span></div>
+</section>
+
+<!-- =============================== 2. FLOW =============================== -->
+<section class="page">
+  <div class="ph"><div class="ph-step">1</div><div><div class="ph-eyebrow">The flow</div><h2>Set up once, then read every minute</h2></div><div class="ph-right">TCP/IP Instruments<br>Draft 31-10-2026</div></div>
+
+  <div class="lane">
+    <div class="lane-h"><b>Set up once</b><span>— a Super Admin, on screens that exist today plus the new parts</span></div>
+    <div class="row">
+      <div class="box n"><div class="box-k">Step 1 · Profiles</div><div class="box-t">New profile → choose the connection</div>
+        <div class="box-d"><b>Gateway</b> — the device sends its own data (MQTT, HTTP, TCP, or through a gateway). <b>Today's process.</b><br><b>TCP/IP</b> — the application reads each device; set how often (60 s) and the unit ID, once.</div></div>
+      <div class="arrow"><svg viewBox="0 0 22 14"><path d="M1 7h17M13 2l6 5-6 5" fill="none" stroke="#94a3b8" stroke-width="2"/></svg></div>
+      <div class="box n"><div class="box-k">Step 2 · New instrument</div><div class="box-t">Its own IP · Port · keys</div><div class="box-d"><span class="code">192.168.1.24 : 502</span></div>
+        <div class="mini-list"><div><span>Temperature</span><span class="mono">40001 · FLOAT32</span></div><div><span>Humidity</span><span class="mono">40003 · FLOAT32</span></div><div><span>Pressure</span><span class="mono">40005 · FLOAT32</span></div><div><span>Voltage</span><span class="mono">40009 · UINT16</span></div></div></div>
+      <div class="arrow"><svg viewBox="0 0 22 14"><path d="M1 7h17M13 2l6 5-6 5" fill="none" stroke="#94a3b8" stroke-width="2"/></svg></div>
+      <div class="box n"><div class="box-k">Step 3 · Before saving</div><div class="box-t">Test connection</div>
+        <div class="box-d">Reads the device once with <b>this instrument's</b> register map and shows every key's value <b>before</b> the instrument is saved. Nothing is stored.</div></div>
+      <div class="arrow"><svg viewBox="0 0 22 14"><path d="M1 7h17M13 2l6 5-6 5" fill="none" stroke="#94a3b8" stroke-width="2"/></svg></div>
+      <div class="box u"><div class="box-k">Step 4 · Same as today</div><div class="box-t">Limits, offsets, location, attributes</div>
+        <div class="box-d">Set exactly as for every instrument today. A TCP/IP instrument gets <b>no access token</b> — nothing to leak.</div></div>
+    </div>
+  </div>
+
+  <div class="lane">
+    <div class="lane-h"><b>Every 60 seconds, automatically</b><span>— for each enabled TCP/IP instrument</span></div>
+    <div class="row">
+      <div class="box dev" style="flex:.9"><div class="box-k">Plant network</div><div class="box-t">Modbus TCP/IP device</div>
+        <div class="box-d"><span class="code">192.168.1.24 : 502</span><br>sensor, PLC or energy meter. Holds its values in registers 40001…</div></div>
+      <div class="arrow"><svg viewBox="0 0 22 14"><path d="M21 7H4M9 2L3 7l6 5" fill="none" stroke="#db2777" stroke-width="2"/></svg></div>
+      <div class="box n" style="flex:1.05"><div class="box-k">New · inside the application</div><div class="box-t">TCP/IP Reader</div>
+        <div class="box-d">Connects, reads <b>40001–40010 in one request</b> (function 03), decodes each key by <b>that instrument's</b> register map.</div>
+        <div class="mini-list"><div><span>Temperature</span><b>22.4</b></div><div><span>Humidity</span><b>47.1</b></div><div><span>Pressure</span><b>101.7</b></div></div></div>
+      <div class="arrow"><svg viewBox="0 0 22 14"><path d="M1 7h17M13 2l6 5-6 5" fill="none" stroke="#94a3b8" stroke-width="2"/></svg></div>
+      <div class="box ing" style="flex:1.35"><div class="box-k">Same as today · one path for every reading</div><div class="box-t">Ingest</div>
+        <div class="chain"><span>offsets</span><span>limits judged</span><span>alarms raised</span><span>latest value</span><span>history</span><span>dead letters</span></div>
+        <div class="box-d" style="margin-top:6px">Temperature and Humidity are <b>judged</b> (the profile's measurements). Pressure, Power, Voltage, Switch are <b>shown, never judged</b>.</div></div>
+      <div class="arrow"><svg viewBox="0 0 22 14"><path d="M1 7h17M13 2l6 5-6 5" fill="none" stroke="#94a3b8" stroke-width="2"/></svg></div>
+      <div class="box u" style="flex:.95"><div class="box-k">Same as today</div><div class="box-t">Everywhere a reading shows</div>
+        <div class="box-d">Dashboard &amp; built dashboards · Trend page · Data Report · Alarms · Settings · Audit trail</div></div>
+    </div>
+  </div>
+
+  <div class="split">
+    <div class="lane" style="margin:0">
+      <div class="lane-h"><b>Gateway profiles</b><span class="same" style="margin-left:2px">SAME</span></div>
+      <div class="row">
+        <div class="box u"><div class="box-t">Device or gateway pushes</div><div class="box-d">MQTT · HTTP · WebSocket · raw TCP, with the instrument's own token</div></div>
+        <div class="arrow"><svg viewBox="0 0 22 14"><path d="M1 7h17M13 2l6 5-6 5" fill="none" stroke="#94a3b8" stroke-width="2"/></svg></div>
+        <div class="box ing"><div class="box-t">The same Ingest</div><div class="box-d">Both kinds of instrument end up identical: same tables, same alarms, same reports.</div></div>
+      </div>
+    </div>
+    <div class="lane" style="margin:0">
+      <div class="lane-h"><b>One read cycle</b><span>— what happens when it fails</span></div>
+      <div class="cycle"><span class="st">connect</span><i>→</i><span class="st">read 10 registers</span><i>→</i><span class="st">decode</span><i>→</i><span class="st ok">store reading</span><i>→</i><span class="st">wait 60 s</span></div>
+      <div class="cycle" style="margin-top:6px"><span class="st bad">no answer / refused</span><i>→</i><span class="st">nothing stored</span><i>→</i><span class="st">try again next cycle</span></div>
+      <div class="cycle" style="margin-top:6px"><span class="st bad">silent 15 min</span><i>→</i><span class="st">Inactivity alarm — the existing rule, no change</span></div>
+    </div>
+  </div>
+  <div class="pf"><span>Controlytics · T&amp;RH-Monitoring · TCP/IP Instruments — flow and screens · Draft</span><span>2</span></div>
+</section>
+
+<!-- =============================== 3. WHERE IT RUNS =============================== -->
+<section class="page">
+  <div class="ph"><div class="ph-step">2</div><div><div class="ph-eyebrow">Where the Reader runs</div><h2>The Reader must sit on the same network as the devices</h2></div><div class="ph-right">TCP/IP Instruments<br>Draft 31-10-2026</div></div>
+  <div class="lead">Modbus devices live on the plant network (<span class="code">192.168.1.x</span>). Something on that network has to do the reading. The Reader is built <b>once</b> and can run in either of two places — the screens and the data are identical in both.</div>
+  <div class="split" style="flex:1">
+    <div class="opt">
+      <div class="opt-h"><b>A · Server at the plant</b><span>Windows Setup.exe or Ubuntu .deb install</span></div>
+      <div class="opt-b">
+        <div class="net">
+          <div class="zone plant" style="flex:1"><span class="zone-l">Plant network 192.168.1.x</span>
+            <div class="node d">Modbus devices<small>192.168.1.24 : 502 …</small></div>
+            <div class="node d">Modbus devices<small>192.168.1.31 : 502 …</small></div>
+          </div>
+          <div class="link"><hr>read<br>every 60 s</div>
+          <div class="zone plant" style="flex:1.15"><span class="zone-l">Same network</span>
+            <div class="node s">T&amp;RH server<small>Reader built in</small></div>
+            <div class="node b">Browsers on the plant LAN</div>
+          </div>
+        </div>
+        <ul class="pros">
+          <li>Nothing extra to install — the Reader starts with the server</li>
+          <li>Works with no internet at all (intranet only)</li>
+          <li>Simplest to validate: one system, one audit trail</li>
+          <li class="c">Needs the server on, or routed to, the devices' network</li>
+        </ul>
+        <table class="cmp">
+          <tr><td>What is installed</td><td>Only the T&amp;RH server, as today</td></tr>
+          <tr><td>Who reads the devices</td><td>The server itself</td></tr>
+          <tr><td>Network ports</td><td>Server → device TCP 502, inside the plant</td></tr>
+          <tr><td>Internet needed</td><td>No</td></tr>
+          <tr><td>If the server stops</td><td>Nothing is read; Inactivity alarms when it returns</td></tr>
+        </table>
+      </div>
+    </div>
+    <div class="opt">
+      <div class="opt-h"><b>B · Server in AWS</b><span>like today's https://13.204.15.17</span></div>
+      <div class="opt-b">
+        <div class="net">
+          <div class="zone plant" style="flex:1.25"><span class="zone-l">Plant network 192.168.1.x</span>
+            <div class="node d">Modbus devices<small>192.168.1.24 : 502 …</small></div>
+            <div class="node r">Plant Reader<small>small Windows service on a plant PC</small></div>
+          </div>
+          <div class="link out"><hr>HTTPS 443<br>outbound only</div>
+          <div class="zone cloud" style="flex:1"><span class="zone-l">AWS cloud</span>
+            <div class="node s">T&amp;RH server<small>13.204.15.17</small></div>
+            <div class="node b">Browsers anywhere</div>
+          </div>
+        </div>
+        <ul class="pros">
+          <li>The plant PC only <b>calls out</b> — no port opened into the plant</li>
+          <li>It downloads its instrument list and register maps from the application — nothing is typed on the PC</li>
+          <li>Readings go up with the Reader's own key, revocable on one screen (page 8)</li>
+          <li class="c">One more thing to install and keep running on a plant PC (it replaces today's desktop tool)</li>
+        </ul>
+        <table class="cmp">
+          <tr><td>What is installed</td><td>Plant Reader service on one PC per plant network</td></tr>
+          <tr><td>Who reads the devices</td><td>The Plant Reader</td></tr>
+          <tr><td>Network ports</td><td>PC → device TCP 502; PC → AWS HTTPS 443 out</td></tr>
+          <tr><td>Internet needed</td><td>Yes, outbound only</td></tr>
+          <tr><td>If the internet drops</td><td>Readings are kept on the PC and sent when it returns (page 8)</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="ask"><b>Your decision →</b><span>Will production run at the plant (A), in AWS (B), or both? My recommendation: build the Reader once and offer both — A first if Granules' production server is on-premises, B first if it stays in AWS.</span></div>
+  <div class="pf"><span>Controlytics · T&amp;RH-Monitoring · TCP/IP Instruments — flow and screens · Draft</span><span>3</span></div>
+</section>
+
+<!-- =============================== 4. NEW PROFILE =============================== -->
+<section class="page">
+  <div class="ph"><div class="ph-step">3</div><div><div class="ph-eyebrow">Screen · Instruments → Instrument Profiles → + New Profile</div><h2>New profile: choose Gateway or TCP/IP</h2></div><div class="ph-right">TCP/IP Instruments<br>Draft 31-10-2026</div></div>
+  <div class="screen">
+    <div class="app">
+      <aside class="sb"><div class="sb-logo"><i></i>T&amp;RH-Monitoring</div>
+        <div class="sb-i">Dashboard</div><div class="sb-i">Dashboards</div><div class="sb-i">Alarms</div><div class="sb-i on">Instruments</div><div class="sb-i">Functional Locations</div><div class="sb-i">Data Report</div><div class="sb-i">Reports</div><div class="sb-i">Settings</div><div class="sb-i">Configuration</div></aside>
+      <div class="main">
+        <div class="hero"><div class="crumbs">Dashboard / Instruments / Instrument Profiles</div><div class="hero-t">Instrument Profiles</div><div class="hero-d">Group instruments by area, system or purpose. Open a profile to see and add its instruments.</div><div class="hero-a"><span class="btn w">Cancel</span></div></div>
+        <div class="card"><div class="card-b">
+          <div class="grid2">
+            <div><span class="fl">Profile Name</span><div class="inp">Modbus Room Sensors</div></div>
+            <div><span class="fl">Description <em>(optional)</em></span><div class="inp">Modbus TCP/IP sensors, QC block</div></div>
+          </div>
+          <div class="mark" style="margin-top:12px; padding:2px">
+            <span class="pin" style="left:-10px; top:-10px">1</span>
+            <span class="fl">Connection <span class="new">NEW</span></span>
+            <div class="seg">
+              <div class="seg-o"><span class="radio"></span><div><div class="seg-t">Gateway</div><div class="seg-d">The device sends its own data — MQTT, HTTP, TCP, or through a gateway. Today's process.</div></div></div>
+              <div class="seg-o on"><span class="radio"></span><div><div class="seg-t">TCP/IP (Modbus)</div><div class="seg-d">The application reads each instrument at its own IP address and port.</div></div></div>
+            </div>
+            <div class="grid2" style="margin-top:8px; grid-template-columns:1fr 1fr 1.3fr">
+              <div><span class="fl">Read every</span><div class="inp sel">60 seconds</div></div>
+              <div><span class="fl">Unit ID</span><div class="inp">1</div></div>
+              <div class="hint" style="align-self:end; margin:0 0 5px">For every instrument in this profile. Keys are set on each instrument.</div>
+            </div>
+          </div>
+          <div style="display:flex; justify-content:flex-end; margin-top:10px"><span class="btn p">Create Profile</span></div>
+        </div></div>
+        <div class="pcards">
+          <div class="pc"><h4>T&amp;RH Sensors <span class="ctype gw">GATEWAY</span></h4><p>RS485 gateways, CWH</p><div class="nums"><div><b>105</b><small>instruments</small></div><div><b style="color:var(--ok)">104</b><small>enabled</small></div></div></div>
+          <div class="pc"><h4>iot <span class="ctype gw">GATEWAY</span></h4><p>Direct MQTT devices</p><div class="nums"><div><b>3</b><small>instruments</small></div><div><b style="color:var(--ok)">3</b><small>enabled</small></div></div></div>
+          <div class="pc mark" style="outline-offset:2px"><span class="pin" style="right:-9px; top:-9px">2</span><h4>Modbus Room Sensors <span class="ctype tcp">TCP/IP</span></h4><p>Modbus TCP/IP sensors, QC block</p><div class="nums"><div><b>0</b><small>instruments</small></div><div><b style="color:var(--ok)">0</b><small>enabled</small></div></div></div>
+        </div>
+        <div class="card mark" style="outline-offset:2px"><span class="pin" style="left:-10px; top:-10px">3</span>
+          <div class="card-h">Opening the new profile <span class="new">NEW</span></div>
+          <div class="card-b" style="display:flex; align-items:center; gap:12px">
+            <div style="flex:1">
+              <div style="font-size:10.5px; font-weight:700">TCP/IP · read every 60 s · unit ID 1 — no instruments yet.</div>
+              <div class="hint">Each instrument gets its own IP address, port and register map when it is added.</div>
+            </div>
+            <span class="btn p">+ New Instrument</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <h3>What changes</h3>
+      <div class="note"><span class="num">1</span><div><b>One new choice when a profile is created.</b> Gateway is selected by default, so nothing changes for anyone who ignores it.</div></div>
+      <div class="note"><span class="num">2</span><div><b>Every profile card shows its connection</b> — so a list of profiles tells you at a glance which ones are read by the application.</div></div>
+      <div class="note"><span class="num">3</span><div><b>The profile holds only how its instruments are read</b> — every 60 s, unit ID 1. It has no keys of its own: each instrument gets its own register map (next page).</div></div>
+      <div class="note-box"><b>Why "TCP/IP (Modbus)" and not just "TCP/IP"?</b> The application already accepts devices that <i>push</i> over raw TCP (a Gateway-type connection). The word Modbus keeps the two apart.</div>
+      <div class="note-box"><b>Can it be changed later?</b> Only while the profile has no instruments — afterwards the two kinds of instrument hold different settings.</div>
+      <div class="note-box"><b>Existing profiles</b> (T&amp;RH Sensors, iot) become Gateway automatically. No data moves.</div>
+    </div>
+  </div>
+  <div class="pf"><span>Controlytics · T&amp;RH-Monitoring · TCP/IP Instruments — flow and screens · Draft</span><span>4</span></div>
+</section>
+
+<!-- =============================== 5. NEW INSTRUMENT: ADDRESS + KEYS =============================== -->
+<section class="page">
+  <div class="ph"><div class="ph-step">4</div><div><div class="ph-eyebrow">Screen · Instruments → New Instrument (profile is TCP/IP)</div><h2>New instrument: its own address and its own keys</h2></div><div class="ph-right">TCP/IP Instruments<br>Draft 31-10-2026</div></div>
+  <div class="screen">
+    <div class="app">
+      <aside class="sb"><div class="sb-logo"><i></i>T&amp;RH-Monitoring</div>
+        <div class="sb-i">Dashboard</div><div class="sb-i">Dashboards</div><div class="sb-i">Alarms</div><div class="sb-i on">Instruments</div><div class="sb-i">Data Report</div><div class="sb-i">Reports</div><div class="sb-i">Settings</div><div class="sb-i">Configuration</div></aside>
+      <div class="main">
+        <div class="hero"><div class="crumbs">Dashboard / Instruments / New Instrument</div><div class="hero-t">New Instrument</div><div class="hero-d">Register a device so its readings, limits and alarms have somewhere to live.</div></div>
+        <div class="grid2" style="align-items:start">
+          <div class="card"><div class="card-h">Identity <span class="same">SAME</span></div><div class="card-b" style="display:flex; flex-direction:column; gap:7px">
+            <div><span class="fl">Profile *</span><div class="inp sel">Modbus Room Sensors — TCP/IP</div></div>
+            <div class="grid2"><div><span class="fl">Instrument ID *</span><div class="inp">CWH/RDU/101-01</div></div><div><span class="fl">Block / Area *</span><div class="inp sel">CWH › QC</div></div></div>
+          </div></div>
+          <div class="card mark" style="outline-offset:2px"><span class="pin" style="left:-10px; top:-10px">1</span>
+            <div class="card-h band">TCP/IP connection <span class="new" style="background:#fff;color:var(--new)">NEW</span></div>
+            <div class="card-b">
+              <div class="grid3" style="grid-template-columns:2fr 1fr"><div><span class="fl">IP address *</span><div class="inp">192.168.1.24</div></div><div><span class="fl">Port *</span><div class="inp">502</div></div></div>
+              <div class="hint" style="margin-top:6px">Read every 60 s · unit ID 1 — set once on the profile.</div>
+            </div>
+          </div>
+        </div>
+        <div class="card mark" style="outline-offset:2px"><span class="pin" style="left:-10px; top:-10px">2</span>
+          <div class="card-h band">Register map — this instrument's keys <span class="new" style="background:#fff;color:var(--new)">NEW</span><span style="margin-left:auto; display:flex; gap:6px"><span class="btn" style="padding:3px 8px">Copy from instrument…</span><span class="btn" style="padding:3px 8px">Import keys file</span><span class="btn" style="padding:3px 8px">+ Add key</span></span></div>
+          <div class="card-b" style="padding:8px">
+            <table class="tb">
+              <tr><th>Key</th><th>Register</th><th>Area</th><th>Data type</th><th>Byte order</th><th>Scale</th><th>Unit</th><th>Judged as</th></tr>
+              <tr><td class="k t-ch">Temperature</td><td class="mono">40001–40002</td><td>Holding</td><td>FLOAT32</td><td>ABCD</td><td>× 1</td><td>°C</td><td><span class="pill ok">Temperature</span></td></tr>
+              <tr><td class="k h-ch">Humidity</td><td class="mono">40003–40004</td><td>Holding</td><td>FLOAT32</td><td>DCBA</td><td>× 1</td><td>%RH</td><td><span class="pill ok">Humidity</span></td></tr>
+              <tr><td class="k">Pressure</td><td class="mono">40005–40006</td><td>Holding</td><td>FLOAT32</td><td>BADC</td><td>× 1</td><td>kPa</td><td><span class="pill nj">Shown only</span></td></tr>
+              <tr><td class="k">Power</td><td class="mono">40007–40008</td><td>Holding</td><td>FLOAT32</td><td>CDAB</td><td>× 1</td><td>kW</td><td><span class="pill nj">Shown only</span></td></tr>
+              <tr><td class="k">Voltage</td><td class="mono">40009</td><td>Holding</td><td>UINT16</td><td>—</td><td>× 0.1</td><td>V</td><td><span class="pill nj">Shown only</span></td></tr>
+              <tr><td class="k">Switch</td><td class="mono">40010</td><td>Holding</td><td>INT16</td><td>—</td><td>× 1</td><td>—</td><td><span class="pill nj">Shown only</span></td></tr>
+            </table>
+            <div class="hint" style="margin-top:6px">Read as ONE request: registers 40001–40010 (10 registers), function 03 · Holding.</div>
+          </div>
+        </div>
+        <div style="display:flex; justify-content:flex-end; align-items:center; gap:8px"><span class="hint" style="margin:0">the form continues on the next page</span><span class="btn p">Test connection</span></div>
+      </div>
+    </div>
+    <div class="notes">
+      <h3>What changes</h3>
+      <div class="note"><span class="num">1</span><div><b>Its own IP address and port.</b> Shown only when the chosen profile is TCP/IP; port 502 is filled in. "Is Gateway" and "Reports through gateway" are not offered.</div></div>
+      <div class="note"><span class="num">2</span><div><b>Its own register map.</b> Instruments in one profile can carry different keys — 101-01 sends six; the next device may send only Temperature and Pressure.</div></div>
+      <div class="note-box"><b>Identical devices are not typed twice.</b> <b>Copy from instrument…</b> takes another instrument's map; <b>Import keys file</b> reads today's <span class="code">ModbusTCPReader_keys.json</span>.</div>
+      <div class="note-box"><b>Judged as</b> still comes from the profile's Measurements: a key named Temperature or Humidity (device keys temperature, t · humidity, h) gets limits and alarms; every other key is shown, never judged.</div>
+      <div class="note-box"><b>Checked before saving:</b> two keys in one register, a FLOAT32 running past the map, more than 125 registers in one read. The server refuses the same.</div>
+      <div class="note-box"><b>The cost of keys per instrument:</b> when a device model changes, each of its instruments is edited — quick with Copy from instrument, and every change is in the audit trail.</div>
+    </div>
+  </div>
+  <div class="pf"><span>Controlytics · T&amp;RH-Monitoring · TCP/IP Instruments — flow and screens · Draft</span><span>5</span></div>
+</section>
+
+<!-- =============================== 6. TEST CONNECTION =============================== -->
+<section class="page">
+  <div class="ph"><div class="ph-step">5</div><div><div class="ph-eyebrow">Screen · New Instrument, continued</div><h2>Test connection: every key's value before it is saved</h2></div><div class="ph-right">TCP/IP Instruments<br>Draft 31-10-2026</div></div>
+  <div class="screen">
+    <div class="app">
+      <aside class="sb"><div class="sb-logo"><i></i>T&amp;RH-Monitoring</div>
+        <div class="sb-i">Dashboard</div><div class="sb-i">Dashboards</div><div class="sb-i">Alarms</div><div class="sb-i on">Instruments</div><div class="sb-i">Data Report</div><div class="sb-i">Reports</div><div class="sb-i">Settings</div><div class="sb-i">Configuration</div></aside>
+      <div class="main">
+        <div class="hero"><div class="crumbs">Dashboard / Instruments / New Instrument</div><div class="hero-t">New Instrument</div><div class="hero-d">CWH/RDU/101-01 · 192.168.1.24 : 502 · 6 keys</div></div>
+        <div class="grid2" style="align-items:start">
+          <div class="card mark" style="outline-offset:2px"><span class="pin" style="left:-10px; top:-10px">1</span>
+            <div class="card-h band">Test connection <span class="new" style="background:#fff;color:var(--new)">NEW</span></div>
+            <div class="card-b">
+              <div style="display:flex; align-items:center; gap:8px"><span class="btn p">Test connection</span><span class="hint" style="margin:0">reads the device once — nothing is stored</span></div>
+              <div class="statusbar ok" style="margin-top:7px"><span class="dot"></span>Connected in 42 ms · read 10 registers</div>
+              <table class="tb" style="margin-top:6px">
+                <tr><th>Key</th><th>Value read now</th></tr>
+                <tr><td class="k t-ch">Temperature</td><td>22.4 °C</td></tr>
+                <tr><td class="k h-ch">Humidity</td><td>47.1 %RH</td></tr>
+                <tr><td class="k">Pressure</td><td>101.7 kPa</td></tr>
+                <tr><td class="k">Power</td><td>1.23 kW</td></tr>
+                <tr><td class="k">Voltage</td><td>230.1 V</td></tr>
+                <tr><td class="k">Switch</td><td>1</td></tr>
+              </table>
+            </div>
+          </div>
+          <div class="card mark" style="outline-offset:2px"><span class="pin" style="left:-10px; top:-10px">2</span>
+            <div class="card-h">Why it matters: the same 22.4 °C, stored four ways</div>
+            <div class="card-b" style="padding:8px">
+              <table class="tb">
+                <tr><th>Byte order</th><th>40001 · 40002</th><th>Read as ABCD</th></tr>
+                <tr><td class="k">ABCD</td><td class="mono">41B3 · 3333</td><td><b>22.4</b></td></tr>
+                <tr><td class="k">CDAB</td><td class="mono">3333 · 41B3</td><td style="color:var(--bad)">4.2 × 10<sup>-8</sup></td></tr>
+                <tr><td class="k">BADC</td><td class="mono">B341 · 3333</td><td style="color:var(--bad)">−4.5 × 10<sup>-8</sup></td></tr>
+                <tr><td class="k">DCBA</td><td class="mono">3333 · B341</td><td style="color:var(--bad)">4.2 × 10<sup>-8</sup></td></tr>
+              </table>
+              <div class="hint" style="margin-top:6px">All four rows hold 22.4 °C. A wrong byte order gives no error — only a wrong number. Test connection shows it before anything is saved.</div>
+            </div>
+          </div>
+        </div>
+        <div class="card mark" style="outline-offset:2px; border-color:#fecaca"><span class="pin" style="left:-10px; top:-10px">3</span><div class="card-h" style="color:#991b1b">When Test connection fails, it says why</div><div class="card-b" style="padding:6px 11px">
+          <div class="amsg"><span class="pill bad">No answer</span><div><b>192.168.1.24 : 502 did not answer within 1 s</b> — check the IP, the cable, and that the device is on.</div></div>
+          <div class="amsg"><span class="pill bad">Refused</span><div><b>192.168.1.24 refused port 502</b> — the device is reachable but not listening on that port.</div></div>
+          <div class="amsg"><span class="pill bad">Register</span><div><b>The device refused register 40005 (exception 02)</b> — this instrument's register map does not match it.</div></div>
+          <div class="amsg"><span class="pill warn">In use</span><div><b>192.168.1.24 : 502 is already CWH/RDU/101-01.</b></div></div>
+        </div></div>
+        <div style="display:flex; justify-content:flex-end; gap:6px"><span class="btn">Cancel</span><span class="btn p">Create Instrument · remarks + signature</span></div>
+      </div>
+    </div>
+    <div class="notes">
+      <h3>What changes</h3>
+      <div class="note"><span class="num">1</span><div><b>Test connection</b> reads the device once with <b>this instrument's</b> register map and shows every key's value, so a wrong IP, register or byte order is caught <b>before</b> the instrument exists. Nothing is stored.</div></div>
+      <div class="note"><span class="num">2</span><div><b>Why it is there:</b> a wrong byte order does not fail, it reads a believable-looking wrong number — or a tiny one, as here.</div></div>
+      <div class="note"><span class="num">3</span><div><b>Every failure is named in plain words.</b> The instrument can still be saved (a device may be installed later); it shows "not answering" until it does.</div></div>
+      <div class="note-box"><b>One address = one instrument.</b> <span class="code">192.168.1.24 : 502</span> on a second instrument is refused, naming the one that has it.</div>
+      <div class="note-box"><b>No access token</b> for a TCP/IP instrument — the device never logs in; the application reads it.</div>
+      <div class="note-box"><b>Attributes</b> (limits, offsets, Location) are entered as for every instrument today. <b>Bulk upload</b> gets IP address and Port columns; each register map is copied or imported.</div>
+    </div>
+  </div>
+  <div class="pf"><span>Controlytics · T&amp;RH-Monitoring · TCP/IP Instruments — flow and screens · Draft</span><span>6</span></div>
+</section>
+
+<!-- =============================== 7. INSTRUMENT PAGE =============================== -->
+<section class="page">
+  <div class="ph"><div class="ph-step">6</div><div><div class="ph-eyebrow">Screen · Instruments → CWH/RDU/101-01</div><h2>Instrument page: is the application reaching it?</h2></div><div class="ph-right">TCP/IP Instruments<br>Draft 31-10-2026</div></div>
+  <div class="screen">
+    <div class="app">
+      <aside class="sb"><div class="sb-logo"><i></i>T&amp;RH-Monitoring</div>
+        <div class="sb-i">Dashboard</div><div class="sb-i">Dashboards</div><div class="sb-i">Alarms</div><div class="sb-i on">Instruments</div><div class="sb-i">Data Report</div><div class="sb-i">Reports</div><div class="sb-i">Settings</div><div class="sb-i">Configuration</div></aside>
+      <div class="main">
+        <div class="hero"><div class="crumbs">Dashboard / Instruments / CWH/RDU/101-01</div><div class="hero-t">CWH/RDU/101-01</div><div class="hero-d">Modbus Room Sensors · CWH › QC · Sample Storage Room</div><div class="hero-a"><span class="hchip">TCP/IP</span><span class="hchip">Enabled</span><span class="btn w">Trend</span></div></div>
+        <div class="grid2" style="align-items:start">
+          <div style="display:flex; flex-direction:column; gap:8px">
+            <div class="card mark" style="outline-offset:2px"><span class="pin" style="left:-10px; top:-10px">1</span>
+              <div class="card-h band">TCP/IP connection <span class="new" style="background:#fff;color:var(--new)">NEW</span><span style="margin-left:auto"><span class="btn" style="padding:2px 8px">Edit</span></span></div>
+              <div class="card-b" style="display:flex; flex-direction:column; gap:7px">
+                <div class="statusbar ok"><span class="dot"></span>Reading · last read 16:42:05 · next in 38 s</div>
+                <dl class="kv"><dt>Address</dt><dd class="mono" style="font-size:9.8px">192.168.1.24 : 502</dd><dt>Read every</dt><dd>60 s (profile)</dd><dt>Last 24 hours</dt><dd>1,440 reads · 0 failed</dd><dt>Last failure</dt><dd>—</dd></dl>
+                <div style="display:flex; gap:6px"><span class="btn">Test connection</span></div>
+              </div>
+            </div>
+            <div class="card mark" style="outline-offset:2px; border-color:#fecaca"><span class="pin" style="left:-10px; top:-10px">2</span>
+              <div class="card-h" style="color:#991b1b">The same card when the device does not answer</div>
+              <div class="card-b" style="display:flex; flex-direction:column; gap:6px">
+                <div class="statusbar bad"><span class="dot"></span>No answer from 192.168.1.24 : 502 since 16:20</div>
+                <div class="hint" style="margin:0">22 reads failed · nothing was stored for them · Inactivity alarm raised at 16:35</div>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:8px">
+            <div class="card"><div class="card-h">Latest readings <span class="same">SAME</span></div><div class="card-b">
+              <div class="readings">
+                <div class="rd"><small>Temperature</small><b class="t-ch">22.4 <span>°C</span></b><span class="pill ok">In limit</span></div>
+                <div class="rd"><small>Humidity</small><b class="h-ch">47.1 <span>%RH</span></b><span class="pill ok">In limit</span></div>
+                <div class="rd"><small>Pressure</small><b>101.7 <span>kPa</span></b><span class="pill nj">Not judged</span></div>
+                <div class="rd"><small>Power</small><b>1.23 <span>kW</span></b><span class="pill nj">Not judged</span></div>
+                <div class="rd"><small>Voltage</small><b>230.1 <span>V</span></b><span class="pill nj">Not judged</span></div>
+                <div class="rd"><small>Switch</small><b>1</b><span class="pill nj">Not judged</span></div>
+              </div>
+            </div></div>
+            <div class="card mark" style="outline-offset:2px"><span class="pin" style="right:-9px; top:-9px">4</span><div class="card-h">Register map <span class="new">NEW</span><span style="margin-left:auto"><span class="btn" style="padding:2px 8px">Edit</span></span></div><div class="card-b"><div class="hint" style="margin:0"><b>6 keys</b> · registers 40001–40010 · Temperature, Humidity, Pressure, Power, Voltage, Switch. Details, Attributes and Rejected payloads stay as today; no Access token card.</div></div></div>
+          </div>
+        </div>
+        <div class="card mark" style="outline-offset:2px"><span class="pin" style="left:-10px; top:-10px">3</span><div class="card-h">Audit Trail — this instrument <span class="new">NEW entries</span></div><div class="card-b" style="padding:8px">
+          <table class="tb wrap">
+            <tr><th style="width:21%">Date &amp; time</th><th style="width:24%">Action</th><th style="width:14%">By</th><th>Old → New / remarks</th></tr>
+            <tr><td>31-10-2026 16:43:05</td><td>Device answering again</td><td>Reader</td><td>23 reads missed, 16:20–16:42</td></tr>
+            <tr><td>31-10-2026 16:20:05</td><td>Device not answering</td><td>Reader</td><td>No answer from 192.168.1.24 : 502</td></tr>
+            <tr><td>30-10-2026 11:02:41</td><td>TCP/IP address changed</td><td>superadmin</td><td><span class="mono">192.168.1.151 → 192.168.1.24</span> · "Device moved to QC panel"</td></tr>
+          </table>
+        </div></div>
+      </div>
+    </div>
+    <div class="notes">
+      <h3>What changes</h3>
+      <div class="note"><span class="num">1</span><div><b>One card says whether the application is reaching the device</b>, when it last read it and how many reads failed. <b>Edit</b> changes the address with remarks and signature, recorded in the audit trail.</div></div>
+      <div class="note"><span class="num">2</span><div><b>When it fails, it says why in plain words</b> — no answer, connection refused, or the device refused a register — and stores nothing. After 15 silent minutes the existing <b>Inactivity alarm</b> is raised, exactly as for a gateway sensor today.</div></div>
+      <div class="note"><span class="num">3</span><div><b>The audit trail explains every gap.</b> An address change carries the old and new value and its remarks; the Reader records when a device stopped and started answering, so a missing hour in a report has a recorded reason.</div></div>
+      <div class="note"><span class="num">4</span><div><b>The instrument's own register map</b>, editable here with remarks and signature; the old and new map are in the audit trail.</div></div>
+      <div class="note-box"><b>Everything else on this page, the dashboards, the trend page, the Data Report and the alarms page is unchanged</b> — a TCP/IP reading is an ordinary reading once it is stored.</div>
+      <div class="note-box"><b>Dashboards:</b> Pressure, Power, Voltage and Switch can be put on the new gauges, bars and charts straight away — they are the "different keys per profile" case phase 2 was built for.</div>
+    </div>
+  </div>
+  <div class="pf"><span>Controlytics · T&amp;RH-Monitoring · TCP/IP Instruments — flow and screens · Draft</span><span>7</span></div>
+</section>
+
+<!-- =============================== 8. PLANT READERS =============================== -->
+<section class="page">
+  <div class="ph"><div class="ph-step">7</div><div><div class="ph-eyebrow">Screen · Configuration → Plant Readers · only for option B (server in AWS)</div><h2>Plant Readers: the PCs that read devices for a cloud server</h2></div><div class="ph-right">TCP/IP Instruments<br>Draft 31-10-2026</div></div>
+  <div class="screen">
+    <div class="app">
+      <aside class="sb"><div class="sb-logo"><i></i>T&amp;RH-Monitoring</div>
+        <div class="sb-i">Dashboard</div><div class="sb-i">Dashboards</div><div class="sb-i">Alarms</div><div class="sb-i">Instruments</div><div class="sb-i">Data Report</div><div class="sb-i">Reports</div><div class="sb-i">Settings</div><div class="sb-i on">Configuration</div></aside>
+      <div class="main">
+        <div class="hero"><div class="crumbs">Dashboard / Configuration / Plant Readers</div><div class="hero-t">Plant Readers <span class="new" style="background:#fff;color:var(--new)">NEW</span></div><div class="hero-d">PCs on a plant network that read TCP/IP instruments and send the readings here.</div><div class="hero-a"><span class="btn w">+ Add reader</span></div></div>
+        <div class="card mark" style="outline-offset:2px"><span class="pin" style="left:-10px; top:-10px">1</span><div class="card-b" style="padding:8px">
+          <table class="tb">
+            <tr><th>Reader</th><th>Plant PC</th><th>Instruments</th><th>Last check-in</th><th>Status</th><th></th></tr>
+            <tr><td class="k">CWH QC block</td><td>QC-PC-07</td><td>14</td><td>16:42:31</td><td><span class="pill ok">Online</span></td><td><span class="btn" style="padding:2px 7px">Revoke</span></td></tr>
+            <tr><td class="k">CWH Stability</td><td>STB-PC-02</td><td>6</td><td>16:31:02</td><td><span class="pill warn">No check-in 11 min</span></td><td><span class="btn" style="padding:2px 7px">Revoke</span></td></tr>
+          </table>
+        </div></div>
+        <div class="grid2" style="align-items:start">
+          <div class="card mark" style="outline-offset:2px"><span class="pin" style="left:-10px; top:-10px">2</span><div class="card-h band">Add reader</div><div class="card-b" style="display:flex; flex-direction:column; gap:7px">
+            <div><span class="fl">Name *</span><div class="inp">CWH QC block</div></div>
+            <div><span class="fl">Instruments it reads</span><div class="inp sel">Block / Area: CWH › QC (14 TCP/IP instruments)</div></div>
+            <div style="display:flex; gap:6px"><span class="btn p">Create · remarks + signature</span></div>
+          </div></div>
+          <div class="card"><div class="card-h">Shown once, after Create</div><div class="card-b" style="display:flex; flex-direction:column; gap:7px">
+            <div><span class="fl">Reader key</span><div class="inp mono" style="letter-spacing:.06em">rk_••••••••••••••••••••••••••••</div></div>
+            <div style="display:flex; gap:6px"><span class="btn">Copy key</span><span class="btn">Download PlantReaderSetup.exe</span></div>
+            <div class="hint" style="margin:0">On the plant PC: run the installer, paste the server address and this key. It does the rest.</div>
+          </div></div>
+        </div>
+        <div class="card mark" style="outline-offset:2px"><span class="pin" style="left:-10px; top:-10px">3</span><div class="card-h">If the internet drops</div><div class="card-b">
+          <div class="cycle"><span class="st">Reader keeps reading every 60 s</span><i>→</i><span class="st">keeps the readings on the PC, with the time each was read</span><i>→</i><span class="st ok">internet back: sends them in order</span><i>→</i><span class="st">no gap in the history</span></div>
+          <div class="hint" style="margin-top:6px">Kept for up to 24 hours. Past that, the oldest are dropped and the gap is recorded in the audit trail — never filled in.</div>
+        </div></div>
+      </div>
+    </div>
+    <div class="notes">
+      <h3>What changes</h3>
+      <div class="note"><span class="num">1</span><div><b>Every plant PC that reads devices is listed</b>, with the instruments it covers and when it last checked in. A reader that stops checking in is visible here, and its instruments raise the normal Inactivity alarms.</div></div>
+      <div class="note"><span class="num">2</span><div><b>Adding a reader gives a key, shown once.</b> The plant PC uses it to fetch its instrument list and register maps and to send readings — over HTTPS, outbound only. <b>Revoke key</b> cuts it off at once.</div></div>
+      <div class="note"><span class="num">3</span><div><b>An internet outage does not lose readings.</b> The Plant Reader holds them and sends them late, each with its real read time — so the trend and the Data Report have no hole. <b>One point to settle in the design:</b> today a late reading is stored but not judged, so an excursion during the outage would not raise an alarm when it arrives.</div></div>
+      <div class="note-box"><b>Not needed for option A.</b> When the server is at the plant, the Reader runs inside it and this page does not appear.</div>
+      <div class="note-box"><b>Replaces the desktop tool:</b> no settings are typed on the plant PC, and no device password is stored in a file there.</div>
+    </div>
+  </div>
+  <div class="pf"><span>Controlytics · T&amp;RH-Monitoring · TCP/IP Instruments — flow and screens · Draft</span><span>8</span></div>
+</section>
+
+<!-- =============================== 9. RULES =============================== -->
+<section class="page">
+  <div class="ph"><div class="ph-step">8</div><div><div class="ph-eyebrow">Rules</div><h2>What the feature promises — and what stays exactly as it is</h2></div><div class="ph-right">TCP/IP Instruments<br>Draft 31-10-2026</div></div>
+  <div class="cols3" style="align-items:stretch">
+    <div class="rule-card"><h4><span class="same">SAME</span> Stays exactly as it is</h4><ul>
+      <li><b>Gateway profiles and instruments</b> — MQTT, HTTP, WebSocket, raw TCP, gateways, tokens, device certificates</li>
+      <li><b>Limits, offsets, decimals</b> — set per instrument, as today</li>
+      <li><b>All five alarm sources</b> — limits, inactivity, RS485, sensor range, offline</li>
+      <li><b>Dashboard, built dashboards, trend page, Data Report, Alarms, Settings</b></li>
+      <li><b>Report review, downloads and signatures</b></li>
+      <li><b>Audit trail</b> — and every new setting is recorded in it</li>
+    </ul></div>
+    <div class="rule-card"><h4><span class="new">NEW</span> How TCP/IP instruments behave</h4><ul>
+      <li><b>Each instrument has its own register map</b> — keys can differ between instruments in one profile</li>
+      <li><b>Read-only.</b> The application never writes to a device — writing to plant equipment from a 21 CFR Part 11 system is a separate decision</li>
+      <li><b>One path:</b> every reading enters the same ingest as MQTT readings — no second way into the database</li>
+      <li><b>Each instrument has its own IP and port</b> — no two instruments share one</li>
+      <li><b>Every 60 s by default</b>, per profile, never faster than 10 s</li>
+      <li><b>A reading's time is the moment it was read</b></li>
+      <li><b>A failed read stores nothing</b> — never a zero, never a repeat of the last value</li>
+      <li><b>Disabled instrument = not read</b></li>
+    </ul></div>
+    <div class="rule-card"><h4>21 CFR Part 11 and validation</h4><ul>
+      <li><b>Register map, connection and address changes</b> need remarks and a signature, like every instrument change today</li>
+      <li><b>Each change is an audit record</b> with the old and new value</li>
+      <li><b>Test connection</b> reads only and is not stored — it cannot create a reading</li>
+      <li><b>The Reader's own events</b> (started, device not answering, recovered) are logged with times, so an outage can be explained later</li>
+      <li><b>OQ test cases</b> to add: register map, test connection, a failed device, an address clash, a disabled instrument</li>
+    </ul></div>
+  </div>
+  <div class="lane" style="margin-top:9px">
+    <div class="lane-h"><b>How it would be delivered</b><span>— each part tested and usable on its own</span></div>
+    <div class="phase">
+      <div><h5><i>Part 1</i>Profile, instrument address and keys</h5><p>The Gateway / TCP/IP choice, IP, port and register map on each instrument (Copy from instrument, Import keys file), Test connection, the audit records. Nothing is read automatically yet.</p></div>
+      <div><h5><i>Part 2</i>The Reader inside the server (option A)</h5><p>Reads every enabled TCP/IP instrument on its profile's schedule, through the same ingest; the connection card on the instrument page; device-not-answering records.</p></div>
+      <div><h5><i>Part 3</i>Plant Reader for AWS (option B)</h5><p>The Windows service, the Plant Readers page and keys, keeping readings through an internet outage; bulk-upload columns; OQ test scripts for all of it.</p></div>
+    </div>
+  </div>
+  <div class="lane" style="margin-top:9px">
+    <div class="lane-h"><b>Today's 101-01 and the desktop tool</b></div>
+    <div class="cycle"><span class="st">Create the TCP/IP profile</span><i>→</i><span class="st">Move 101-01 to it: enter 192.168.1.24 : 502, import the keys file</span><i>→</i><span class="st ok">Test connection → readings arrive from the application</span><i>→</i><span class="st">Close the desktop tool</span><i>→</i><span class="st bad">Withdraw the old 101-01 token</span></div>
+  </div>
+  <div class="pf"><span>Controlytics · T&amp;RH-Monitoring · TCP/IP Instruments — flow and screens · Draft</span><span>9</span></div>
+</section>
+
+<!-- =============================== 10. DECISIONS =============================== -->
+<section class="page">
+  <div class="ph"><div class="ph-step">9</div><div><div class="ph-eyebrow">Your decisions</div><h2>Five answers, then I write the design and build it</h2></div><div class="ph-right">TCP/IP Instruments<br>Draft 31-10-2026</div></div>
+  <div class="dec"><div class="dec-n">1</div><div><h4>Where will the Reader run?</h4><p>A — inside the server at the plant · B — a Plant Reader on a plant PC, server in AWS · or both. This decides whether page 8 is built.</p></div><div class="rec"><b>Recommended</b>Build once, offer both. Start with the one Granules' production uses (still an open point in the DS document).</div></div>
+  <div class="dec"><div class="dec-n">2</div><div><h4>What is the option called on screen?</h4><p>"TCP/IP" alone could be confused with the raw-TCP push devices already use.</p></div><div class="rec"><b>Recommended</b>"TCP/IP (Modbus)".</div></div>
+  <div class="dec"><div class="dec-n">3</div><div><h4>How often is a device read?</h4><p>The desktop tool reads every 200 ms — 2.6 million rows a day for one instrument. The plant reports per minute today.</p></div><div class="rec"><b>Recommended</b>60 seconds by default, set per profile, never under 10 seconds.</div></div>
+  <div class="dec"><div class="dec-n">4</div><div><h4>Should the application ever write to a device?</h4><p>The desktop tool can write registers and coils. In a validated system that is a control action, not monitoring.</p></div><div class="rec"><b>Recommended</b>No — read-only. Writing would be its own project with its own validation.</div></div>
+  <div class="dec"><div class="dec-n">5</div><div><h4>101-01 and the desktop tool</h4><p>101-01 is fed today by the desktop tool over unencrypted MQTT, and its token sits in a plain file.</p></div><div class="rec"><b>Recommended</b>Move 101-01 to the new profile, retire the tool, withdraw the old token (page 9).</div></div>
+  <div class="lane" style="margin-top:4px">
+    <div class="lane-h"><b>What happens after you answer</b></div>
+    <div class="cycle"><span class="st">You answer the five points</span><i>→</i><span class="st">I write the design document (reviewed before you see it)</span><i>→</i><span class="st">You approve it</span><i>→</i><span class="st">Plan, then build Part 1 → 2 → 3 with tests and reviews</span><i>→</i><span class="st ok">You try it on your local application</span><i>→</i><span class="st">Deploy when you say</span></div>
+  </div>
+  <div class="pf"><span>Controlytics · T&amp;RH-Monitoring · TCP/IP Instruments — flow and screens · Draft</span><span>10</span></div>
+</section>
+
+</body>
+</html>

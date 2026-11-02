@@ -18,7 +18,7 @@
 
 ## Overview
 
-Fastify 5 backend with TypeScript, **25 API modules** (verified `ls apps/api/src/modules/ | wc -l` 2026-10-05; 24 -> 25 on 2026-09-07 with `report-reviews`). Runs locally on Windows: `tsx watch` in dev, compiled JS for prod-style local builds. There is no live EC2/Linux production environment (`root CLAUDE.md` — "The app runs ONLY on local Windows for development"). `scripts/register-services.ps1` (WinSW-wrapped `DigiLogAPI`/`DigiLogDB` Windows services) and `docs/PHARMA_DEPLOYMENT_21CFR.md` still exist for a packaged-installer deployment path — verified present on disk — but that is a separate concern from the day-to-day dev loop described in root `CLAUDE.md`, which uses `start-app.bat` / `stop-app.bat`.
+Fastify 5 backend with TypeScript, **26 API modules** (verified `ls apps/api/src/modules/ | wc -l` 2026-11-02; 25 -> 26 on 2026-10-31 with `modbus`; 24 -> 25 on 2026-09-07 with `report-reviews`). Runs locally on Windows: `tsx watch` in dev, compiled JS for prod-style local builds. There is no live EC2/Linux production environment (`root CLAUDE.md` — "The app runs ONLY on local Windows for development"). `scripts/register-services.ps1` (WinSW-wrapped `DigiLogAPI`/`DigiLogDB` Windows services) and `docs/PHARMA_DEPLOYMENT_21CFR.md` still exist for a packaged-installer deployment path — verified present on disk — but that is a separate concern from the day-to-day dev loop described in root `CLAUDE.md`, which uses `start-app.bat` / `stop-app.bat`.
 
 **Entry point:** `apps/api/src/app.ts`
 **Dev:** `cd apps/api && npx tsx watch src/app.ts` (the code default is port 3000 — `app.ts` `PORT ?? '3000'` — but THIS checkout's `apps/api/.env` sets `PORT=3001` and `WEB_PORT=5176` so it cannot collide with the sibling DigiLog checkout on 3000 / 5175; see root `CLAUDE.md` Key Local URLs)
@@ -91,6 +91,7 @@ DigiLog is single-tenant, single-site (`Organization` model + `org-admin`/`tenan
 |---|---|---|
 | `instruments` | `/api/instruments` | Telemetry ingest (MQTT/TCP/WS), overview, per-instrument history, visibility scope, attribute access/downlink, gateway fan-out |
 | `instrument-profiles` | — | Device-type profile CRUD |
+| `modbus` | `/api/instruments/modbus`, `/api/instruments/:id/modbus-status` | TCP/IP (Modbus) instruments (2026-10-31): Test connection, the reading status, and the in-process Reader (`reader.ts`, started in `app.ts`) — see `docs/feature-notes.md` TCP/IP INSTRUMENTS |
 | `functional-locations` | `/api/functional-locations` | Block/Area tree — authoritative instrument grouping |
 | `floorplans` | `/api/floorplans` | Plan + room CRUD, room membership, bucketed room history |
 | `alarms` | `/api/alarms` | Alarm rule CRUD, decision engine, notification enqueue |
@@ -236,7 +237,7 @@ they covered the removed filter/checklist domain. Its "gap" note about
 "filter operations, RFID, offline replay, reports, block-change, PM My Tasks"
 having no e2e tests is moot — none of those features exist to test.)
 
-## Database Schema (38 models, 13 enums)
+## Database Schema (39 models, 13 enums)
 
 > `apps/api/prisma/schema.prisma` is authoritative (verified `grep -cE "^model "` / `"^enum "` 2026-10-05; 36 → 37 on 2026-09-22 with `FloorplanRoomLink`; earlier 34 → 36 on 2026-08-27, `AlarmWebhookTarget` + `AlarmWebhookDelivery`, with no new enum — their `method`/`event`/`status` are validated strings). The
 > previous "61 models, 23 enums" figure predates the Phase 0 filter-domain

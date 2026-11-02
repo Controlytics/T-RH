@@ -22,7 +22,7 @@ live instrument monitoring with alarms.
 | Layer | Choice |
 |---|---|
 | Backend | Fastify 5, TypeScript (ESM), Node 24.x (root `package.json` `engines`) |
-| Database | PostgreSQL 18 via Prisma 6 — **38 models, 13 enums** (re-derived 2026-10-26) |
+| Database | PostgreSQL 18 via Prisma 6 — **39 models, 13 enums** (re-derived 2026-11-02) |
 | Frontend | React 19, Vite 6, React Router 7, SWR, Tailwind v4 |
 | Auth | JWT (`jose`, HS256, 1h default) + bcrypt; session table; single-tab enforcement |
 | Jobs | graphile-worker on Postgres — **7 tasks**. No Redis. |
@@ -33,7 +33,7 @@ live instrument monitoring with alarms.
 ## Layout
 
 ```
-apps/api/        Fastify backend — 25 modules (`ls apps/api/src/modules/ | wc -l`, 2026-10-05), 249 route registrations
+apps/api/        Fastify backend — 26 modules (`ls apps/api/src/modules/ | wc -l`, 2026-11-02), 249 route registrations
 apps/web/        React SPA — 56 routes, 23 config pages (2026-10-29; 22 → 23 pages on 2026-10-24, 54 → 56 routes on 2026-10-29)
 packages/shared/ permissions (45), reauth actions (57), sidebar items (15) — 2026-10-29,
                  PERMISSION_TREE, zod schemas, telemetry maths

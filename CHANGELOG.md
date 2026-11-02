@@ -1,5 +1,54 @@
 # Changelog
 
+## [Unreleased] - Feature: TCP/IP (Modbus) instruments, parts 1–2 — the application reads the device (2026-10-31 .. 2026-11-02)
+
+Operator: "if user selected TCP/IP then in the instrument creation tcp/ip need to integrate, for one
+instrument one ip address and port", "register map should be inside of instrument", "go with all
+recommendations". Spec `docs/superpowers/specs/2026-10-31-tcpip-instruments-design.md`, plan
+`docs/superpowers/plans/2026-10-31-tcpip-instruments-parts-1-2.md`; the rules and every build
+ruling are in `docs/feature-notes.md` TCP/IP INSTRUMENTS. Replaces the `TCPIP/` desktop tool.
+Commits `cf02b4ef..` on `data-layer` after the plan `363c7263`. **Built, not pushed, not deployed.**
+
+- **Profiles** are created as Gateway (`connection 'PUSH'`, today's process, every existing profile)
+  or **TCP/IP (Modbus)** (`'MODBUS_TCP'`: read interval 10..3600 s, default 60; unit ID 0..255,
+  default 1). Connection changes only while the profile is empty (409 `PROFILE_HAS_INSTRUMENTS`);
+  a TCP/IP profile cannot require device certificates (400 `NOT_FOR_TCPIP`).
+- **A TCP/IP instrument** has its own IPv4 address and port (one device per host:port — a partial
+  unique index; 409 `ADDRESS_IN_USE`) inside the administered device networks (400
+  `ADDRESS_NOT_ALLOWED`), its own register map (≤ 100 keys, the shared `modbusRegisterMapSchema`),
+  and **no token** (token routes 400 `NO_TOKEN_FOR_TCPIP`). Changing its address or map needs a
+  reason; changing a stored map is SUPER_ADMIN only; it cannot move to a Gateway profile.
+- **Test connection** (`POST /api/instruments/modbus/test`) reads a device once with the form's
+  draft — every key's value and the server's "judged as" — and stores and audits nothing; 10 a
+  minute per user.
+- **The Reader** (`modules/modbus/reader.ts`, in the API process) reads every enabled TCP/IP
+  instrument on its profile's interval through `ingestPayload` (`transport 'modbus'`, `lastSeenVia
+  'polled'`): 16 reads in flight at most, one per address, connect 3 s / response 1 s. Three failed
+  reads in a row write `MODBUS_DEVICE_NOT_ANSWERING`, the first success after `MODBUS_DEVICE_ANSWERING`
+  (SYSTEM, once per transition); a storage failure is not counted as the device's. A silent device
+  raises the existing Inactivity alarm; no new alarm source.
+- **Configuration → TCP/IP Reading** (def `modbus-reader`): "Read devices from this server" ships
+  **OFF** — while off the server opens no Modbus connection at all; "Device networks" default the
+  three private ranges. Turn it on at a plant install; leave it off on AWS.
+- **"Reporting" follows the read interval** (`effectiveExpectedIntervalSec` in `@digilog/shared`,
+  every server caller), and instrument payloads carry the server's `reporting` — the browser no
+  longer derives it.
+- **Screens:** New Profile connection choice; New Instrument TCP/IP connection, register map (Copy
+  from instrument, Import keys file), Test connection; the instrument page's TCP/IP connection card
+  (`GET /api/instruments/:id/modbus-status`) and full-width Register map card; bulk upload "IP
+  address" / "Port" columns and "Copy register map from". Render-checked at 1240 px with the built
+  stylesheet: two fixes (`42bf00c8` the map's selects keep their width, `6271a889` the map is full
+  width on the instrument page); screens in `docs/superpowers/concepts/2026-10-31-tcpip-instruments/`.
+- **Migrations** `20261031120000_tcpip_instruments`, `20261031130000_modbus_poll_status`
+  (hand-authored, applied to `compliance_core_db` and `_test`; drift guard as plain commands: empty
+  diff against both). **Counts:** models 38 → 39 (`ModbusPollStatus`), modules 25 → 26 (`modbus`),
+  audit actions 100 → 102 / templates 113 → 115, config defs 36 → 37, shared type files 38 → 39;
+  enums 13, routes 56, config pages 23, reauth 57, sidebar 15, queue tasks 7 unchanged.
+- **Owed by the operator:** turn TCP/IP Reading on locally / at the plant (it is OFF); check
+  Inactivity Alarms on AWS at deploy; 101-01 is registered FRESH as a TCP/IP instrument after the
+  deploy and its old token withdrawn (spec §15 Q1). Part 3 (the Plant Reader for an AWS server) is
+  not started.
+
 ## [Unreleased] - Fix: a wrong signature password on Acknowledge Alarm now SAYS so (2026-10-30)
 
 Found by the OQ walkthrough with Re-auth ON for "Acknowledge Alarm". `apiClient` throws a re-auth

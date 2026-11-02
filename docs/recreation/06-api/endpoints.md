@@ -322,11 +322,12 @@ number here should be re-derived and never carried forward.
 ### /instruments — 8 paths (registry; JWT + permission gated)
 
 +1 path 2026-10-30 (dashboard builder phase 2: `GET /api/instruments/telemetry-buckets`) — counts not re-derived.
++2 paths 2026-10-31 (TCP/IP (Modbus) instruments: `POST /api/instruments/modbus/test`, `GET /api/instruments/{id}/modbus-status`) — counts not re-derived.
 
 | Method(s) | Path | Summary |
 |---|---|---|
-| GET · POST | `/api/instruments` | List instruments (filterable by `block`/`area`/`location`/`isGateway`) · Create instrument (returns the access token **once**) |
-| GET · PUT · DELETE | `/api/instruments/{id}` | Instrument detail · Update (never `code`) · Delete |
+| GET · POST | `/api/instruments` | List instruments (filterable by `block`/`area`/`location`/`isGateway`, and since 2026-10-31 `connection=PUSH\|MODBUS_TCP` — the instruments of Gateway or TCP/IP profiles, what "Copy from instrument" lists) · Create instrument (returns the access token **once** — except a TCP/IP (Modbus) instrument, which gets NO credential and no `token` key; see TCP/IP below) |
+| GET · PUT · DELETE | `/api/instruments/{id}` | Instrument detail · Update (`code` too since 2026-09-16; a TCP/IP instrument's address and map — see TCP/IP below) · Delete |
 | POST | `/api/instruments/bulk` | Bulk-create from CSV, partial success, one token per created row. Since 2026-10-28 an EXISTING Instrument ID (ignoring case, same profile, in view) is UPDATED with the attribute cells that differ (blank keeps) — `updated[]` `{id, code, row, changes[{key, column, from|null, to}]}`, `unchanged[]` `{row, code}`; body `reason` required when a change overwrites a recorded value (400 `REMARK_REQUIRED`, nothing written) |
 | POST | `/api/instruments/bulk/preview` | (2026-10-28) The same plan as `/bulk`, writing nothing: `create`, `update` (with each change's `from` / `to`), `unchanged`, `errors`, `warnings`, `remarkRequired`. INSTRUMENT_CREATE, no re-auth |
 | POST | `/api/instruments/{id}/regenerate-token` | Revoke the current credential and issue a new one; the new token is returned once in the body. Needs `INSTRUMENT_UPDATE` **and an always-on password re-auth** (`REGENERATE_INSTRUMENT_TOKEN`, `x-reauth-password` header) — as of 2026-08-06 this is not the admin-managed policy and cannot be switched off, matching the two `/token` verbs below |
@@ -340,7 +341,9 @@ number here should be re-derived and never carried forward.
 | GET | `/api/instruments/telemetry-buckets?instrumentIds=a,b&keys=&from=&to=&bucket=hour\|day\|week&agg=avg\|min\|max\|count&groupBy=all\|instrument` | (2026-10-30, dashboard builder phase 2 — the bar chart) The numeric readings of the named TELEMETRY keys binned into LOCAL hours, days or weeks in the `datetime` config's timezone (default `Asia/Kolkata`; an unknown zone is UTC and `timezone` says so): a day starts at local midnight, a week on a local Monday, and each bucket start is returned as a UTC ISO instant. EVERY value is COMPUTED (`avg` / `min` / `max` / `count`), and each point carries `readings` (how many readings are behind it) and `instruments`. Response `{from, to, bucket, agg, timezone, bucketSeconds, series: [{instrumentId|null, key, points: [{ts, value, readings, instruments}]}]}`, every field declared; a bucket with no reading is absent, and a key with no reading has no series. `instrumentIds` ≤ 50 (`WIDGET_INSTRUMENTS_MAX`; empty = none), `keys` required (400 "Name at least one key."), `from` < `to`, at most 1,000 buckets (400 in the server's words). Visibility applied to the id set, in the order asked (out of scope = absent, never 403). Defaults `hour` / `avg` / `all`. `INSTRUMENT_READ` |
 | POST | `/api/instruments/latest-values` | (2026-10-28, widget data keys) Body `{instrumentIds: uuid[] (0..200; empty = `[]`), keys: [{source: 'telemetry'\|'attribute', key}] (1..20)}`, validated by the shared `latestValuesRequestSchema`. One row per visible instrument (overview order: code, name, `functionalLocationName`, `locationAttribute`, `reporting`, `lastSeenAt`) with `values` in the REQUESTED order: `value` (stored JSON as received, null when never sent), `ts`, `unit`, `decimals`, `display`, `judged`. A MEASURED key (its profile maps it, and it is the key that slot resolved to) carries the overview's own precision, unit and `judged` = `{limitMin, limitMax, limitMinText, limitMaxText, sensorError, rangeError}`; a RAW key carries `unit`/`decimals`/`judged` = null. Attribute keys fold case; `display` is the server's formatting (a limit at its reading's precision); offset keys are SUPER_ADMIN-only (null otherwise). Read-only, no audit row. Out-of-scope instruments are absent. `INSTRUMENT_READ` |
 | PUT | `/api/instrument-profiles/:id/display-keys` | (2026-10-29, widget data keys phase 3) The trend page's EXTRA keys for every instrument of the profile: body `{displayKeys: [{source:'telemetry', key, label?, unit?, decimals?, color?}] (≤ 12, no duplicate), reason?}`. SUPER_ADMIN (403 `SUPER_ADMIN_ONLY`, behind `INSTRUMENT_UPDATE`), re-auth `UPDATE_INSTRUMENT_PROFILE`, 400 on an attribute / 13th key; unchanged = no write, no audit; a change audits `INSTRUMENT_PROFILE_UPDATED` with before / after. `GET /api/instrument-profiles[/:id]` return `displayKeys` (corrupt stored value = `[]`) |
-| GET | `/api/instruments/{id}/dead-letters` | Rejected payloads for one instrument |
+| POST | `/api/instruments/modbus/test` | (2026-10-31, TCP/IP (Modbus) instruments) Test connection: body `{profileId, modbusHost, modbusPort, modbusRegisters, instrumentId?}`; reads the device ONCE with that draft and returns `{ok:true, elapsedMs, requests, values:[{key, value, judgedAs}], rejected:[{key, reason}]}` or `{ok:false, code, message}` (`NO_ANSWER`, `REFUSED`, `DEVICE_EXCEPTION`, `BAD_RESPONSE`, `READING_OFF`, `ADDRESS_IN_USE` — all 200, the message is the server's sentence). `judgedAs` (`TEMPERATURE`/`HUMIDITY`/null) is `resolvedSlotFor` over the map's keys for that profile. 400 `NOT_A_TCPIP_PROFILE` (not a TCP/IP profile), `VALIDATION_ERROR` (map fails the shared schema, or empty), `ADDRESS_NOT_ALLOWED`; 404 an unknown profile or an `instrumentId` out of view. `INSTRUMENT_CREATE` or `INSTRUMENT_UPDATE`, no re-auth, **10 per minute per user**; stores nothing, audits nothing; opens no connection while Configuration → TCP/IP Reading is off |
+| GET | `/api/instruments/{id}/modbus-status` | (2026-10-31) Is the application reaching this TCP/IP instrument: `{state: 'reading'\|'failing'\|'not-read', notReadReason?, notReadDetail?, readBy: 'server', intervalSec, lastSuccessAt, failingSince, lastError?: {code, message, at}, stored24h, expected24h, inactivityAlarmsOff}`. `failing` iff the Reader set `failingSince` (three device failures in a row); `notReadReason` = the Reader's own rule: `SERVER_READING_OFF`, `INSTRUMENT_DISABLED`, `PROFILE_DISABLED`, `NO_ADDRESS`, `NO_REGISTER_MAP`, `ADDRESS_NOT_ALLOWED`, `INVALID_CONFIG`, with `notReadDetail` its sentence. `stored24h` = distinct reading instants in the last 24 h; `expected24h` = ⌊86400 / interval⌋. `INSTRUMENT_READ`, visibility-scoped (404); 400 `NOT_A_TCPIP_INSTRUMENT` for a Gateway-profile instrument |
+| GET | `/api/instruments/{id}/dead-letters` | Rejected payloads for one instrument (a TCP/IP instrument's are `transport 'modbus'`: one row per read naming every key the decoder refused, with its raw words) |
 | GET | `/api/instruments/eligible-children` | Active instruments eligible to be linked to a gateway (not themselves a gateway, not already linked — D2/D3) |
 | GET | `/api/instruments/{id}/children` | Instruments currently linked to this gateway |
 | GET · PUT | `/api/instruments/{id}/token` | Reveal the live plaintext token · Set an operator-chosen one. Both need `INSTRUMENT_UPDATE` **and an always-on password re-auth** (`x-reauth-password` header, or `_currentPassword` in the PUT body) — not the admin-managed policy, it cannot be switched off. Every reveal writes an `INSTRUMENT_TOKEN_VIEWED` audit row; a set writes `INSTRUMENT_TOKEN_SET` and revokes the previous credential. Neither row carries the value. Reveal 409s `TOKEN_NOT_RECOVERABLE` for a credential issued before 2026-08-06 |
@@ -369,6 +372,32 @@ the pickers on New Instrument and Bulk Upload read those and nothing else.
 `GET /api/instruments/{id}` returns `gatewayCode` and `gatewayVisible`: a child
 names its gateway even when the caller cannot open it (the detail page no
 longer looks the gateway up by id).
+
+**TCP/IP (Modbus) instruments (2026-10-31; `docs/feature-notes.md` TCP/IP INSTRUMENTS).** A
+profile's `connection` is `PUSH` (Gateway, the default for every existing profile) or
+`MODBUS_TCP`. `GET`/`POST`/`PUT /api/instrument-profiles[/:id]` carry `connection`,
+`modbusIntervalSec` (10..3600, default 60) and `modbusUnitId` (0..255, default 1) — NULL on a
+Gateway profile; a PUT changing `connection` on a profile that holds an instrument is 409
+`PROFILE_HAS_INSTRUMENTS`; a TCP/IP profile with `requireDeviceCertificate` is 400 `NOT_FOR_TCPIP`
+(both directions); interval and unit ID go through the existing `UPDATE_INSTRUMENT_PROFILE` re-auth.
+Every instrument payload (list, detail, create, update) carries `connection` (the profile's),
+`modbusHost`, `modbusPort`, `modbusRegisters` (`[{key, register, dataType, byteOrder?, scale}]`,
+every inner key declared) and, since 2026-10-31, the SERVER's `reporting` and
+`effectiveExpectedIntervalSec` (the instrument's own interval, else a TCP/IP profile's read
+interval) — the web prints them and never re-derives them. On `POST` / `PUT /api/instruments[/:id]`
+for a TCP/IP profile: `modbusHost` (IPv4) and `modbusPort` are required and must lie inside the
+administered device networks (400 `ADDRESS_NOT_ALLOWED`; loopback, link-local, multicast and
+broadcast always refused); one device per host:port (409 `ADDRESS_IN_USE`, naming the holder only
+when the caller can see it); `isGateway` / `gatewayId` are 400 `NOT_FOR_TCPIP`; no credential is
+created and the 201 has no `token`. On a Gateway profile any of the three fields is 400
+`NOT_A_TCPIP_PROFILE`. A PUT that changes host, port or map on an existing instrument needs `reason`
+(400 `REASON_REQUIRED`); a map change is SUPER_ADMIN only (403 `REGISTER_MAP_SA_ONLY`); a `profileId`
+moving it between a Gateway and a TCP/IP profile is 409 `CONNECTION_DIFFERS`. The token routes
+(`regenerate-token`, `GET`/`PUT /token`) answer 400 `NO_TOKEN_FOR_TCPIP`. `POST /bulk` and
+`/bulk/preview` on a TCP/IP profile read the "IP address" and "Port" headings (port default 502)
+and take an optional `copyRegisterMapFrom` (a TCP/IP instrument in view; applied to CREATED rows
+only); a changed address on an existing row needs the upload's one `reason`, and each such row
+reports `address {from, to}`.
 
 ### /ingest/v1 — 3 paths (device-facing; NOT behind the auth hook)
 

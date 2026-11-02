@@ -1,5 +1,37 @@
 # tasks/todo.md
 
+## 2026-10-31 — TCP/IP (Modbus) instruments, parts 1–2 (the application reads the device)
+
+Operator: "if user selected TCP/IP then in the instrument creation tcp/ip need to integrate, for one
+instrument one ip address and port", "go with all recommendations". Spec
+`docs/superpowers/specs/2026-10-31-tcpip-instruments-design.md`, plan
+`docs/superpowers/plans/2026-10-31-tcpip-instruments-parts-1-2.md`, SDD ledger and every ruling in
+`.superpowers/sdd/2026-10-31-tcpip-instruments-parts-1-2/`; the rules are in `docs/feature-notes.md`
+TCP/IP INSTRUMENTS. Commits `cf02b4ef..` on `data-layer` after the plan `363c7263`. **Built, not
+pushed, not deployed.**
+
+- [x] T1 shared — register map schema, device networks, keys-file converter (`cf02b4ef`)
+- [x] T2 API — Modbus TCP client, read planner, decoder; two BAD_RESPONSE sentences (`d5a926fb`, `44882595`)
+- [x] T3 API — profiles are Gateway or TCP/IP; migration `20261031120000_tcpip_instruments` (`cc67ae86`)
+- [x] T4 API — the instrument's own address and map, no token, Configuration → TCP/IP Reading (`21787106`)
+- [x] T5 API — Test connection, nothing stored (`53c874fa`)
+- [x] T6 web — the profile chooses Gateway or TCP/IP (`93c67d7b`)
+- [x] T7 web — New Instrument TCP/IP connection, register map, Test connection (`4dcd7adc`, `fb299133`)
+- [x] T8 — "reporting" follows the read interval; payloads carry the server's `reporting` (`4acab3c8`, `155fa178`)
+- [x] T9 API — the Reader, `ModbusPollStatus`, migration `20261031130000_modbus_poll_status`; a storage failure is not the device's; one dead letter per read (`3c6eff79`, `3e07057a`)
+- [x] T10 — `GET /:id/modbus-status` and the instrument page's two cards (`6928902f`)
+- [x] T11 — bulk upload "IP address" / "Port" and "Copy register map from" (`911bf7b3`)
+- [x] T12 — render check at 1240 px with the built stylesheet (two fixes: `42bf00c8` the map's selects keep their width, `6271a889` the map is full width on the instrument page; `built-*.png` in `docs/superpowers/concepts/2026-10-31-tcpip-instruments/`); drift guard as plain commands (empty diff against both DBs); gates; docs
+- [ ] Final whole-branch review (controller). Open items carried to it: a device certificate can still be issued to a TCP/IP instrument; Test connection is outside the Reader's per-host:port lock; the status card has no error branch (a failed fetch reads "Checking the connection…" forever); a disabled instrument with a stale `failingSince` reads "Not answering" and hides why it is not read; the audit sentence's `{from}`–`{to}` are raw UTC ISO; a backwards clock step stalls reads; bulk applies an existing row's address and attributes in two transactions. Task 11's review was still running when T12 was dispatched.
+- [ ] **Operator:** Configuration → TCP/IP Reading ("Read devices from this server") is **OFF** by default — it is OFF on `compliance_core_db` and `_test` (2026-11-02). Turn it on locally / at a plant install to read devices; **leave it OFF on AWS**.
+- [ ] **Operator:** 101-01 (spec §15 Q1) — after the deploy, with reading on where the device is reachable, register it FRESH as a TCP/IP instrument; withdraw the old 101-01 token and disable the old 101-01; then retire the `TCPIP/` desktop tool. Production writes on AWS are the operator's.
+- [ ] **Operator:** check Inactivity Alarms on AWS at the deploy — a silent TCP/IP device raises only that alarm, and it ships OFF.
+- [ ] **Operator:** "Not judged" (the app's word) vs the concept's "Shown only" in the Judged as column — confirm.
+- [ ] OQ: new test cases (spec §10) — register map validation, Test connection success and each failure, address clash, a disabled instrument not read, the interval honoured, the healthy ↔ failing audit rows.
+- [ ] Push / deploy only on the operator's word; AWS needs both migrations (`npx prisma migrate deploy`).
+- [ ] `AGENTS.md` line 14 still says "38 models / 13 enums" — that line carries the other session's uncommitted permission edit, so it was left for when theirs is committed (39 since 2026-10-31).
+- [ ] **Part 3, not started:** the Plant Reader for a server in AWS — `packages/modbus` (move `apps/api/src/modules/modbus/protocol/` unchanged, ruling P1), `apps/plant-reader/`, model `PlantReader`, Configuration → Plant Readers, reauth `MANAGE_PLANT_READER`; decide spec §15 Q3 (should a late reading's excursion raise an alarm?).
+
 ## 2026-10-31 — Dashboard builder, phase 2 (nine ECharts widget types)
 
 Operator: "start phase 2 with echarts" (2026-10-30). Plan

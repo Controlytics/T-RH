@@ -23,7 +23,7 @@ PostgreSQL database, Turborepo for task running. Windows-first local dev.
 
 | Path | What it is for |
 |---|---|
-| `apps/api/` | Fastify backend. Auth, RBAC, audit chain, notifications, instruments, ingest, alarm webhooks. **25** modules (`ls apps/api/src/modules/ \| wc -l`). Prisma schema + migrations live here. |
+| `apps/api/` | Fastify backend. Auth, RBAC, audit chain, notifications, instruments, ingest, alarm webhooks, TCP/IP (Modbus) reading. **26** modules (`ls apps/api/src/modules/ \| wc -l`). Prisma schema + migrations live here. |
 | `apps/web/` | React SPA (Vite, Tailwind 4, SWR, react-router). **56** `<Route>` elements (`grep -cE "<Route" apps/web/src/main.tsx`; 54 → 56 on 2026-10-29, the Dashboards pages; 53 → 54 on 2026-10-24). |
 | `packages/shared/` | Contracts both sides import: **45** permissions, **57** reauth actions, **15** sidebar items, the permission tree, Zod schemas. |
 | `packages/queue/` | graphile-worker producer + runner. Postgres-backed — no Redis. |
@@ -36,7 +36,7 @@ Counts came from: `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permiss
 `grep -cE "^\s+[A-Z_]+:" packages/shared/src/types/reauth-actions.ts`,
 `grep -cE "id: '" packages/shared/src/types/sidebar-items.ts`.
 
-The database has **38 models and 13 enums** (re-derived 2026-10-26 — 37 → 38 with `MeasurementType`; 36 → 37 on 2026-09-22 with `FloorplanRoomLink`)
+The database has **39 models and 13 enums** (re-derived 2026-11-02 — 38 → 39 with `ModbusPollStatus`; 37 → 38 with `MeasurementType`; 36 → 37 on 2026-09-22 with `FloorplanRoomLink`)
 (`grep -cE "^model " apps/api/prisma/schema.prisma`, and `grep -cE "^enum "` on
 the same file).
 
