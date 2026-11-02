@@ -135,6 +135,8 @@ is applied to **both** `compliance_core_db` and `compliance_core_db_test`. `pris
 drop the partitioned `instrument_telemetry_history` — strip that from the generated SQL by hand.
 
 ### 5.1 `InstrumentProfile` — Part 1
+> **Amended 2026-11-02 (§18, CR-1):** `modbusIntervalSec` and `modbusUnitId` moved to `Instrument`; the profile keeps only `connection`.
+
 | Column | Type | Rule |
 |---|---|---|
 | `connection` | `String @default("PUSH")` | `'PUSH' \| 'MODBUS_TCP'`. Existing profiles become `PUSH` by the default. Changeable only while the profile has **no instruments** (409 `PROFILE_HAS_INSTRUMENTS`). |
@@ -145,6 +147,8 @@ A `MODBUS_TCP` profile cannot have `requireDeviceCertificate = true` (400 `NOT_F
 directions): no device logs in, so there is no certificate to require.
 
 ### 5.2 `Instrument` — Part 1
+> **Amended 2026-11-02 (§18, CR-1):** plus `modbusUnitId` (Slave ID) and `modbusIntervalSec` (Read every).
+
 | Column | Type | Rule |
 |---|---|---|
 | `modbusHost` | `String?` | An IPv4 dotted quad. Required for a `MODBUS_TCP` profile's instrument, NULL otherwise. It must lie inside one of the administered **device networks** (§7.1: the TCP/IP Reading def's CIDR list, default `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), and never in `0.0.0.0/8`, `127.0.0.0/8`, `169.254.0.0/16` (incl. the cloud metadata address), `224.0.0.0/4` and above (400 `ADDRESS_NOT_ALLOWED`). Checked on every write (create, update, bulk), on Test connection and before every read, so narrowing the list stops reads at once. Hostnames are not accepted **[my call]** — the operator said "IP address", and a name that re-resolves breaks the one-address rule. |
@@ -298,6 +302,8 @@ instrument reads "reporting" for up to `activeWindowMinutes` (default 1440, §2)
 caller of `isInstrumentReporting` bypasses the resolver.
 
 ## 8. Test connection — Part 1
+> **Amended 2026-11-02 (§18, CR-1):** the body carries `modbusUnitId`; the limit is 30 per minute per user.
+
 
 `POST /api/instruments/modbus/test` `{ profileId, modbusHost, modbusPort, modbusRegisters,
 instrumentId? }` → `{ ok: true, elapsedMs, requests: n, values: [{ key, value, judgedAs }] }` or
@@ -402,6 +408,8 @@ raised the Inactivity alarm. **Accepted for Part 3** **[my call]**, recorded in 
 late readings is a separate change to the alarm pipeline (§15 Q3).
 
 ## 12. Screens
+> **Amended 2026-11-02 (§18, CR-1):** Read every / Unit ID left the profile screens; they, Quantity and a per-key Test are on the instrument.
+
 
 - **Instrument Profiles → + New Profile** (`profile-list.tsx`): Connection — Gateway | TCP/IP (Modbus),
   Gateway preselected; with TCP/IP, "Read every" (10 s..60 min, default 60 s) and "Unit ID" (1). Profile
@@ -508,3 +516,30 @@ hunks: stage only this work's hunks (the anchored-blob procedure)**; new feature
 | Bulk "Copy register map from" per upload | a column instead |
 | Coils/discrete inputs and RTU out of scope | a later Part |
 | Late Plant Reader readings not judged (Part 3) | an alarm-pipeline change |
+
+## 18. Change request CR-1 (operator, 2026-11-02, after Parts 1–2 were deployed as `20bff73`)
+
+Operator: "slave id should comes in instrument page, and also big endian, little endian this text was not
+showing and read every should come in instrument page, give one test button after adding key check data was
+coming or not and also quantity was not there, and if register address is 2 registers for one key then how to
+add, fix all these". Asked and answered: **remove both from the profile**; **Quantity 1 or 2** per key.
+This section overrides §5.1, §5.2, §7.3, §7.6, §8, §9 and §12 wherever they disagree.
+
+- **The profile** chooses only Gateway or TCP/IP. `instrument_profiles.modbus_interval_sec` and
+  `.modbus_unit_id` are dropped after copying them to every instrument on a MODBUS_TCP profile
+  (`COALESCE` to 1 / 60). A profile body carrying either is a 400.
+- **Each TCP/IP instrument** has `modbusUnitId` (**Slave ID**, 0..255, default 1) and `modbusIntervalSec`
+  (**Read every**, 10..3600 s, default 60). Set on New Instrument and in bulk ("Slave ID", "Read every"
+  columns); changed on the instrument page with a reason under `UPDATE_INSTRUMENT` re-auth (the host/port
+  rule). On a Gateway profile's instrument either field is a 400. The Reader, the status route, Test
+  connection and the reporting resolver (`effectiveExpectedIntervalSec`) take both from the instrument.
+- **Quantity** (1 or 2 registers) is a column of the register map editor, derived from the data type
+  (`registersFor`) and NOT stored — the map's shape is unchanged. It limits the data types offered (1: UINT16,
+  INT16; 2: UINT32, INT32, FLOAT32); changing it clears an incompatible type so the operator chooses one
+  (a wrong type reads a believable wrong number). The row shows the range read ("40001–40002").
+- **Byte order** is shown by name: Big-endian (ABCD), Little-endian (DCBA), Big-endian, byte swap (BADC),
+  Little-endian, byte swap (CDAB). The stored value is still the code.
+- **Per-key Test** on every register-map row reuses `POST /api/instruments/modbus/test` with a one-key map;
+  its answer prints under that row. The route's limit rises from 10 to 30 per minute per user so
+  "add key, test" on a full device does not hit it.
+- No model, enum, permission, reauth action, audit action, def or page count moves.
