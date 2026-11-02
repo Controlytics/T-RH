@@ -118,6 +118,17 @@ describe('instrument detail - a TCP/IP instrument', () => {
     expect(screen.getByText('Latest readings')).toBeInTheDocument();
   });
 
+  it('the register map is full width, outside the two-column grid (seven columns do not fit half a page)', () => {
+    renderPage();
+    // Render check 2026-11-02: in the left column at a 1240 px window, Byte
+    // order, Scale and Judged as were scrolled out of sight.
+    const map = screen.getByTestId('register-map-card');
+    const connection = screen.getByTestId('modbus-connection-card');
+    const gridOf = (el: HTMLElement) => el.closest('.lg\\:grid-cols-2');
+    expect(gridOf(connection)).not.toBeNull();
+    expect(gridOf(map)).toBeNull();
+  });
+
   it('prints the server\'s state line, address, interval, stored figures and times', () => {
     renderPage();
     const card = screen.getByTestId('modbus-connection-card');

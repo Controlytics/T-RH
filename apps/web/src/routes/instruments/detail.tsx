@@ -571,17 +571,6 @@ export function InstrumentDetailPage() {
               />
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader><CardTitle className="flex items-center gap-2">{sectionIcon('bg-violet-100 text-violet-600', ICON.details)}Register map</CardTitle></CardHeader>
-            <CardContent>
-              <RegisterMapCard
-                map={inst.modbusRegisters ?? []}
-                judged={judged}
-                canEdit={isSuperAdmin}
-                onSave={(map, reason) => saveModbus({ modbusRegisters: map }, reason)}
-              />
-            </CardContent>
-          </Card>
         </>
       )}
 
@@ -670,6 +659,24 @@ export function InstrumentDetailPage() {
 
         <AttributesPanel instrumentId={inst.id} profileId={inst.profileId} canEdit={can('instruments.edit')} />
       </div>
+
+      {/* Full width, after the grid (render check 2026-11-02): seven columns do
+          not fit a half-width column at a 1240 px window — Byte order, Scale and
+          Judged as were scrolled out of sight. The Gateway panel's rule: a wide
+          table gets the page's width. */}
+      {tcpip && (
+        <Card>
+          <CardHeader><CardTitle className="flex items-center gap-2">{sectionIcon('bg-violet-100 text-violet-600', ICON.details)}Register map</CardTitle></CardHeader>
+          <CardContent>
+            <RegisterMapCard
+              map={inst.modbusRegisters ?? []}
+              judged={judged}
+              canEdit={isSuperAdmin}
+              onSave={(map, reason) => saveModbus({ modbusRegisters: map }, reason)}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {inst.isGateway && <GatewayPanel instrumentId={inst.id} canEdit={can('instruments.edit')} />}
 
