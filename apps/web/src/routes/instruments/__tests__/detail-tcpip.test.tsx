@@ -170,6 +170,21 @@ describe('instrument detail - a TCP/IP instrument', () => {
     expect(within(card).getByText('Reading devices from this server is off.')).toBeInTheDocument();
   });
 
+  it('a device the server stopped asking says why it is not read - never "Not answering", even with a stale failingSince (final review F-2)', () => {
+    status = {
+      ...READING, state: 'not-read', notReadReason: 'INSTRUMENT_DISABLED', notReadDetail: 'The instrument is disabled.',
+      failingSince: '2026-10-31T08:00:00.000Z',
+      lastError: { code: 'NO_ANSWER', message: '10.1.1.5 : 502 did not answer within 3 s — check the IP, the cable, and that the device is on.', at: '2026-10-31T08:40:00.000Z' },
+    };
+    renderPage();
+    const card = screen.getByTestId('modbus-connection-card');
+    expect(within(card).getByText('Not read')).toBeInTheDocument();
+    expect(within(card).getByText('The instrument is disabled.')).toBeInTheDocument();
+    expect(within(card).queryByText(/Not answering/)).toBeNull();
+    // The last failure is still shown, as the record of what happened.
+    expect(within(card).getByTestId('modbus-last-error')).toHaveTextContent('did not answer within 3 s');
+  });
+
   it('prints the Inactivity Alarms sentence only when the server says they are off', () => {
     status = { ...READING, inactivityAlarmsOff: true };
     renderPage();

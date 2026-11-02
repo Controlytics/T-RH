@@ -428,6 +428,38 @@ describe('GET /api/instruments/:id/modbus-status', () => {
     await setReading(true);
   });
 
+  it('a device the server stopped asking is not-read with its reason, not "failing", whatever a stale failingSince says (final review F-2)', async () => {
+    await setReading(true);
+    const since = new Date(Date.now() - 3_600_000);
+    const at = new Date(Date.now() - 1_800_000);
+    // The Reader clears failingSince only on a stored read; a skipped read writes nothing.
+    const stale = (instrumentId: string) => prisma.modbusPollStatus.create({
+      data: {
+        instrumentId, lastAttemptAt: at, lastSuccessAt: new Date(Date.now() - 7_200_000), failingSince: since,
+        failureRunStartedAt: since, consecutiveFailures: 12, lastErrorCode: 'NO_ANSWER', lastErrorMessage: 'did not answer', lastErrorAt: at,
+      },
+    });
+
+    const disabled = await inst('stale-disabled', { isActive: false });
+    await stale(disabled.id);
+    const d = (await status(a, disabled.id)).json();
+    expect(d).toMatchObject({ state: 'not-read', notReadReason: 'INSTRUMENT_DISABLED', notReadDetail: 'The instrument is disabled.' });
+    // Still returned, so the card can say when the device last stopped answering.
+    expect(d.failingSince).toBe(since.toISOString());
+    expect(d.lastError.code).toBe('NO_ANSWER');
+
+    const off = await inst('stale-reading-off');
+    await stale(off.id);
+    await setReading(false);
+    try {
+      expect((await status(a, off.id)).json()).toMatchObject({ state: 'not-read', notReadReason: 'SERVER_READING_OFF', failingSince: since.toISOString() });
+    } finally {
+      await setReading(true);
+    }
+    // Positive control: the same stale row on an instrument the server reads IS failing.
+    expect((await status(a, off.id)).json()).toMatchObject({ state: 'failing', failingSince: since.toISOString() });
+  });
+
   it('inactivityAlarmsOff follows the Inactivity Alarms setting', async () => {
     const i = await inst('inact');
     await setInactivity({ enabled: false, graceMinutes: 15 });

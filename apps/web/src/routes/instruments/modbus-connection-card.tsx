@@ -112,7 +112,12 @@ export function ModbusConnectionCard({
             <dd>stored {status.stored24h} of {status.expected24h} in 24 h</dd>
             <dt className="text-slate-500">Last answered</dt>
             <dd>{stamp(status.lastSuccessAt)}</dd>
-            {status.failingSince && (
+            {/* Only while the server is ASKING (final review F-2): a not-read
+                instrument keeps the stale failingSince it had when it was last
+                read, and "Not answering since" beside "Not read" would say the
+                device is silent when nobody is asking it. The last failure
+                below still records what happened. */}
+            {status.state === 'failing' && status.failingSince && (
               <>
                 <dt className="text-slate-500">Not answering since</dt>
                 <dd>{stamp(status.failingSince)}</dd>

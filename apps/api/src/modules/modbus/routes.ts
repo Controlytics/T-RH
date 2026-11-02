@@ -147,11 +147,12 @@ const modbusRoutes: FastifyPluginAsync<ModbusRoutesOptions> = async (app, opts) 
  * Whether the application is reaching a TCP/IP instrument (spec §9). Mounted at
  * `/api/instruments` (not under `/modbus`) so the path is `/:id/modbus-status`.
  *
- * Every word is the server's: `state` is `failing` ONLY when the Reader set
- * `failingSince` (three consecutive DEVICE failures; a storage failure never
- * does — ruling T9-1), else `reading` or `not-read`, and `not-read` carries the
- * Reader's own reason from the one rule it runs (`explainReadTarget`). A last
- * error is reported whatever its cause. The browser prints this, nothing more.
+ * Every word is the server's: `state` is `not-read` whenever the Reader's own
+ * rule (`explainReadTarget`) would not read the instrument, carrying that rule's
+ * reason; otherwise `failing` ONLY when the Reader set `failingSince` (three
+ * consecutive DEVICE failures; a storage failure never does — ruling T9-1), else
+ * `reading`. A last error is reported whatever its cause. The browser prints
+ * this, nothing more.
  */
 export const modbusStatusRoutes: FastifyPluginAsync<ModbusRoutesOptions> = async (app, opts) => {
   app.get<{ Params: { id: string } }>('/:id/modbus-status', {
@@ -185,8 +186,14 @@ export const modbusStatusRoutes: FastifyPluginAsync<ModbusRoutesOptions> = async
         WHERE instrument_id = ${id} AND ts >= ${since}`,
     ]);
 
+    // "Not read" OUTRANKS "failing" (final review F-2): the Reader clears
+    // failingSince only on a stored read, and a skipped read writes nothing, so
+    // a device the server has stopped asking (disabled, reading OFF, outside the
+    // networks…) keeps a stale failingSince — "Not answering" would then claim
+    // the device is silent when the server is not asking. failingSince is still
+    // returned, as the record of when it last stopped answering.
     const failing = row?.failingSince != null;
-    const state = failing ? 'failing' : target?.ok ? 'reading' : 'not-read';
+    const state = target?.ok ? (failing ? 'failing' : 'reading') : 'not-read';
     return {
       state,
       ...(target && !target.ok ? { notReadReason: target.code, notReadDetail: target.detail } : {}),
