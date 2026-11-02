@@ -7,16 +7,17 @@ import { useToast } from '@/hooks/use-toast';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useAttributeLabels } from '@/hooks/use-attribute-labels';
-import { parseInstrumentAttributeKeys } from '@digilog/shared';
+import { parseInstrumentAttributeKeys, ALL_RECORDS_PARAM } from '@digilog/shared';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { PageHeader } from '@/components/ui/page-header';
 import { Dialog, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { LocationPicker, NO_PLACEMENT, placedLocationId, usePlacementTree, type Placement } from './location-picker';
-import { BulkReviewDialog, FromValue, type BulkPreview, type PlannedUpdate } from './bulk-review-dialog';
+import { BulkReviewDialog, FromValue, addressText, type BulkPreview, type PlannedUpdate } from './bulk-review-dialog';
 
-interface CreatedRow { id: string; code: string; name: string; token: string }
+// `token` is null for a TCP/IP instrument: this server reads it, nothing logs in as it.
+interface CreatedRow { id: string; code: string; name: string; token: string | null }
 /** `column` is the heading as the file spells it; absent for a whole-row fault. */
 interface ErrorRow { row: number; column?: string; message: string }
 // `warnings` are whole-file advisories (a retired column that was ignored) —
@@ -56,13 +57,14 @@ function summary(res: BulkResult): string {
  */
 const INSTRUMENT_ID_HEADING = 'Instrument ID';
 
-function buildTemplate(attributeKeys: string[], labelFor: (key: string) => string): string {
+function buildTemplate(attributeKeys: string[], labelFor: (key: string) => string, tcpip: boolean): string {
   // Headed as the create form labels it (operator, 2026-09-16); the importer
   // reads `Instrument ID` and `code` alike. The heading ONLY (2026-10-28): the
   // sample row named CWH/RDU/001-00, a REAL instrument, so an untouched
   // template failed every upload ("already exists") — and now that an existing
   // ID is updated, a value typed into it would change that instrument.
-  const header = [INSTRUMENT_ID_HEADING, ...attributeKeys.map(labelFor)];
+  // A TCP/IP profile's instruments each have their own address (2026-10-31).
+  const header = [INSTRUMENT_ID_HEADING, ...(tcpip ? ['IP address', 'Port'] : []), ...attributeKeys.map(labelFor)];
   return `${header.join(',')}\n`;
 }
 
@@ -101,11 +103,19 @@ export function InstrumentBulkCreatePage() {
   const [profileId, setProfileId] = useState(presetProfileId ?? '');
   const presetProfileName = profiles?.data?.find((p) => p.id === presetProfileId)?.name;
   // The chosen profile's own key list — the template's columns depend on it.
-  const { data: profile } = useSWR<{ attributeKeys: string | null }>(
+  const { data: profile } = useSWR<{ attributeKeys: string | null; connection?: string }>(
     profileId ? `/api/instrument-profiles/${profileId}` : null,
   );
   const { labelFor } = useAttributeLabels();
   const templateKeys = parseInstrumentAttributeKeys(profile?.attributeKeys);
+  // The profile's own answer, as the server states it - never inferred from its name or keys.
+  const tcpip = profile?.connection === 'MODBUS_TCP';
+  // ONE register map for every row the file CREATES (2026-10-31): a TCP/IP
+  // instrument in the caller's view, listed by the server's own filter.
+  const [copyFrom, setCopyFrom] = useState('');
+  const { data: tcpipInstruments } = useSWR<{ data: { id: string; code: string; profileName: string | null }[] }>(
+    tcpip ? `/api/instruments?connection=MODBUS_TCP&${ALL_RECORDS_PARAM}` : null,
+  );
   // ONE functional location for the whole upload too (2026-10-26) — required
   // when the server says the caller's instrument view is limited, or every
   // instrument in the file would be created out of the uploader's own sight.
@@ -113,7 +123,11 @@ export function InstrumentBulkCreatePage() {
   const [placement, setPlacement] = useState<Placement>(NO_PLACEMENT);
   const functionalLocationId = placedLocationId(placementTree.tree, placement);
   const placementMissing = placementTree.required && !functionalLocationId;
-  const body = () => ({ csv, profileId, ...(functionalLocationId ? { functionalLocationId } : {}) });
+  const body = () => ({
+    csv, profileId,
+    ...(functionalLocationId ? { functionalLocationId } : {}),
+    ...(tcpip && copyFrom ? { copyRegisterMapFrom: copyFrom } : {}),
+  });
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -189,7 +203,7 @@ export function InstrumentBulkCreatePage() {
   };
 
   const downloadResults = () => {
-    const lines = ['name,code,token', ...result!.created.map((c) => `${c.name},${c.code},${c.token}`)];
+    const lines = ['name,code,token', ...result!.created.filter((c) => c.token).map((c) => `${c.name},${c.code},${c.token}`)];
     download('instrument-tokens.csv', lines.join('\n'));
   };
 
@@ -214,7 +228,7 @@ export function InstrumentBulkCreatePage() {
             <label className="block space-y-1">
               <span className="text-sm font-medium text-slate-700">Profile *</span>
               <select
-                value={profileId} onChange={(e) => setProfileId(e.target.value)}
+                value={profileId} onChange={(e) => { setProfileId(e.target.value); setCopyFrom(''); }}
                 className="ctl w-full"
               >
                 <option value="">Select a profile…</option>
@@ -228,6 +242,18 @@ export function InstrumentBulkCreatePage() {
             value={placement}
             onChange={setPlacement}
           />
+          {tcpip && (
+            <label className="block space-y-1">
+              <span className="text-sm font-medium text-slate-700">Copy register map from</span>
+              <select value={copyFrom} onChange={(e) => setCopyFrom(e.target.value)} className="ctl w-full">
+                <option value="">No register map (add one per instrument later)</option>
+                {tcpipInstruments?.data?.map((i) => (
+                  <option key={i.id} value={i.id}>{i.code}{i.profileName ? ` (${i.profileName})` : ''}</option>
+                ))}
+              </select>
+              <span className="block text-xs text-slate-500">Every instrument this file creates gets that map. Instruments that already exist keep theirs.</span>
+            </label>
+          )}
         </CardContent>
       </Card>
 
@@ -235,12 +261,12 @@ export function InstrumentBulkCreatePage() {
         <CardHeader><CardTitle>2. Download the template</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-slate-600">
-            Columns: Instrument ID, then the attributes of the profile chosen above. A blank cell changes nothing.
+            Columns: Instrument ID, {tcpip && 'IP address and Port, '}then the attributes of the profile chosen above. A blank cell changes nothing.{tcpip && ' A blank Port is 502.'}
           </p>
           <Button
             variant="secondary"
             disabled={!profileId || !profile}
-            onClick={() => download('instrument-template.csv', buildTemplate(templateKeys, labelFor))}
+            onClick={() => download('instrument-template.csv', buildTemplate(templateKeys, labelFor, tcpip))}
           >
             Download template
           </Button>
@@ -292,14 +318,21 @@ export function InstrumentBulkCreatePage() {
                     <TableRow><TableHead>Instrument ID</TableHead><TableHead>Field</TableHead><TableHead>Was</TableHead><TableHead>Now</TableHead></TableRow>
                   </TableHeader>
                   <TableBody>
-                    {result.updated!.flatMap((u) => u.changes.map((c) => (
+                    {result.updated!.flatMap((u) => (u.address ? [(
+                      <TableRow key={`${u.id}-address`} data-testid="updated-change">
+                        <TableCell className="font-mono text-xs">{u.code}</TableCell>
+                        <TableCell>IP address : Port</TableCell>
+                        <TableCell><FromValue value={u.address.from.host === null ? null : addressText(u.address.from)} /></TableCell>
+                        <TableCell className="font-mono font-semibold text-slate-900">{addressText(u.address.to)}</TableCell>
+                      </TableRow>
+                    )] : []).concat(u.changes.map((c) => (
                       <TableRow key={`${u.id}-${c.key}`} data-testid="updated-change">
                         <TableCell className="font-mono text-xs">{u.code}</TableCell>
                         <TableCell>{c.column}</TableCell>
                         <TableCell><FromValue value={c.from} /></TableCell>
                         <TableCell className="font-mono font-semibold text-slate-900">{c.to}</TableCell>
                       </TableRow>
-                    )))}
+                    ))))}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -317,6 +350,7 @@ export function InstrumentBulkCreatePage() {
               )}
               {result.created.length > 0 && (
                 <>
+                  {result.created.some((c) => c.token) && (<>
                   <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
                     <p className="text-sm font-semibold text-amber-900">
                       The download below contains device tokens in plain text.
@@ -330,6 +364,7 @@ export function InstrumentBulkCreatePage() {
                     </p>
                   </div>
                   <Button onClick={downloadResults}>Download results CSV (contains tokens)</Button>
+                  </>)}
                   <Table>
                     <TableHeader>
                       <TableRow><TableHead>Name</TableHead><TableHead>Code</TableHead><TableHead>Token</TableHead></TableRow>
@@ -339,7 +374,9 @@ export function InstrumentBulkCreatePage() {
                         <TableRow key={c.id}>
                           <TableCell>{c.name}</TableCell>
                           <TableCell className="font-mono text-xs">{c.code}</TableCell>
-                          <TableCell className="font-mono text-xs break-all">{c.token}</TableCell>
+                          <TableCell className="font-mono text-xs break-all">
+                            {c.token ?? <span className="italic text-slate-400">None - read by this server</span>}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

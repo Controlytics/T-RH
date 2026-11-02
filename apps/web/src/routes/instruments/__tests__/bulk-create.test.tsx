@@ -10,8 +10,10 @@ import { MemoryRouter } from 'react-router-dom';
  * prints it: `Instrument ID`, then the attributes. No `name` column: the create
  * form has set name = code since the trim, and the importer now does the same.
  */
-const PROFILES = { data: [{ id: 'p-1', name: 'T&RH Sensors' }, { id: 'p-2', name: 'Empty' }] };
-const PROFILE_KEYS: Record<string, string> = { 'p-1': 'Building\nEnable_Temp_NMT\nRoom', 'p-2': '' };
+const PROFILES = { data: [{ id: 'p-1', name: 'T&RH Sensors' }, { id: 'p-2', name: 'Empty' }, { id: 'p-tcp', name: 'Modbus meters' }] };
+const PROFILE_KEYS: Record<string, string> = { 'p-1': 'Building\nEnable_Temp_NMT\nRoom', 'p-2': '', 'p-tcp': 'Room' };
+const TCP_INSTRUMENTS = { data: [{ id: 'src-1', code: 'MTR-1', profileName: 'Modbus meters' }, { id: 'src-2', code: 'MTR-2', profileName: null }] };
+const swrKeys: unknown[] = [];
 const LABELS = { current: {} as Record<string, string> };
 /** `GET /api/functional-locations` — undefined = not loaded, as every older case runs. */
 const TREE = { current: undefined as unknown };
@@ -21,8 +23,10 @@ vi.mock('swr', () => ({
     if (key === '/api/instrument-profiles') return { data: PROFILES };
     if (typeof key === 'string' && key.startsWith('/api/instrument-profiles/')) {
       const id = key.slice('/api/instrument-profiles/'.length);
-      return { data: { id, attributeKeys: PROFILE_KEYS[id] ?? '' } };
+      return { data: { id, attributeKeys: PROFILE_KEYS[id] ?? '', connection: id === 'p-tcp' ? 'MODBUS_TCP' : 'PUSH' } };
     }
+    swrKeys.push(key);
+    if (typeof key === 'string' && key.startsWith('/api/instruments?connection=MODBUS_TCP')) return { data: TCP_INSTRUMENTS };
     if (key === '/api/config/attribute-labels/current') return { data: { labels: LABELS.current } };
     if (key === '/api/functional-locations') return { data: TREE.current };
     return { data: undefined };
@@ -73,6 +77,7 @@ beforeEach(() => {
   LABELS.current = {};
   TREE.current = undefined;
   post.mockReset();
+  swrKeys.length = 0;
   reauthActions.length = 0;
   vi.stubGlobal('URL', {
     ...URL,
@@ -369,5 +374,88 @@ describe('InstrumentBulkCreatePage — updating instruments that already exist',
     expect(updated[0]).toHaveTextContent('101');
     expect(updated[0]).toHaveTextContent('102');
     expect(screen.getByText('Created (1)')).toBeInTheDocument();
+  });
+});
+
+/**
+ * TCP/IP (Modbus) profiles (2026-10-31, Task 11). The server says which profile
+ * is TCP/IP; the page adds the two columns and the register-map picker only
+ * then, sends the chosen source with BOTH requests, and shows the server's
+ * words for a refused row.
+ */
+describe('InstrumentBulkCreatePage - a TCP/IP profile', () => {
+  it('puts IP address and Port after Instrument ID in the template', async () => {
+    renderPage();
+    choose('p-tcp');
+    downloadTemplate();
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(await saved[0].text).toBe('Instrument ID,IP address,Port,Room\n');
+  });
+
+  it('a Gateway profile keeps its template and has no register-map picker', () => {
+    renderPage();
+    choose('p-1');
+    expect(screen.queryByRole('combobox', { name: /copy register map from/i })).toBeNull();
+    expect(swrKeys.some((k) => typeof k === 'string' && k.startsWith('/api/instruments?connection='))).toBe(false);
+  });
+
+  it('lists the TCP/IP instruments and sends the chosen one with the preview AND the upload', async () => {
+    respond({ created: [{ id: 'i-1', code: 'N-1', name: 'N-1', token: null }], errors: [], warnings: [] });
+    renderPage();
+    choose('p-tcp');
+    fireEvent.change(screen.getByRole('combobox', { name: /copy register map from/i }), { target: { value: 'src-1' } });
+    await uploadCsv('Instrument ID,IP address\nN-1,10.0.0.9');
+    await waitFor(() => expect(uploads()).toHaveLength(1));
+    const want = { csv: 'Instrument ID,IP address\nN-1,10.0.0.9', profileId: 'p-tcp', copyRegisterMapFrom: 'src-1' };
+    expect(post).toHaveBeenNthCalledWith(1, '/api/instruments/bulk/preview', want);
+    expect(post).toHaveBeenNthCalledWith(2, '/api/instruments/bulk', want);
+  });
+
+  it('sends no source when none is chosen, and forgets it when the profile changes', async () => {
+    respond({ created: [], errors: [], warnings: [] });
+    renderPage();
+    choose('p-tcp');
+    const pick = screen.getByRole('combobox', { name: /copy register map from/i });
+    fireEvent.change(pick, { target: { value: 'src-2' } });
+    choose('p-1');
+    await uploadCsv('Instrument ID\nN-1');
+    await waitFor(() => expect(uploads()).toHaveLength(1));
+    expect(post).toHaveBeenNthCalledWith(1, '/api/instruments/bulk/preview', { csv: 'Instrument ID\nN-1', profileId: 'p-1' });
+  });
+
+  it('shows a created TCP/IP instrument without a token, and shows the server\'s refusal as worded', async () => {
+    respond({
+      created: [{ id: 'i-1', code: 'N-1', name: 'N-1', token: null }],
+      errors: [{ row: 3, column: 'IP address', message: '10.0.0.9 : 502 is already in use.' }],
+      warnings: [],
+    });
+    renderPage();
+    choose('p-tcp');
+    await uploadCsv('Instrument ID,IP address\nN-1,10.0.0.8\nN-2,10.0.0.9');
+    const dlg = await screen.findByRole('dialog');
+    expect(within(dlg).getByTestId('upload-problem')).toHaveTextContent('IP address');
+    expect(within(dlg).getByTestId('upload-problem')).toHaveTextContent('10.0.0.9 : 502 is already in use.');
+    fireEvent.click(within(dlg).getByRole('button', { name: /close/i }));
+    expect(screen.getByText(/none - read by this server/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /contains tokens/i })).toBeNull();
+  });
+
+  it('an address change stops at the review: the server\'s from and to, the refused rows, and the remark', async () => {
+    const preview = {
+      create: [], unchanged: [], warnings: [], remarkRequired: true,
+      update: [{ id: 'i-9', code: 'MTR-9', row: 2, changes: [], address: { from: { host: '10.0.0.5', port: 502 }, to: { host: '10.0.0.7', port: 1502 } } }],
+      errors: [{ row: 3, column: 'IP address', message: '10.0.0.7 : 1502 is repeated in this file - one device, one address.' }],
+    };
+    respond({ created: [], updated: [], errors: [], warnings: [] }, preview);
+    renderPage();
+    choose('p-tcp');
+    await uploadCsv('Instrument ID,IP address,Port\nMTR-9,10.0.0.7,1502');
+    const dlg = await screen.findByRole('dialog');
+    const row = within(dlg).getByTestId('review-change');
+    expect(row).toHaveTextContent('MTR-9');
+    expect(row).toHaveTextContent('10.0.0.5 : 502');
+    expect(row).toHaveTextContent('10.0.0.7 : 1502');
+    expect(within(dlg).getByTestId('review-errors')).toHaveTextContent('repeated in this file');
+    expect(uploads()).toHaveLength(0);
   });
 });

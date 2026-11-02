@@ -30,7 +30,7 @@ import { sanitizeStrings } from '../../lib/sanitize.js';
 import { generateToken, hashToken, tokenPrefix, tokenMatches } from './token.js';
 import { encryptToken, decryptToken, tokenKeyConfigured } from './token-crypto.js';
 import { parseInstrumentCsv, type AttributeColumn, type RowError } from './bulk-csv.js';
-import { planBulkUpload, remarkRequired, type ExistingInstrument, type PlannedChange, type RowPlan } from './bulk-plan.js';
+import { planBulkUpload, remarkRequired, type ExistingInstrument, type PlannedAddress, type PlannedChange, type RowPlan } from './bulk-plan.js';
 import { buildTelemetryOverview, instrumentLimitsWithText, NO_LIMIT_TEXT, loadActiveWindowMinutes } from './telemetry-overview.js';
 import { enabledBoundsFor } from '../alarms/load-limits.js';
 import { decimalsFor, annotateAttribute } from './decimals.js';
@@ -69,7 +69,7 @@ import { MODBUS_CONNECTIONS, coerceModbusRegisterMap } from '@digilog/shared';
 import { checkModbusAddress } from '../modbus/address.js';
 import {
   connectionRefusal, missingAddressRefusal, hostOnlyRefusal, registerMapsEqual,
-  CONNECTION_DIFFERS, NO_TOKEN_FOR_TCPIP, REGISTER_MAP_SA_ONLY, type ModbusWriteFields,
+  CONNECTION_DIFFERS, NO_TOKEN_FOR_TCPIP, NOT_A_TCPIP_PROFILE, REGISTER_MAP_SA_ONLY, type ModbusWriteFields,
 } from '../modbus/instrument-rules.js';
 
 /**
@@ -637,6 +637,100 @@ async function addressInUseBody(host: string, port: number, visibility: ScopeWhe
 }
 
 /**
+ * What an INSTRUMENT_UPDATED row records on each side: EVERY editable field
+ * (see the PUT handler's note), so the trail never holds a before and after
+ * that are identical. One projection for the PUT and for a bulk upload that
+ * changes a TCP/IP address, so the two rows read the same.
+ */
+type InstrumentAuditRow = NonNullable<Awaited<ReturnType<typeof prisma.instrument.findUnique>>>;
+function auditedInstrument(i: InstrumentAuditRow) {
+  return {
+    code: i.code, name: i.name, isActive: i.isActive,
+    instrumentType: i.instrumentType, manufacturer: i.manufacturer, model: i.model,
+    serialNumber: i.serialNumber, description: i.description,
+    expectedIntervalSec: i.expectedIntervalSec,
+    location: i.location, area: i.area, block: i.block,
+    isGateway: i.isGateway, gatewayId: i.gatewayId,
+    // Moving an instrument between profiles changes which group an
+    // inspector finds it under; the design records that through this row
+    // rather than a dedicated action.
+    profileId: i.profileId,
+    // TCP/IP (2026-10-31): the device's address and register map. `reason`
+    // is NOT here - it is the change's reason, on the row's own column.
+    modbusHost: i.modbusHost, modbusPort: i.modbusPort, modbusRegisters: i.modbusRegisters,
+  };
+}
+
+/**
+ * The register map a bulk upload copies onto every instrument it CREATES
+ * (2026-10-31): the stored map of one TCP/IP instrument the caller can see.
+ * A refusal is the whole upload's (400) and registers nothing - the same
+ * answer `POST /bulk/preview` gives, so the operator meets it before signing.
+ * Only the MAP is copied; the address of each row is its own.
+ */
+async function registerMapSource(
+  data: { profileId: string; copyRegisterMapFrom?: string },
+  visibility: ScopeWhere | undefined,
+): Promise<{ registers: Prisma.InputJsonValue[] | undefined } | { status: number; body: { error: string; message: string; details?: unknown } }> {
+  if (!data.copyRegisterMapFrom) return { registers: undefined };
+  if ((await profileConnection(data.profileId)) !== 'MODBUS_TCP') {
+    return { status: NOT_A_TCPIP_PROFILE.status, body: { ...NOT_A_TCPIP_PROFILE.body, message: 'A register map can be copied only onto instruments of a TCP/IP (Modbus) profile; this is a Gateway profile.' } };
+  }
+  const source = await prisma.instrument.findFirst({
+    where: withVisibility({ id: data.copyRegisterMapFrom, profile: { connection: 'MODBUS_TCP' } }, visibility) as Prisma.InstrumentWhereInput,
+    select: { modbusRegisters: true },
+  });
+  if (!source) {
+    const message = 'The instrument to copy the register map from is not a TCP/IP instrument you can see.';
+    return { status: 400, body: { error: 'VALIDATION_ERROR', message, details: { fieldErrors: { copyRegisterMapFrom: [message] } } } };
+  }
+  return { registers: Array.isArray(source.modbusRegisters) ? structuredClone(source.modbusRegisters) as Prisma.InputJsonValue[] : [] };
+}
+
+/**
+ * Change one existing TCP/IP instrument's address from a bulk upload
+ * (2026-10-31): ONE transaction, the instrument row locked FIRST (as the PUT
+ * does, before the audit chain), the stored address read again under the lock
+ * and the address checked again there. Writes one INSTRUMENT_UPDATED row with
+ * the upload's remark as its reason. Returns what was applied, `from` as read
+ * under the lock, or null when the instrument already holds that address.
+ */
+async function applyBulkAddress(
+  instrumentId: string,
+  planned: PlannedAddress,
+  reason: string | null,
+  ctx: ReturnType<typeof buildContext>,
+  visibility: ScopeWhere | undefined,
+): Promise<PlannedAddress | null> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM instruments WHERE id = ${instrumentId} FOR UPDATE`;
+    const before = await tx.instrument.findUnique({ where: { id: instrumentId } });
+    if (!before) throw new HandledRouteError(404, { error: 'NOT_FOUND', message: 'Instrument not found.' });
+    if (before.modbusHost === planned.to.host && before.modbusPort === planned.to.port) return null;
+    const recorded = before.modbusHost !== null || before.modbusPort !== null;
+    if (recorded && !reason) {
+      throw new HandledRouteError(409, {
+        error: 'CHANGED_SINCE_CHECKED',
+        message: `The address of "${before.code}" was recorded while the file was being checked. Upload the file again.`,
+      });
+    }
+    const address = await checkModbusAddress(planned.to.host, planned.to.port, { excludeInstrumentId: instrumentId, visibility: { where: visibility } });
+    if (!address.ok) throw new HandledRouteError(address.status, { error: address.code, message: address.message });
+    const row = await tx.instrument.update({ where: { id: instrumentId }, data: { modbusHost: planned.to.host, modbusPort: planned.to.port } });
+    await auditLog({
+      action: 'INSTRUMENT_UPDATED', targetType: 'Instrument', targetId: instrumentId,
+      beforeValue: auditedInstrument(before),
+      afterValue: auditedInstrument(row),
+      signatureMeaning: `Instrument "${codeLabel(row.code)}" TCP/IP address changed`,
+      ...(recorded && reason ? { reason: reason.trim() } : {}),
+      userId: ctx.userId, userRole: ctx.userRole,
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    }, tx);
+    return { from: { host: before.modbusHost, port: before.modbusPort }, to: planned.to };
+  });
+}
+
+/**
  * A bulk row that names an existing instrument, and one change it carries
  * (2026-10-28). EVERY inner key is declared — Fastify strips what the schema
  * does not name, and `from: null` (a first fill) must survive as null.
@@ -647,11 +741,20 @@ const bulkChangeProps = {
   from: { type: 'string', nullable: true },
   to: { type: 'string' },
 } as const;
+const bulkAddressSideProps = { host: { type: 'string', nullable: true }, port: { type: 'integer', nullable: true } } as const;
 const bulkUpdatedProps = {
   id: { type: 'string' },
   code: { type: 'string' },
   row: { type: 'integer' },
   changes: { type: 'array', items: { type: 'object', properties: bulkChangeProps } },
+  // A TCP/IP instrument whose address the file changes (2026-10-31); absent otherwise.
+  address: {
+    type: 'object',
+    properties: {
+      from: { type: 'object', properties: bulkAddressSideProps },
+      to: { type: 'object', properties: bulkAddressSideProps },
+    },
+  },
 } as const;
 const bulkRowRefProps = { row: { type: 'integer' }, code: { type: 'string' } } as const;
 
@@ -2033,6 +2136,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           // The functional location EVERY row is born in, chosen once like the
           // profile. Required when the caller's instrument view is limited.
           functionalLocationId: { type: 'string', format: 'uuid', nullable: true },
+          // A TCP/IP instrument whose register map every CREATED row takes (2026-10-31).
+          copyRegisterMapFrom: { type: 'string', format: 'uuid' },
           // ONE remark for every recorded value the file overwrites (2026-10-28).
           reason: { type: 'string', maxLength: ATTRIBUTE_REMARK_MAX },
           _currentPassword: { type: 'string' },
@@ -2098,9 +2203,15 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       return reply.code(400).send(placementRefusal(locationId));
     }
 
+    // The register map to copy is decided with the other whole-upload refusals,
+    // so a bad source registers nothing - and the preview says the same.
+    const copy = await registerMapSource(parsed.data, visibility);
+    if ('status' in copy) return reply.code(copy.status).send(copy.body);
+
     const plan = await planBulkFile(req, parsed.data, visibility);
     const { rows, errors, warnings } = plan;
     const ctx = buildContext(req);
+    const hostColumn = plan.addressHeadings.host ?? 'IP address';
 
     // Every gate is decided ONCE, before anything is written, so a refusal
     // registers nothing and changes nothing.
@@ -2128,7 +2239,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     }
 
     const created: { id: string; code: string; name: string; token: string | null }[] = [];
-    const updated: { id: string; code: string; row: number; changes: PlannedChange[] }[] = [];
+    const updated: { id: string; code: string; row: number; changes: PlannedChange[]; address?: PlannedAddress }[] = [];
     const unchanged: { row: number; code: string }[] = [];
     // One transaction per ROW, not one for the file: a row that fails — a code
     // registered meanwhile, a value changed meanwhile — becomes an error row
@@ -2136,14 +2247,35 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     for (const p of plan.plans) {
       if (p.kind === 'unchanged') { unchanged.push({ row: p.row, code: p.code }); continue; }
       if (p.kind === 'update') {
+        // The address first, in its own transaction (it takes the instrument row
+        // lock and the audit chain, as the PUT does); the attributes after. A
+        // failure in the second step leaves the first applied, and says so.
+        let addressApplied: PlannedAddress | null = null;
         try {
-          const applied = await applyBulkChanges(p.id, p.code, p.changes, reason, ctx);
-          if (applied.length > 0) updated.push({ id: p.id, code: p.code, row: p.row, changes: applied });
-          else unchanged.push({ row: p.row, code: p.code });
+          if (p.address) {
+            try {
+              addressApplied = await applyBulkAddress(p.id, p.address, reason, ctx, visibility);
+            } catch (err) {
+              if (isDuplicateAddress(err)) {
+                errors.push({ row: p.row, column: hostColumn, message: (await addressInUseBody(p.address.to.host, p.address.to.port, visibility, p.id)).message });
+                continue;
+              }
+              throw err;
+            }
+          }
+          const applied = p.changes.length > 0 ? await applyBulkChanges(p.id, p.code, p.changes, reason, ctx) : [];
+          if (applied.length > 0 || addressApplied) {
+            updated.push({ id: p.id, code: p.code, row: p.row, changes: applied, ...(addressApplied ? { address: addressApplied } : {}) });
+          } else unchanged.push({ row: p.row, code: p.code });
         } catch (err) {
-          if (err instanceof HandledRouteError) { errors.push({ row: p.row, message: err.body.message }); continue; }
+          const lead = addressApplied ? `The address of "${p.code}" was changed, but its attributes were not updated: ` : '';
+          if (addressApplied) updated.push({ id: p.id, code: p.code, row: p.row, changes: [], address: addressApplied });
+          if (err instanceof HandledRouteError) {
+            errors.push({ row: p.row, ...(err.body.error.startsWith('ADDRESS_') ? { column: hostColumn } : {}), message: lead + err.body.message });
+            continue;
+          }
           req.log.error({ err, row: p.row, code: p.code }, 'bulk upload: row not updated');
-          errors.push({ row: p.row, message: `Not updated: ${(err as Error).message.slice(0, 200)}` });
+          errors.push({ row: p.row, message: `${lead || 'Not updated: '}${(err as Error).message.slice(0, 200)}` });
         }
         continue;
       }
@@ -2156,6 +2288,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
             // One profile, and one location, for the whole upload — see the body schema.
             profileId: parsed.data.profileId,
             ...(locationId ? { functionalLocationId: locationId } : {}),
+            // A TCP/IP row: its own address, and the copied map (or none, stored as []).
+            ...(p.modbusHost ? { modbusHost: p.modbusHost, modbusPort: p.modbusPort, modbusRegisters: copy.registers ? structuredClone(copy.registers) : undefined } : {}),
           },
           ctx,
           visibility,
@@ -2185,6 +2319,18 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           errors.push({ row: p.row, column: plan.codeHeading, message: `Instrument ID "${p.code}" already exists` });
           continue;
         }
+        // Taken by another instrument between the check and the write: the same
+        // words the check uses, never the database's.
+        if (isDuplicateAddress(err) && p.modbusHost && p.modbusPort) {
+          errors.push({ row: p.row, column: hostColumn, message: (await addressInUseBody(p.modbusHost, p.modbusPort, visibility)).message });
+          continue;
+        }
+        // A rule the row broke (an address not allowed or in use, a gateway
+        // rule): the operator's refusal, not a server fault - no error log.
+        if (err instanceof HandledRouteError) {
+          errors.push({ row: p.row, ...(err.body.error.startsWith('ADDRESS_') ? { column: hostColumn } : {}), message: err.body.message });
+          continue;
+        }
         // Any other failure fails THIS row, never the upload: the rows already
         // created must still get their tokens back.
         req.log.error({ err, row: p.row }, 'bulk upload: row not created');
@@ -2212,6 +2358,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           csv: { type: 'string' },
           profileId: { type: 'string', format: 'uuid' },
           functionalLocationId: { type: 'string', format: 'uuid', nullable: true },
+          copyRegisterMapFrom: { type: 'string', format: 'uuid' },
         },
       },
       response: {
@@ -2243,12 +2390,14 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     if (placeable && !(locationId && placeable.has(locationId))) {
       return reply.code(400).send(placementRefusal(locationId));
     }
+    const copy = await registerMapSource(parsed.data, visibility);
+    if ('status' in copy) return reply.code(copy.status).send(copy.body);
     const plan = await planBulkFile(req, parsed.data, visibility);
     const refusal = createAttributesRefusal(plan);
     if (refusal) return reply.code(refusal.status).send(refusal.body);
     return {
       create: plan.plans.filter((p) => p.kind === 'create').map((p) => ({ row: p.row, code: p.code })),
-      update: plan.plans.flatMap((p) => (p.kind === 'update' ? [{ id: p.id, code: p.code, row: p.row, changes: p.changes }] : [])),
+      update: plan.plans.flatMap((p) => (p.kind === 'update' ? [{ id: p.id, code: p.code, row: p.row, changes: p.changes, ...(p.address ? { address: p.address } : {}) }] : [])),
       unchanged: plan.plans.filter((p) => p.kind === 'unchanged').map((p) => ({ row: p.row, code: p.code })),
       errors: plan.errors,
       warnings: plan.warnings,
@@ -2512,21 +2661,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       // "INSTRUMENT_UPDATED carries the code and a diff over every editable
       // field" derives its expected key set from `updateInstrumentSchema.shape`,
       // so adding a field to the PUT schema and forgetting it here FAILS.
-      const audited = (i: typeof before) => ({
-        code: i.code, name: i.name, isActive: i.isActive,
-        instrumentType: i.instrumentType, manufacturer: i.manufacturer, model: i.model,
-        serialNumber: i.serialNumber, description: i.description,
-        expectedIntervalSec: i.expectedIntervalSec,
-        location: i.location, area: i.area, block: i.block,
-        isGateway: i.isGateway, gatewayId: i.gatewayId,
-        // Moving an instrument between profiles changes which group an
-        // inspector finds it under; the design records that through this row
-        // rather than a dedicated action.
-        profileId: i.profileId,
-        // TCP/IP (2026-10-31): the device's address and register map. `reason`
-        // is NOT here — it is the change's reason, on the row's own column.
-        modbusHost: i.modbusHost, modbusPort: i.modbusPort, modbusRegisters: i.modbusRegisters,
-      });
+      const audited = auditedInstrument;
       await auditLog({
         action: 'INSTRUMENT_UPDATED', targetType: 'Instrument', targetId: id,
         beforeValue: audited(before),
@@ -3262,6 +3397,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     data: { csv: string; profileId: string },
     visibility: ScopeWhere | undefined,
   ) {
+    // "IP address" and "Port" are columns of a TCP/IP profile's upload only; the
+    // profile's connection decides it here, on the server (2026-10-31).
+    const connection = (await profileConnection(data.profileId)) === 'MODBUS_TCP' ? 'MODBUS_TCP' : 'PUSH';
     // The file may carry the profile's ATTRIBUTES, headed by their administered
     // display names (2026-09-16). The parser maps a heading back to the KEY;
     // this is the one place the profile's list and the display-name map meet.
@@ -3272,19 +3410,40 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const role = req.user?.role;
     const attributeColumns = (await bulkAttributeColumns(data.profileId))
       .filter((c) => role === 'SUPER_ADMIN' || !isOffset(c.key));
-    const parsed = parseInstrumentCsv(data.csv, attributeColumns);
+    const parsed = parseInstrumentCsv(data.csv, attributeColumns, { tcpip: connection === 'MODBUS_TCP' });
     const mayUpdate = role === 'SUPER_ADMIN' || (!!role && await roleHasPermission(role, 'INSTRUMENT_UPDATE'));
     const access = await loadAttributeAccess(role, req.user?.sub);
     const existing = await existingForBulk(parsed.rows.map((r) => r.code), visibility);
     const planned = planBulkUpload({
       rows: parsed.rows, rowNumbers: parsed.rowNumbers, codeHeading: parsed.codeHeading,
       headings: parsed.headings, identityColumns: parsed.identityColumns,
+      addressHeadings: parsed.addressHeadings, connection,
       profileId: data.profileId, existing, isOffset, mayUpdate,
       accessRefusal: (key, isNewKey) => attributeAccessRefusal({ access, hasUpdatePermission: mayUpdate, key, isNewKey }),
     });
-    const errors: RowError[] = [...parsed.errors, ...planned.errors].sort((a, b) => a.row - b.row);
+
+    // The two address rules that need the database - an address this server may
+    // not read, one another instrument already holds - judged by the ONE check
+    // the single create and update use, in the caller's view (the holder is
+    // named only if the caller can see it). A refused row is dropped from the
+    // plan and reported; the preview and the upload both come through here.
+    const addressErrors: RowError[] = [];
+    const hostColumn = parsed.addressHeadings.host ?? 'IP address';
+    const plans: RowPlan[] = [];
+    for (const p of planned.plans) {
+      const next = p.kind === 'create' && p.modbusHost
+        ? { host: p.modbusHost, port: p.modbusPort as number, exclude: undefined }
+        : p.kind === 'update' && p.address ? { host: p.address.to.host, port: p.address.to.port, exclude: p.id } : null;
+      if (next) {
+        const verdict = await checkModbusAddress(next.host, next.port, { excludeInstrumentId: next.exclude, visibility: { where: visibility } });
+        if (!verdict.ok) { addressErrors.push({ row: p.row, column: hostColumn, message: verdict.message }); continue; }
+      }
+      plans.push(p);
+    }
+    const errors: RowError[] = [...parsed.errors, ...planned.errors, ...addressErrors].sort((a, b) => a.row - b.row);
     return {
-      rows: parsed.rows, codeHeading: parsed.codeHeading, plans: planned.plans as RowPlan[],
+      rows: parsed.rows, codeHeading: parsed.codeHeading, plans,
+      addressHeadings: parsed.addressHeadings,
       errors, warnings: [...parsed.warnings, ...planned.warnings], access, mayUpdate,
     };
   }
@@ -3322,12 +3481,16 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       where: { id: { in: [...seen] } },
       select: {
         id: true, code: true, profileId: true, profile: { select: { name: true } },
+        modbusHost: true, modbusPort: true,
         attributes: { select: { key: true, value: true }, orderBy: { key: 'asc' } },
       },
     });
     for (const h of hits) out.set(h.code.toLowerCase(), { id: h.id, code: h.code, profileId: '', profileName: '', visible: false, attributes: [] });
     for (const r of rows) {
-      out.set(r.code.toLowerCase(), { id: r.id, code: r.code, profileId: r.profileId, profileName: r.profile.name, visible: true, attributes: r.attributes });
+      out.set(r.code.toLowerCase(), {
+        id: r.id, code: r.code, profileId: r.profileId, profileName: r.profile.name, visible: true, attributes: r.attributes,
+        modbusHost: r.modbusHost, modbusPort: r.modbusPort,
+      });
     }
     return out;
   }

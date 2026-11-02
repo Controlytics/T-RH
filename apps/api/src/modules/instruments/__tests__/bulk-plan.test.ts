@@ -174,3 +174,118 @@ describe('remarkRequired', () => {
     expect(remarkRequired(r.plans)).toBe(true);
   });
 });
+
+/**
+ * TCP/IP (Modbus) profiles (2026-10-31, Task 11). "IP address" and "Port" are
+ * columns of a TCP/IP profile's upload only; the plan decides every rule that
+ * needs no database (shape, required, repeated in the file) and the route adds
+ * the two that do (allowed network, already in use).
+ */
+describe('planBulkUpload — TCP/IP profiles', () => {
+  const tcpPlan = (csv: string, over: Partial<BulkPlanInput> = {}, instruments: ExistingInstrument[] = []) => {
+    const parsed = parseInstrumentCsv(csv, COLUMNS, { tcpip: true });
+    return planBulkUpload({
+      rows: parsed.rows, rowNumbers: parsed.rowNumbers, codeHeading: parsed.codeHeading,
+      headings: parsed.headings, identityColumns: parsed.identityColumns,
+      addressHeadings: parsed.addressHeadings, connection: 'MODBUS_TCP',
+      profileId: PROFILE,
+      existing: new Map(instruments.map((i) => [i.code.toLowerCase(), i])),
+      isOffset: () => false, mayUpdate: true, accessRefusal: () => null,
+      ...over,
+    });
+  };
+  const stored = (over: Partial<ExistingInstrument> = {}) => existing({ modbusHost: '10.0.0.5', modbusPort: 502, ...over });
+
+  it('a row with an IP address and a port is a create carrying its address', () => {
+    const r = tcpPlan('Instrument ID,IP address,Port\nT-1,10.0.0.9,1502');
+    expect(r.errors).toEqual([]);
+    expect(r.plans).toEqual([{ kind: 'create', index: 0, row: 2, code: 'T-1', modbusHost: '10.0.0.9', modbusPort: 1502 }]);
+  });
+
+  it('a blank port is 502', () => {
+    const r = tcpPlan('Instrument ID,IP address,Port\nT-1,10.0.0.9,');
+    expect(r.plans[0]).toMatchObject({ kind: 'create', modbusHost: '10.0.0.9', modbusPort: 502 });
+  });
+
+  it('a file without a Port column is 502 too', () => {
+    const r = tcpPlan('Instrument ID,IP address\nT-1,10.0.0.9');
+    expect(r.plans[0]).toMatchObject({ kind: 'create', modbusPort: 502 });
+  });
+
+  it('a create row with no IP address is a row error naming the cell', () => {
+    const r = tcpPlan('Instrument ID,IP address,Port\nT-1,,502\nT-2,10.0.0.9,502');
+    expect(r.plans).toHaveLength(1);
+    expect(r.errors).toEqual([{ row: 2, column: 'IP address', message: expect.stringMatching(/IP address is required/i) }]);
+  });
+
+  it('a create row in a file with no IP address column at all is an error on every row', () => {
+    const r = tcpPlan('Instrument ID\nT-1');
+    expect(r.plans).toEqual([]);
+    expect(r.errors).toEqual([{ row: 2, column: 'IP address', message: expect.stringMatching(/IP address is required/i) }]);
+  });
+
+  it('refuses a host that is not a dotted-quad address, and a port outside 1 to 65535', () => {
+    const r = tcpPlan('Instrument ID,IP address,Port\nT-1,plc.local,502\nT-2,10.0.0.9,0\nT-3,10.0.0.10,70000\nT-4,10.0.0.11,abc\nT-5,127.0.0.1,502');
+    expect(r.plans).toEqual([]);
+    expect(r.errors.map((e) => [e.row, e.column])).toEqual([[2, 'IP address'], [3, 'Port'], [4, 'Port'], [5, 'Port'], [6, 'IP address']]);
+  });
+
+  it('two rows with one address are BOTH in error, and neither is planned', () => {
+    const r = tcpPlan('Instrument ID,IP address,Port\nT-1,10.0.0.9,502\nT-2,10.0.0.9,502\nT-3,10.0.0.9,503');
+    expect(r.plans.map((p) => p.code)).toEqual(['T-3']);
+    expect(r.errors.map((e) => [e.row, e.column])).toEqual([[2, 'IP address'], [3, 'IP address']]);
+    expect(r.errors[0].message).toMatch(/repeated in this file/i);
+  });
+
+  it('a blank port and an explicit 502 are the same address', () => {
+    const r = tcpPlan('Instrument ID,IP address,Port\nT-1,10.0.0.9,\nT-2,10.0.0.9,502');
+    expect(r.plans).toEqual([]);
+    expect(r.errors).toHaveLength(2);
+  });
+
+  it("a PUSH profile's upload refuses a filled IP address or Port cell: not a TCP/IP profile", () => {
+    const parsed = parseInstrumentCsv('Instrument ID,IP address,Port\nP-1,10.0.0.9,502\nP-2,,\n', COLUMNS);
+    const r = planBulkUpload({
+      rows: parsed.rows, rowNumbers: parsed.rowNumbers, codeHeading: parsed.codeHeading,
+      headings: parsed.headings, identityColumns: parsed.identityColumns, addressHeadings: parsed.addressHeadings,
+      connection: 'PUSH', profileId: PROFILE, existing: new Map(), isOffset: () => false, mayUpdate: true, accessRefusal: () => null,
+    });
+    expect(r.plans.map((p) => p.code)).toEqual(['P-2']);
+    expect(r.errors.map((e) => [e.row, e.column])).toEqual([[2, 'IP address'], [2, 'Port']]);
+    expect(r.errors[0].message).toMatch(/not a TCP\/IP profile/i);
+  });
+
+  it("an existing instrument's new address is an update carrying what it replaces", () => {
+    const r = tcpPlan('Instrument ID,IP address,Port\nCWH/RDU/001-00,10.0.0.7,', {}, [stored()]);
+    expect(r.errors).toEqual([]);
+    expect(r.plans).toEqual([{
+      kind: 'update', index: 0, row: 2, id: 'i-1', code: 'CWH/RDU/001-00', changes: [],
+      address: { from: { host: '10.0.0.5', port: 502 }, to: { host: '10.0.0.7', port: 502 } },
+    }]);
+    expect(remarkRequired(r.plans)).toBe(true);
+  });
+
+  it('an existing instrument whose address cells match, or are blank, is unchanged', () => {
+    const same = tcpPlan('Instrument ID,IP address,Port\nCWH/RDU/001-00,10.0.0.5,502', {}, [stored()]);
+    expect(same.plans.map((p) => p.kind)).toEqual(['unchanged']);
+    const blank = tcpPlan('Instrument ID,IP address,Port\nCWH/RDU/001-00,,', {}, [stored()]);
+    expect(blank.plans.map((p) => p.kind)).toEqual(['unchanged']);
+  });
+
+  it('a Port alone changes just the port and keeps the stored IP address', () => {
+    const r = tcpPlan('Instrument ID,Port\nCWH/RDU/001-00,1502', {}, [stored()]);
+    expect(r.plans[0]).toMatchObject({ kind: 'update', address: { from: { host: '10.0.0.5', port: 502 }, to: { host: '10.0.0.5', port: 1502 } } });
+  });
+
+  it('an address change needs Instrument Update, like an attribute change', () => {
+    const r = tcpPlan('Instrument ID,IP address\nCWH/RDU/001-00,10.0.0.7', { mayUpdate: false }, [stored()]);
+    expect(r.plans).toEqual([]);
+    expect(r.errors[0].message).toMatch(/may not change instruments/i);
+  });
+
+  it('an update row that moves to an address another row of the file takes is in error with it', () => {
+    const r = tcpPlan('Instrument ID,IP address\nCWH/RDU/001-00,10.0.0.7\nT-2,10.0.0.7', {}, [stored()]);
+    expect(r.plans).toEqual([]);
+    expect(r.errors.map((e) => e.row)).toEqual([2, 3]);
+  });
+});

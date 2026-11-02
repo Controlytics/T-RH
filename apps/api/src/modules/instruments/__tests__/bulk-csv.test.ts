@@ -259,3 +259,27 @@ describe('parseInstrumentCsv', () => {
     expect(r.errors[0].message).toMatch(/unterminated|quote/i);
   });
 });
+
+describe('parseInstrumentCsv — TCP/IP address columns (Task 11)', () => {
+  it('reads IP address and Port into the draft and names the headings as the file spells them', () => {
+    const r = parseInstrumentCsv('Instrument ID,ip ADDRESS,PORT\nT-1,10.0.0.9,1502\nT-2,,', [], { tcpip: true });
+    expect(r.errors).toEqual([]);
+    expect(r.rows[0]).toMatchObject({ code: 'T-1', modbusHost: '10.0.0.9', modbusPort: '1502' });
+    expect(r.rows[1].modbusHost).toBeUndefined();
+    expect(r.rows[1].modbusPort).toBeUndefined();
+    expect(r.addressHeadings).toEqual({ host: 'ip ADDRESS', port: 'PORT' });
+    expect(r.warnings).toEqual([]);
+  });
+
+  it("a Gateway profile's file still recognises them (the plan refuses them) rather than ignoring them as unknown", () => {
+    const r = parseInstrumentCsv('Instrument ID,IP address\nT-1,10.0.0.9', []);
+    expect(r.rows[0].modbusHost).toBe('10.0.0.9');
+    expect(r.warnings).toEqual([]);
+  });
+
+  it("a Gateway profile's own attribute called Port stays an attribute", () => {
+    const r = parseInstrumentCsv('Instrument ID,Port\nT-1,COM3', [{ key: 'Port', label: 'Port' }]);
+    expect(r.rows[0].attributes).toEqual({ Port: 'COM3' });
+    expect(r.rows[0].modbusPort).toBeUndefined();
+  });
+});

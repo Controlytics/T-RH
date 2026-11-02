@@ -44,6 +44,12 @@ export interface InstrumentDraft {
   name: string; code: string;
   instrumentType?: string; manufacturer?: string; model?: string;
   serialNumber?: string; description?: string;
+  /**
+   * The raw "IP address" / "Port" cells of a TCP/IP (Modbus) upload (2026-10-31),
+   * present only when filled. Left as the file wrote them: the plan decides
+   * what they mean (shape, default port, whether the profile takes them at all).
+   */
+  modbusHost?: string; modbusPort?: string;
   /** Attribute KEY → typed value, only for cells that were filled. Absent when none were. */
   attributes?: Record<string, string>;
 }
@@ -115,9 +121,25 @@ export interface ParsedInstrumentCsv {
   headings: Record<string, string>;
   /** The optional identity columns the file carries (`name`, `model`, ...). An update applies none of them. */
   identityColumns: string[];
+  /** The "IP address" / "Port" headings AS THE FILE SPELLS THEM, when it carries them — a refused cell is named as the operator sees it. */
+  addressHeadings: { host?: string; port?: string };
 }
 
-export function parseInstrumentCsv(text: string, attributeColumns: AttributeColumn[] = []): ParsedInstrumentCsv {
+/**
+ * The two columns of a TCP/IP (Modbus) profile's upload (2026-10-31). Matched
+ * trimmed and case-folded, like every other heading. In a TCP/IP upload they
+ * are always these columns; in any other upload a profile ATTRIBUTE of the same
+ * name still wins (an RS485 "Port" attribute is an attribute), and only an
+ * unclaimed heading is read as an address column, so the plan can refuse it.
+ */
+const HOST_HEADING = 'ip address';
+const PORT_HEADING = 'port';
+
+export function parseInstrumentCsv(
+  text: string,
+  attributeColumns: AttributeColumn[] = [],
+  opts: { tcpip?: boolean } = {},
+): ParsedInstrumentCsv {
   // Split into lines WITHOUT filtering to preserve source row numbers
   const allLines = text.split(/\r?\n/);
 
@@ -136,7 +158,7 @@ export function parseInstrumentCsv(text: string, attributeColumns: AttributeColu
 
   // Check header validity
   if (headerRowIndex === -1) {
-    return { rows: [], rowNumbers: [], errors: [{ row: 1, message: 'Missing header row' }], warnings: [], codeHeading: INSTRUMENT_ID_HEADING, headings: {}, identityColumns: [] };
+    return { rows: [], rowNumbers: [], errors: [{ row: 1, message: 'Missing header row' }], warnings: [], codeHeading: INSTRUMENT_ID_HEADING, headings: {}, identityColumns: [], addressHeadings: {} };
   }
   // Remember how the file spells the code heading, so an error about that
   // cell names the column the operator can see.
@@ -154,7 +176,7 @@ export function parseInstrumentCsv(text: string, attributeColumns: AttributeColu
     // Named as the template prints it, so the message matches what the operator
     // sees in their spreadsheet.
     const named = missing.map((c) => (c === 'code' ? INSTRUMENT_ID_HEADING : c));
-    return { rows: [], rowNumbers: [], errors: [{ row: headerRowIndex + 1, column: INSTRUMENT_ID_HEADING, message: `Missing header column(s): ${named.join(', ')}` }], warnings, codeHeading: INSTRUMENT_ID_HEADING, headings: {}, identityColumns: [] };
+    return { rows: [], rowNumbers: [], errors: [{ row: headerRowIndex + 1, column: INSTRUMENT_ID_HEADING, message: `Missing header column(s): ${named.join(', ')}` }], warnings, codeHeading: INSTRUMENT_ID_HEADING, headings: {}, identityColumns: [], addressHeadings: {} };
   }
 
   // Resolve every non-standard header to an attribute KEY, by display name or
@@ -166,9 +188,16 @@ export function parseInstrumentCsv(text: string, attributeColumns: AttributeColu
   const attributeAt = new Map<number, string>();
   const headings: Record<string, string> = {};
   const unknown: string[] = [];
+  const addressAt: { host?: number; port?: number } = {};
+  const addressHeadings: { host?: string; port?: string } = {};
   header.forEach((h, idx) => {
     if (standard.has(h)) return;
     const hit = attributeColumns.find((c) => fold(c.label) === fold(h) || fold(c.key) === fold(h));
+    const slot = fold(h) === HOST_HEADING ? 'host' : fold(h) === PORT_HEADING ? 'port' : null;
+    if (slot && (opts.tcpip || !hit) && addressAt[slot] === undefined) {
+      addressAt[slot] = idx; addressHeadings[slot] = h.trim();
+      return;
+    }
     if (hit) { attributeAt.set(idx, hit.key); headings[hit.key] = h.trim(); }
     else if (h.trim()) unknown.push(h.trim());
   });
@@ -243,6 +272,10 @@ export function parseInstrumentCsv(text: string, attributeColumns: AttributeColu
     // warning above is the only signal it gets.
     const draft: InstrumentDraft = { name, code };
     for (const col of OPTIONAL) { if (col === 'name') continue; const v = get(col); if (v) (draft as unknown as Record<string, string>)[col] = v; }
+    const host = addressAt.host === undefined ? '' : (cells[addressAt.host] ?? '').trim();
+    const port = addressAt.port === undefined ? '' : (cells[addressAt.port] ?? '').trim();
+    if (host) draft.modbusHost = host;
+    if (port) draft.modbusPort = port;
     // Only filled cells become attributes: an empty cell is "not answered", and
     // writing '' would record an answer the operator did not give.
     for (const [idx, key] of attributeAt) {
@@ -254,5 +287,5 @@ export function parseInstrumentCsv(text: string, attributeColumns: AttributeColu
     rowNumbers.push(rowNo);
   }
 
-  return { rows, rowNumbers, errors, warnings, codeHeading: codeHeadingInFile, headings, identityColumns };
+  return { rows, rowNumbers, errors, warnings, codeHeading: codeHeadingInFile, headings, identityColumns, addressHeadings };
 }

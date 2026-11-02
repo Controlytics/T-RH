@@ -27,7 +27,7 @@
  *   and nothing of it is read into the answer.
  * - a row is all or nothing: one refused cell fails the row.
  */
-import { parseOffsetValue, formatOffsetValue, SENSOR_OFFSET_VALUE_MESSAGE } from '@digilog/shared';
+import { parseOffsetValue, formatOffsetValue, SENSOR_OFFSET_VALUE_MESSAGE, modbusHostSchema, MODBUS_PORT_DEFAULT } from '@digilog/shared';
 import type { InstrumentDraft, RowError } from './bulk-csv.js';
 
 export interface ExistingInstrument {
@@ -40,6 +40,15 @@ export interface ExistingInstrument {
   visible: boolean;
   /** Its stored attributes, ordered by key (the case-variant pick depends on it). */
   attributes: { key: string; value: string }[];
+  /** A TCP/IP instrument's stored address (2026-10-31); absent or null on any other. */
+  modbusHost?: string | null;
+  modbusPort?: number | null;
+}
+
+/** A TCP/IP instrument's address, as stored and as the file would set it. */
+export interface PlannedAddress {
+  from: { host: string | null; port: number | null };
+  to: { host: string; port: number };
 }
 
 export interface PlannedChange {
@@ -53,8 +62,9 @@ export interface PlannedChange {
 }
 
 export type RowPlan =
-  | { kind: 'create'; index: number; row: number; code: string; attributes?: Record<string, string> }
-  | { kind: 'update'; index: number; row: number; id: string; code: string; changes: PlannedChange[] }
+  | { kind: 'create'; index: number; row: number; code: string; attributes?: Record<string, string>; modbusHost?: string; modbusPort?: number }
+  // `changes` is empty when the row changes only the address.
+  | { kind: 'update'; index: number; row: number; id: string; code: string; changes: PlannedChange[]; address?: PlannedAddress }
   | { kind: 'unchanged'; index: number; row: number; id: string; code: string };
 
 export interface BulkPlanInput {
@@ -63,6 +73,10 @@ export interface BulkPlanInput {
   codeHeading: string;
   headings: Record<string, string>;
   identityColumns: string[];
+  /** The "IP address" / "Port" headings as the file spells them (2026-10-31). */
+  addressHeadings?: { host?: string; port?: string };
+  /** The chosen profile's connection; an upload for any other than a TCP/IP profile takes no address column. Default `PUSH`. */
+  connection?: 'PUSH' | 'MODBUS_TCP';
   /** The profile chosen for the upload. */
   profileId: string;
   /** Every instrument a row names, keyed by lower-cased code (codes are unique ignoring case). */
@@ -76,6 +90,10 @@ export interface BulkPlanInput {
 
 const fold = (s: string) => s.trim().toLowerCase();
 
+const HOST_COLUMN = 'IP address';
+const PORT_COLUMN = 'Port';
+const PORT_MESSAGE = 'Port must be a whole number from 1 to 65535.';
+
 /** The stored attribute a column writes: the exact key, else the first that differs only by case. */
 function storedFor(attributes: ExistingInstrument['attributes'], key: string) {
   return attributes.find((a) => a.key === key) ?? attributes.find((a) => fold(a.key) === fold(key));
@@ -85,6 +103,7 @@ export function planBulkUpload(input: BulkPlanInput): { plans: RowPlan[]; errors
   const plans: RowPlan[] = [];
   const errors: RowError[] = [];
   const column = (key: string) => input.headings[key] ?? key;
+  const tcpip = input.connection === 'MODBUS_TCP';
 
   input.rows.forEach((draft, index) => {
     const row = input.rowNumbers[index];
@@ -100,11 +119,48 @@ export function planBulkUpload(input: BulkPlanInput): { plans: RowPlan[]; errors
       if (parsed === null) { errors.push({ row, column: column(key), message: SENSOR_OFFSET_VALUE_MESSAGE }); bad = true; continue; }
       values.push([key, formatOffsetValue(parsed)]);
     }
+
+    // The address cells (2026-10-31). Only a TCP/IP profile has an address; a
+    // filled cell in any other upload is refused on its row, never ignored: an
+    // address that silently does nothing is a device nobody reads.
+    const hostColumn = input.addressHeadings?.host ?? HOST_COLUMN;
+    const portColumn = input.addressHeadings?.port ?? PORT_COLUMN;
+    let hostCell: string | undefined;
+    let portCell: number | undefined;
+    if (tcpip) {
+      if (draft.modbusHost !== undefined) {
+        const shape = modbusHostSchema.safeParse(draft.modbusHost);
+        if (shape.success && shape.data) hostCell = shape.data;
+        else {
+          errors.push({ row, column: hostColumn, message: shape.success ? `${HOST_COLUMN} is required` : (shape.error.issues[0]?.message ?? `${draft.modbusHost} is not an address this server may read.`) });
+          bad = true;
+        }
+      }
+      if (draft.modbusPort !== undefined) {
+        const n = /^\d+$/.test(draft.modbusPort) ? Number(draft.modbusPort) : NaN;
+        if (Number.isInteger(n) && n >= 1 && n <= 65535) portCell = n;
+        else { errors.push({ row, column: portColumn, message: PORT_MESSAGE }); bad = true; }
+      }
+    } else {
+      for (const [cell, heading, name] of [[draft.modbusHost, hostColumn, HOST_COLUMN], [draft.modbusPort, portColumn, PORT_COLUMN]] as const) {
+        if (cell === undefined) continue;
+        errors.push({ row, column: heading, message: `This is not a TCP/IP profile, so "${name}" has no meaning here - remove the column from the file.` });
+        bad = true;
+      }
+    }
     if (bad) return;
 
     const found = input.existing.get(draft.code.toLowerCase());
     if (!found) {
-      plans.push({ kind: 'create', index, row, code: draft.code, ...(values.length ? { attributes: Object.fromEntries(values) } : {}) });
+      if (tcpip && hostCell === undefined) {
+        errors.push({ row, column: hostColumn, message: `${HOST_COLUMN} is required for an instrument in a TCP/IP profile` });
+        return;
+      }
+      plans.push({
+        kind: 'create', index, row, code: draft.code,
+        ...(values.length ? { attributes: Object.fromEntries(values) } : {}),
+        ...(tcpip ? { modbusHost: hostCell, modbusPort: portCell ?? MODBUS_PORT_DEFAULT } : {}),
+      });
       return;
     }
     // Worded exactly as before this date: out of view, the instrument is a
@@ -129,7 +185,17 @@ export function planBulkUpload(input: BulkPlanInput): { plans: RowPlan[]; errors
       if (stored && stored.value.trim() === to) continue;
       changes.push({ key: stored?.key ?? key, column: column(key), from: stored ? stored.value : null, to });
     }
-    if (changes.length === 0) {
+    // A blank address cell keeps the stored value, exactly as a blank attribute
+    // cell does; an address changes only by a filled cell that differs.
+    let address: PlannedAddress | undefined;
+    if (tcpip && (hostCell !== undefined || portCell !== undefined)) {
+      const toHost = hostCell ?? found.modbusHost ?? null;
+      const toPort = portCell ?? found.modbusPort ?? (hostCell !== undefined ? MODBUS_PORT_DEFAULT : null);
+      if (toHost !== null && toPort !== null && (toHost !== (found.modbusHost ?? null) || toPort !== (found.modbusPort ?? null))) {
+        address = { from: { host: found.modbusHost ?? null, port: found.modbusPort ?? null }, to: { host: toHost, port: toPort } };
+      }
+    }
+    if (changes.length === 0 && !address) {
       plans.push({ kind: 'unchanged', index, row, id: found.id, code: found.code });
       return;
     }
@@ -144,8 +210,33 @@ export function planBulkUpload(input: BulkPlanInput): { plans: RowPlan[]; errors
       for (const { c, message } of refused) errors.push({ row, column: c.column, message });
       return;
     }
-    plans.push({ kind: 'update', index, row, id: found.id, code: found.code, changes });
+    plans.push({ kind: 'update', index, row, id: found.id, code: found.code, changes, ...(address ? { address } : {}) });
   });
+
+  // One address, one instrument - across the file (2026-10-31). Both rows of a
+  // repeat are refused: the file cannot say which one the operator meant. The
+  // check for an address ANOTHER instrument already holds is the route's,
+  // because it needs the database.
+  const addressOf = (p: RowPlan) =>
+    p.kind === 'create' && p.modbusHost ? { host: p.modbusHost, port: p.modbusPort ?? MODBUS_PORT_DEFAULT }
+      : p.kind === 'update' && p.address ? p.address.to : null;
+  const rowsAt = new Map<string, RowPlan[]>();
+  for (const p of plans) {
+    const a = addressOf(p);
+    if (a) rowsAt.set(`${a.host} : ${a.port}`, [...(rowsAt.get(`${a.host} : ${a.port}`) ?? []), p]);
+  }
+  const repeated = new Set<RowPlan>();
+  for (const [at, group] of rowsAt) {
+    if (group.length < 2) continue;
+    for (const p of group) {
+      repeated.add(p);
+      errors.push({ row: p.row, column: input.addressHeadings?.host ?? HOST_COLUMN, message: `${at} is repeated in this file - one device, one address.` });
+    }
+  }
+  if (repeated.size > 0) {
+    for (let i = plans.length - 1; i >= 0; i--) if (repeated.has(plans[i])) plans.splice(i, 1);
+    errors.sort((a, b) => a.row - b.row);
+  }
 
   const warnings: string[] = [];
   if (input.identityColumns.length > 0 && plans.some((p) => p.kind !== 'create')) {
@@ -163,5 +254,5 @@ export function planBulkUpload(input: BulkPlanInput): { plans: RowPlan[]; errors
  * preview so the page asks exactly when the upload will demand it.
  */
 export function remarkRequired(plans: RowPlan[]): boolean {
-  return plans.some((p) => p.kind === 'update' && p.changes.some((c) => c.from !== null));
+  return plans.some((p) => p.kind === 'update' && (p.changes.some((c) => c.from !== null) || (p.address?.from.host ?? null) !== null));
 }

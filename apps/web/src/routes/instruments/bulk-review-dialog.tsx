@@ -6,7 +6,16 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@
 
 /** One change the server planned: the value it replaces (null = the instrument has none) and the new one. */
 export interface PlannedChange { key: string; column: string; from: string | null; to: string }
-export interface PlannedUpdate { id: string; code: string; row: number; changes: PlannedChange[] }
+/** A TCP/IP instrument's address as the server would change it (2026-10-31). */
+export interface PlannedAddress {
+  from: { host: string | null; port: number | null };
+  to: { host: string; port: number };
+}
+export interface PlannedUpdate { id: string; code: string; row: number; changes: PlannedChange[]; address?: PlannedAddress }
+
+/** "10.0.0.5 : 502" - the one way an address is printed. */
+export const addressText = (a: { host: string | null; port: number | null }) =>
+  a.host === null ? 'Not set' : `${a.host} : ${a.port ?? ''}`;
 /** `POST /api/instruments/bulk/preview` — what the upload WOULD do. */
 export interface BulkPreview {
   create: { row: number; code: string }[];
@@ -78,17 +87,32 @@ export function BulkReviewDialog({ plan, onConfirm, onClose }: {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {plan.update.flatMap((u) => u.changes.map((c) => (
+                {plan.update.flatMap((u) => (u.address ? [(
+                  <TableRow key={`${u.id}-address`} data-testid="review-change">
+                    <TableCell className="font-mono text-xs">{u.code}</TableCell>
+                    <TableCell>IP address : Port</TableCell>
+                    <TableCell><FromValue value={u.address.from.host === null ? null : addressText(u.address.from)} /></TableCell>
+                    <TableCell className="font-mono font-semibold text-slate-900">{addressText(u.address.to)}</TableCell>
+                  </TableRow>
+                )] : []).concat(u.changes.map((c) => (
                   <TableRow key={`${u.id}-${c.key}`} data-testid="review-change">
                     <TableCell className="font-mono text-xs">{u.code}</TableCell>
                     <TableCell>{c.column}</TableCell>
                     <TableCell><FromValue value={c.from} /></TableCell>
                     <TableCell className="font-mono font-semibold text-slate-900">{c.to}</TableCell>
                   </TableRow>
-                )))}
+                ))))}
               </TableBody>
             </Table>
           </div>
+          {/* The server's refusals, as it worded them: a row the upload will skip. */}
+          {plan.errors.length > 0 && (
+            <ul className="space-y-1 text-xs text-red-700" data-testid="review-errors">
+              {plan.errors.map((e, i) => (
+                <li key={`${e.row}-${i}`}>Row {e.row}{e.column ? ` · ${e.column}` : ''}: {e.message}</li>
+              ))}
+            </ul>
+          )}
           {needsRemark && (
             <label className="block space-y-1">
               <span className="text-sm font-medium text-slate-700">Remarks</span>
