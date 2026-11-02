@@ -287,6 +287,18 @@ export type {
   ReportKind, ReportDownloadMode, ReportKindPolicy, ReportDownloadsPolicy,
 } from './types/report-downloads.js';
 export {
+  REPORT_TEMPLATE_DOCUMENT_VERSION, REPORT_TEMPLATE_NAME_MAX, REPORT_TEMPLATE_LOGO_MAX, REPORT_TEMPLATE_COLUMNS_MAX,
+  REPORT_TEMPLATE_INFO_ROWS_MAX, REPORT_TEMPLATE_HEADING_MAX, REPORT_TEMPLATE_TITLE_MAX, REPORT_TEMPLATE_TEXT_MAX,
+  REPORT_TEMPLATE_LEGEND_MAX, REPORT_FIELD_ID_MAX, REPORT_VALUE_MISSING, REPORT_LOGO_MODES,
+  WIDGET_REPORT_FIELDS, REPORTABLE_WIDGET_TYPES, REPORT_PLACEHOLDERS, isPlaceholder, substitutePlaceholders,
+  reportLogoFormat, reportTemplateDocumentSchema, builtinReportTemplate, coerceReportTemplateDocument, keyRowsCollapse,
+  reportTemplateCreateSchema, reportTemplateUpdateSchema, WIDGET_REPORT_KIND, widgetReportType,
+} from './types/report-templates.js';
+export type {
+  ReportField, ReportFieldGroup, ReportFieldKind, Placeholder, ReportLogoMode, ReportTemplateColumn,
+  ReportTemplateInfoRow, ReportTemplateDocument, ReportTemplateCreate, ReportTemplateUpdate, WidgetReportKind,
+} from './types/report-templates.js';
+export {
   ATTRIBUTE_LABELS_CONFIG_KEY, ATTRIBUTE_LABEL_MAX, ATTRIBUTE_LABEL_KEY_MAX,
   coerceAttributeLabels, attributeLabel,
   SETTINGS_HIDDEN_NONE, coerceSettingsHidden, isHiddenInSettings,

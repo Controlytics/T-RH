@@ -219,6 +219,26 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: '{targetType} report downloaded by {actor}',
     placeholders: ['actor', 'targetType'],
   },
+  // Report templates (2026-11-02). `{targetName}` is the template's name
+  // (afterValue.name, beforeValue.name on a delete).
+  REPORT_TEMPLATE_CREATED: {
+    label: 'Report Template Created',
+    category: 'Data & Approvals',
+    template: 'Report template "{targetName}" created by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  REPORT_TEMPLATE_UPDATED: {
+    label: 'Report Template Updated',
+    category: 'Data & Approvals',
+    template: 'Report template "{targetName}" updated by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  REPORT_TEMPLATE_DELETED: {
+    label: 'Report Template Deleted',
+    category: 'Data & Approvals',
+    template: 'Report template "{targetName}" deleted by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
 
   // Alarm Management
   ALARM_ACKNOWLEDGED: {

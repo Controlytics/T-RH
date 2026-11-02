@@ -28,9 +28,14 @@ describe('REAUTH_ACTIONS — instrument registry (SEC-7)', () => {
   });
 
   // The counts root CLAUDE.md states. Re-derive before moving either.
-  it('holds 57 actions in 8 categories', () => {
-    expect(Object.keys(REAUTH_ACTIONS)).toHaveLength(57);
+  // 57 → 58 on 2026-11-02: UPDATE_REPORT_TEMPLATE (Reports).
+  it('holds 58 actions in 8 categories', () => {
+    expect(Object.keys(REAUTH_ACTIONS)).toHaveLength(58);
     expect(REAUTH_ACTION_CATEGORIES).toHaveLength(8);
+  });
+
+  it('UPDATE_REPORT_TEMPLATE signs a report template write, beside the other report actions', () => {
+    expect(REAUTH_ACTIONS.UPDATE_REPORT_TEMPLATE).toEqual({ label: 'Update Report Template', category: 'Reports' });
   });
 
   // The three token actions are always-on gates (`enforceReauthAlways`) and a

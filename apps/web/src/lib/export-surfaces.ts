@@ -19,6 +19,10 @@ export const EXPORT_SURFACES: ExportSurface[] = [
   // page.
   { key: 'instrument-history', label: 'Data Report' },
   { key: 'alarms', label: 'Alarms' },
+  // The Download report on every dashboard widget, on `/` and `/dashboards/:id`
+  // (2026-11-02). One surface for every widget type; the per-type policy is
+  // the `widget:<type>` report kind (Configuration → Report Settings).
+  { key: 'dashboard-widgets', label: 'Dashboard widgets' },
 ];
 
 /** Resolve a stored format string into PDF/Excel button visibility.

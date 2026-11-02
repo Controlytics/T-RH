@@ -158,6 +158,13 @@ export const AUDIT_ACTIONS = {
   REPORT_REVIEW_APPROVED: 'REPORT_REVIEW_APPROVED',
   REPORT_REVIEW_REJECTED: 'REPORT_REVIEW_REJECTED',
   REPORT_DOWNLOADED: 'REPORT_DOWNLOADED',
+  // Report templates (2026-11-02): what a widget's Download report prints, per
+  // instrument profile × widget type. Written by SUPER_ADMIN; targetType
+  // 'report_template', afterValue / beforeValue carry the name, profile, widget
+  // type, default flag and the WHOLE document.
+  REPORT_TEMPLATE_CREATED: 'REPORT_TEMPLATE_CREATED',
+  REPORT_TEMPLATE_UPDATED: 'REPORT_TEMPLATE_UPDATED',
+  REPORT_TEMPLATE_DELETED: 'REPORT_TEMPLATE_DELETED',
 
   // Instruments — the device registry (2026-08-05). Bulk creation emits one
   // INSTRUMENT_CREATED per instrument rather than one row per batch, so the

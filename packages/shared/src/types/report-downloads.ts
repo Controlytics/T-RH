@@ -31,6 +31,9 @@
  * `coerceReportDownloads` is the ONE reader: the server's two download routes,
  * the narrow-slice route and the browser's dialog all go through it.
  */
+import { WIDGET_TYPES, WIDGET_TYPE_SPECS, type WidgetType } from './dashboard-widgets.js';
+import { WIDGET_REPORT_KIND, widgetReportType, type WidgetReportKind } from './report-templates.js';
+
 export const REPORT_DOWNLOADS_CONFIG_KEY = 'report-downloads';
 
 /**
@@ -43,7 +46,7 @@ export const REPORT_DOWNLOADS_CONFIG_KEY = 'report-downloads';
  * values ok"). The first save of the Report Settings page writes every type's
  * own keys and the inheritance stops mattering.
  */
-export const REPORT_KINDS = [
+const PAGE_REPORT_KINDS = [
   { key: 'data-report', reportType: 'Instrument Time Series', settingPrefix: 'dataReport', inheritsFrom: null, label: 'Data Report', hint: 'The Data Report page in the sidebar.' },
   { key: 'time-series', reportType: 'Instrument Time Series', settingPrefix: 'timeSeries', inheritsFrom: 'dataReport', label: 'Time Series', hint: 'The Time Series card on an instrument\'s trend page.' },
   { key: 'trend-header', reportType: 'Instrument Time Series', settingPrefix: 'trendHeader', inheritsFrom: 'dataReport', label: 'Trend Page Report', hint: 'Export as PDF in the trend page header (that instrument\'s Data Report).' },
@@ -53,6 +56,43 @@ export const REPORT_KINDS = [
   { key: 'alarms', reportType: 'Alarms', settingPrefix: 'alarms', inheritsFrom: null, label: 'Alarm Report', hint: 'The Alarms page download.' },
   { key: 'audit-trail', reportType: 'Audit Trail', settingPrefix: 'auditTrail', inheritsFrom: null, label: 'Audit Trail (PDF)', hint: 'The Audit Trail PDF export. The Excel export is not a PDF and always downloads directly.' },
 ] as const;
+
+/** A widget type's report kind, one per type (2026-11-02). */
+interface WidgetReportKindEntry {
+  readonly key: WidgetReportKind;
+  readonly reportType: string;
+  readonly settingPrefix: string;
+  readonly inheritsFrom: null;
+  readonly label: string;
+  readonly hint: string;
+}
+
+/** `timeseries_table` → `TimeseriesTable`. */
+const pascal = (t: WidgetType): string =>
+  t.split('_').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join('');
+
+/**
+ * The Download report on a dashboard widget (2026-11-02, spec
+ * 2026-11-02-widget-report-templates §8): one kind per widget type, BUILT from
+ * `WIDGET_TYPES` so a new widget type gets its download policy row without a
+ * hand-typed entry. New kinds inherit nothing — absent keys read as the
+ * fail-closed default (Request, remarks, password) like any kind.
+ */
+const WIDGET_REPORT_KINDS: readonly WidgetReportKindEntry[] = WIDGET_TYPES.map((t) => ({
+  key: WIDGET_REPORT_KIND(t),
+  reportType: widgetReportType(t),
+  settingPrefix: `widget${pascal(t)}`,
+  inheritsFrom: null,
+  label: `Widget — ${WIDGET_TYPE_SPECS[t].label}`,
+  hint: `The Download report on a ${WIDGET_TYPE_SPECS[t].label} widget.`,
+}));
+
+/**
+ * Every report kind: the eight page downloads, then the widget kinds APPENDED
+ * (a kind's position is its Report Settings row order and its config def
+ * `sortOrder`; appending moves no existing one).
+ */
+export const REPORT_KINDS = [...PAGE_REPORT_KINDS, ...WIDGET_REPORT_KINDS] as const;
 
 export type ReportKind = (typeof REPORT_KINDS)[number]['key'];
 export type ReportDownloadMode = 'DIRECT' | 'REQUEST';

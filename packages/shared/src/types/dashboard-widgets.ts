@@ -117,6 +117,14 @@ export type WidgetOptionName =
  * and the renderers all read this, so they cannot disagree.
  */
 export interface WidgetTypeSpec {
+  /**
+   * What the type is CALLED — the Add widget picker's wording (2026-11-02).
+   * It is also a widget report's audit `reportType`, `Widget: <label>`
+   * (`widgetReportType`), which `reportTypeMatchesKind` compares exactly and
+   * every report request stores: renaming a type changes the reportType of
+   * every later download of it. Pinned in `report-templates.test.ts`.
+   */
+  label: string;
   /** What keys it takes: `none` = keys must be `[]`; `telemetry` = no attribute keys (an attribute has no history). */
   keys: 'none' | 'any' | 'telemetry';
   /** At most this many keys (<= WIDGET_KEYS_MAX). */
@@ -134,23 +142,24 @@ export interface WidgetTypeSpec {
 }
 
 export const WIDGET_TYPE_SPECS: Record<WidgetType, WidgetTypeSpec> = {
-  value_cards: { keys: 'any', keysMax: WIDGET_KEYS_MAX, followsWindow: false, options: [], panel: null },
-  latest_table: { keys: 'any', keysMax: WIDGET_KEYS_MAX, followsWindow: false, options: [], panel: null },
-  trend_chart: { keys: 'telemetry', keysMax: WIDGET_KEYS_MAX, followsWindow: true, options: ['period'], panel: null },
-  timeseries_table: { keys: 'telemetry', keysMax: WIDGET_KEYS_MAX, followsWindow: true, options: ['period', 'pageSize'], panel: null },
-  alarm_table: { keys: 'none', keysMax: 0, followsWindow: false, options: ['pageSize', 'status'], panel: 'dashboard_alarms' },
-  gauge: { keys: 'any', keysMax: GAUGE_KEYS_MAX, followsWindow: false, options: ['min', 'max'], panel: null },
-  bar_chart: { keys: 'telemetry', keysMax: BAR_SERIES_MAX, followsWindow: true, options: ['period', 'bucket', 'agg', 'groupBy'], panel: null },
-  comparison_bar: { keys: 'any', keysMax: COMPARISON_KEYS_MAX, followsWindow: false, options: [], panel: null },
+  value_cards: { label: 'Value cards', keys: 'any', keysMax: WIDGET_KEYS_MAX, followsWindow: false, options: [], panel: null },
+  latest_table: { label: 'Latest values table', keys: 'any', keysMax: WIDGET_KEYS_MAX, followsWindow: false, options: [], panel: null },
+  trend_chart: { label: 'Trend chart', keys: 'telemetry', keysMax: WIDGET_KEYS_MAX, followsWindow: true, options: ['period'], panel: null },
+  timeseries_table: { label: 'Time series table', keys: 'telemetry', keysMax: WIDGET_KEYS_MAX, followsWindow: true, options: ['period', 'pageSize'], panel: null },
+  alarm_table: { label: 'Alarm table', keys: 'none', keysMax: 0, followsWindow: false, options: ['pageSize', 'status'], panel: 'dashboard_alarms' },
+  gauge: { label: 'Gauge', keys: 'any', keysMax: GAUGE_KEYS_MAX, followsWindow: false, options: ['min', 'max'], panel: null },
+  bar_chart: { label: 'Bar chart', keys: 'telemetry', keysMax: BAR_SERIES_MAX, followsWindow: true, options: ['period', 'bucket', 'agg', 'groupBy'], panel: null },
+  comparison_bar: { label: 'Comparison bars', keys: 'any', keysMax: COMPARISON_KEYS_MAX, followsWindow: false, options: [], panel: null },
   pie_chart: {
+    label: 'Pie chart',
     keys: 'none', keysMax: 0, followsWindow: false, options: ['of'],
     panel: (w) => (w.options.of === 'alarm_types' ? 'dashboard_alarms' : null),
   },
-  alarm_counts: { keys: 'none', keysMax: 0, followsWindow: false, options: [], panel: 'dashboard_alarms' },
-  status_grid: { keys: 'none', keysMax: 0, followsWindow: false, options: [], panel: null },
-  instrument_list: { keys: 'none', keysMax: 0, followsWindow: false, options: ['pageSize'], panel: null },
-  text_card: { keys: 'none', keysMax: 0, followsWindow: false, options: ['text'], panel: null },
-  floorplan: { keys: 'none', keysMax: 0, followsWindow: false, options: ['planId'], panel: 'telemetry_floorplan' },
+  alarm_counts: { label: 'Alarm counts', keys: 'none', keysMax: 0, followsWindow: false, options: [], panel: 'dashboard_alarms' },
+  status_grid: { label: 'Status grid', keys: 'none', keysMax: 0, followsWindow: false, options: [], panel: null },
+  instrument_list: { label: 'Instrument list', keys: 'none', keysMax: 0, followsWindow: false, options: ['pageSize'], panel: null },
+  text_card: { label: 'Text card', keys: 'none', keysMax: 0, followsWindow: false, options: ['text'], panel: null },
+  floorplan: { label: 'Floor plan', keys: 'none', keysMax: 0, followsWindow: false, options: ['planId'], panel: 'telemetry_floorplan' },
 };
 
 /**

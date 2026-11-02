@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { WIDGET_TYPES } from '@digilog/shared';
 
 /**
  * Report Settings (2026-10-01): Report Approvers and Report Downloads on ONE
@@ -53,7 +54,9 @@ const rowOf = (kind: string) => document.querySelector(`[data-report-kind="${kin
 beforeEach(() => { put.mockClear(); approversRow = APPROVERS_ROW; myActions = NO_ACTIONS; readiness = READY; });
 
 describe('Report Settings', () => {
-  it('shows the approvers and ALL EIGHT report types on one page, never offering SUPER_ADMIN as a role', () => {
+  // 8 → 22 types on 2026-11-02: one `widget:<type>` per dashboard widget type,
+  // after the eight page downloads.
+  it('shows the approvers and EVERY report type (the eight pages, then one per widget type) on one page, never offering SUPER_ADMIN as a role', () => {
     mount();
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Report Settings');
     expect(screen.getByLabelText('Supervisor')).toBeChecked();
@@ -61,7 +64,11 @@ describe('Report Settings', () => {
     expect(screen.queryByLabelText('Super Admin')).toBeNull();
     expect(screen.getByLabelText('sup1 (SUPERVISOR)')).toBeChecked();
     const kinds = [...document.querySelectorAll('[data-report-kind]')].map((r) => r.getAttribute('data-report-kind'));
-    expect(kinds).toEqual(['data-report', 'time-series', 'trend-header', 'temperature-trend', 'humidity-trend', 'instrument-alarms', 'alarms', 'audit-trail']);
+    expect(kinds).toEqual([
+      'data-report', 'time-series', 'trend-header', 'temperature-trend', 'humidity-trend', 'instrument-alarms', 'alarms', 'audit-trail',
+      ...WIDGET_TYPES.map((t) => `widget:${t}`),
+    ]);
+    expect(kinds).toHaveLength(22);
   });
 
   it('shows each split type with the values it INHERITS from the setting it came from', () => {
@@ -86,7 +93,9 @@ describe('Report Settings', () => {
     expect(body.temperatureTrendMode).toBe('DIRECT');     // inherited value written as its own
     expect(body.timeSeriesRemarks).toBe(false);
     expect(body).not.toHaveProperty('trendChartMode');
-    expect(Object.keys(body)).toHaveLength(24);
+    // Three keys per type, every type (22).
+    expect(Object.keys(body)).toHaveLength(66);
+    expect(body.widgetGaugeMode).toBe('REQUEST');
   });
 
   it('an approver change PUTs ONLY the approvers row, with roles and users', async () => {

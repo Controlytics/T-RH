@@ -125,6 +125,9 @@ export const REAUTH_ACTIONS = {
   // REQUEST (its label already reads "Generate"); these two are the decision.
   APPROVE_REPORT: { label: 'Approve a Report Request', category: 'Reports' },
   REJECT_REPORT: { label: 'Reject a Report Request', category: 'Reports' },
+  // 2026-11-02 — report templates per instrument profile × widget type: create,
+  // update, delete and set-default of a template (SUPER_ADMIN only). Ships OFF.
+  UPDATE_REPORT_TEMPLATE: { label: 'Update Report Template', category: 'Reports' },
 
   // Instrument registry (audit 2026-10-03, SEC-7). Until then creating, editing
   // and deleting an instrument "carried no reauth at all — ordinary registry

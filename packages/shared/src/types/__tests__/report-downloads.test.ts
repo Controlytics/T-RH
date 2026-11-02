@@ -59,9 +59,13 @@ describe('coerceReportDownloads', () => {
     expect(p.alarms).toEqual(REPORT_KIND_POLICY_DEFAULT);
   });
 
-  it('names eight kinds, each with unique setting keys, under one config key', () => {
+  // 8 → 22 on 2026-11-02: one `widget:<type>` kind per dashboard widget type,
+  // APPENDED so no existing kind's position (or its def sortOrder) moved.
+  it('names the eight page kinds, then one per widget type, each with unique setting keys, under one config key', () => {
     expect(REPORT_DOWNLOADS_CONFIG_KEY).toBe('report-downloads');
-    expect(REPORT_KINDS.map((k) => k.key)).toEqual(['data-report', 'time-series', 'trend-header', 'temperature-trend', 'humidity-trend', 'instrument-alarms', 'alarms', 'audit-trail']);
+    expect(REPORT_KINDS).toHaveLength(22);
+    expect(REPORT_KINDS.slice(0, 8).map((k) => k.key)).toEqual(['data-report', 'time-series', 'trend-header', 'temperature-trend', 'humidity-trend', 'instrument-alarms', 'alarms', 'audit-trail']);
+    expect(REPORT_KINDS.slice(8).every((k) => k.key.startsWith('widget:') && k.inheritsFrom === null)).toBe(true);
     const all = REPORT_KINDS.flatMap((k) => Object.values(reportKindSettingKeys(k.key)));
     expect(new Set(all).size).toBe(all.length);
     expect(isReportKind('alarms')).toBe(true);
