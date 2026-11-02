@@ -5,6 +5,7 @@ import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { StatusBadge, type StatusTone } from '@/components/ui/status-badge';
+import { ErrorState } from '@/components/ui/empty-state';
 import { RemarkDialog } from './remark-dialog';
 import { TestConnectionPanel } from './test-connection-panel';
 import type { JudgedAs } from './register-map-editor';
@@ -55,10 +56,12 @@ export function ModbusConnectionCard({
 }) {
   const { formatDate, formatTime } = useDatetimeFormat();
   const stamp = (v: string | null) => (v ? `${formatDate(v)} ${formatTime(v)}` : '—');
-  const { data: status, mutate } = useSWR<ModbusStatus>(
+  const { data: status, error: statusError, mutate } = useSWR<ModbusStatus>(
     `/api/instruments/${instrumentId}/modbus-status`,
     { refreshInterval: 15_000 },
   );
+  // The server's own message when it sent one (apiClient throws an Error carrying it).
+  const statusErrorMessage = statusError instanceof Error ? statusError.message : '';
 
   const [editing, setEditing] = useState(false);
   const [hostDraft, setHostDraft] = useState('');
@@ -93,7 +96,18 @@ export function ModbusConnectionCard({
   return (
     <div className="space-y-4" data-testid="modbus-connection-card">
       {!status ? (
-        <p className="text-sm text-slate-500">Checking the connection…</p>
+        // A failed request is a different thing from one still loading (final
+        // review F-8): this panel reports device health, so it must never sit
+        // on "Checking the connection…" while the request has already failed.
+        statusError ? (
+          <ErrorState
+            title="Could not load the connection status."
+            detail={statusErrorMessage || undefined}
+            onRetry={() => void mutate()}
+          />
+        ) : (
+          <p className="text-sm text-slate-500">Checking the connection…</p>
+        )
       ) : (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-3">

@@ -33,6 +33,9 @@ const READING = {
   stored24h: 1380, expected24h: 1440, inactivityAlarmsOff: false,
 };
 let status: Record<string, unknown> = READING;
+/** Set to make `/modbus-status` FAIL, as useSWR reports it: no data, an error. */
+let statusError: Error | undefined;
+const statusMutate = vi.fn();
 let role = 'SUPER_ADMIN';
 const requested: string[] = [];
 
@@ -41,7 +44,9 @@ vi.mock('swr', () => ({
     if (key) requested.push(key);
     if (key === '/api/instruments/i-1') return { data: tcpInstrument, mutate: vi.fn() };
     if (key === '/api/instruments/i-2') return { data: pushInstrument, mutate: vi.fn() };
-    if (key === '/api/instruments/i-1/modbus-status') return { data: status, mutate: vi.fn() };
+    if (key === '/api/instruments/i-1/modbus-status') {
+      return statusError ? { data: undefined, error: statusError, mutate: statusMutate } : { data: status, mutate: vi.fn() };
+    }
     if (key?.endsWith('/attributes')) return { data: { data: [] }, mutate: vi.fn() };
     if (key?.endsWith('/children')) return { data: { data: [] }, mutate: vi.fn() };
     return { data: undefined, mutate: vi.fn() };
@@ -99,6 +104,8 @@ const sign = async (button = 'Save change') => {
 beforeEach(() => {
   put.mockReset().mockResolvedValue({});
   status = READING;
+  statusError = undefined;
+  statusMutate.mockReset();
   role = 'SUPER_ADMIN';
   requested.length = 0;
   reauthActions.length = 0;
@@ -183,6 +190,25 @@ describe('instrument detail - a TCP/IP instrument', () => {
     expect(within(card).queryByText(/Not answering/)).toBeNull();
     // The last failure is still shown, as the record of what happened.
     expect(within(card).getByTestId('modbus-last-error')).toHaveTextContent('did not answer within 3 s');
+  });
+
+  it('a failed status request says so with the server\'s message and a retry - never "Checking the connection…" forever (final review F-8)', () => {
+    statusError = new Error('Instrument not found.');
+    renderPage();
+    const card = screen.getByTestId('modbus-connection-card');
+    expect(within(card).queryByText('Checking the connection…')).toBeNull();
+    expect(within(card).getByText('Could not load the connection status.')).toBeInTheDocument();
+    expect(within(card).getByText('Instrument not found.')).toBeInTheDocument();
+    fireEvent.click(within(card).getByRole('button', { name: 'Try again' }));
+    expect(statusMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('...and with no message from the server, the fixed sentence alone', () => {
+    statusError = new Error('');
+    renderPage();
+    const card = screen.getByTestId('modbus-connection-card');
+    expect(within(card).getByText('Could not load the connection status.')).toBeInTheDocument();
+    expect(within(card).queryByText('Checking the connection…')).toBeNull();
   });
 
   it('prints the Inactivity Alarms sentence only when the server says they are off', () => {
