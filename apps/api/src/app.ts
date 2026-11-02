@@ -156,6 +156,10 @@ await app.register(helmet, {
       connectSrc: ["'self'"],
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
+      // The Report Templates editor previews the real PDF in an <iframe> whose
+      // src is a blob: URL the page built itself (2026-11-02). Only blob: and
+      // same-origin frames; nothing remote can be framed in.
+      frameSrc: ["'self'", 'blob:'],
       frameAncestors: ["'none'"],
     },
   },
