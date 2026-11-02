@@ -196,6 +196,21 @@ describe('instrument detail - a TCP/IP instrument', () => {
     expect(within(card).getByTestId('modbus-last-error')).toHaveTextContent('could not be saved');
   });
 
+  it('a stored interval the Reader refuses: the server sends no interval and no expected count — nothing prints "null" or "NaN"', () => {
+    status = {
+      ...READING, state: 'not-read', notReadReason: 'INVALID_CONFIG',
+      notReadDetail: 'The instrument\'s read interval 5 s is not 10 to 3600 s.',
+      intervalSec: null, expected24h: null, stored24h: 12,
+    };
+    renderPage();
+    const card = screen.getByTestId('modbus-connection-card');
+    const rows = Object.fromEntries(Array.from(card.querySelectorAll('dt')).map((dt) => [dt.textContent, dt.nextElementSibling?.textContent]));
+    expect(rows['Read by']).toBe('This server');
+    expect(rows['Stored in 24 h']).toBe('stored 12 in 24 h');
+    expect(card.textContent).not.toMatch(/null|NaN/);
+    expect(within(card).getByText('The instrument\'s read interval 5 s is not 10 to 3600 s.')).toBeInTheDocument();
+  });
+
   it('a not-read instrument says why, in the server\'s words', () => {
     status = { ...READING, state: 'not-read', notReadReason: 'SERVER_READING_OFF', notReadDetail: 'Reading devices from this server is off.' };
     renderPage();

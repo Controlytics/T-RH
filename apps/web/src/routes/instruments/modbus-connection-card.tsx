@@ -21,12 +21,17 @@ export interface ModbusStatus {
   notReadReason?: string;
   notReadDetail?: string;
   readBy: 'server';
-  intervalSec: number;
+  /**
+   * The instrument's Read every and the readings a day it implies. NULL for a
+   * stored value the Reader refuses (a hand-edited interval — `notReadReason`
+   * INVALID_CONFIG, CR-1): no figure is printed rather than "null" or "NaN".
+   */
+  intervalSec: number | null;
   lastSuccessAt: string | null;
   failingSince: string | null;
   lastError?: { code: string; message: string; at: string };
   stored24h: number;
-  expected24h: number;
+  expected24h: number | null;
   inactivityAlarmsOff: boolean;
 }
 
@@ -169,9 +174,13 @@ export function ModbusConnectionCard({
             <dt className="text-slate-500">Slave ID</dt>
             <dd className="font-mono text-slate-800">{unitId ?? '—'}</dd>
             <dt className="text-slate-500">Read by</dt>
-            <dd>This server, every {status.intervalSec} s</dd>
+            <dd>{status.intervalSec === null ? 'This server' : `This server, every ${status.intervalSec} s`}</dd>
             <dt className="text-slate-500">Stored in 24 h</dt>
-            <dd>stored {status.stored24h} of {status.expected24h} in 24 h</dd>
+            <dd>
+              {status.expected24h === null
+                ? `stored ${status.stored24h} in 24 h`
+                : `stored ${status.stored24h} of ${status.expected24h} in 24 h`}
+            </dd>
             <dt className="text-slate-500">Last answered</dt>
             <dd>{stamp(status.lastSuccessAt)}</dd>
             {/* Only while the server is ASKING (final review F-2): a not-read
