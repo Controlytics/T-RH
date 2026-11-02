@@ -1,6 +1,6 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { BRANDING_TAB_TITLE_DEFAULT } from '@digilog/shared';
+import { BRANDING_TAB_TITLE_DEFAULT, reportLogoFormat, type ReportTemplateDocument } from '@digilog/shared';
 import { apiClient } from './api-client';
 import { getApiBase } from './api-base';
 
@@ -23,9 +23,16 @@ const COLORS = {
 };
 
 let cachedLogo: { data: string; w: number; h: number } | null = null;
+let cachedLogoDataUrl: string | null = null;
 
-async function loadLogo(): Promise<{ data: string; w: number; h: number } | null> {
-  if (cachedLogo) return cachedLogo;
+/**
+ * The Branding logo as a `data:` URL, or null — fetched once per page load and
+ * cached (as the drawn logo always was). Split out of `loadLogo` (2026-11-02)
+ * so a report TEMPLATE's chrome can carry the logo's bytes into its snapshot
+ * without the `Image()` measurement below, which never settles in jsdom.
+ */
+async function loadBrandingLogoDataUrl(): Promise<string | null> {
+  if (cachedLogoDataUrl) return cachedLogoDataUrl;
   try {
     const res = await fetch(`${getApiBase()}/api/config/branding`);
     const branding = await res.json();
@@ -44,6 +51,16 @@ async function loadLogo(): Promise<{ data: string; w: number; h: number } | null
       reader.onerror = () => reject();
       reader.readAsDataURL(blob);
     });
+    cachedLogoDataUrl = dataUrl;
+    return dataUrl;
+  } catch { return null; }
+}
+
+async function loadLogo(): Promise<{ data: string; w: number; h: number } | null> {
+  if (cachedLogo) return cachedLogo;
+  try {
+    const dataUrl = await loadBrandingLogoDataUrl();
+    if (!dataUrl) return null;
     // Get natural dimensions to preserve aspect ratio
     const dims: { w: number; h: number } = await new Promise((resolve) => {
       const img = new Image();
@@ -54,6 +71,47 @@ async function loadLogo(): Promise<{ data: string; w: number; h: number } | null
     cachedLogo = { data: dataUrl, w: dims.w, h: dims.h };
     return cachedLogo;
   } catch { return null; }
+}
+
+/**
+ * The jsPDF format of an image `data:` URL, decided by its BYTES — a PNG
+ * uploaded under a `.jpg` name, or served as `application/octet-stream`, is a
+ * PNG. One rule: `reportLogoFormat` (shared), applied to the payload whatever
+ * the label says. Anything it cannot name is `'JPEG'`, the format every logo
+ * was drawn with before 2026-11-02.
+ *
+ * Honest note: jsPDF 4.x sniffs the bytes itself and treats the format it is
+ * passed as a FALLBACK (`processImageData` → `getImageFileTypeByImageData`),
+ * so the old hard-coded `'JPEG'` never actually broke a PNG logo. This makes
+ * the call say what it draws instead of relying on that.
+ */
+export function imageFormatOf(dataUrl: string): 'PNG' | 'JPEG' {
+  const named = reportLogoFormat(dataUrl);
+  if (named) return named;
+  const payload = /^data:[^,]*;base64,([\s\S]*)$/.exec(dataUrl)?.[1];
+  return (payload ? reportLogoFormat(`data:image/png;base64,${payload}`) : null) ?? 'JPEG';
+}
+
+/** `#rrggbb` → RGB, or null. */
+function hexRgb(hex: string | undefined): [number, number, number] | null {
+  const m = hex ? /^#([0-9a-fA-F]{6})$/.exec(hex) : null;
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/**
+ * White or the dark ink on a fill, whichever contrasts more (WCAG relative
+ * luminance). A template may set any accent; a pale one under the title's
+ * white text would print a title nobody can read.
+ */
+function inkOn(rgb: [number, number, number]): [number, number, number] {
+  const lin = (c: number) => { const s = c / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
+  const lum = (c: [number, number, number]) => 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]);
+  const l = lum(rgb);
+  const vsWhite = 1.05 / (l + 0.05);
+  const vsDark = (l + 0.05) / (lum(COLORS.dark) + 0.05);
+  return vsWhite >= vsDark ? COLORS.white : COLORS.dark;
 }
 
 async function loadBranding(): Promise<{ companyName: string; appName: string }> {
@@ -76,6 +134,75 @@ async function loadBranding(): Promise<{ companyName: string; appName: string }>
     if (ov?.appName?.trim()) appName = ov.appName.trim();
   } catch { /* keep branding values */ }
   return { companyName, appName };
+}
+
+/**
+ * The CHROME a report template draws with (2026-11-02, widget report
+ * templates) — everything around the data: the identity, the logo, the accent,
+ * the footer, the page. A report drawn from a chrome fetches NOTHING for it,
+ * and its snapshot (v3) freezes the chrome, so an approved copy replays with
+ * the logo and names it was signed under even after Branding changes.
+ */
+export interface ReportChrome {
+  companyName: string;
+  appName: string;
+  showAppName: boolean;
+  /** The logo's bytes, or null for none. Never a URL: a URL would be re-fetched. */
+  logoDataUrl: string | null;
+  /** `#rrggbb`: the top strip and the title bar. Absent = the shipped colours. */
+  accentColor?: string;
+  footer: ReportTemplateDocument['footer'];
+  orientation: 'portrait' | 'landscape';
+  /** The end block's "Remarks" label (the template's `notes.remarksLabel`). Absent = "Remarks". */
+  remarksLabel?: string;
+  /** Free text printed as the end block's legend (the template's `notes.legend`). */
+  legend?: string;
+}
+
+/**
+ * A template document's chrome, resolved NOW: its own company / app name, else
+ * Configuration → Report Page Titles, else Branding (the page reports' one
+ * order); its logo by mode — `branding` = the Branding logo's bytes,
+ * `custom` = the template's own image, `none` = none. Nothing is fetched that
+ * the document does not need.
+ */
+export async function loadReportChrome(doc: ReportTemplateDocument): Promise<ReportChrome> {
+  const companyOverride = doc.header.companyName?.trim();
+  const appOverride = doc.header.appName?.trim();
+  const logo = doc.header.logo;
+  const [identity, logoDataUrl] = await Promise.all([
+    companyOverride && appOverride ? Promise.resolve(null) : loadBranding(),
+    logo.mode === 'branding' ? loadBrandingLogoDataUrl()
+      : Promise.resolve(logo.mode === 'custom' ? logo.dataUrl ?? null : null),
+  ]);
+  const remarksLabel = doc.notes.remarksLabel?.trim();
+  const legend = doc.notes.legend?.trim();
+  return {
+    companyName: companyOverride || identity!.companyName,
+    appName: appOverride || identity!.appName,
+    showAppName: doc.header.showAppName,
+    logoDataUrl,
+    ...(doc.header.accentColor ? { accentColor: doc.header.accentColor } : {}),
+    footer: { ...doc.footer },
+    orientation: doc.page.orientation,
+    ...(remarksLabel ? { remarksLabel } : {}),
+    ...(legend ? { legend } : {}),
+  };
+}
+
+/** The footer every report printed before templates: page numbers, Printed By, Printed Date & Time. */
+const DEFAULT_FOOTER: ReportChrome['footer'] = { showPageNumbers: true, showPrintedBy: true, showPrintedAt: true, signatureLine: false };
+
+function isReportChrome(v: unknown): v is ReportChrome {
+  const c = v as Partial<ReportChrome> | null;
+  if (!c || typeof c !== 'object') return false;
+  const f = c.footer as Partial<ReportChrome['footer']> | null | undefined;
+  return typeof c.companyName === 'string' && typeof c.appName === 'string' && typeof c.showAppName === 'boolean'
+    && (c.logoDataUrl === null || typeof c.logoDataUrl === 'string')
+    && (c.orientation === 'portrait' || c.orientation === 'landscape')
+    && !!f && typeof f === 'object'
+    && typeof f.showPageNumbers === 'boolean' && typeof f.showPrintedBy === 'boolean'
+    && typeof f.showPrintedAt === 'boolean' && typeof f.signatureLine === 'boolean';
 }
 
 /** Current user's User ID (username) + role, for the report footer stamp. The
@@ -164,6 +291,13 @@ export interface ReportConfig {
    * requester asked for, marked as unsigned, before signing it.
    */
   draft?: boolean;
+  /**
+   * Draw from this CHROME (a report template's, 2026-11-02) instead of
+   * fetching Branding / Report Page Titles / the logo. It wins over
+   * `orientation` and `showAppName`, and the snapshot becomes v3 with it
+   * frozen. Absent = every page report, exactly as before (v2).
+   */
+  chrome?: ReportChrome;
 }
 
 /**
@@ -291,6 +425,11 @@ export type NoteColor = 'red' | 'muted' | 'text';
  * the chrome (legend, typography, app-name line). No v1 snapshot exists in any
  * database — the table they lived in was dropped in the 2026-07-18 strip — so
  * `normaliseSnapshot` refuses anything but v2 rather than migrating.
+ *
+ * v3 (2026-11-02) = v2 + `chrome`: a report drawn from a template's chrome
+ * (`ReportConfig.chrome`) freezes it, and the replay draws from it with no
+ * fetch. Page reports (Data Report, Alarms, Trend, Audit) still write v2 and
+ * still fetch Branding when replayed — spec §15.8 left them untouched.
  */
 export type SnapshotSection =
   | { kind: 'table'; title?: string; head: string[]; body: TableCell[][]; columnStyles?: Record<number, any>; bold?: boolean[][] }
@@ -301,7 +440,7 @@ export type SnapshotSection =
   | { kind: 'page-break' };
 
 export interface ReportSnapshot {
-  version: 2;
+  version: 2 | 3;
   /** The audit reportType, e.g. 'Instrument Time Series'. */
   reportType: string;
   title: string;
@@ -309,14 +448,19 @@ export interface ReportSnapshot {
   orientation?: 'portrait' | 'landscape';
   config: { legend?: ReportConfig['legend']; typography?: ReportConfig['typography']; showAppName?: boolean };
   sections: SnapshotSection[];
+  /** v3 only — the chrome the report was drawn with; the replay draws from it and fetches nothing. */
+  chrome?: ReportChrome;
 }
 
-/** The stored JSON as a v2 snapshot, or a thrown error — never a guess. */
+/** The stored JSON as a v2 / v3 snapshot, or a thrown error — never a guess. */
 export function normaliseSnapshot(v: unknown): ReportSnapshot {
   const s = v as Partial<ReportSnapshot> | null;
   if (!s || typeof s !== 'object') throw new Error('The stored report is not a snapshot.');
-  if (s.version !== 2) throw new Error(`Unsupported report snapshot version ${String((s as any).version)} (expected 2).`);
+  if (s.version !== 2 && s.version !== 3) throw new Error(`Unsupported report snapshot version ${String((s as any).version)} (expected 2 or 3).`);
   if (typeof s.title !== 'string' || !Array.isArray(s.sections)) throw new Error('The stored report snapshot is malformed.');
+  // A v3 without its chrome would replay by fetching TODAY's branding — the
+  // one thing v3 exists to prevent — so it is refused, not repaired.
+  if (s.version === 3 && !isReportChrome(s.chrome)) throw new Error('The stored report snapshot (v3) has no usable chrome.');
   return { ...s, reportType: s.reportType ?? '', config: s.config ?? {} } as ReportSnapshot;
 }
 
@@ -414,7 +558,18 @@ export const LEGACY_TYPOGRAPHY_2026_10_06: ReportTypography = {
 const GUTTER_MM = 14;
 
 export async function createReport(config: ReportConfig): Promise<ReportDoc> {
-  const [logo, branding, me, signatories] = await Promise.all([loadLogo(), loadBranding(), loadCurrentUser(), loadSignatories()]);
+  // A template's chrome is drawn as given: nothing about the identity or the
+  // logo is fetched (the v3 replay's whole promise). Without one, every page
+  // report loads Branding exactly as before.
+  const chrome = config.chrome;
+  const [logo, branding, me, signatories] = await Promise.all([
+    chrome ? Promise.resolve(null) : loadLogo(),
+    chrome ? Promise.resolve({ companyName: chrome.companyName, appName: chrome.appName }) : loadBranding(),
+    loadCurrentUser(), loadSignatories(),
+  ]);
+  const footer = chrome?.footer ?? DEFAULT_FOOTER;
+  const accent = hexRgb(chrome?.accentColor);
+  const orientation = chrome?.orientation ?? config.orientation;
   const t: ReportTypography = { ...DEFAULT_TYPOGRAPHY, ...config.typography };
   const headingFont = () => doc.setFont('helvetica', t.headingWeight);
   const normalFont = () => doc.setFont('helvetica', 'normal');
@@ -430,26 +585,52 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
   // Labels configured for the generator's role (reportKey -> label), if any.
   const sig = me.role ? (signatories ?? {})[me.role] : undefined;
   const printedAt = config.formatDateTime(new Date().toISOString());
-  const doc = new jsPDF({ orientation: config.orientation ?? 'portrait', unit: 'mm', format: 'a4' });
+  const doc = new jsPDF({ orientation: orientation ?? 'portrait', unit: 'mm', format: 'a4' });
   const pw = doc.internal.pageSize.width;
   const ph = doc.internal.pageSize.height;
   let y = 10;
 
+  /**
+   * The FOOTER zone. A template's footer text prints between the footer rule
+   * and the page number, so the rule rises by the text's lines; everything
+   * that stops above the footer (page breaks, the end block, a table's bottom
+   * margin) stops above THIS line. No text = the 12mm it has always been.
+   */
+  const footerText = footer.text?.trim() ?? '';
+  let footerTextLines: string[] = [];
+  if (footerText) {
+    // Measured in the font it prints in.
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(t.smallprintPt);
+    footerTextLines = doc.splitTextToSize(footerText, pw - 28) as string[];
+  }
+  const footerTextLineH = t.smallprintPt * 0.45;
+  const footerLineY = ph - 12 - footerTextLines.length * footerTextLineH;
+
   // ── Top accent line ──
-  doc.setFillColor(...COLORS.secondary);
+  doc.setFillColor(...(accent ?? COLORS.secondary));
   doc.rect(0, 0, pw, 2, 'F');
 
   y = 6;
 
   // ── Logo (aspect-ratio preserved, max 12mm tall) ──
+  // A chrome's logo is measured from its own bytes (`getImageProperties`,
+  // synchronous) — never an `Image()` load, which a replay would wait on.
+  let drawnLogo = logo;
+  if (chrome?.logoDataUrl) {
+    try {
+      const p = doc.getImageProperties(chrome.logoDataUrl);
+      drawnLogo = { data: chrome.logoDataUrl, w: p.width, h: p.height };
+    } catch { drawnLogo = null; }
+  }
   const maxLogoH = 12;
   let logoEndX = 14;
-  if (logo) {
+  if (drawnLogo) {
     try {
-      const aspect = logo.w / logo.h;
+      const aspect = drawnLogo.w / drawnLogo.h;
       const logoH = maxLogoH;
       const logoW = logoH * aspect;
-      doc.addImage(logo.data, 'JPEG', 14, y, logoW, logoH);
+      doc.addImage(drawnLogo.data, imageFormatOf(drawnLogo.data), 14, y, logoW, logoH);
       logoEndX = 14 + logoW + 4;
     } catch { /* skip */ }
   }
@@ -476,7 +657,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
   doc.setFontSize(t.companyPt); doc.setTextColor(...COLORS.primary);
   const centreFor = (text: string) => centredX(doc.getTextWidth(text), pw, logoEndX);
   doc.text(branding.companyName, centreFor(branding.companyName), companyBaseline, { align: 'center' });
-  const showAppName = config.showAppName !== false;
+  const showAppName = chrome ? chrome.showAppName : config.showAppName !== false;
   if (showAppName) {
     doc.setFontSize(t.appNamePt); doc.setTextColor(...COLORS.muted);
     doc.text(branding.appName, centreFor(branding.appName), appBaseline, { align: 'center' });
@@ -486,14 +667,14 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
   y += Math.max(maxLogoH, (showAppName ? appBaseline : companyBaseline) - y + 1.5) + 4;
 
   // ── Report title bar ──
-  doc.setFillColor(...COLORS.primary);
+  doc.setFillColor(...(accent ?? COLORS.primary));
   // The bar grows with its title (9.5mm at the 13pt default, which keeps the
   // title optically centred in it); the baseline sits at 63% of its height.
   const barH = 9.5 * (t.titlePt / 13);
   doc.rect(GUTTER_MM, y, pw - GUTTER_MM * 2, barH, 'F');
   // Centered title; no generated-on timestamp here (the print stamp at the end
   // of the report carries Printed Date & Time).
-  doc.setFontSize(t.titlePt); doc.setTextColor(...COLORS.white);
+  doc.setFontSize(t.titlePt); doc.setTextColor(...(accent ? inkOn(accent) : COLORS.white));
   doc.text(config.title, pw / 2, y + barH * 0.63, { align: 'center' });
   normalFont();
 
@@ -517,7 +698,15 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       doc.setPage(i);
       // Footer line
       doc.setDrawColor(...COLORS.border); doc.setLineWidth(0.3);
-      doc.line(14, ph - 12, pw - 14, ph - 12);
+      doc.line(14, footerLineY, pw - 14, footerLineY);
+      // A template's footer text, on every page, under the rule and above
+      // the page number.
+      if (footerTextLines.length) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(t.smallprintPt);
+        doc.setTextColor(...COLORS.muted);
+        footerTextLines.forEach((line, n) => doc.text(line, pw / 2, footerLineY + 4 + n * footerTextLineH, { align: 'center' }));
+      }
       /**
        * The page number ALONE, centred, bold, black (operator, 2026-09-01).
        *
@@ -527,10 +716,12 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
        * needs at the bottom is its place in the set — which is why the one thing
        * left is emphasised rather than greyed.
        */
-      doc.setFontSize(t.smallprintPt);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(0, 0, 0);
-      doc.text(`Page ${i} of ${pageCount}`, pw / 2, ph - 7, { align: 'center' });
+      if (footer.showPageNumbers) {
+        doc.setFontSize(t.smallprintPt);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(0, 0, 0);
+        doc.text(`Page ${i} of ${pageCount}`, pw / 2, ph - 7, { align: 'center' });
+      }
       normalFont();
       if (config.draft) {
         // Light grey, diagonal, on EVERY page: a page torn out of a draft must
@@ -561,9 +752,13 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     // Measured in the font it is drawn in, or a bold legend overruns its wrap.
     labelFont();
     doc.setFontSize(t.smallprintPt);
-    const legendText = legendItems.length
-      ? 'Legend:   ' + legendItems.map((l) => `${l.abbr} = ${l.meaning}`).join('      ')
-      : '';
+    // A template's free-text legend joins the abbreviation key, under the one
+    // "Legend:" label.
+    const legendParts = [
+      ...(legendItems.length ? [legendItems.map((l) => `${l.abbr} = ${l.meaning}`).join('      ')] : []),
+      ...(chrome?.legend?.trim() ? [chrome.legend.trim()] : []),
+    ];
+    const legendText = legendParts.length ? 'Legend:   ' + legendParts.join('      ') : '';
     const legendLines = legendText ? (doc.splitTextToSize(legendText, pw - 28) as string[]) : [];
 
     // Signature lines. Explicit `config.signatures` (re-render from an approved
@@ -583,17 +778,30 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       sigLines = [];
     } else if (config.signatures?.length) {
       sigLines = config.signatures.map((s) => `${s.label}: ${s.value}`);
-    } else {
+    } else if (footer.showPrintedBy) {
       const sigLabel = (config.reportKey ? (sig?.[config.reportKey] ?? '').trim() : '') || 'Printed By';
       sigLines = [`${sigLabel}: ${me.username ?? '-'}`];
+    } else {
+      // A template that hides the GENERATOR's line. Nothing above this branch —
+      // an approved copy's signatures, a draft — can be hidden by a template.
+      sigLines = [];
     }
+    /**
+     * A blank line to sign by HAND (template `footer.signatureLine`). Only on
+     * a plain download: a draft is unsigned by definition, and a wet-ink line
+     * under an e-signed approved copy would invite a second, unrecorded
+     * signature.
+     */
+    const wetSignature = footer.signatureLine && !config.draft && !sigTable && !config.signatures?.length;
 
     const remarksH = 4 * kLabel + 22 + 3;                // label + box + gap
     const legendH = legendLines.length ? legendLines.length * legendLineH + 3 : 0;
-    const printedH = sigTable ? 4 + SIG_TABLE_H : 4 + sigLines.length * sigLineH;
+    const signRows = Math.max(sigLines.length, 1);       // the first row also carries Printed Date & Time
+    const printedH = sigTable
+      ? 4 + SIG_TABLE_H
+      : wetSignature ? 4 + (signRows + 1.6) * sigLineH : 4 + sigLines.length * sigLineH;
     const blockH = remarksH + legendH + printedH;
 
-    const footerLineY = ph - 12;
     doc.setPage(doc.getNumberOfPages());
     let top = footerLineY - 3 - blockH;
     if (y > top - 2) { doc.addPage(); top = footerLineY - 3 - blockH; }
@@ -603,7 +811,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     // Remarks — empty bordered box for handwriting
     labelFont();
     doc.setFontSize(t.labelPt); doc.setTextColor(...COLORS.primary);
-    doc.text('Remarks:', 14, by + 3 * kLabel);
+    doc.text(`${chrome?.remarksLabel?.trim() || 'Remarks'}:`, 14, by + 3 * kLabel);
     by += 4 * kLabel;
     doc.setDrawColor(...COLORS.border); doc.setLineWidth(0.3);
     doc.rect(14, by, pw - 28, 22);
@@ -649,12 +857,23 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     }
     labelFont();
     doc.setFontSize(t.labelPt); doc.setTextColor(...COLORS.text);
-    doc.text(`Printed Date & Time: ${printedAt}`, pw - 14, by + sigLineH, { align: 'right' });
+    if (footer.showPrintedAt) doc.text(`Printed Date & Time: ${printedAt}`, pw - 14, by + sigLineH, { align: 'right' });
+    if (wetSignature) {
+      const wy = by + (signRows + 1.4) * sigLineH;
+      doc.setDrawColor(...COLORS.text); doc.setLineWidth(0.2);
+      doc.text('Signature:', 14, wy);
+      const sx = 14 + doc.getTextWidth('Signature:') + 2;
+      doc.line(sx, wy + 0.8, sx + 70, wy + 0.8);
+      const dx = pw / 2 + 20;
+      doc.text('Date:', dx, wy);
+      doc.line(dx + doc.getTextWidth('Date:') + 2, wy + 0.8, pw - 14, wy + 0.8);
+    }
     normalFont();
   };
 
+  // 18mm from the edge = 6mm above the 12mm footer rule; a footer text raises both.
   const checkPageBreak = (needed: number) => {
-    if (y + needed > ph - 18) { doc.addPage(); y = 14; }
+    if (y + needed > footerLineY - 6) { doc.addPage(); y = 14; }
   };
 
   // Snapshot capture — EVERY drawing call is recorded so the report can be
@@ -704,7 +923,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     flushTitle();
     snapSections.push({ kind: 'image', dataUrl, widthMm, heightMm });
     checkPageBreak(heightMm + 4);
-    doc.addImage(dataUrl, 'PNG', GUTTER_MM, y, widthMm, heightMm);
+    doc.addImage(dataUrl, imageFormatOf(dataUrl), GUTTER_MM, y, widthMm, heightMm);
     y += heightMm + 6;
   };
 
@@ -725,7 +944,11 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       ...(opts.head ? { head: [opts.head] } : {}),
       body: opts.body,
       theme: 'grid',
-      margin: { left: GUTTER_MM, right: GUTTER_MM },
+      // A footer text raises the footer rule; the records stop above it with
+      // the same ~2mm gap autotable's default bottom margin keeps over 12mm.
+      margin: footerTextLines.length
+        ? { left: GUTTER_MM, right: GUTTER_MM, bottom: ph - footerLineY + 2.2 }
+        : { left: GUTTER_MM, right: GUTTER_MM },
       // A HEADLESS table is the report's header block (the Block / Area / …
       // form at the top): ONE style on every report — dark rules,
       // HEADER_BLOCK_PT, the label columns bold and the value columns regular
@@ -804,8 +1027,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     toBlobUrl: () => { finalise(); return doc.output('bloburl') as unknown as string; },
     getSnapshot: (): ReportSnapshot => {
       flushTitle();
-      return {
-        version: 2,
+      const base = {
         reportType: config.reportKey ?? '',
         title: config.title,
         subtitle: config.subtitle,
@@ -815,6 +1037,11 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
         config: { legend: config.legend, typography: { ...t }, showAppName: config.showAppName },
         sections: snapSections,
       };
+      // v3: the chrome it was DRAWN with, frozen (a copy — a caller mutating
+      // its object afterwards cannot rewrite the record).
+      return chrome
+        ? { version: 3, ...base, orientation: chrome.orientation, chrome: { ...chrome, footer: { ...chrome.footer } } }
+        : { version: 2, ...base };
     },
   };
 }
@@ -847,6 +1074,9 @@ export async function renderSnapshotToPdf(
     signatures: opts.signatures,
     signatureTable: opts.signatureTable,
     draft: opts.draft,
+    // v3: the frozen chrome — no Branding, Report Page Titles or logo fetch.
+    // v2: no chrome, so the page report's chrome is fetched as it always was.
+    ...(snapshot.version === 3 && snapshot.chrome ? { chrome: snapshot.chrome } : {}),
   });
   for (const s of snapshot.sections) {
     switch (s.kind) {
