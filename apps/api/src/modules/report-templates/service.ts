@@ -27,7 +27,7 @@ import type { Prisma } from '@prisma/client';
 import {
   WIDGET_TYPES, WIDGET_TYPE_SPECS, WIDGET_REPORT_FIELDS,
   coerceReportTemplateDocument, reportTemplateCreateSchema, reportTemplateUpdateSchema,
-  type WidgetType, type ReportTemplateDocument,
+  type WidgetType, type ReportTemplateDocument, type ReportTemplateRow,
 } from '@digilog/shared';
 import type { ZodIssue } from 'zod';
 import { prisma } from '../../lib/prisma.js';
@@ -51,20 +51,7 @@ export function nameInUseMessage(name: string, widgetType: WidgetType): string {
   return `A ${widgetLabel(widgetType)} template named "${name}" already exists for this profile. Names are compared ignoring case.`;
 }
 
-// ─── the wire row ────────────────────────────────────────────────────────────
-
-/** What every route returns for a template (`GET /`, `GET /:id`, the writes, `resolve`). */
-export interface ReportTemplateRow {
-  id: string;
-  profileId: string;
-  widgetType: WidgetType;
-  name: string;
-  isDefault: boolean;
-  document: ReportTemplateDocument;
-  createdAt: string;
-  updatedAt: string;
-  updatedBy: string | null;
-}
+// ─── the wire row (`ReportTemplateRow`, @digilog/shared) ─────────────────────
 
 export type StoredTemplate = {
   id: string; profileId: string; widgetType: string; name: string; isDefault: boolean;

@@ -6,6 +6,7 @@ import {
   REPORT_PLACEHOLDERS, REPORT_VALUE_MISSING, reportTemplateDocumentSchema, reportTemplateCreateSchema,
   reportTemplateUpdateSchema, builtinReportTemplate, substitutePlaceholders, coerceReportTemplateDocument,
   WIDGET_REPORT_KIND, widgetReportType, reportLogoFormat, keyRowsCollapse, type ReportTemplateDocument,
+  widgetTypeTakesProfileFields,
 } from '../report-templates.js';
 import {
   REPORT_KINDS, coerceReportDownloads, isReportKind, reportKindSettingKeys, reportTypeMatchesKind,
@@ -425,5 +426,18 @@ describe('widget report kinds', () => {
     const p = coerceReportDownloads({ widgetGaugeMode: 'DIRECT', widgetGaugeRemarks: false });
     expect(p['widget:gauge']).toEqual({ mode: 'DIRECT', remarksRequired: false, passwordRequired: true });
     expect(p['widget:pie_chart']).toEqual(REPORT_KIND_POLICY_DEFAULT);
+  });
+});
+
+describe('widgetTypeTakesProfileFields — which types offer the profile key: / attr: fields', () => {
+  it('every reportable type but the pie and the alarm counts; never a type with no catalogue', () => {
+    const takes = WIDGET_TYPES.filter((t) => widgetTypeTakesProfileFields(t));
+    expect(takes).toEqual(REPORTABLE_WIDGET_TYPES.filter((t) => t !== 'pie_chart' && t !== 'alarm_counts'));
+    for (const t of ['pie_chart', 'alarm_counts', 'text_card', 'floorplan'] as const) {
+      expect(widgetTypeTakesProfileFields(t)).toBe(false);
+    }
+    for (const t of ['gauge', 'latest_table', 'bar_chart', 'instrument_list'] as const) {
+      expect(widgetTypeTakesProfileFields(t)).toBe(true);
+    }
   });
 });

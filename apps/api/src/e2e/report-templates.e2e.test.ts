@@ -18,9 +18,10 @@
  *     cannot see;
  *   - reads need INSTRUMENT_READ, nothing more.
  *
- * Owns its super admin, roles, users, profiles and instruments. The two
- * `system_config` rows it touches (`action-reauth`, `attribute-labels`) are
- * restored FIRST in afterAll, each guarded on its own.
+ * Owns its super admin, roles, users, profiles and instruments. The four
+ * `system_config` rows it touches (`action-reauth`, `attribute-labels`,
+ * `report-downloads`, `report-approvers`) are restored FIRST in afterAll, each
+ * guarded on its own.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { FastifyInstance } from 'fastify';
@@ -61,6 +62,9 @@ let P1 = '', P2 = '';
 let A1 = '', A2 = '', B1 = '';
 let reauthBefore: { configValue: unknown; configType: string; requiresReauth: boolean } | null | undefined;
 let labelsBefore: { configValue: unknown; configType: string; requiresReauth: boolean } | null | undefined;
+let downloadsBefore: { configValue: unknown; configType: string; requiresReauth: boolean } | null | undefined;
+let approversBefore: { configValue: unknown; configType: string; requiresReauth: boolean } | null | undefined;
+const reviews: string[] = [];
 
 interface Row {
   id: string; profileId: string; widgetType: WidgetType; name: string; isDefault: boolean;
@@ -207,6 +211,10 @@ afterAll(async () => {
   // The two config rows FIRST, each guarded on its own: other suites read them.
   try { await restoreConfig('action-reauth', reauthBefore); } catch (e) { console.error('restore action-reauth', e); } finally { invalidateReauthCache(); }
   try { await restoreConfig(ATTRIBUTE_LABELS_CONFIG_KEY, labelsBefore); } catch (e) { console.error('restore attribute-labels', e); }
+  try { await restoreConfig('report-downloads', downloadsBefore); } catch (e) { console.error('restore report-downloads', e); }
+  try { await restoreConfig('report-approvers', approversBefore); } catch (e) { console.error('restore report-approvers', e); }
+  try { await prisma.reportReview.deleteMany({ where: { id: { in: reviews } } }); } catch (e) { console.error('cleanup report reviews', e); }
+  try { await prisma.notification.deleteMany({ where: { forUserId: { in: Object.values(NAME) } } }); } catch (e) { console.error('cleanup notifications', e); }
   try { await prisma.reportTemplate.deleteMany({ where: { profileId: { in: profiles } } }); } catch (e) { console.error('cleanup templates', e); }
   try { await prisma.instrument.deleteMany({ where: { id: { in: instruments } } }); } catch (e) { console.error('cleanup instruments', e); }
   try { await prisma.instrumentProfile.deleteMany({ where: { id: { in: profiles } } }); } catch (e) { console.error('cleanup profiles', e); }
@@ -511,6 +519,13 @@ describe('/api/report-templates', () => {
     expect(readerIds).toContain('key:t');
     expect(readerIds).not.toContain('attr:Temp Off set');
 
+    // A pie and the alarm counts list their built-ins ONLY (fix wave 2, m1): a slice or
+    // a figure is never one instrument, so a key or attribute cell there is always empty.
+    for (const t of ['pie_chart', 'alarm_counts'] as const) {
+      const r = await catalogue(P1, t);
+      expect(r.statusCode, r.body).toBe(200);
+      expect((r.json() as { fields: ReportField[] }).fields).toEqual(WIDGET_REPORT_FIELDS[t]);
+    }
     // A widget with no field catalogue lists nothing.
     const text = await catalogue(P1, 'text_card');
     expect(text.statusCode, text.body).toBe(200);
@@ -632,6 +647,70 @@ describe('/api/report-templates', () => {
       await restoreConfig('action-reauth', reauthBefore);
       reauthBefore = undefined;
       invalidateReauthCache();
+    }
+  });
+
+  it('a widget report goes through both download routes under its own kind (widget:gauge, "Widget: Gauge")', async () => {
+    const downloads = await prisma.systemConfig.findUnique({ where: { configKey: 'report-downloads' } });
+    downloadsBefore = downloads ? { configValue: downloads.configValue, configType: downloads.configType, requiresReauth: downloads.requiresReauth } : null;
+    const approvers = await prisma.systemConfig.findUnique({ where: { configKey: 'report-approvers' } });
+    approversBefore = approvers ? { configValue: approvers.configValue, configType: approvers.configType, requiresReauth: approvers.requiresReauth } : null;
+    const policyBase = (downloads?.configValue as Record<string, unknown> | undefined) ?? {};
+    const signed = { ...sa, 'x-reauth-password': PW };
+    try {
+      // Request: the kind's policy says Request -> a review row holding the snapshot.
+      await storeConfig('report-downloads', { ...policyBase, widgetGaugeMode: 'REQUEST' }, downloads?.configType ?? 'system');
+      await storeConfig('report-approvers', { approverRoles: [READER], approverUserIds: [] }, approvers?.configType ?? 'system');
+      const dataSnapshot = {
+        version: 3, reportType: 'Widget: Gauge', title: `Gauge ${S}`, config: { showAppName: true },
+        chrome: { companyName: 'Co', appName: 'App', showAppName: true, logoDataUrl: null, orientation: 'portrait' },
+        sections: [{ kind: 'table', head: ['Instrument ID', 'Value'], body: [[`RT-${S}-A1`, '21.5']] }],
+      };
+      const request = (reportType: string) => app.inject({
+        method: 'POST', url: '/api/report-reviews', headers: signed,
+        payload: {
+          reportKind: 'widget:gauge', reportType, title: `Gauge ${S}`, subtitle: 'Plant - Latest',
+          requestMeta: { period: { label: 'Latest' }, search: 'Gauge' }, dataSnapshot, remarks: 'shift check', instrumentIds: [A1],
+        },
+      });
+      const req = await request('Widget: Gauge');
+      expect(req.statusCode, req.body).toBe(201);
+      reviews.push(req.json().id);
+      const stored = await prisma.reportReview.findUniqueOrThrow({ where: { id: req.json().id } });
+      expect(stored).toMatchObject({ reportType: 'Widget: Gauge', title: `Gauge ${S}`, status: 'PENDING' });
+      expect(stored.dataSnapshot).toEqual(dataSnapshot);
+      const mismatched = await request('Widget: Pie chart');
+      expect(mismatched.statusCode, mismatched.body).toBe(400);
+      expect(mismatched.json().error).toBe('REPORT_TYPE_MISMATCH');
+
+      // Direct: the kind's policy says Direct -> one REPORT_GENERATED row naming the kind.
+      await storeConfig('report-downloads', { ...policyBase, widgetGaugeMode: 'DIRECT' }, downloads?.configType ?? 'system');
+      const direct = (reportType: string) => app.inject({
+        method: 'POST', url: '/api/audit/report-export-log', headers: signed,
+        payload: { reportType, reportKind: 'widget:gauge', format: 'PDF', recordCount: 3, period: 'Latest', search: `Gauge ${S}`, remarks: 'shift check' },
+      });
+      const ok = await direct('Widget: Gauge');
+      expect(ok.statusCode, ok.body).toBe(200);
+      expect(ok.json()).toEqual({ success: true });
+      const row = await prisma.auditTrail.findFirst({
+        where: { action: 'REPORT_GENERATED', userId: NAME.sa, afterValue: { path: ['search'], equals: `Gauge ${S}` } },
+        orderBy: { chainPosition: 'desc' },
+      });
+      expect(row).not.toBeNull();
+      expect(row!.targetType).toBe('Widget: Gauge');
+      expect(row!.afterValue).toMatchObject({ reportType: 'Widget: Gauge', reportKind: 'widget:gauge', format: 'PDF', recordCount: 3, remarks: 'shift check' });
+      const wrong = await direct('Widget: Pie chart');
+      expect(wrong.statusCode, wrong.body).toBe(400);
+      expect(wrong.json().error).toBe('REPORT_TYPE_MISMATCH');
+      // A Direct kind is not sent for approval.
+      const notReviewed = await request('Widget: Gauge');
+      expect(notReviewed.statusCode, notReviewed.body).toBe(409);
+      expect(notReviewed.json().error).toBe('REPORT_IS_DIRECT');
+    } finally {
+      await restoreConfig('report-downloads', downloadsBefore);
+      await restoreConfig('report-approvers', approversBefore);
+      downloadsBefore = undefined;
+      approversBefore = undefined;
     }
   });
 });

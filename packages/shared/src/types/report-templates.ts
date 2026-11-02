@@ -191,6 +191,19 @@ export const WIDGET_REPORT_FIELDS: Record<WidgetType, readonly ReportField[]> = 
 /** The types with a field catalogue (spec §4) — every type but the text card and the floor plan. */
 export const REPORTABLE_WIDGET_TYPES: readonly WidgetType[] = WIDGET_TYPES.filter((t) => WIDGET_REPORT_FIELDS[t].length > 0);
 
+/**
+ * Does a template of this widget type print the profile's `key:` / `attr:`
+ * fields? Not for a type with no field catalogue (text card, floor plan), and
+ * not for `pie_chart` / `alarm_counts`: their rows (a slice, a figure) are never
+ * one instrument, so such a cell is always empty (the row-grain contract). The
+ * server's catalogue applies it (`GET /api/report-templates/catalogue`), so the
+ * editor's preview and the download read the SAME field list — never filter
+ * the catalogue a second time in the browser.
+ */
+export function widgetTypeTakesProfileFields(t: WidgetType): boolean {
+  return REPORTABLE_WIDGET_TYPES.includes(t) && t !== 'pie_chart' && t !== 'alarm_counts';
+}
+
 /** The types printed in landscape by default: the three wide tables. */
 const LANDSCAPE_TYPES: readonly WidgetType[] = ['latest_table', 'timeseries_table', 'alarm_table'];
 
@@ -454,6 +467,32 @@ export type ReportTemplateCreate = z.infer<typeof reportTemplateCreateSchema>;
 /** A rename and / or a new document. The profile and the widget type never change. */
 export const reportTemplateUpdateSchema = reportTemplateCreateSchema.pick({ name: true, document: true }).partial();
 export type ReportTemplateUpdate = z.infer<typeof reportTemplateUpdateSchema>;
+
+// ── The wire row ────────────────────────────────────────────────────────────
+
+/**
+ * A template as every `/api/report-templates` route returns it (the list,
+ * `GET /:id`, the writes, `resolve`'s `template`). `document` always passes the
+ * schema: the server reads a stored one through `coerceReportTemplateDocument`.
+ * `updatedBy` is the USERNAME of the last writer.
+ */
+export interface ReportTemplateRow {
+  id: string;
+  profileId: string;
+  widgetType: WidgetType;
+  name: string;
+  isDefault: boolean;
+  document: ReportTemplateDocument;
+  createdAt: string;
+  updatedAt: string;
+  updatedBy: string | null;
+}
+
+/**
+ * The most instrument ids `GET /api/report-templates/resolve` takes (as many as
+ * `telemetry-overview`; a GET URL cannot carry many more). More is a 400.
+ */
+export const REPORT_TEMPLATE_RESOLVE_IDS_MAX = 200;
 
 // ── Report kinds ────────────────────────────────────────────────────────────
 

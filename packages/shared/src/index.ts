@@ -294,10 +294,12 @@ export {
   WIDGET_REPORT_FIELDS, REPORTABLE_WIDGET_TYPES, REPORT_PLACEHOLDERS, isPlaceholder, substitutePlaceholders,
   reportLogoFormat, reportTemplateDocumentSchema, builtinReportTemplate, coerceReportTemplateDocument, keyRowsCollapse,
   reportTemplateCreateSchema, reportTemplateUpdateSchema, WIDGET_REPORT_KIND, widgetReportType,
+  widgetTypeTakesProfileFields, REPORT_TEMPLATE_RESOLVE_IDS_MAX,
 } from './types/report-templates.js';
 export type {
   ReportField, ReportFieldGroup, ReportFieldKind, Placeholder, ReportLogoMode, ReportTemplateColumn,
   ReportTemplateInfoRow, ReportTemplateDocument, ReportTemplateCreate, ReportTemplateUpdate, WidgetReportKind,
+  ReportTemplateRow,
 } from './types/report-templates.js';
 export {
   ATTRIBUTE_LABELS_CONFIG_KEY, ATTRIBUTE_LABEL_MAX, ATTRIBUTE_LABEL_KEY_MAX,

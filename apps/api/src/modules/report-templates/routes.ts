@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Prisma } from '@prisma/client';
 import { z } from 'zod';
-import { WIDGET_TYPES, type WidgetType } from '@digilog/shared';
+import { WIDGET_TYPES, REPORT_TEMPLATE_RESOLVE_IDS_MAX, type WidgetType, type ReportTemplateRow } from '@digilog/shared';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
@@ -14,7 +14,7 @@ import {
   REAUTH_ACTION, REPORT_TEMPLATES_SUPER_ADMIN_ONLY, TEMPLATE_NOT_FOUND_MESSAGE, PROFILE_NOT_FOUND_MESSAGE,
   isWidgetType, nameInUseMessage, presentTemplate, byName, parseCreate, parseUpdate, uniqueViolation,
   lockProfile, clearDefaults, templateAuditValue, meaning, who, findTemplate,
-  type ReportTemplateRow, type Refusal,
+  type Refusal,
 } from './service.js';
 
 /**
@@ -42,8 +42,6 @@ import {
  * - A save that changes nothing writes nothing and audits nothing.
  */
 const WRITE_TX = { timeout: 15_000 } as const;
-/** As many as `GET /api/instruments/telemetry-overview` takes; a GET cannot carry many more ids. */
-const RESOLVE_IDS_MAX = 200;
 
 // ─── JSON schemas (the response schemas are a FILTER: every field is named) ──
 
@@ -212,7 +210,7 @@ export default async function reportTemplateRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Report Templates'],
       summary: 'Which template a widget\'s download uses, per profile',
-      description: `The widget's instruments grouped by profile, sections in the order each profile first appears in \`instrumentIds\`; each section's template is the profile's DEFAULT for the widget type, or null (the built-in). An instrument the caller cannot see, or that does not exist, is dropped silently. \`instrumentIds\` is required (a comma list, at most ${RESOLVE_IDS_MAX}); empty = no sections.`,
+      description: `The widget's instruments grouped by profile, sections in the order each profile first appears in \`instrumentIds\`; each section's template is the profile's DEFAULT for the widget type, or null (the built-in). An instrument the caller cannot see, or that does not exist, is dropped silently. \`instrumentIds\` is required (a comma list, at most ${REPORT_TEMPLATE_RESOLVE_IDS_MAX}); empty = no sections.`,
       querystring: { type: 'object', properties: { widgetType: widgetTypeQuery, instrumentIds: { type: 'string' } } },
       response: { 200: { type: 'object', properties: { sections: { type: 'array', items: sectionSchema } } }, ...errorResponses },
     },
@@ -221,7 +219,7 @@ export default async function reportTemplateRoutes(app: FastifyInstance) {
     const type = widgetTypeSchema.safeParse(q.widgetType);
     if (!type.success) return invalidQuery(reply, type.error);
     if (q.instrumentIds === undefined) return invalid(reply, { message: 'Name the widget\'s instruments: instrumentIds is required.' });
-    const list = parseUuidList(q.instrumentIds, RESOLVE_IDS_MAX);
+    const list = parseUuidList(q.instrumentIds, REPORT_TEMPLATE_RESOLVE_IDS_MAX);
     if (list.error) return invalid(reply, { message: list.error });
     const ids = list.ids ?? [];
     if (ids.length === 0) return { sections: [] };

@@ -20,10 +20,13 @@
  *      absent for anyone else (the profile routes' rule, `offsetKeyTest`).
  *
  * A widget type with no field catalogue (`text_card`, `floorplan` — they print
- * what they show) lists nothing at all.
+ * what they show) lists nothing at all. `pie_chart` and `alarm_counts` list
+ * their built-ins only: a slice or a figure is never one instrument, so a key
+ * or attribute cell there is always empty. ONE shared predicate decides both,
+ * `widgetTypeTakesProfileFields`, and the browser never filters this list again.
  */
 import {
-  WIDGET_REPORT_FIELDS, REPORTABLE_WIDGET_TYPES, ATTRIBUTE_LABELS_CONFIG_KEY,
+  WIDGET_REPORT_FIELDS, ATTRIBUTE_LABELS_CONFIG_KEY, widgetTypeTakesProfileFields,
   coerceProfileMeasurements, coerceProfileDisplayKeys, coerceAttributeLabels, attributeLabel,
   parseInstrumentAttributeKeys,
   type ReportField, type WidgetType,
@@ -46,7 +49,7 @@ export async function buildReportCatalogue(
   isSuperAdmin: boolean,
 ): Promise<ReportField[]> {
   const builtin: ReportField[] = WIDGET_REPORT_FIELDS[widgetType].map((f) => ({ ...f }));
-  if (!REPORTABLE_WIDGET_TYPES.includes(widgetType)) return builtin;
+  if (!widgetTypeTakesProfileFields(widgetType)) return builtin;
 
   const [types, labelsRow, isOffset] = await Promise.all([
     loadMeasurementTypes(),
