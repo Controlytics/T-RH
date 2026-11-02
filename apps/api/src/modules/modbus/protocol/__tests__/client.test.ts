@@ -110,6 +110,24 @@ describe('readDevice', () => {
     },
   );
 
+  // Final review F-6: a unit id outside a byte used to throw inside the socket's
+  // 'connect' listener (`writeUInt8(300)`) — an uncaught exception, which ends
+  // the API process. It is refused at entry now, as a rejection, before any
+  // socket exists (vitest fails the file on any uncaught exception).
+  it.each([
+    ['unit id 300', { unitId: 300 }],
+    ['unit id -1', { unitId: -1 }],
+    ['unit id 1.5', { unitId: 1.5 }],
+    ['port 0', { port: 0 }],
+    ['port 70000', { port: 70000 }],
+  ] as const)('a %s is REJECTED before any connection - never thrown inside a socket listener', async (_label, bad) => {
+    const s = await start();
+    const p = readDevice({ host: s.host, port: s.port, unitId: 1, map, connectTimeoutMs: 300, ...bad });
+    await expect(p).rejects.toBeInstanceOf(RangeError);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(s.connections()).toBe(0);
+  });
+
   it('rejects with an AbortError (and closes) when the signal fires mid-read', async () => {
     const s = await start({ behaviour: 'silent' });
     const ac = new AbortController();

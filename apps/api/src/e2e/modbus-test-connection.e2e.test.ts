@@ -32,6 +32,7 @@ let blockIn = '';
 let blockOut = '';
 let tcpProfileId = '';
 let pushProfileId = '';
+let badUnitProfileId = '';
 let readerRowBefore: { configValue: unknown; configType: string; requiresReauth: boolean } | null = null;
 const slaves: FakeSlave[] = [];
 let inactivityBefore: { configValue: unknown; configType: string; requiresReauth: boolean } | null = null;
@@ -125,7 +126,7 @@ afterAll(async () => {
     else await prisma.systemConfig.deleteMany({ where: { configKey: 'inactivity-alarms' } });
   });
   await step(() => prisma.instrument.deleteMany({ where: { code: { startsWith: `MBT-${s}-` } } }));
-  await step(() => prisma.instrumentProfile.deleteMany({ where: { id: { in: [tcpProfileId, pushProfileId].filter(Boolean) } } }));
+  await step(() => prisma.instrumentProfile.deleteMany({ where: { id: { in: [tcpProfileId, pushProfileId, badUnitProfileId].filter(Boolean) } } }));
   await step(() => prisma.functionalLocation.deleteMany({ where: { id: { in: [blockIn, blockOut].filter(Boolean) } } }));
   await step(() => prisma.roleConfig.deleteMany({ where: { role: ROLE } }));
   await step(() => prisma.session.deleteMany({ where: { userId: { in: userIds } } }));
@@ -227,6 +228,22 @@ describe('POST /api/instruments/modbus/test', () => {
     expect(bad.json().error).toBe('VALIDATION_ERROR');
     const empty = await test(a, body(sl, { modbusRegisters: [] }));
     expect(empty.statusCode).toBe(400);
+  });
+
+  it('a profile whose STORED unit id is outside 0..255 is a 400 INVALID_CONFIG and the device sees no connection (final review F-6)', async () => {
+    // No route can store it; a hand-edited row can. It used to reach the socket
+    // and throw inside its 'connect' listener — an uncaught exception.
+    badUnitProfileId = (await prisma.instrumentProfile.create({
+      data: { name: `MBT Modbus bad unit ${s}`, connection: 'MODBUS_TCP', modbusIntervalSec: 60, modbusUnitId: 300 },
+    })).id;
+    await setReading(true);
+    const sl = await slave();
+    const own = await user(U('unit'), ROLE); // its own user: the 10-a-minute limit
+    const res = await test(own, body(sl, { profileId: badUnitProfileId, modbusRegisters: ONE }));
+    expect(res.statusCode, res.body).toBe(400);
+    expect(res.json()).toEqual({ error: 'INVALID_CONFIG', message: "The profile's unit ID 300 is not 0 to 255." });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(sl.connections()).toBe(0);
   });
 
   it('a Gateway (PUSH) profile is a 400 NOT_A_TCPIP_PROFILE', async () => {

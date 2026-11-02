@@ -9,7 +9,7 @@ import { slotConfigForProfile } from '../instruments/profile-measurements.js';
 import { loadModbusReaderConfig } from './config.js';
 import { checkModbusAddress } from './address.js';
 import { readDevice } from './protocol/index.js';
-import { explainReadTarget } from './reader.js';
+import { explainReadTarget, isSendableUnitId, unitIdRefusal } from './reader.js';
 import { loadInactivityConfig } from '../alarms/load-inactivity.js';
 
 /** Exact wording (plan Global Constraints, "Failure wording"). */
@@ -85,6 +85,12 @@ const modbusRoutes: FastifyPluginAsync<ModbusRoutesOptions> = async (app, opts) 
     if (!profile) return reply.code(404).send({ error: 'PROFILE_NOT_FOUND', message: 'That instrument profile does not exist.' });
     if (profile.connection !== 'MODBUS_TCP' || profile.modbusUnitId === null) {
       return reply.code(400).send({ error: 'NOT_A_TCPIP_PROFILE', message: 'Test connection is only for a TCP/IP (Modbus) profile.' });
+    }
+    // The STORED unit id, by the Reader's own rule (final review F-6): no route
+    // can store 300, a hand-edited row can, and it must never reach a socket.
+    // `INVALID_CONFIG` is the Reader's word for the same stored row.
+    if (!isSendableUnitId(profile.modbusUnitId)) {
+      return reply.code(400).send({ error: 'INVALID_CONFIG', message: unitIdRefusal(profile.modbusUnitId) });
     }
 
     // A malformed map is a 400 here, never a throw out of readDevice's planner.

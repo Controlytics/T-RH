@@ -51,12 +51,24 @@ function isRefusal(err: NodeJS.ErrnoException): boolean {
  * nothing partial is ever returned as a success. A device that answers wrongly
  * (wrong transaction id, unit id or function code, or the wrong number of
  * bytes) is `BAD_RESPONSE` with the "reply did not match" wording; silence is the "did not answer" wording. Only a programming error, or an abort through
- * `signal`, rejects (the abort rejects with an `AbortError`).
+ * `signal`, rejects (the abort rejects with an `AbortError`; a unit id or port
+ * outside its range with a `RangeError`, before any socket is opened).
  */
 export function readDevice(opts: ReadDeviceOptions): Promise<ReadResult> {
   const connectMs = opts.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
   const responseMs = opts.responseTimeoutMs ?? DEFAULT_RESPONSE_TIMEOUT_MS;
   const { host, port, unitId, signal } = opts;
+  // Refused at ENTRY, as a rejection (final review F-6): a unit id outside a
+  // byte would throw inside the socket's 'connect' listener (`writeUInt8`), out
+  // of reach of any try/catch — an uncaught exception ends the API process. Both
+  // callers validate first, so reaching here is a programming error: it
+  // rejects, it is never turned into an ok:false.
+  if (!Number.isInteger(unitId) || unitId < 0 || unitId > 255) {
+    return Promise.reject(new RangeError(`Modbus unit ID ${String(unitId)} is not an integer 0 to 255.`));
+  }
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return Promise.reject(new RangeError(`Port ${String(port)} is not an integer 1 to 65535.`));
+  }
   const requests = planReads(opts.map);
   const started = performance.now();
 
@@ -167,7 +179,14 @@ export function readDevice(opts: ReadDeviceOptions): Promise<ReadResult> {
 
     socket.on('connect', () => {
       stage = 'reading';
-      sendNext();
+      // The same guard as the data handler's (final review F-6): nothing thrown
+      // here may escape the listener. A backstop — the entry checks above leave
+      // nothing known that can throw.
+      try {
+        sendNext();
+      } catch (err) {
+        finish(err instanceof Error ? err : new Error(String(err)));
+      }
     });
     socket.on('data', (chunk) => {
       if (done || stage !== 'reading') return;

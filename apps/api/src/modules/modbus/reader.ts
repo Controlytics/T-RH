@@ -120,12 +120,21 @@ const isInt = (v: unknown, min: number, max: number): v is number =>
   typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
 
 /**
+ * A STORED unit id this server may send (0..255) and the sentence for one it may
+ * not — the Reader's rule, also applied by Test connection (final review F-6), so
+ * a hand-edited profile is refused in one wording before it reaches a socket.
+ */
+export const isSendableUnitId = (v: unknown): v is number => isInt(v, MODBUS_UNIT_ID.min, MODBUS_UNIT_ID.max);
+export const unitIdRefusal = (v: unknown): string =>
+  `The profile's unit ID ${String(v)} is not ${MODBUS_UNIT_ID.min} to ${MODBUS_UNIT_ID.max}.`;
+
+/**
  * Is this instrument read, and with what? The ONE answer to spec §7.1, used by
  * `readOnce` before every read and by the scheduler at every reload. Nothing
  * here trusts the row: a value a route could never have stored (unit id 300,
  * port 0, a map that fails the shared schema) is `INVALID_CONFIG`, never passed
- * to `readDevice` — whose socket code would throw on a bad unit id or port
- * inside an event listener, out of reach of any try/catch.
+ * to `readDevice` — which would reject it (final review F-6) and the read would
+ * be logged as a thrown error instead of the stored row being named.
  */
 function readTarget(row: InstrumentRow, config: ModbusReaderConfig, opts: { allowLoopbackForTests?: boolean }): ReadTarget {
   const p = row.profile;
@@ -135,9 +144,7 @@ function readTarget(row: InstrumentRow, config: ModbusReaderConfig, opts: { allo
   if (!p.isActive) return { ok: false, code: 'PROFILE_DISABLED', detail: 'The instrument\'s profile is disabled.' };
   if (row.modbusHost === null || row.modbusPort === null) return { ok: false, code: 'NO_ADDRESS', detail: 'The instrument has no IP address or port.' };
   if (!isInt(row.modbusPort, 1, 65535)) return { ok: false, code: 'INVALID_CONFIG', detail: `Stored port ${row.modbusPort} is not 1 to 65535.` };
-  if (!isInt(p.modbusUnitId, MODBUS_UNIT_ID.min, MODBUS_UNIT_ID.max)) {
-    return { ok: false, code: 'INVALID_CONFIG', detail: `The profile's unit ID ${String(p.modbusUnitId)} is not ${MODBUS_UNIT_ID.min} to ${MODBUS_UNIT_ID.max}.` };
-  }
+  if (!isSendableUnitId(p.modbusUnitId)) return { ok: false, code: 'INVALID_CONFIG', detail: unitIdRefusal(p.modbusUnitId) };
   if (!isInt(p.modbusIntervalSec, MODBUS_INTERVAL.min, MODBUS_INTERVAL.max)) {
     return { ok: false, code: 'INVALID_CONFIG', detail: `The profile's read interval ${String(p.modbusIntervalSec)} s is not ${MODBUS_INTERVAL.min} to ${MODBUS_INTERVAL.max} s.` };
   }
