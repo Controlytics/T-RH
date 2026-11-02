@@ -1,4 +1,4 @@
-import { MODBUS_INTERVAL, MODBUS_UNIT_ID } from '@digilog/shared';
+import { MODBUS_INTERVAL } from '@digilog/shared';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 
@@ -50,13 +50,16 @@ export function ModbusReadingFields({
     <>
       <label className="block space-y-1" htmlFor={`${idPrefix}-unit`}>
         <span className={labelClass}>Slave ID</span>
+        {/* No min / max and `step="any"`: inside New Instrument's <form> the browser
+            would stop 256 or 1.5 with its own bubble, in its own words. The
+            shared schema's sentence ("Slave ID must be a whole number from 0
+            to 255.") is printed under the field instead — the same wording on
+            every browser and on the instrument page. */}
         <Input
           id={`${idPrefix}-unit`}
           type="number"
           inputMode="numeric"
-          min={MODBUS_UNIT_ID.min}
-          max={MODBUS_UNIT_ID.max}
-          step={1}
+          step="any"
           className={compact ? 'w-24 font-mono' : undefined}
           value={unitId}
           aria-invalid={unitIdError ? true : undefined}

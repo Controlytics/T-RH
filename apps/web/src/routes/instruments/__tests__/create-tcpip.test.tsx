@@ -280,14 +280,17 @@ describe('New Instrument — Create for a TCP/IP profile', () => {
     expect(createCalls()).toHaveLength(0);
   });
 
-  it('a Slave ID over 255 is stopped by the field\'s own 0..255 bounds (as Port\'s are) — nothing posted', async () => {
+  it('a Slave ID over 255 or not whole is named in the shared schema\'s words — not a browser bubble — and nothing is posted', async () => {
     renderAt('/instruments/new?profileId=t-1');
     typeInto(/instrument id/i, 'P-7');
     typeInto(/ip address/i, '10.1.2.3');
-    fireEvent.change(slaveId(), { target: { value: '256' } });
-    expect(slaveId().validity.rangeOverflow).toBe(true);
-    create();
-    await new Promise((r) => setTimeout(r, 0));
+    for (const bad of ['256', '1.5', '-1']) {
+      fireEvent.change(slaveId(), { target: { value: bad } });
+      expect(slaveId().validity.valid).toBe(true);
+      create();
+      expect(await screen.findByText('Slave ID must be a whole number from 0 to 255.')).toBeInTheDocument();
+      expect(slaveId()).toHaveAttribute('aria-invalid', 'true');
+    }
     expect(createCalls()).toHaveLength(0);
   });
 
