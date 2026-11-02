@@ -19,6 +19,21 @@ import { CopyMapDialog } from './copy-map-dialog';
  */
 const PAD = 'px-2 py-2';
 
+/**
+ * Column widths sit on the CONTROLS, never on the cells: Chrome ignores
+ * `min-width` on a table cell, and a `w-full` control contributes no minimum of
+ * its own, so at a 1240 px window with the sidebar open the Data type select
+ * was squeezed to "FLOAT3" (render check, 2026-11-02). Register and Scale are
+ * fixed so the width they do not need goes to Key.
+ */
+const W = {
+  key: 'min-w-[9rem]',
+  register: 'w-24',
+  dataType: 'min-w-[7rem]',
+  byteOrder: 'min-w-[7rem]',
+  scale: 'w-24',
+} as const;
+
 /** What the SERVER said a key is judged as (Test connection's `judgedAs`). */
 export type JudgedAs = 'TEMPERATURE' | 'HUMIDITY' | null;
 
@@ -188,19 +203,21 @@ export function RegisterMapEditor({
             const scaleShown = typed !== undefined && sameNumber(parseScale(typed), row.scale) ? typed : scaleToText(row.scale);
             return (
               <MapRow key={rk} errors={rowIssues} columns={columns} index={i}>
-                <TableCell className={cn(PAD, 'min-w-[9rem]')}>
+                <TableCell className={PAD}>
                   {readOnly ? <span className="font-medium text-slate-800">{row.key}</span> : (
                     <Input
                       aria-label={`Key, row ${n}`}
+                      className={W.key}
                       value={row.key}
                       onChange={(e) => setRow(i, { ...row, key: e.target.value })}
                     />
                   )}
                 </TableCell>
-                <TableCell className={cn(PAD, 'min-w-[6rem]')}>
+                <TableCell className={PAD}>
                   {readOnly ? <span className="tabular-nums">{row.register}</span> : (
                     <Input
                       aria-label={`Register, row ${n}`}
+                      className={W.register}
                       inputMode="numeric"
                       value={row.register}
                       onChange={(e) => setRow(i, { ...row, register: e.target.value.trim() })}
@@ -208,10 +225,11 @@ export function RegisterMapEditor({
                   )}
                 </TableCell>
                 <TableCell data-testid={`map-area-${i}`} className={cn(PAD, 'text-slate-600')}>{areaOf(row.register)}</TableCell>
-                <TableCell className={cn(PAD, 'min-w-[7.5rem]')}>
+                <TableCell className={PAD}>
                   {readOnly ? row.dataType : (
                     <Select
                       aria-label={`Data type, row ${n}`}
+                      className={W.dataType}
                       value={row.dataType}
                       onChange={(e) => setDataType(i, e.target.value as ModbusDataType)}
                     >
@@ -219,10 +237,11 @@ export function RegisterMapEditor({
                     </Select>
                   )}
                 </TableCell>
-                <TableCell className={cn(PAD, 'min-w-[7rem]')}>
+                <TableCell className={PAD}>
                   {!thirtyTwo ? <span className="text-slate-400">—</span> : readOnly ? (row.byteOrder ?? '—') : (
                     <Select
                       aria-label={`Byte order, row ${n}`}
+                      className={W.byteOrder}
                       value={row.byteOrder ?? ''}
                       onChange={(e) => setByteOrder(i, e.target.value)}
                     >
@@ -231,10 +250,11 @@ export function RegisterMapEditor({
                     </Select>
                   )}
                 </TableCell>
-                <TableCell className={cn(PAD, 'min-w-[5rem]')}>
+                <TableCell className={PAD}>
                   {readOnly ? <span className="tabular-nums">× {scaleToText(row.scale)}</span> : (
                     <Input
                       aria-label={`Scale, row ${n}`}
+                      className={W.scale}
                       type="number"
                       step="any"
                       value={scaleShown}

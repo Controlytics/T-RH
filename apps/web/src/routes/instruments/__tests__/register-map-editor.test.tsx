@@ -89,6 +89,15 @@ describe('RegisterMapEditor — the rows', () => {
     expect(heads).not.toContain('Unit');
   });
 
+  it('the selects carry their own minimum width — a cell\'s min-width is ignored by Chrome', () => {
+    // Render check 2026-11-02: at a 1240 px window with the sidebar open the
+    // Data type select was squeezed to "FLOAT3" while its CELL said min-w.
+    render(<Harness initial={[ROW_T]} />);
+    const classes = (name: string) => screen.getByRole('combobox', { name }).className.split(/\s+/);
+    expect(classes('Data type, row 1')).toContain('min-w-[7rem]');
+    expect(classes('Byte order, row 1')).toContain('min-w-[7rem]');
+  });
+
   it('names the Area from the reference: 4xxxx holding, 3xxxx input', () => {
     render(<Harness initial={[ROW_T, ROW_V]} />);
     expect(screen.getByTestId('map-area-0')).toHaveTextContent('Holding');
