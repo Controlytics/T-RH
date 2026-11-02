@@ -406,6 +406,15 @@ describe('Configuration → Report Templates — the editor', () => {
     expect(lastBody(post).isDefault).toBe(false);
   });
 
+  it('the {user} placeholder is labelled Username — the identity the footer prints (review m5)', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /new template/i }));
+    const insert = screen.getByLabelText('Insert into Title') as HTMLSelectElement;
+    const user = Array.from(insert.options).find((o) => o.value === 'user')!;
+    expect(user.textContent).toBe('Username');
+    expect(screen.queryAllByRole('option', { name: 'Printed by' })).toHaveLength(0);
+  });
+
   it('the placeholder picker inserts {name} at the caret', () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: /new template/i }));
@@ -521,6 +530,8 @@ describe('Configuration → Report Templates — the live preview', () => {
     expect(first.sections[0].availableIds).toEqual(CATALOGUE_VC.fields.map((f) => f.id));
     expect(first.sections[0].rows).toHaveLength(3);
     expect(first.sections[0].profileName).toBe('T&RH Profile');
+    // {user} is the username, as the download and the footer print it (review m5).
+    expect(first.values.user).toBe('superadmin');
 
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Changed title' } });
     await waitFor(() => expect(frame).toHaveAttribute('src', 'blob:preview-2#view=FitH'));

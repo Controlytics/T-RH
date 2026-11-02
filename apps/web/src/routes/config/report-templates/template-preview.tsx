@@ -38,7 +38,8 @@ export function TemplatePreview({
 }) {
   const { formatDateTime } = useDatetimeFormat();
   const { user } = useAuth();
-  const userName = user?.fullName || user?.username || '';
+  // {user} is the USERNAME — what a download prints and the footer's Printed By shows (review m5).
+  const userName = user?.username || '';
   const [src, setSrc] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const seq = useRef(0);

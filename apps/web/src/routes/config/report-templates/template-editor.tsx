@@ -39,7 +39,9 @@ export const PLACEHOLDER_LABELS: Record<Placeholder, string> = {
   to: 'To',
   period: 'Period',
   date: 'Date printed',
-  user: 'Printed by',
+  // The USERNAME, as the footer's "Printed By" prints it (review m5): one
+  // person, one identity on a record.
+  user: 'Username',
   instrumentCount: 'Number of instruments',
   selection: 'Selection',
 };
