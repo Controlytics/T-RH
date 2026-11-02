@@ -48,7 +48,7 @@ export type IngestOutcome =
   | { ok: true; accepted: number; rejected?: number }
   | { ok: false; code: 'UNPARSEABLE' | 'NOT_A_GATEWAY' | 'TOO_MANY_KEYS' | 'WRITE_FAILED' | 'TIMESTAMP_OUT_OF_RANGE'; message: string };
 
-interface DeadLetterRow {
+export interface DeadLetterRow {
   id: string;
   instrumentId: string;
   transport: string;
@@ -173,7 +173,9 @@ async function writeBatchOrDeadLetter(
   }
 }
 
-async function safeWriteDeadLetters(rows: DeadLetterRow[]): Promise<void> {
+// Exported for the Modbus Reader (2026-10-31), which dead-letters the keys its
+// decoder refused (NaN / infinity) before the readings enter `ingestPayload`.
+export async function safeWriteDeadLetters(rows: DeadLetterRow[]): Promise<void> {
   try {
     await writeDeadLetters(rows);
   } catch (e) {

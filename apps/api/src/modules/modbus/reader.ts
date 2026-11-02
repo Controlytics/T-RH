@@ -1,0 +1,590 @@
+import { randomUUID } from 'node:crypto';
+import { setMaxListeners } from 'node:events';
+import type { FastifyBaseLogger } from 'fastify';
+import type { Prisma } from '@prisma/client';
+import { coerceModbusRegisterMap, MODBUS_INTERVAL, MODBUS_UNIT_ID, type ModbusRegisterMap } from '@digilog/shared';
+import { prisma } from '../../lib/prisma.js';
+import { auditLog, type AuditTx } from '../../lib/audit.js';
+import { logger } from '../../lib/logger.js';
+import { ingestPayload, safeWriteDeadLetters } from '../instruments/ingest-core.js';
+import type { IngestIdentity } from '../instruments/ingest-auth.js';
+import { loadModbusReaderConfig, MODBUS_READER_CONFIG_KEY, type ModbusReaderConfig } from './config.js';
+import { checkModbusAddressAllowed } from './address.js';
+import { readDevice, type ReadResult } from './protocol/index.js';
+
+/**
+ * THE READER (TCP/IP instruments, Part 2 — spec §7): this server reads every
+ * TCP/IP (Modbus) instrument on its profile's interval and feeds the readings
+ * into the SAME ingest path a pushing device uses.
+ *
+ * Two halves, deliberately separate:
+ *
+ *  - `readOnce(instrumentId)` is ONE read, start to finish, and it decides
+ *    everything afresh: it loads the instrument, its profile and Configuration
+ *    → TCP/IP Reading from the database on EVERY call, so an instrument
+ *    disabled, a map emptied, an address moved out of the device networks or
+ *    reading switched OFF is refused BEFORE a socket is opened — whatever the
+ *    schedule still says. It is what the scheduler runs, and what the tests run.
+ *
+ *  - The scheduler only decides WHEN: a one-second tick, each instrument on
+ *    its own slot (`phaseFor` spreads them across the interval, so a hundred
+ *    devices on one interval are not read in the same second), at most
+ *    `MAX_READS_IN_FLIGHT` reads at once and ONE per host:port, and an
+ *    instrument whose previous read is still running skips that tick (no queue
+ *    builds up). Every `RELOAD_CHECK_MS` it asks the database whether anything
+ *    it reads from changed, and rebuilds the schedule only then.
+ *
+ * Failures (§7.5): a failed read stores nothing. The status row counts the run
+ * of failures; the THIRD in a row sets `failingSince` (= the first of them) and
+ * writes the SYSTEM audit row MODBUS_DEVICE_NOT_ANSWERING; the first success
+ * after that clears it and writes MODBUS_DEVICE_ANSWERING. One or two misses
+ * write no audit row — a lossy link must not write thousands of chained rows a
+ * day. The status change and its audit row are ONE transaction.
+ *
+ * `stop()` is the only path that abandons a read: it aborts the socket, and a
+ * read that finishes after the abort writes nothing — no telemetry, no status,
+ * no audit row. Switching reading OFF empties the schedule at the next reload
+ * but lets a read already in flight finish and be stored.
+ */
+
+/** Consecutive failed reads that make a device "not answering" (§7.5). */
+export const NOT_ANSWERING_AFTER = 3;
+/** Reads in flight at once across every device (§7.3). */
+export const MAX_READS_IN_FLIGHT = 16;
+/** The scheduler's tick. */
+export const TICK_MS = 1000;
+/** How often the Reader asks whether its inputs changed (§7.3). */
+export const RELOAD_CHECK_MS = 5000;
+
+const TRANSPORT = 'modbus';
+const READ_BY_SERVER = 'server';
+
+/**
+ * Why an instrument is not read. `SERVER_READING_OFF`, `INSTRUMENT_DISABLED`,
+ * `NO_REGISTER_MAP` and `NO_ADDRESS` are the status route's `notReadReason`
+ * words (spec §9); `INVALID_CONFIG` is a stored row no route could have
+ * written (a unit id, port, interval or map outside its rules — hand-edited),
+ * logged as a warning; `STOPPED` is a read abandoned by `stop()`.
+ */
+export type ReaderSkipCode =
+  | 'SERVER_READING_OFF' | 'NOT_FOUND' | 'NOT_TCPIP' | 'INSTRUMENT_DISABLED' | 'PROFILE_DISABLED'
+  | 'NO_ADDRESS' | 'NO_REGISTER_MAP' | 'INVALID_CONFIG' | 'ADDRESS_NOT_ALLOWED' | 'STOPPED';
+
+export type ReadOnceResult = { outcome: 'stored' | 'failed' | 'skipped'; code?: string };
+
+const INSTRUMENT_SELECT = {
+  id: true,
+  code: true,
+  isActive: true,
+  deviceCertIssueId: true,
+  modbusHost: true,
+  modbusPort: true,
+  modbusRegisters: true,
+  profile: { select: { isActive: true, connection: true, modbusIntervalSec: true, modbusUnitId: true } },
+} satisfies Prisma.InstrumentSelect;
+
+type InstrumentRow = Prisma.InstrumentGetPayload<{ select: typeof INSTRUMENT_SELECT }>;
+
+type ReadTarget =
+  | { ok: true; host: string; port: number; unitId: number; intervalSec: number; map: ModbusRegisterMap }
+  | { ok: false; code: ReaderSkipCode; detail: string };
+
+const isInt = (v: unknown, min: number, max: number): v is number =>
+  typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
+
+/**
+ * Is this instrument read, and with what? The ONE answer to spec §7.1, used by
+ * `readOnce` before every read and by the scheduler at every reload. Nothing
+ * here trusts the row: a value a route could never have stored (unit id 300,
+ * port 0, a map that fails the shared schema) is `INVALID_CONFIG`, never passed
+ * to `readDevice` — whose socket code would throw on a bad unit id or port
+ * inside an event listener, out of reach of any try/catch.
+ */
+function readTarget(row: InstrumentRow, config: ModbusReaderConfig, opts: { allowLoopbackForTests?: boolean }): ReadTarget {
+  const p = row.profile;
+  if (!config.serverReadingEnabled) return { ok: false, code: 'SERVER_READING_OFF', detail: 'Reading devices from this server is off.' };
+  if (p.connection !== 'MODBUS_TCP') return { ok: false, code: 'NOT_TCPIP', detail: 'The instrument\'s profile is not a TCP/IP profile.' };
+  if (!row.isActive) return { ok: false, code: 'INSTRUMENT_DISABLED', detail: 'The instrument is disabled.' };
+  if (!p.isActive) return { ok: false, code: 'PROFILE_DISABLED', detail: 'The instrument\'s profile is disabled.' };
+  if (row.modbusHost === null || row.modbusPort === null) return { ok: false, code: 'NO_ADDRESS', detail: 'The instrument has no IP address or port.' };
+  if (!isInt(row.modbusPort, 1, 65535)) return { ok: false, code: 'INVALID_CONFIG', detail: `Stored port ${row.modbusPort} is not 1 to 65535.` };
+  if (!isInt(p.modbusUnitId, MODBUS_UNIT_ID.min, MODBUS_UNIT_ID.max)) {
+    return { ok: false, code: 'INVALID_CONFIG', detail: `The profile's unit ID ${String(p.modbusUnitId)} is not ${MODBUS_UNIT_ID.min} to ${MODBUS_UNIT_ID.max}.` };
+  }
+  if (!isInt(p.modbusIntervalSec, MODBUS_INTERVAL.min, MODBUS_INTERVAL.max)) {
+    return { ok: false, code: 'INVALID_CONFIG', detail: `The profile's read interval ${String(p.modbusIntervalSec)} s is not ${MODBUS_INTERVAL.min} to ${MODBUS_INTERVAL.max} s.` };
+  }
+  const stored = row.modbusRegisters;
+  const map = coerceModbusRegisterMap(stored);
+  if (map.length === 0) {
+    // Empty is a normal state (an instrument created before its map is known);
+    // anything else that reads as no map is a stored value the schema refuses.
+    if (stored === null || (Array.isArray(stored) && stored.length === 0)) {
+      return { ok: false, code: 'NO_REGISTER_MAP', detail: 'The instrument has no register map.' };
+    }
+    return { ok: false, code: 'INVALID_CONFIG', detail: 'The stored register map does not pass the register-map rules.' };
+  }
+  const address = checkModbusAddressAllowed(row.modbusHost, row.modbusPort, config.deviceNetworks, opts);
+  if (!address.ok) return { ok: false, code: 'ADDRESS_NOT_ALLOWED', detail: address.message };
+  return { ok: true, host: row.modbusHost, port: row.modbusPort, unitId: p.modbusUnitId, intervalSec: p.modbusIntervalSec, map };
+}
+
+const isAbortError = (err: unknown): boolean => err instanceof Error && err.name === 'AbortError';
+/** Keeps a code inside `signature_meaning`'s VARCHAR(255) next to the fixed text. */
+const clip = (s: string) => (s.length <= 60 ? s : `${s.slice(0, 60)}…`);
+
+/**
+ * Read one instrument once — the exact path the scheduler runs.
+ *
+ * `skipped` = nothing was attempted (the code says why; no socket was opened,
+ * nothing was written). `failed` = the device (or the write of its readings)
+ * failed; the status row has the failure. `stored` = the device answered and
+ * its readings went through `ingestPayload` (`code: 'NO_VALUE_STORED'` when it
+ * answered but the decoder refused every value — each refusal is a dead letter).
+ *
+ * Throws only on a programming error or a database failure of the status
+ * write; the scheduler logs those. `signal` is the scheduler's stop(): an abort
+ * before the first write means nothing is written at all.
+ */
+export async function readOnce(
+  instrumentId: string,
+  opts: { allowLoopbackForTests?: boolean; signal?: AbortSignal } = {},
+): Promise<ReadOnceResult> {
+  const { signal } = opts;
+  const skipped = (code: ReaderSkipCode): ReadOnceResult => ({ outcome: 'skipped', code });
+  if (signal?.aborted) return skipped('STOPPED');
+
+  const config = await loadModbusReaderConfig();
+  const row = await prisma.instrument.findUnique({ where: { id: instrumentId }, select: INSTRUMENT_SELECT });
+  if (!row) return skipped('NOT_FOUND');
+  // Every "is it read?" rule — reading OFF included — is readTarget's, the one
+  // place the reload asks too.
+  const target = readTarget(row, config, opts);
+  if (!target.ok) {
+    if (target.code === 'INVALID_CONFIG') {
+      logger.warn({ instrumentId, code: row.code, reason: target.detail },
+        '[modbus-reader] stored TCP/IP configuration is not valid — instrument not read');
+    }
+    return skipped(target.code);
+  }
+  if (signal?.aborted) return skipped('STOPPED');
+
+  const startedAt = new Date();
+  let result: ReadResult;
+  try {
+    result = await readDevice({ host: target.host, port: target.port, unitId: target.unitId, map: target.map, signal });
+  } catch (err) {
+    if (isAbortError(err)) return skipped('STOPPED');
+    throw err; // a programming error: surfaced, never turned into a quiet failure
+  }
+  // stop() abandons: a read that came back after it writes nothing.
+  if (signal?.aborted) return skipped('STOPPED');
+
+  if (!result.ok) {
+    await recordFailure(row, target, startedAt, result.code, result.message);
+    return { outcome: 'failed', code: result.code };
+  }
+
+  if (result.rejected.length > 0) {
+    await safeWriteDeadLetters(result.rejected.map((r) => ({
+      id: randomUUID(), instrumentId: row.id, transport: TRANSPORT,
+      reason: `Modbus key "${r.key}" was not stored: ${r.reason}`,
+      rawPayload: null,
+    })));
+  }
+
+  // The readings, as a device would have sent them: a PROTOTYPE-LESS object so
+  // a key named `__proto__` stays a key, and `ts` = the moment the read began
+  // (spec §10 — a reading's time is when it was taken, not when it was stored).
+  const payload: Record<string, unknown> = Object.create(null);
+  for (const [key, value] of Object.entries(result.values)) payload[key] = value;
+  payload.ts = startedAt.getTime();
+  const identity: IngestIdentity = {
+    id: row.id, code: row.code,
+    isGateway: false, // a TCP/IP instrument is never a gateway; hard-coded so no stored flag can reach the fan-out
+    deviceCert: { required: false, issueId: row.deviceCertIssueId },
+  };
+  const ingested = await ingestPayload({
+    identity, raw: Buffer.from(JSON.stringify(payload), 'utf8'), transport: TRANSPORT, lastSeenVia: 'polled',
+  });
+  if (!ingested.ok) {
+    // The device answered; this server could not store what it said (spec
+    // §7.4: a server fault, logged and counted as a failed read).
+    logger.error({ instrumentId: row.id, code: row.code, outcome: ingested.code, message: ingested.message },
+      '[modbus-reader] the device answered but its readings were not stored');
+    await recordFailure(row, target, startedAt, ingested.code, ingested.message);
+    return { outcome: 'failed', code: ingested.code };
+  }
+  await recordSuccess(row, target, startedAt);
+  if (ingested.accepted === 0) {
+    logger.warn({ instrumentId: row.id, code: row.code, rejected: result.rejected.length },
+      '[modbus-reader] the device answered but every value was refused — see its dead letters');
+    return { outcome: 'stored', code: 'NO_VALUE_STORED' };
+  }
+  return { outcome: 'stored' };
+}
+
+interface StatusBefore {
+  consecutiveFailures: number;
+  failingSince: Date | null;
+  failureRunStartedAt: Date | null;
+  lastErrorAt: Date | null;
+  lastErrorCode: string | null;
+  lastErrorMessage: string | null;
+}
+
+/** The status row, created if missing, LOCKED for the rest of the transaction. */
+async function lockStatus(tx: AuditTx, instrumentId: string): Promise<StatusBefore> {
+  await tx.$executeRaw`
+    INSERT INTO modbus_poll_status (instrument_id, updated_at) VALUES (${instrumentId}, now())
+    ON CONFLICT (instrument_id) DO NOTHING`;
+  const rows = await tx.$queryRaw<StatusBefore[]>`
+    SELECT consecutive_failures AS "consecutiveFailures", failing_since AS "failingSince",
+           failure_run_started_at AS "failureRunStartedAt", last_error_at AS "lastErrorAt",
+           last_error_code AS "lastErrorCode", last_error_message AS "lastErrorMessage"
+    FROM modbus_poll_status WHERE instrument_id = ${instrumentId} FOR UPDATE`;
+  const row = rows[0];
+  if (!row) throw new Error(`modbus_poll_status row for ${instrumentId} vanished inside its own transaction`);
+  return row;
+}
+
+type ReadableTarget = Extract<ReadTarget, { ok: true }>;
+
+async function recordFailure(row: InstrumentRow, target: ReadableTarget, at: Date, code: string, message: string): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const before = await lockStatus(tx, row.id);
+    const failures = before.consecutiveFailures + 1;
+    const runStartedAt = before.consecutiveFailures === 0 || !before.failureRunStartedAt ? at : before.failureRunStartedAt;
+    const becomesFailing = before.failingSince === null && failures >= NOT_ANSWERING_AFTER;
+    const failingSince = before.failingSince ?? (becomesFailing ? runStartedAt : null);
+    await tx.modbusPollStatus.update({
+      where: { instrumentId: row.id },
+      data: {
+        readBy: READ_BY_SERVER, lastAttemptAt: at, consecutiveFailures: failures,
+        failureRunStartedAt: runStartedAt, failingSince,
+        lastErrorCode: code, lastErrorMessage: message, lastErrorAt: at,
+      },
+    });
+    if (becomesFailing) {
+      await auditLog({
+        action: 'MODBUS_DEVICE_NOT_ANSWERING', targetType: 'Instrument', targetId: row.id,
+        afterValue: {
+          code: row.code, host: target.host, port: target.port, unitId: target.unitId,
+          reason: message, errorCode: code,
+          failingSince: runStartedAt.toISOString(), consecutiveFailures: failures, readBy: READ_BY_SERVER,
+        },
+        reason: message,
+        signatureMeaning: `TCP/IP instrument "${clip(row.code)}" stopped answering the server's reads`,
+      }, tx);
+    }
+  });
+}
+
+async function recordSuccess(row: InstrumentRow, target: ReadableTarget, at: Date): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const before = await lockStatus(tx, row.id);
+    await tx.modbusPollStatus.update({
+      where: { instrumentId: row.id },
+      data: {
+        readBy: READ_BY_SERVER, lastAttemptAt: at, lastSuccessAt: at,
+        consecutiveFailures: 0, failingSince: null, failureRunStartedAt: null,
+      },
+    });
+    if (before.failingSince !== null) {
+      // The gap: `from` = the first missed read, `to` = the last one; the read
+      // that answered is `answeredAt`.
+      const lastMissed = before.lastErrorAt ?? before.failingSince;
+      await auditLog({
+        action: 'MODBUS_DEVICE_ANSWERING', targetType: 'Instrument', targetId: row.id,
+        beforeValue: {
+          code: row.code, failingSince: before.failingSince.toISOString(),
+          consecutiveFailures: before.consecutiveFailures,
+          lastErrorCode: before.lastErrorCode, lastErrorMessage: before.lastErrorMessage,
+        },
+        afterValue: {
+          code: row.code, host: target.host, port: target.port,
+          missed: before.consecutiveFailures,
+          from: before.failingSince.toISOString(), to: lastMissed.toISOString(),
+          answeredAt: at.toISOString(), readBy: READ_BY_SERVER,
+        },
+        signatureMeaning: `TCP/IP instrument "${clip(row.code)}" answering the server's reads again`,
+      }, tx);
+    }
+  });
+}
+
+// ─── the schedule ────────────────────────────────────────────────────────────
+
+export interface ScheduleEntry {
+  instrumentId: string;
+  /** `host:port` — at most one read in flight per address. */
+  address: string;
+  intervalSec: number;
+  /** Seconds into each interval this instrument is read at (`phaseFor`). */
+  phaseSec: number;
+  /** Epoch ms of its next read. */
+  nextDueAt: number;
+}
+
+/** A stable offset of `id` inside the interval (FNV-1a), so reads spread across it. */
+export function phaseFor(instrumentId: string, intervalSec: number): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < instrumentId.length; i++) {
+    h ^= instrumentId.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h % intervalSec;
+}
+
+/** The first slot on the instrument's grid (whole seconds `k·interval + phase`) at or after `nowMs`. */
+export function firstSlotAtOrAfter(nowMs: number, intervalSec: number, phaseSec: number): number {
+  const k = Math.ceil((nowMs / 1000 - phaseSec) / intervalSec);
+  return (k * intervalSec + phaseSec) * 1000;
+}
+
+/**
+ * Which due entries start now, which skip — PURE, so the caps are tested
+ * without a database (the partial unique index makes two instruments on one
+ * host:port impossible with real rows).
+ *
+ *  - an instrument whose previous read is still running SKIPS this slot (the
+ *    caller moves it to its next slot; no catch-up, no queue);
+ *  - an entry blocked by the global cap or a busy address WAITS (stays due,
+ *    tried again next tick) — it lost the race, not its turn;
+ *  - the most overdue go first, so a saturated Reader cannot starve one device.
+ */
+export function pickDue(
+  entries: readonly ScheduleEntry[],
+  nowMs: number,
+  running: { ids: ReadonlySet<string>; addresses: ReadonlySet<string> },
+  maxInFlight: number,
+): { start: ScheduleEntry[]; skip: ScheduleEntry[] } {
+  const start: ScheduleEntry[] = [];
+  const skip: ScheduleEntry[] = [];
+  let free = maxInFlight - running.ids.size;
+  const claimed = new Set<string>();
+  const due = entries.filter((e) => e.nextDueAt <= nowMs).sort((a, b) => a.nextDueAt - b.nextDueAt);
+  for (const e of due) {
+    if (running.ids.has(e.instrumentId)) {
+      skip.push(e);
+      continue;
+    }
+    if (free <= 0 || running.addresses.has(e.address) || claimed.has(e.address)) continue;
+    start.push(e);
+    claimed.add(e.address);
+    free--;
+  }
+  return { start, skip };
+}
+
+type ReaderLog = Pick<FastifyBaseLogger, 'debug' | 'info' | 'warn' | 'error'>;
+
+export interface ModbusReaderCore {
+  /** Rebuild the schedule if anything it reads from changed; true when it did. */
+  reload(): Promise<boolean>;
+  /** Start every read that is due now. */
+  tick(): void;
+  /** A copy of the schedule. */
+  schedule(): ScheduleEntry[];
+  /** Reads running now. */
+  inFlight(): number;
+  /** Abort every read in flight and wait for them; nothing runs afterwards. */
+  stop(): Promise<void>;
+}
+
+/**
+ * The scheduler without its timers: `now` and `read` are injectable so a test
+ * can force a tick at a chosen instant. `startModbusReader` wraps it in real,
+ * unref'd intervals. Exported for tests.
+ */
+export function createModbusReader(opts: {
+  log: ReaderLog;
+  allowLoopbackForTests?: boolean;
+  now?: () => number;
+  read?: (instrumentId: string, signal: AbortSignal) => Promise<ReadOnceResult>;
+}): ModbusReaderCore {
+  const log = opts.log;
+  const now = opts.now ?? Date.now;
+  const read = opts.read
+    ?? ((id: string, signal: AbortSignal) => readOnce(id, { allowLoopbackForTests: opts.allowLoopbackForTests, signal }));
+  const controller = new AbortController();
+  // Up to MAX_READS_IN_FLIGHT reads listen on the one signal at once.
+  setMaxListeners(MAX_READS_IN_FLIGHT + 4, controller.signal);
+
+  let stopped = false;
+  let signature: string | null = null;
+  let entries = new Map<string, ScheduleEntry>();
+  let notRead = new Map<string, ReaderSkipCode>();
+  let readingWasOn: boolean | null = null;
+  let reloading: Promise<boolean> | null = null;
+  const runningIds = new Set<string>();
+  const runningAddresses = new Set<string>();
+  const inFlight = new Set<Promise<void>>();
+
+  /**
+   * What the schedule is built from, in one string: the TCP/IP instruments'
+   * count and newest `updated_at`, the TCP/IP profiles' newest `updated_at`,
+   * and the `modbus-reader` row's `updated_at` AND value (`system_config
+   * .updated_at` is a column default, not `@updatedAt`: a write that does not
+   * set it would otherwise go unseen). The count catches a delete, which moves
+   * no max. A successful read moves `instruments.updated_at` (last-seen), so a
+   * rebuild after reads is normal — it keeps every entry's slot unless its
+   * interval changed.
+   */
+  async function readSignature(): Promise<string> {
+    const [inst, prof, cfg] = await Promise.all([
+      prisma.instrument.aggregate({ where: { profile: { connection: 'MODBUS_TCP' } }, _count: { _all: true }, _max: { updatedAt: true } }),
+      prisma.instrumentProfile.aggregate({ where: { connection: 'MODBUS_TCP' }, _count: { _all: true }, _max: { updatedAt: true } }),
+      prisma.systemConfig.findUnique({ where: { configKey: MODBUS_READER_CONFIG_KEY }, select: { updatedAt: true, configValue: true } }),
+    ]);
+    return JSON.stringify([
+      inst._count._all, inst._max.updatedAt?.toISOString() ?? null,
+      prof._count._all, prof._max.updatedAt?.toISOString() ?? null,
+      cfg ? cfg.updatedAt.toISOString() : null, cfg ? cfg.configValue : null,
+    ]);
+  }
+
+  async function rebuildIfChanged(): Promise<boolean> {
+    // The signature is read BEFORE the data, so a change landing between the
+    // two is seen again at the next check rather than lost.
+    const sig = await readSignature();
+    if (stopped || sig === signature) return false;
+    const config = await loadModbusReaderConfig();
+    // Reading OFF is decided by readTarget below, as in readOnce — one rule.
+    const rows = await prisma.instrument.findMany({
+      where: { isActive: true, profile: { connection: 'MODBUS_TCP', isActive: true } },
+      select: INSTRUMENT_SELECT,
+    });
+    if (stopped) return false;
+
+    const t = now();
+    const next = new Map<string, ScheduleEntry>();
+    const nextNotRead = new Map<string, ReaderSkipCode>();
+    for (const row of rows) {
+      const target = readTarget(row, config, { allowLoopbackForTests: opts.allowLoopbackForTests });
+      if (!target.ok) {
+        nextNotRead.set(row.id, target.code);
+        // Said once per change, not at every rebuild: an instrument somebody
+        // configured that this server will not read.
+        if (notRead.get(row.id) !== target.code && (target.code === 'INVALID_CONFIG' || target.code === 'ADDRESS_NOT_ALLOWED')) {
+          log.warn({ instrumentId: row.id, code: row.code, why: target.code, reason: target.detail },
+            '[modbus-reader] TCP/IP instrument not read');
+        }
+        continue;
+      }
+      const address = `${target.host}:${target.port}`;
+      const prev = entries.get(row.id);
+      if (prev && prev.intervalSec === target.intervalSec) {
+        next.set(row.id, { ...prev, address });
+      } else {
+        const phaseSec = phaseFor(row.id, target.intervalSec);
+        next.set(row.id, {
+          instrumentId: row.id, address, intervalSec: target.intervalSec, phaseSec,
+          nextDueAt: firstSlotAtOrAfter(t, target.intervalSec, phaseSec),
+        });
+      }
+    }
+    if (readingWasOn !== config.serverReadingEnabled) {
+      log.info({ instruments: next.size },
+        config.serverReadingEnabled
+          ? '[modbus-reader] reading TCP/IP instruments from this server'
+          : '[modbus-reader] reading devices from this server is OFF — nothing is scheduled');
+      readingWasOn = config.serverReadingEnabled;
+    }
+    entries = next;
+    notRead = nextNotRead;
+    signature = sig;
+    return true;
+  }
+
+  function launch(e: ScheduleEntry): void {
+    runningIds.add(e.instrumentId);
+    runningAddresses.add(e.address);
+    const holder: { p?: Promise<void> } = {};
+    holder.p = (async () => {
+      try {
+        const r = await read(e.instrumentId, controller.signal);
+        if (r.outcome !== 'stored') log.debug({ instrumentId: e.instrumentId, ...r }, '[modbus-reader] read');
+      } catch (err) {
+        log.error({ err, instrumentId: e.instrumentId }, '[modbus-reader] read threw — nothing was recorded for it');
+      } finally {
+        runningIds.delete(e.instrumentId);
+        runningAddresses.delete(e.address);
+        if (holder.p) inFlight.delete(holder.p);
+      }
+    })();
+    inFlight.add(holder.p);
+  }
+
+  return {
+    reload(): Promise<boolean> {
+      if (stopped) return Promise.resolve(false);
+      // One reload at a time: a check that finds one running shares its answer.
+      if (reloading) return reloading;
+      const p = rebuildIfChanged().finally(() => { reloading = null; });
+      reloading = p;
+      return p;
+    },
+    tick(): void {
+      if (stopped) return;
+      const t = now();
+      const { start, skip } = pickDue([...entries.values()], t, { ids: runningIds, addresses: runningAddresses }, MAX_READS_IN_FLIGHT);
+      for (const e of skip) {
+        e.nextDueAt = firstSlotAtOrAfter(t + 1, e.intervalSec, e.phaseSec);
+        log.debug({ instrumentId: e.instrumentId }, '[modbus-reader] previous read still running — this slot skipped');
+      }
+      for (const e of start) {
+        e.nextDueAt = firstSlotAtOrAfter(t + 1, e.intervalSec, e.phaseSec);
+        launch(e);
+      }
+    },
+    schedule: () => [...entries.values()].map((e) => ({ ...e })),
+    inFlight: () => inFlight.size,
+    async stop(): Promise<void> {
+      if (!stopped) {
+        stopped = true;
+        controller.abort();
+      }
+      await Promise.allSettled([...inFlight, ...(reloading ? [reloading] : [])]);
+    },
+  };
+}
+
+export interface ModbusReaderHandle {
+  stop(): Promise<void>;
+}
+
+/**
+ * Start the Reader (app.ts, after the MQTT bridge; never in the e2e app). Its
+ * two timers are unref'd — they never keep the process alive — and every async
+ * path inside them is caught and logged: an unhandled rejection would take the
+ * API down. `stop()` (shutdown(), before app.close()) clears both timers, then
+ * aborts and awaits every read in flight.
+ */
+export function startModbusReader(opts: { log: FastifyBaseLogger; allowLoopbackForTests?: boolean }): ModbusReaderHandle {
+  const log = opts.log;
+  const core = createModbusReader({ log, allowLoopbackForTests: opts.allowLoopbackForTests });
+  const reload = () => {
+    core.reload().catch((err: unknown) => {
+      log.error({ err }, '[modbus-reader] reload failed — the schedule stays as it was until the next check');
+    });
+  };
+  reload();
+  const reloadTimer = setInterval(reload, RELOAD_CHECK_MS);
+  const tickTimer = setInterval(() => {
+    try {
+      core.tick();
+    } catch (err) {
+      log.error({ err }, '[modbus-reader] tick failed');
+    }
+  }, TICK_MS);
+  reloadTimer.unref();
+  tickTimer.unref();
+  return {
+    async stop(): Promise<void> {
+      clearInterval(tickTimer);
+      clearInterval(reloadTimer);
+      await core.stop();
+    },
+  };
+}

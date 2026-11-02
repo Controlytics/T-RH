@@ -208,6 +208,14 @@ export const AUDIT_ACTIONS = {
    *  instant, and overwritten (last arrival wins, operator 2026-10-12). No human
    *  actor; the sender's code, the transport and both values are in the row. */
   TELEMETRY_READING_REWRITTEN: 'TELEMETRY_READING_REWRITTEN',
+  /** TCP/IP (Modbus) instruments (2026-10-31, Part 2): the server's Reader
+   *  failed to read a device three times in a row. No human actor; the
+   *  instrument code, address, the failure's own words and the first failed
+   *  read's time are in the row. Written once per run, never per failed read. */
+  MODBUS_DEVICE_NOT_ANSWERING: 'MODBUS_DEVICE_NOT_ANSWERING',
+  /** The first successful read after MODBUS_DEVICE_NOT_ANSWERING: the number of
+   *  reads missed and the first and last of them. No human actor. */
+  MODBUS_DEVICE_ANSWERING: 'MODBUS_DEVICE_ANSWERING',
 
   // Floorplans and their rooms. A room carries the environmental SPECIFICATION
   // for a space, so "who changed this temperature limit, from what, to what"

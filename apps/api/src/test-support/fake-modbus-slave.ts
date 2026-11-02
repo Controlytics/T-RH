@@ -13,6 +13,13 @@ export interface FakeSlaveOptions {
   input?: Record<number, number>;
   unitId?: number;
   behaviour?: FakeSlaveBehaviour;
+  /**
+   * 'normal' replies only: answer this many ms after the request instead of at
+   * once — a slow device, for tests that need a read still in flight (the
+   * Reader's skip-while-running and stop() cases). Keep it under the client's
+   * 1000 ms response timeout or the read fails BAD_RESPONSE. Default 0.
+   */
+  delayMs?: number;
 }
 
 export interface FakeSlave {
@@ -32,6 +39,8 @@ export async function startFakeSlave(opts: FakeSlaveOptions = {}): Promise<FakeS
   const input = opts.input ?? {};
   const unitId = opts.unitId ?? 1;
   const behaviour = opts.behaviour ?? 'normal';
+  const delayMs = opts.delayMs ?? 0;
+  const pending = new Set<NodeJS.Timeout>();
   const sockets = new Set<net.Socket>();
   const seen: Array<{ functionCode: number; address: number; quantity: number }> = [];
   let connections = 0;
@@ -83,8 +92,18 @@ export async function startFakeSlave(opts: FakeSlaveOptions = {}): Promise<FakeS
         // A well-formed frame, but one register fewer than was asked for.
         socket.write(frame(txId, unit, dataPdu(fc, area, address, Math.max(0, quantity - 1))));
         return;
-      default:
-        socket.write(frame(txId, unit, dataPdu(fc, area, address, quantity)));
+      default: {
+        const reply = frame(txId, unit, dataPdu(fc, area, address, quantity));
+        if (delayMs <= 0) {
+          socket.write(reply);
+          return;
+        }
+        const t = setTimeout(() => {
+          pending.delete(t);
+          if (!socket.destroyed) socket.write(reply);
+        }, delayMs);
+        pending.add(t);
+      }
     }
   };
 
@@ -119,6 +138,8 @@ export async function startFakeSlave(opts: FakeSlaveOptions = {}): Promise<FakeS
     closedConnections: () => closed,
     requests: () => [...seen],
     close: () => new Promise<void>((resolve) => {
+      for (const t of pending) clearTimeout(t);
+      pending.clear();
       for (const s of sockets) s.destroy();
       server.close(() => resolve());
     }),

@@ -165,6 +165,18 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   // render as the literal "{location}" in the Audit Trail AND in the exported
   // 21 CFR §11 record; template-placeholders.test.ts exists to catch it.
   const location = (after.location as string) || (before.location as string) || '';
+  // TCP/IP (Modbus) Reader rows (2026-10-31): MODBUS_DEVICE_NOT_ANSWERING /
+  // _ANSWERING. Written by the server with no user, so every value is the
+  // row's own after-value, printed as stored — `from` / `to` are ISO instants
+  // (the first and the last missed read), `missed` a count. {code} is the
+  // instrument code; {reason} is already substituted above.
+  const text = (v: unknown): string => (v === null || v === undefined ? '' : String(v));
+  const code = text(after.code ?? before.code);
+  const host = text(after.host ?? before.host);
+  const port = text(after.port ?? before.port);
+  const missed = text(after.missed ?? before.missed);
+  const from = text(after.from ?? before.from);
+  const to = text(after.to ?? before.to);
 
   const replacePlaceholders = (tpl: string) => {
     const filled = tpl
@@ -180,7 +192,13 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
       .replace(/\{reason\}/g, reason)
       .replace(/\{instrument\}/g, instrument)
       .replace(/\{gateway\}/g, gateway)
-      .replace(/\{attribute\}/g, attribute);
+      .replace(/\{attribute\}/g, attribute)
+      .replace(/\{code\}/g, code)
+      .replace(/\{host\}/g, host)
+      .replace(/\{port\}/g, port)
+      .replace(/\{missed\}/g, missed)
+      .replace(/\{from\}/g, from)
+      .replace(/\{to\}/g, to);
     // Drop empty quoted placeholders: a record that carries no name would
     // otherwise render 'Role "" updated by EMP-123'. An empty "" is always a
     // missing-value artifact, never intentional, so collapse it and tidy the

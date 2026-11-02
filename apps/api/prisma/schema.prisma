@@ -1099,6 +1099,9 @@ model Instrument {
   modbusHost      String? @map("modbus_host")
   modbusPort      Int?    @map("modbus_port")
   modbusRegisters Json?   @map("modbus_registers")
+  /// The server Reader's state for this device (Part 2) — one row once it has
+  /// been read at least once; cascades with the instrument.
+  modbusPollStatus ModbusPollStatus?
 
   // Every instrument belongs to exactly one profile. NOT NULL: rows predating
   // profiles were backfilled to "Default" by migration 20260808120000, so there
@@ -1211,6 +1214,35 @@ model DeadLetter {
 
   @@index([receivedAt])
   @@map("dead_letters")
+}
+
+/// TCP/IP (MODBUS) READING STATUS (2026-10-31, Part 2, spec §5.3): how the
+/// Reader's reads of one instrument are going. OPERATIONAL state, not a §11
+/// record — the record is the SYSTEM audit row written on each healthy <->
+/// failing transition (MODBUS_DEVICE_NOT_ANSWERING / _ANSWERING), in the same
+/// transaction as the row change. Written only by modules/modbus/reader.ts.
+///
+/// `failingSince` is NULL while healthy and set to the FIRST failed read of a
+/// run once the run reaches three. `failureRunStartedAt` holds that first
+/// failure's time from the run's first miss (it is not in the spec's column
+/// list: without it the third failure could not know when the first one was,
+/// and a time held in memory would be wrong after a restart mid-run).
+model ModbusPollStatus {
+  instrumentId        String     @id @map("instrument_id")
+  instrument          Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  /// 'server', or a Plant Reader id (Part 3).
+  readBy              String     @default("server") @map("read_by")
+  lastAttemptAt       DateTime?  @map("last_attempt_at") @db.Timestamptz(3)
+  lastSuccessAt       DateTime?  @map("last_success_at") @db.Timestamptz(3)
+  failingSince        DateTime?  @map("failing_since") @db.Timestamptz(3)
+  failureRunStartedAt DateTime?  @map("failure_run_started_at") @db.Timestamptz(3)
+  consecutiveFailures Int        @default(0) @map("consecutive_failures")
+  lastErrorCode       String?    @map("last_error_code")
+  lastErrorMessage    String?    @map("last_error_message")
+  lastErrorAt         DateTime?  @map("last_error_at") @db.Timestamptz(3)
+  updatedAt           DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("modbus_poll_status")
 }
 
 

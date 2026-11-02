@@ -11,11 +11,47 @@ export type ModbusAddressCheck =
 const TEST_LOOPBACK = '127.0.0.1';
 
 /**
+ * Rules 1-3 of `checkModbusAddress` below — may this server read `host:port` at
+ * all — with the device networks passed in. PURE: no database. The Reader
+ * calls it before every read with the configuration it has just loaded (one
+ * snapshot for "is reading on" and "which networks"), and it does not ask the
+ * in-use question: a stored instrument's own address is not "in use", and the
+ * partial unique index already makes it the only holder.
+ */
+export function checkModbusAddressAllowed(
+  host: string,
+  port: number,
+  deviceNetworks: readonly string[],
+  opts: { allowLoopbackForTests?: boolean } = {},
+): ModbusAddressCheck {
+  const loopbackForTests = opts.allowLoopbackForTests === true && host === TEST_LOOPBACK;
+  if (!loopbackForTests) {
+    const shape = modbusHostSchema.safeParse(host);
+    if (!shape.success) {
+      return { ok: false, status: 400, code: 'ADDRESS_NOT_ALLOWED', message: shape.error.issues[0]?.message ?? `${host} is not an address this server may read.` };
+    }
+  }
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return { ok: false, status: 400, code: 'ADDRESS_NOT_ALLOWED', message: 'Port must be 1 to 65535.' };
+  }
+  if (!loopbackForTests && !ipInNetworks(host, [...deviceNetworks])) {
+    return {
+      ok: false, status: 400, code: 'ADDRESS_NOT_ALLOWED',
+      message: deviceNetworks.length > 0
+        ? `${host} is outside the device networks this server may read (${deviceNetworks.join(', ')}) — Configuration → TCP/IP Reading.`
+        : `No device network is configured, so this server may read no address — Configuration → TCP/IP Reading.`,
+    };
+  }
+  return { ok: true };
+}
+
+/**
  * May this server read a Modbus device at `host:port`, and is that address free?
  *
  * The ONE place the address rules are decided — instrument create / update,
- * bulk upload, Test connection and the Reader before every read all call this,
- * so it stands on its own and never assumes a zod schema ran in front of it
+ * bulk upload and Test connection call this; the Reader, before every read and
+ * at every reload, calls rules 1-3 alone (`checkModbusAddressAllowed`, above).
+ * It stands on its own and never assumes a zod schema ran in front of it
  * (a stored row, or a value the Reader reloads, has been through none):
  *
  *   1. an IPv4 dotted quad outside the always-refused ranges — the shared
@@ -45,26 +81,11 @@ export async function checkModbusAddress(
   },
 ): Promise<ModbusAddressCheck> {
   const loopbackForTests = opts.allowLoopbackForTests === true && host === TEST_LOOPBACK;
-  if (!loopbackForTests) {
-    const shape = modbusHostSchema.safeParse(host);
-    if (!shape.success) {
-      return { ok: false, status: 400, code: 'ADDRESS_NOT_ALLOWED', message: shape.error.issues[0]?.message ?? `${host} is not an address this server may read.` };
-    }
-  }
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    return { ok: false, status: 400, code: 'ADDRESS_NOT_ALLOWED', message: 'Port must be 1 to 65535.' };
-  }
-  if (!loopbackForTests) {
-    const { deviceNetworks } = await loadModbusReaderConfig();
-    if (!ipInNetworks(host, deviceNetworks)) {
-      return {
-        ok: false, status: 400, code: 'ADDRESS_NOT_ALLOWED',
-        message: deviceNetworks.length > 0
-          ? `${host} is outside the device networks this server may read (${deviceNetworks.join(', ')}) — Configuration → TCP/IP Reading.`
-          : `No device network is configured, so this server may read no address — Configuration → TCP/IP Reading.`,
-      };
-    }
-  }
+  // Rules 1-3 are checkModbusAddressAllowed's — one definition. The networks
+  // are read fresh here (narrowing them applies at the next check).
+  const deviceNetworks = loopbackForTests ? [] : (await loadModbusReaderConfig()).deviceNetworks;
+  const allowed = checkModbusAddressAllowed(host, port, deviceNetworks, { allowLoopbackForTests: opts.allowLoopbackForTests });
+  if (!allowed.ok) return allowed;
 
   const holder = await prisma.instrument.findFirst({
     where: {

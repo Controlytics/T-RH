@@ -62,6 +62,7 @@ import mqttAuthRoutes from './modules/instruments/mqtt-auth-routes.js';
 import instrumentProfileRoutes from './modules/instrument-profiles/routes.js';
 import instrumentRoutes from './modules/instruments/routes.js';
 import modbusRoutes from './modules/modbus/routes.js';
+import { startModbusReader, type ModbusReaderHandle } from './modules/modbus/reader.js';
 import { startTcpListener, type TcpListenerHandle } from './modules/instruments/listeners/tcp-listener.js';
 import { startMqttBridge, plaintextRemoteBrokerWarning, type MqttBridgeHandle } from './modules/instruments/listeners/mqtt-bridge.js';
 import { setDownlinkPublisher } from './modules/instruments/attribute-downlink.js';
@@ -628,6 +629,15 @@ if (mqttBrokerUrl) {
   }
 }
 
+// ─── TCP/IP (Modbus) Reader ──────────────────────────────────────────────────
+// Always started: whether it opens ANY connection is Configuration → TCP/IP
+// Reading ("Read devices from this server", default OFF), read from the
+// database at every reload and before every read — so an AWS install that
+// leaves it off never connects anywhere, and turning it on needs no restart.
+// Never started by the e2e app (src/e2e/test-helper.ts); tests drive
+// readOnce / createModbusReader directly. Its timers are unref'd.
+const modbusReader: ModbusReaderHandle = startModbusReader({ log: app.log });
+
 // Graceful shutdown
 const shutdown = async (signal: string) => {
   app.log.info(`Received ${signal}, shutting down gracefully...`);
@@ -663,6 +673,15 @@ const shutdown = async (signal: string) => {
       } catch (mqttErr) {
         app.log.error({ err: mqttErr }, 'Shutdown: MQTT ingest bridge close failed');
       }
+    }
+
+    // Before app.close() and the database going away: stop() clears the
+    // Reader's timers, aborts every read in flight and waits for them, so no
+    // read writes after this point.
+    try {
+      await modbusReader.stop();
+    } catch (readerErr) {
+      app.log.error({ err: readerErr }, 'Shutdown: Modbus Reader stop failed');
     }
 
     await app.close();

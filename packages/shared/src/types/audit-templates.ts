@@ -633,6 +633,23 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Stored reading "{attribute}" on instrument "{instrument}" rewritten by a device re-send',
     placeholders: ['instrument', 'attribute'],
   },
+  // TCP/IP (Modbus) instruments (2026-10-31, Part 2). SYSTEM actions — no
+  // {actor}: the server's Reader wrote them. {reason} is the failure in the
+  // operator's words (the Test connection wording); {from}–{to} are the first
+  // and the last missed read; the read that answered is `answeredAt` in the
+  // row's after-value.
+  MODBUS_DEVICE_NOT_ANSWERING: {
+    label: 'TCP/IP Device Not Answering',
+    category: 'Instruments',
+    template: '{code}: {host}:{port} stopped answering — {reason}',
+    placeholders: ['code', 'host', 'port', 'reason'],
+  },
+  MODBUS_DEVICE_ANSWERING: {
+    label: 'TCP/IP Device Answering Again',
+    category: 'Instruments',
+    template: '{code}: answering again after {missed} missed reads, {from}–{to}',
+    placeholders: ['code', 'missed', 'from', 'to'],
+  },
   INSTRUMENT_ATTRIBUTE_REMOVED: {
     label: 'Instrument Attribute Removed',
     category: 'Instruments',
