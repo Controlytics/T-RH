@@ -51,6 +51,10 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/telemetry-retention.def.js'),
     import('../modules/config/defs/audit-hard-delete.def.js'),
     import('../modules/config/defs/modbus-reader.def.js'),
+    // Rule chains (2026-11-03): the engine's settings, and the application
+    // attributes the Tenant attributes node reads.
+    import('../modules/config/defs/rule-engine.def.js'),
+    import('../modules/config/defs/rule-engine-attributes.def.js'),
     // ─── Add new module configs below this line ───
   ]);
 

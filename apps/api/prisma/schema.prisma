@@ -829,6 +829,13 @@ model Alarm {
   /// the pass reads its open set once and cannot see a row another process
   /// inserts mid-cycle. PARTIAL because many CLEARED rows for one instrument are
   /// legitimate, one per outage.
+  ///
+  /// THIRD, same category and same warning (rule chains, 2026-11-03):
+  /// `alarms_active_rule_type_unique` on (instrument_id, (rule_snapshot->>'alarmType'))
+  /// WHERE state = 'ACTIVE' AND source = 'RULE' (migration
+  /// 20261103181000_rule_chains). One open RULE alarm per instrument per alarm
+  /// TYPE — a Create alarm node that fires again updates the open one, as
+  /// ThingsBoard does, and two engine workers cannot both open it.
   @@map("alarms")
 }
 
@@ -993,6 +1000,12 @@ enum AlarmMetric {
   TEMPERATURE
   HUMIDITY
   OFFLINE
+  /// A RULE alarm raised by a rule chain's Create alarm node (2026-11-03): the
+  /// alarm is about whatever the chain decided, not one measurement. Its type
+  /// NAME is `ruleSnapshot.alarmType`. Added in its OWN migration
+  /// (`20261103180000_alarm_metric_custom`) — Postgres refuses a new enum value
+  /// in the transaction that added it.
+  CUSTOM
 }
 
 
@@ -1463,4 +1476,126 @@ model FloorplanRoomLink {
 
   @@index([floorplanId])
   @@map("floorplan_room_links")
+}
+
+// =============================================
+// RULE CHAINS (2026-11-03) — a ThingsBoard-style rule engine.
+// Spec: docs/superpowers/specs/2026-11-03-rule-chains-design.md §8
+// =============================================
+
+/// One rule chain. The DOCUMENT is the source of truth (ruling D-1): nodes,
+/// connections and the first node, strictly parsed by `parseRuleChainDocument`
+/// (`@digilog/shared`) on every write and read forgivingly
+/// (`readRuleChainDocument`). `rule_nodes` / `rule_node_connections` are a
+/// PROJECTION of it, deleted and re-inserted with the document's node ids by
+/// the one save path (`modules/rule-engine/service.ts saveChain`), never
+/// edited by themselves.
+///
+/// - EXACTLY ONE root: the partial unique index `rule_chains_one_root` on
+///   (root) WHERE root lives ONLY in migration `20261103181000_rule_chains`
+///   (Prisma cannot express a partial index). `setRoot` unsets the old root
+///   BEFORE setting the new one, under an advisory lock.
+/// - `updatedAt` is the DOCUMENT's version — the editor's `expectedUpdatedAt`.
+///   Making a chain root does NOT move it (raw SQL), so it never makes an open
+///   editor stale. Millisecond precision so the editor's stamp matches exactly.
+/// - `firstNodeId` mirrors `document.firstNodeId` (null = no node yet).
+/// - `createdBy` / `updatedBy` hold the USERNAME (the report-template
+///   precedent); NULL on the shipped root chain the migration seeds.
+model RuleChain {
+  id                      String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                    String   @unique @db.VarChar(120)
+  root                    Boolean  @default(false)
+  debugMode               Boolean  @default(false) @map("debug_mode")
+  firstNodeId             String?  @map("first_node_id") @db.Uuid
+  document                Json     @db.JsonB
+  reEnterOnRuleNodeWrites Boolean  @default(false) @map("re_enter_on_rule_node_writes")
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdBy               String?  @map("created_by") @db.VarChar(255)
+  updatedBy               String?  @map("updated_by") @db.VarChar(255)
+
+  nodes       RuleNode[]
+  connections RuleNodeConnection[]
+  debugEvents RuleNodeDebugEvent[]
+
+  @@map("rule_chains")
+}
+
+/// A node of a chain — PROJECTION of `RuleChain.document` (see above). The
+/// key is (chain, node id): node ids are the document's own, and two chains
+/// may carry the same ids (a chain created from the shipped root chain's
+/// document, a copy). `index` = the node's position in `document.nodes`.
+/// `type` is a catalogue id (`tb:filter:message-type-switch`) or
+/// `tb:unsupported`; `debugMode` is 'off' | 'all' | 'failures' (a validated
+/// string, the `grade` precedent).
+model RuleNode {
+  chainId   String @map("chain_id") @db.Uuid
+  id        String @db.Uuid
+  type      String @db.VarChar(128)
+  name      String @db.VarChar(80)
+  config    Json   @db.JsonB
+  debugMode String @default("off") @map("debug_mode") @db.VarChar(10)
+  x         Float
+  y         Float
+  index     Int
+
+  chain    RuleChain            @relation(fields: [chainId], references: [id], onDelete: Cascade)
+  outgoing RuleNodeConnection[] @relation("RuleNodeOutgoing")
+  incoming RuleNodeConnection[] @relation("RuleNodeIncoming")
+
+  @@id([chainId, id])
+  @@map("rule_nodes")
+}
+
+/// A connection — PROJECTION of `RuleChain.document.connections`. `relation`
+/// is the label (`Success`, `Failure`, `True`, a message type, a custom one).
+/// Both ends cascade with their node, the node with its chain.
+model RuleNodeConnection {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chainId    String @map("chain_id") @db.Uuid
+  fromNodeId String @map("from_node_id") @db.Uuid
+  toNodeId   String @map("to_node_id") @db.Uuid
+  relation   String @db.VarChar(128)
+
+  chain    RuleChain @relation(fields: [chainId], references: [id], onDelete: Cascade)
+  fromNode RuleNode  @relation("RuleNodeOutgoing", fields: [chainId, fromNodeId], references: [chainId, id], onDelete: Cascade)
+  toNode   RuleNode  @relation("RuleNodeIncoming", fields: [chainId, toNodeId], references: [chainId, id], onDelete: Cascade)
+
+  @@index([chainId, fromNodeId])
+  @@map("rule_node_connections")
+}
+
+/// One message IN or OUT of a node whose debug mode is on (the ThingsBoard
+/// "Debug" tab). NOT a §11 record: swept by age and capped per node.
+///
+/// - NO foreign key to `rule_nodes`: the projection is deleted and re-inserted
+///   on every save, so a key would either wipe the history (CASCADE) or block
+///   the save (RESTRICT). `nodeId` is a plain uuid; `chainId` cascades with
+///   the chain.
+/// - `direction` is 'IN' | 'OUT' (a validated string); `relation` the label it
+///   left on (OUT only); `data` / `metadata` the message as it was.
+/// - `id` is a BIGSERIAL — Prisma hands it back as a BigInt, so every reader
+///   serialises it as a string.
+/// - Indexed (node_id, ts DESC) — the debug panel's "this node, newest first" —
+///   and (chain_id, ts DESC) for the chain-wide list.
+model RuleNodeDebugEvent {
+  id             BigInt   @id @default(autoincrement())
+  chainId        String   @map("chain_id") @db.Uuid
+  nodeId         String   @map("node_id") @db.Uuid
+  ts             DateTime @default(now()) @db.Timestamptz(3)
+  direction      String   @db.VarChar(3)
+  relation       String?  @db.VarChar(128)
+  msgId          String   @map("msg_id") @db.VarChar(64)
+  msgType        String   @map("msg_type") @db.VarChar(255)
+  originatorType String   @map("originator_type") @db.VarChar(20)
+  originatorId   String   @map("originator_id") @db.VarChar(255)
+  data           Json     @db.JsonB
+  metadata       Json     @db.JsonB
+  error          String?  @db.Text
+
+  chain RuleChain @relation(fields: [chainId], references: [id], onDelete: Cascade)
+
+  @@index([nodeId, ts(sort: Desc)])
+  @@index([chainId, ts(sort: Desc)])
+  @@map("rule_node_debug_events")
 }

@@ -1,0 +1,139 @@
+import { prisma } from '../../lib/prisma.js';
+
+/**
+ * Configuration → Rule Engine and Configuration → Application Attributes
+ * (rule chains, 2026-11-03; spec §10). The ONE reader of each row — the
+ * engine, its workers and the routes all read through here, never the row.
+ *
+ * Lives beside the module, not beside a route, so a graphile worker importing
+ * it does not drag the HTTP layer into the job runner (the alarm-loader rule).
+ * Both readers cache for 10 s; the defs' `afterUpdate` hooks invalidate the
+ * cache, so a save through the config page applies at once.
+ */
+export const RULE_ENGINE_CONFIG_KEY = 'rule-engine';
+export const RULE_ENGINE_ATTRIBUTES_CONFIG_KEY = 'rule-engine-attributes';
+
+export interface RuleEngineConfig {
+  /** OFF stops processing and empties the queue (Task 3). Default ON: the shipped root chain is a no-op. */
+  enabled: boolean;
+  /** Save time series / Save attributes skip a message ingest already stored (ruling S-3). */
+  skipSaveNodesForIngestOrigin: boolean;
+  scriptTimeoutMs: number;
+  queueCapacity: number;
+  concurrency: number;
+  debugRetentionHours: number;
+  debugMaxEventsPerNode: number;
+  httpTimeoutMs: number;
+  hopLimit: number;
+}
+
+/** Every number setting: its shipped default and its bounds — the def declares the same. */
+export const RULE_ENGINE_NUMBER_SETTINGS = {
+  scriptTimeoutMs: { default: 2_000, min: 100, max: 30_000 },
+  queueCapacity: { default: 10_000, min: 100, max: 1_000_000 },
+  concurrency: { default: 8, min: 1, max: 64 },
+  debugRetentionHours: { default: 24, min: 1, max: 720 },
+  debugMaxEventsPerNode: { default: 1_000, min: 10, max: 100_000 },
+  httpTimeoutMs: { default: 10_000, min: 1_000, max: 120_000 },
+  hopLimit: { default: 200, min: 10, max: 10_000 },
+} as const satisfies Record<string, { default: number; min: number; max: number }>;
+
+type NumberKey = keyof typeof RULE_ENGINE_NUMBER_SETTINGS;
+
+export const RULE_ENGINE_CONFIG_DEFAULTS: Readonly<RuleEngineConfig> = Object.freeze({
+  enabled: true,
+  skipSaveNodesForIngestOrigin: true,
+  ...(Object.fromEntries(
+    Object.entries(RULE_ENGINE_NUMBER_SETTINGS).map(([k, v]) => [k, v.default]),
+  ) as Record<NumberKey, number>),
+});
+
+/** A key of Configuration → Application Attributes: what the Tenant attributes node fetches by. */
+export const APPLICATION_ATTRIBUTE_KEY_MAX = 128;
+export const APPLICATION_ATTRIBUTE_VALUE_MAX = 4_000;
+export const APPLICATION_ATTRIBUTES_MAX = 500;
+
+const CACHE_TTL_MS = 10_000;
+let engineCache: { value: RuleEngineConfig; at: number } | null = null;
+let attributesCache: { value: Record<string, string>; at: number } | null = null;
+
+/**
+ * The stored row, setting by setting: a key that is absent, of the wrong type
+ * or not a finite number reads as its shipped default; a number outside its
+ * bounds is clamped to them (only a hand-edited row can hold one — the config
+ * PUT refuses it). The dynamic PUT replaces the whole row, so nothing here may
+ * assume a key is present.
+ */
+export function coerceRuleEngineConfig(raw: unknown): RuleEngineConfig {
+  const v = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  const bool = (key: 'enabled' | 'skipSaveNodesForIngestOrigin') =>
+    (typeof v[key] === 'boolean' ? v[key] as boolean : RULE_ENGINE_CONFIG_DEFAULTS[key]);
+  const num = (key: NumberKey) => {
+    const spec = RULE_ENGINE_NUMBER_SETTINGS[key];
+    const n = v[key];
+    if (typeof n !== 'number' || !Number.isFinite(n)) return spec.default;
+    return Math.min(spec.max, Math.max(spec.min, Math.floor(n)));
+  };
+  return {
+    enabled: bool('enabled'),
+    skipSaveNodesForIngestOrigin: bool('skipSaveNodesForIngestOrigin'),
+    scriptTimeoutMs: num('scriptTimeoutMs'),
+    queueCapacity: num('queueCapacity'),
+    concurrency: num('concurrency'),
+    debugRetentionHours: num('debugRetentionHours'),
+    debugMaxEventsPerNode: num('debugMaxEventsPerNode'),
+    httpTimeoutMs: num('httpTimeoutMs'),
+    hopLimit: num('hopLimit'),
+  };
+}
+
+/** Configuration → Rule Engine, cached 10 s. Never throws for a bad row: every setting has a default. */
+export async function getRuleEngineConfig(): Promise<RuleEngineConfig> {
+  const now = Date.now();
+  if (engineCache && now - engineCache.at < CACHE_TTL_MS) return engineCache.value;
+  const row = await prisma.systemConfig.findUnique({ where: { configKey: RULE_ENGINE_CONFIG_KEY }, select: { configValue: true } });
+  const value = coerceRuleEngineConfig(row?.configValue);
+  engineCache = { value, at: now };
+  return value;
+}
+
+/**
+ * The stored list as a key → value map, for the Tenant attributes node.
+ * Entries that are not `{ key, value }` strings, or whose key is blank once
+ * trimmed, are skipped; the FIRST of two keys that differ only by case wins
+ * (the config PUT refuses such a pair, so only a hand-edited row has one).
+ */
+export function coerceApplicationAttributes(raw: unknown): Record<string, string> {
+  const list = raw && typeof raw === 'object' && !Array.isArray(raw)
+    ? (raw as Record<string, unknown>).attributes
+    : undefined;
+  const out: Record<string, string> = {};
+  if (!Array.isArray(list)) return out;
+  const seen = new Set<string>();
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const { key, value } = item as { key?: unknown; value?: unknown };
+    if (typeof key !== 'string' || typeof value !== 'string') continue;
+    const k = key.trim();
+    if (!k || seen.has(k.toLowerCase())) continue;
+    seen.add(k.toLowerCase());
+    out[k] = value;
+  }
+  return out;
+}
+
+/** Configuration → Application Attributes as a map, cached 10 s. */
+export async function getApplicationAttributes(): Promise<Record<string, string>> {
+  const now = Date.now();
+  if (attributesCache && now - attributesCache.at < CACHE_TTL_MS) return { ...attributesCache.value };
+  const row = await prisma.systemConfig.findUnique({ where: { configKey: RULE_ENGINE_ATTRIBUTES_CONFIG_KEY }, select: { configValue: true } });
+  const value = coerceApplicationAttributes(row?.configValue);
+  attributesCache = { value, at: now };
+  return { ...value };
+}
+
+/** Drops both caches. Called by the defs' `afterUpdate` hooks; tests call it after writing a row directly. */
+export function invalidateRuleEngineConfigCache(): void {
+  engineCache = null;
+  attributesCache = null;
+}

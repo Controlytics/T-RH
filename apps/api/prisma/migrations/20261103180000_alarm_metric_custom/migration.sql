@@ -1,0 +1,13 @@
+-- RULE CHAINS (2026-11-03): a rule chain's Create alarm node raises a RULE alarm
+-- (`source = 'RULE'`) about whatever the chain decided, not one measurement, so
+-- its metric is CUSTOM and its type NAME is `rule_snapshot->>'alarmType'`.
+-- Spec: docs/superpowers/specs/2026-11-03-rule-chains-design.md §8
+--
+-- ALONE in its own migration, as every enum change here: Postgres refuses to use
+-- a newly added enum value in the transaction that added it, so nothing else may
+-- share this file. A new VALUE, not a new enum — the enum count does not move.
+-- Hand-authored; the `prisma migrate diff` noise (the DROP of the partitioned
+-- instrument_telemetry_history, the audit_trail / audit_chain_counter changes,
+-- the instrument_credentials FK drop/re-add, the notification_rule_recipients
+-- index drop) is stripped as on every migration here.
+ALTER TYPE "AlarmMetric" ADD VALUE 'CUSTOM';

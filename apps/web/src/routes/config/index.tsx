@@ -383,6 +383,33 @@ const superAdminCards = [
     ),
   },
   {
+    // 2026-11-03, rule chains: whether rule chains run and the engine's limits
+    // (script timeout, queue, concurrency, debug retention, HTTP timeout, hop
+    // limit). Listing it here also keeps it out of the auto-discovered section.
+    title: 'Rule Engine',
+    description: 'Whether rule chains run, and the rule engine\'s limits: script timeout, queue, concurrency, debug retention',
+    href: '/config/dynamic/rule-engine',
+    // Lucide's GitBranch, inline like every other card's icon.
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9" />
+      </svg>
+    ),
+  },
+  {
+    // 2026-11-03, rule chains: ThingsBoard's "tenant attributes" — key / value
+    // pairs a chain's Tenant attributes node adds to a message.
+    title: 'Application Attributes',
+    description: 'Key / value pairs a rule chain\'s Tenant attributes node adds to a message — site name, line, a contact',
+    href: '/config/dynamic/rule-engine-attributes',
+    // Lucide's Braces.
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1" />
+      </svg>
+    ),
+  },
+  {
     title: 'Alarm Webhooks',
     description: 'Hooters and HTTP endpoints alarms are announced to, and what body to send',
     href: '/config/alarm-webhooks',

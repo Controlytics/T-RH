@@ -54,6 +54,13 @@ const SYSTEM_AUDIT_ACTIONS = new Set<string>([
   'RETENTION_EXECUTED',         // a telemetry partition dropped by the retention cron (2026-10-05, DATA-9): no user, the partition and its row count are in the row
   'MODBUS_DEVICE_NOT_ANSWERING', // the server's Modbus Reader (2026-10-31): a TCP/IP device failed three reads in a row — no user, the code, address and failure are in the row
   'MODBUS_DEVICE_ANSWERING',     // the same Reader: the first good read after that — no user, the missed-read count and the gap are in the row
+  // Rule chains (2026-11-03, spec §9): a chain's Save attributes / Delete attributes node writes the SAME
+  // attribute rows the attribute routes write, but no user is behind it — the engine is; the chain, the node
+  // and the triggering message are in the row. COST, accepted: these two actions are also written by human
+  // routes (instruments, instrument-profiles, bulk upload), and the userId guard no longer catches one of
+  // those that forgets its user. The RULE_CHAIN_* actions are NOT here — every one is a user's write.
+  'INSTRUMENT_ATTRIBUTE_SET',
+  'INSTRUMENT_ATTRIBUTE_REMOVED',
 ]);
 
 /**

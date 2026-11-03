@@ -29,6 +29,7 @@ import reportReviewRoutes from '../modules/report-reviews/routes.js';
 import floorplanRoutes from '../modules/floorplans/routes.js';
 import dashboardRoutes from '../modules/dashboards/routes.js';
 import reportTemplateRoutes from '../modules/report-templates/routes.js';
+import ruleChainRoutes, { ruleEngineIngressRoutes } from '../modules/rule-engine/routes.js';
 import notificationRulesRoutes from '../modules/notification-rules/routes.js';
 import adminRequestRoutes from '../modules/admin-requests/routes.js';
 import ldapRoutes from '../modules/ldap/routes.js';
@@ -138,6 +139,9 @@ export async function buildApp(
   await app.register(dashboardRoutes, { prefix: '/api/dashboards' });
   // Report templates (2026-11-02): registered here as well as in app.ts.
   await app.register(reportTemplateRoutes, { prefix: '/api/report-templates' });
+  // Rule chains (2026-11-03): registered here as well as in app.ts.
+  await app.register(ruleChainRoutes, { prefix: '/api/rule-chains' });
+  await app.register(ruleEngineIngressRoutes, { prefix: '/api/rule-engine/v1' });
   // Registered here as well as in app.ts — a module missing from this helper is
   // UNREACHABLE from every e2e test, which is how functional locations and alarms
   // both shipped with no HTTP-level coverage until 2026-08-13.
