@@ -1,0 +1,440 @@
+{
+  "all": {
+    "version": 3,
+    "reportType": "alarms",
+    "title": "ALARM REPORT",
+    "orientation": "portrait",
+    "config": {
+      "legend": [
+        {
+          "abbr": "PV Value",
+          "meaning": "Present Value"
+        },
+        {
+          "abbr": "UOM",
+          "meaning": "Units of Measurement"
+        }
+      ],
+      "typography": {
+        "companyPt": 19,
+        "appNamePt": 11,
+        "titlePt": 15,
+        "subtitlePt": 10,
+        "sectionPt": 12,
+        "labelPt": 10.5,
+        "tablePt": 9,
+        "tableHeadPt": 9.5,
+        "smallprintPt": 9.5,
+        "headingWeight": "bold",
+        "tableHeadAlign": "left",
+        "headerBlockPt": 11,
+        "notePt": 9.5,
+        "labelWeight": "bold",
+        "cellPadX": 1.6
+      }
+    },
+    "chrome": {
+      "companyName": "Branding Co",
+      "appName": "Branding App",
+      "showAppName": true,
+      "logoDataUrl": null,
+      "footer": {
+        "showPageNumbers": true,
+        "showPrintedBy": true,
+        "showPrintedAt": true,
+        "signatureLine": false
+      },
+      "orientation": "portrait"
+    },
+    "sections": [
+      {
+        "kind": "table",
+        "head": [],
+        "body": [
+          [
+            "Start Date :",
+            "2026-05-27",
+            "Start Time :",
+            "16:00"
+          ],
+          [
+            "End Date :",
+            "2026-05-28",
+            "End Time :",
+            "16:00"
+          ]
+        ],
+        "columnStyles": {
+          "0": {
+            "cellWidth": 32,
+            "fontStyle": "bold"
+          },
+          "1": {
+            "cellWidth": 59
+          },
+          "2": {
+            "cellWidth": 32,
+            "fontStyle": "bold"
+          },
+          "3": {
+            "cellWidth": 59
+          }
+        }
+      },
+      {
+        "kind": "table",
+        "title": "This report shows the 4 most recent of 10 alarms in the selected period. Narrow the period or the selection to cover the rest.",
+        "head": [
+          "INSTRUMENT ID",
+          "AREA",
+          "LOCATION",
+          "DATE",
+          "TIME",
+          "DESCRIPTION",
+          "UOM",
+          "PV VALUE",
+          "HIGH LIMIT",
+          "LOW LIMIT"
+        ],
+        "body": [
+          [
+            "CWH/RDU/046-00",
+            "QC 3",
+            "LCMS Room-II",
+            "2026-05-28",
+            "12:02",
+            "High Temperature",
+            "°C",
+            "27.4",
+            "27.0",
+            "18.0"
+          ],
+          [
+            "CWH/RDU/002-01",
+            "Stability",
+            "Chamber 2",
+            "2026-05-28",
+            "09:15",
+            "High Humidity",
+            "%RH",
+            "71.2",
+            "65.0",
+            ""
+          ],
+          [
+            "CWH/RDU/030-00",
+            "Ware House",
+            "-",
+            "2026-05-28",
+            "03:40",
+            "Inactivity",
+            "-",
+            "No data",
+            "N/A",
+            "N/A"
+          ],
+          [
+            "CWH/RDU/046-00",
+            "QC 3",
+            "LCMS Room-II",
+            "2026-05-27",
+            "22:05",
+            "Low Temperature",
+            "°C",
+            "17.6",
+            "N/A",
+            "18.0"
+          ]
+        ],
+        "columnStyles": {
+          "0": {
+            "cellWidth": "wrap"
+          },
+          "3": {
+            "cellWidth": 20
+          },
+          "4": {
+            "cellWidth": 12
+          },
+          "6": {
+            "cellWidth": 11
+          },
+          "7": {
+            "cellWidth": 15
+          },
+          "8": {
+            "cellWidth": 14
+          },
+          "9": {
+            "cellWidth": 14
+          }
+        }
+      }
+    ]
+  },
+  "instrument": {
+    "version": 3,
+    "reportType": "alarms",
+    "title": "ALARM REPORT",
+    "orientation": "portrait",
+    "config": {
+      "legend": [
+        {
+          "abbr": "PV Value",
+          "meaning": "Present Value"
+        },
+        {
+          "abbr": "UOM",
+          "meaning": "Units of Measurement"
+        }
+      ],
+      "typography": {
+        "companyPt": 19,
+        "appNamePt": 11,
+        "titlePt": 15,
+        "subtitlePt": 10,
+        "sectionPt": 12,
+        "labelPt": 10.5,
+        "tablePt": 9,
+        "tableHeadPt": 9.5,
+        "smallprintPt": 9.5,
+        "headingWeight": "bold",
+        "tableHeadAlign": "left",
+        "headerBlockPt": 11,
+        "notePt": 9.5,
+        "labelWeight": "bold",
+        "cellPadX": 1.6
+      }
+    },
+    "chrome": {
+      "companyName": "Branding Co",
+      "appName": "Branding App",
+      "showAppName": true,
+      "logoDataUrl": null,
+      "footer": {
+        "showPageNumbers": true,
+        "showPrintedBy": true,
+        "showPrintedAt": true,
+        "signatureLine": false
+      },
+      "orientation": "portrait"
+    },
+    "sections": [
+      {
+        "kind": "table",
+        "head": [],
+        "body": [
+          [
+            "Start Date :",
+            "2026-05-27",
+            "Start Time :",
+            "16:00"
+          ],
+          [
+            "End Date :",
+            "2026-05-28",
+            "End Time :",
+            "16:00"
+          ]
+        ],
+        "columnStyles": {
+          "0": {
+            "cellWidth": 32,
+            "fontStyle": "bold"
+          },
+          "1": {
+            "cellWidth": 59
+          },
+          "2": {
+            "cellWidth": 32,
+            "fontStyle": "bold"
+          },
+          "3": {
+            "cellWidth": 59
+          }
+        }
+      },
+      {
+        "kind": "table",
+        "head": [
+          "DATE",
+          "TIME",
+          "DESCRIPTION",
+          "UOM",
+          "PV VALUE"
+        ],
+        "body": [
+          [
+            "2026-05-28",
+            "10:00",
+            "High Temperature",
+            "°C",
+            "28.0"
+          ],
+          [
+            "2026-05-28",
+            "11:00",
+            "High Temperature",
+            "°C",
+            "29.0"
+          ],
+          [
+            "2026-05-28",
+            "12:00",
+            "High Temperature",
+            "°C",
+            "30.0"
+          ]
+        ],
+        "columnStyles": {
+          "0": {
+            "cellWidth": 20
+          },
+          "1": {
+            "cellWidth": 12
+          },
+          "3": {
+            "cellWidth": 11
+          },
+          "4": {
+            "cellWidth": 15
+          }
+        }
+      }
+    ]
+  },
+  "empty": {
+    "version": 3,
+    "reportType": "alarms",
+    "title": "ALARM REPORT",
+    "orientation": "portrait",
+    "config": {
+      "legend": [
+        {
+          "abbr": "PV Value",
+          "meaning": "Present Value"
+        },
+        {
+          "abbr": "UOM",
+          "meaning": "Units of Measurement"
+        }
+      ],
+      "typography": {
+        "companyPt": 19,
+        "appNamePt": 11,
+        "titlePt": 15,
+        "subtitlePt": 10,
+        "sectionPt": 12,
+        "labelPt": 10.5,
+        "tablePt": 9,
+        "tableHeadPt": 9.5,
+        "smallprintPt": 9.5,
+        "headingWeight": "bold",
+        "tableHeadAlign": "left",
+        "headerBlockPt": 11,
+        "notePt": 9.5,
+        "labelWeight": "bold",
+        "cellPadX": 1.6
+      }
+    },
+    "chrome": {
+      "companyName": "Branding Co",
+      "appName": "Branding App",
+      "showAppName": true,
+      "logoDataUrl": null,
+      "footer": {
+        "showPageNumbers": true,
+        "showPrintedBy": true,
+        "showPrintedAt": true,
+        "signatureLine": false
+      },
+      "orientation": "portrait"
+    },
+    "sections": [
+      {
+        "kind": "table",
+        "head": [],
+        "body": [
+          [
+            "Start Date :",
+            "2026-05-27",
+            "Start Time :",
+            "16:00"
+          ],
+          [
+            "End Date :",
+            "2026-05-28",
+            "End Time :",
+            "16:00"
+          ]
+        ],
+        "columnStyles": {
+          "0": {
+            "cellWidth": 32,
+            "fontStyle": "bold"
+          },
+          "1": {
+            "cellWidth": 59
+          },
+          "2": {
+            "cellWidth": 32,
+            "fontStyle": "bold"
+          },
+          "3": {
+            "cellWidth": 59
+          }
+        }
+      },
+      {
+        "kind": "table",
+        "head": [
+          "INSTRUMENT ID",
+          "LOCATION",
+          "DATE",
+          "TIME",
+          "DESCRIPTION",
+          "UOM",
+          "PV VALUE",
+          "HIGH LIMIT",
+          "LOW LIMIT"
+        ],
+        "body": [
+          [
+            "-",
+            "-",
+            "-",
+            "-",
+            "No alarms in the selected period",
+            "-",
+            "-",
+            "-",
+            "-"
+          ]
+        ],
+        "columnStyles": {
+          "0": {
+            "cellWidth": "wrap"
+          },
+          "2": {
+            "cellWidth": 20
+          },
+          "3": {
+            "cellWidth": 12
+          },
+          "5": {
+            "cellWidth": 11
+          },
+          "6": {
+            "cellWidth": 15
+          },
+          "7": {
+            "cellWidth": 14
+          },
+          "8": {
+            "cellWidth": 14
+          }
+        }
+      }
+    ]
+  }
+}

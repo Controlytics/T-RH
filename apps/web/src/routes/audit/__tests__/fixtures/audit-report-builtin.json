@@ -1,0 +1,132 @@
+{
+  "pdf": {
+    "version": 3,
+    "reportType": "audit-trail",
+    "title": "Audit Trail",
+    "subtitle": "Period: All Time  |  Total: 3 record(s)  |  21 CFR Part 11 Compliant",
+    "orientation": "landscape",
+    "config": {
+      "typography": {
+        "companyPt": 19,
+        "appNamePt": 11,
+        "titlePt": 15,
+        "subtitlePt": 10,
+        "sectionPt": 12,
+        "labelPt": 10.5,
+        "tablePt": 9,
+        "tableHeadPt": 9.5,
+        "smallprintPt": 9.5,
+        "headingWeight": "bold",
+        "tableHeadAlign": "left",
+        "headerBlockPt": 11,
+        "notePt": 9.5,
+        "labelWeight": "bold",
+        "cellPadX": 1.6
+      }
+    },
+    "chrome": {
+      "companyName": "Branding Co",
+      "appName": "Branding App",
+      "showAppName": true,
+      "logoDataUrl": null,
+      "footer": {
+        "showPageNumbers": true,
+        "showPrintedBy": true,
+        "showPrintedAt": true,
+        "signatureLine": false
+      },
+      "orientation": "landscape"
+    },
+    "sections": [
+      {
+        "kind": "table",
+        "head": [
+          "Timestamp",
+          "Action",
+          "User",
+          "Role",
+          "Target Type",
+          "Description",
+          "IP Address"
+        ],
+        "body": [
+          [
+            "2026-09-21 10:00",
+            "LOGIN",
+            "superadmin",
+            "SUPER_ADMIN",
+            "User",
+            "User \"superadmin\" logged in successfully",
+            "10.0.0.5"
+          ],
+          [
+            "2026-09-21 10:05",
+            "INSTRUMENT ATTRIBUTE UPDATED",
+            "qa.lead",
+            "QA",
+            "Instrument",
+            "instrument attribute updated by qa.lead",
+            "10.0.0.7"
+          ],
+          [
+            "2026-09-21 10:10",
+            "USER UPDATED",
+            "admin",
+            "-",
+            "User",
+            "[REDACTED by superadmin: Personal data removed on request] User \"operator1\" upda",
+            "-"
+          ]
+        ],
+        "columnStyles": {
+          "0": {
+            "cellWidth": 35
+          },
+          "5": {
+            "cellWidth": 65
+          }
+        }
+      }
+    ]
+  },
+  "excel": {
+    "head": [
+      "Timestamp",
+      "Action",
+      "User",
+      "Role",
+      "Target Type",
+      "Description",
+      "IP Address"
+    ],
+    "rows": [
+      [
+        "2026-09-21 10:00",
+        "LOGIN",
+        "superadmin",
+        "SUPER_ADMIN",
+        "User",
+        "User \"superadmin\" logged in successfully",
+        "10.0.0.5"
+      ],
+      [
+        "2026-09-21 10:05",
+        "INSTRUMENT ATTRIBUTE UPDATED",
+        "qa.lead",
+        "QA",
+        "Instrument",
+        "instrument attribute updated by qa.lead",
+        "10.0.0.7"
+      ],
+      [
+        "2026-09-21 10:10",
+        "USER UPDATED",
+        "admin",
+        "-",
+        "User",
+        "[REDACTED by superadmin: Personal data removed on request] User \"operator1\" upda",
+        "-"
+      ]
+    ]
+  }
+}
