@@ -242,15 +242,10 @@ export function ReportTemplatesConfigPage() {
         )}
       </PageHero>
 
-      {!ready ? (
-        profilesLoading ? null : (
-          <EmptyState
-            title="No instrument profiles"
-            description="Templates of this kind are made per instrument profile."
-            action={<Link className="text-sm font-semibold text-[var(--theme-primary,#2a78d6)] hover:underline" to="/instruments">Instrument profiles</Link>}
-          />
-        )
-      ) : editor ? (
+      {/* The tabs show whether or not a profile exists: the application-wide
+          kinds need none, so an install with no profile yet can still reach
+          them. Only a PROFILE kind's panel says it cannot. */}
+      {editor && ready ? (
         <TemplateEditor
           // A new editor for a new target, never a stale draft carried across.
           key={editor.mode === 'edit' ? editor.row.id : `new-${editor.name}`}
@@ -278,17 +273,25 @@ export function ReportTemplatesConfigPage() {
             onChange={(k) => select({ kind: k })}
           />
           <TabPanel id={kind} idPrefix="report-templates">
-            <TemplateList
-              rows={rows}
-              loading={listLoading}
-              typeLabel={typeLabel}
-              formatDateTime={formatDateTime}
-              onNew={openNew}
-              onEdit={openEdit}
-              onDuplicate={openDuplicate}
-              onSetDefault={setDefault}
-              onDelete={(r) => setConfirmDelete(r)}
-            />
+            {ready ? (
+              <TemplateList
+                rows={rows}
+                loading={listLoading}
+                typeLabel={typeLabel}
+                formatDateTime={formatDateTime}
+                onNew={openNew}
+                onEdit={openEdit}
+                onDuplicate={openDuplicate}
+                onSetDefault={setDefault}
+                onDelete={(r) => setConfirmDelete(r)}
+              />
+            ) : profilesLoading ? null : (
+              <EmptyState
+                title="No instrument profiles"
+                description="Templates of this kind are made per instrument profile."
+                action={<Link className="text-sm font-semibold text-[var(--theme-primary,#2a78d6)] hover:underline" to="/instruments">Instrument profiles</Link>}
+              />
+            )}
           </TabPanel>
         </div>
       )}

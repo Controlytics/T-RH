@@ -30,6 +30,8 @@ const ROW_ALARMS = {
 };
 const LIST_ALARMS = { data: [ROW_ALARMS] };
 const LIST_EMPTY = { data: [] };
+/** An install with no instrument profile yet (swapped in for one test, then put back). */
+const NO_PROFILES = { data: [] };
 
 const BUILDING: ReportField = { id: 'attr:Building', label: 'Building', group: 'attribute', kind: 'text' };
 const LOCATION_ATTR: ReportField = { id: 'attr:Location', label: 'Location', group: 'attribute', kind: 'text' };
@@ -44,6 +46,7 @@ const RESPONSES: Record<string, unknown> = {
   '/api/report-templates/catalogue?kind=page%3Aaudit-trail': { fields: builtins('page:audit-trail') },
   [`/api/report-templates/catalogue?kind=page%3Adata-report&profileId=${P1}`]: { fields: [...builtins('page:data-report'), BUILDING] },
   [`/api/report-templates/catalogue?kind=page%3Atrend&profileId=${P1}`]: { fields: [BUILDING, LOCATION_ATTR] },
+  [`/api/report-templates/catalogue?kind=gauge&profileId=${P1}`]: { fields: [...builtins('gauge'), BUILDING] },
 };
 const swrKeys: string[] = [];
 const mutateList = vi.fn(async () => undefined);
@@ -199,6 +202,26 @@ describe('an application-wide kind: no profile anywhere', () => {
     expect(executed).toEqual(['UPDATE_REPORT_TEMPLATE']);
   });
 
+  it('with NO instrument profile, the tabs still show and the application-wide kinds still work; a profile kind says why it cannot', () => {
+    RESPONSES['/api/instrument-profiles'] = NO_PROFILES;
+    try {
+      renderPage('/config/report-templates');
+      expect(within(screen.getByRole('tablist')).getAllByRole('tab')).toHaveLength(19);
+      expect(screen.getByText('No instrument profiles')).toBeInTheDocument();
+      expect(templateKeys()).toEqual([]);
+      fireEvent.click(screen.getByRole('tab', { name: 'Alarm Report' }));
+      expect(screen.getByTestId('report-templates-application-scope')).toBeInTheDocument();
+      expect(screen.queryByText('No instrument profiles')).not.toBeInTheDocument();
+      expect(within(screen.getByRole('table')).getByText('Plant alarm sheet')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /new template/i })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('tab', { name: 'Gauge' }));
+      expect(screen.getByText('No instrument profiles')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /new template/i })).not.toBeInTheDocument();
+    } finally {
+      RESPONSES['/api/instrument-profiles'] = PROFILES;
+    }
+  });
+
   it('the preview of an application kind has no profile, and only the kind’s own placeholder values', async () => {
     renderPage('/config/report-templates?kind=page:alarms');
     newTemplate();
@@ -211,6 +234,8 @@ describe('an application-wide kind: no profile anywhere', () => {
     expect(input.values.level).toBe('All');
     expect(input.values).not.toHaveProperty('profile');
     expect(input.values).not.toHaveProperty('instrument');
+    // No instrument, so no attribute values.
+    expect(input.sections[0]).not.toHaveProperty('attributes');
   });
 });
 
@@ -275,6 +300,18 @@ describe('the editor on a page kind', () => {
     expect(input.sections[0]).toMatchObject({ profileId: P1, profileName: 'T&RH Profile', rows: [] });
     expect(input.sections[0].availableIds).toEqual(['attr:Building', 'attr:Location']);
     expect(input.values).toMatchObject({ instrument: 'CWH/RDU/001-00', series: 'Temperature', profile: 'T&RH Profile' });
+    // The download hands its ONE instrument's attribute values to the attr: info
+    // rows (TemplatedSection.attributes); the preview hands sample ones, so an
+    // attribute row previews as it will print, not as —.
+    expect(input.sections[0].attributes).toEqual({ 'attr:Building': 'Building 1', 'attr:Location': 'Location 1' });
+  });
+
+  it('a WIDGET preview hands no attribute values — a widget section reads them from its rows, as its download does', async () => {
+    renderPage(`/config/report-templates?kind=gauge&profileId=${P1}`);
+    newTemplate();
+    await waitFor(() => expect(build).toHaveBeenCalled());
+    expect(build.mock.calls.at(-1)![0].sections[0].availableIds).toContain('attr:Building');
+    expect(build.mock.calls.at(-1)![0].sections[0]).not.toHaveProperty('attributes');
   });
 
   it('a falls-back download is said to use the Built-in — never "Built-in layout" (ruling R-5)', () => {

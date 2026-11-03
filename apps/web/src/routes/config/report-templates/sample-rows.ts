@@ -124,6 +124,21 @@ export function samplePlaceholderValues(
   return Object.fromEntries(Object.entries(all).filter(([name]) => supplied.has(name))) as Partial<Record<Placeholder, string>>;
 }
 
+/**
+ * The attribute values the PREVIEW hands a page report's section
+ * (`TemplatedSection.attributes`): a page download hands its ONE instrument's
+ * attributes to the `attr:` information rows, so the preview hands a sample
+ * per catalogue attribute — "<label> 1", the sample rows' wording — and an
+ * attribute row previews as it will print. A widget section reads attributes
+ * from its rows, as its download does, so a widget type gets none; nor does a
+ * kind that takes no profile fields, or a catalogue with no attributes.
+ */
+export function sampleAttributeValues(kind: TemplateKind, fields: readonly ReportField[]): Record<string, string> | undefined {
+  if (!isPageTemplateKind(kind) || TEMPLATE_KIND_SPECS[kind].profileFields === 'none') return undefined;
+  const attributes = fields.filter((f) => f.group === 'attribute');
+  return attributes.length > 0 ? Object.fromEntries(attributes.map((f) => [f.id, `${f.label} 1`])) : undefined;
+}
+
 /** The sample chart's size in pixels — the proportions of the trend page's chart picture. */
 export const SAMPLE_CHART_WIDTH = 1200;
 export const SAMPLE_CHART_HEIGHT = 500;

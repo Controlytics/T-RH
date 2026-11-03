@@ -8,7 +8,9 @@ import { useAuth } from '@/hooks/use-auth';
 import { FormSection } from '@/components/ui/form-section';
 import type { TemplatedImage } from '@/lib/templated-report';
 import { loadBuildTemplatedReport } from './load-builder';
-import { sampleChartPng, samplePlaceholderValues, sampleRowsFor, type SampleFormatters, type SampleRow } from './sample-rows';
+import {
+  sampleAttributeValues, sampleChartPng, samplePlaceholderValues, sampleRowsFor, type SampleFormatters, type SampleRow,
+} from './sample-rows';
 
 /** How long the draft must sit still before the PDF is drawn again. */
 export const PREVIEW_DEBOUNCE_MS = 350;
@@ -91,11 +93,16 @@ export function TemplatePreview({
               ? [{ text: 'The text card’s own text prints here.' }]
               : sampleRowsFor(fields, at, fmt.current);
           const images: TemplatedImage[] | undefined = kind === 'page:trend' ? [{ dataUrl: sampleChartPng() }] : undefined;
+          const attributes = sampleAttributeValues(kind, fields);
           const { report } = await build({
             kind,
             reportKey: reportKeyOf(kind),
             values,
-            sections: [{ profileId, profileName, document, rows, availableIds: fields.map((f) => f.id), ...(images ? { images } : {}) }],
+            sections: [{
+              profileId, profileName, document, rows, availableIds: fields.map((f) => f.id),
+              ...(images ? { images } : {}),
+              ...(attributes ? { attributes } : {}),
+            }],
             formatDateTime: at,
           });
           if (mine !== seq.current) return;
