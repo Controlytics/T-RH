@@ -759,6 +759,10 @@ const ACTION: RuleNodeTypeSpec[] = [
       { key: 'severity', label: 'Severity', type: 'select', required: true, showWhen: { key: 'dynamicSeverity', equals: false },
         options: ALARM_SEVERITIES.map((value) => ({ value, label: value.charAt(0) + value.slice(1).toLowerCase() })),
         help: 'ThingsBoard\'s Warning and Indeterminate read as Minor.' },
+      // The SAME key while the severity is dynamic — ThingsBoard stores the pattern in `severity` too.
+      // Never shown together with the select (see visibleRuleNodeFields).
+      { key: 'severity', label: 'Severity pattern', type: 'template', required: true, showWhen: { key: 'dynamicSeverity', equals: true },
+        help: `e.g. \${severity}; it must come out as Critical, Major or Minor (Warning / Indeterminate read as Minor). ${TEMPLATE_HELP}` },
       { key: 'propagate', label: 'Propagate to related entities', type: 'boolean', help: 'Kept for export; there are no related entities to propagate to.' },
       { ...alarmDetailsField, showWhen: { key: 'useMessageAlarmData', equals: false } },
     ],
@@ -1139,4 +1143,19 @@ export function newRuleNodeConfig(type: string): Record<string, unknown> {
  */
 export function ruleNodeConfigWithDefaults(type: string, config: Record<string, unknown>): Record<string, unknown> {
   return { ...newRuleNodeConfig(type), ...config };
+}
+
+/**
+ * The fields a settings form shows for a node's configuration right now: each
+ * `showWhen` judged against the config WITH ThingsBoard's defaults (an imported
+ * config may omit the switch a field depends on). The ONE rule the editor
+ * renders by. Two fields may share a key — Create alarm's `severity` is a
+ * select, or a template while `dynamicSeverity` is on — and are never visible
+ * together, so a form keyed by the field's KEY plus its TYPE stays unique.
+ */
+export function visibleRuleNodeFields(type: string, config: Record<string, unknown>): RuleNodeConfigField[] {
+  const spec = RULE_NODE_TYPE_BY_ID.get(type);
+  if (!spec) return [];
+  const resolved = ruleNodeConfigWithDefaults(type, config);
+  return spec.fields.filter((f) => !f.showWhen || resolved[f.showWhen.key] === f.showWhen.equals);
 }

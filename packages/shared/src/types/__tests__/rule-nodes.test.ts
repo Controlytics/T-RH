@@ -5,6 +5,7 @@ import {
   RULE_RELATION_SUCCESS, RULE_RELATION_FAILURE, RULE_RELATION_TRUE, RULE_RELATION_FALSE, RULE_RELATION_OTHER,
   RULE_ORIGINATOR_TYPES, RULE_ORIGINATOR_TYPE_LABELS, TB_ENTITY_TYPE_ALIASES, RULE_DEBUG_MODES,
   RULE_NODE_NAME_MAX, RULE_CHAIN_NAME_MAX, RULE_CHAIN_NODES_MAX, RULE_MATH_OPERATIONS, toRuleNodeTypeDescriptor,
+  visibleRuleNodeFields,
 } from '../rule-nodes.js';
 
 /**
@@ -148,10 +149,20 @@ describe('RULE_NODE_TYPES — the whole ThingsBoard catalogue', () => {
 });
 
 describe('built nodes — descriptors, defaults and config schemas', () => {
-  it.each(BUILT_IDS)('%s: every field is labelled, keyed once, and its schema ACCEPTS the default config', (id) => {
+  it.each(BUILT_IDS)('%s: every field is labelled, a key is never shown twice at once, and its schema ACCEPTS the default config', (id) => {
     const s = RULE_NODE_TYPE_BY_ID.get(id)!;
     const keys = s.fields.map((f) => f.key);
-    expect(new Set(keys).size, 'field keys unique').toBe(keys.length);
+    // Two fields may share a key only when they are never shown together — the
+    // same `showWhen` key with different values (Create alarm's `severity`: a
+    // select, or a template while `dynamicSeverity` is on, as in ThingsBoard).
+    for (const key of new Set(keys)) {
+      const same = s.fields.filter((f) => f.key === key);
+      if (same.length === 1) continue;
+      expect(same.length, `${id}.${key}`).toBe(2);
+      const [a, b] = same;
+      expect(Boolean(a.showWhen && b.showWhen && a.showWhen.key === b.showWhen.key && a.showWhen.equals !== b.showWhen.equals),
+        `${id}.${key} is offered twice and could be shown twice`).toBe(true);
+    }
     for (const f of s.fields) {
       expect(f.label.length, `${id}.${f.key} label`).toBeGreaterThan(0);
       if (f.type === 'select' || f.type === 'multiselect') expect(f.options?.length, `${id}.${f.key} options`).toBeGreaterThan(0);
@@ -238,6 +249,31 @@ describe('built nodes — descriptors, defaults and config schemas', () => {
     expect(alarm.configSchema.safeParse({ ...alarm.defaultConfig, dynamicSeverity: true, severity: '${severity}' }).success).toBe(true);
     const math = RULE_NODE_TYPE_BY_ID.get('tb:action:math-function')!;
     expect(math.configSchema.safeParse({ ...math.defaultConfig, operation: 'ADD', arguments: [{ name: 'x', type: 'CONSTANT', key: '1' }] }).success).toBe(false);
+  });
+
+  it('Create alarm: severity is a select, and a TEMPLATE while dynamicSeverity is on — so ${severity} can be authored', () => {
+    const spec = RULE_NODE_TYPE_BY_ID.get('tb:action:create-alarm')!;
+    const shown = (config: Record<string, unknown>) =>
+      visibleRuleNodeFields('tb:action:create-alarm', config).filter((f) => f.key === 'severity');
+    // Fixed severity (the default): exactly one severity field, the select.
+    expect(shown(spec.defaultConfig).map((f) => f.type)).toEqual(['select']);
+    // Dynamic severity: exactly one severity field, a template the author can type ${severity} into.
+    const dynamic = { ...spec.defaultConfig, dynamicSeverity: true, severity: '${severity}' };
+    expect(shown(dynamic).map((f) => f.type)).toEqual(['template']);
+    expect(spec.configSchema.safeParse(dynamic).success).toBe(true);
+    // A ThingsBoard config without the flag reads it from the default (off): the select.
+    const { dynamicSeverity: _off, ...noFlag } = spec.defaultConfig;
+    expect(shown(noFlag).map((f) => f.type)).toEqual(['select']);
+  });
+
+  it('visibleRuleNodeFields judges showWhen against the config WITH its defaults', () => {
+    const tele = (config: Record<string, unknown>) =>
+      visibleRuleNodeFields('tb:enrichment:originator-telemetry', config).map((f) => f.key);
+    expect(tele({})).toContain('startInterval');            // useMetadataIntervalPatterns defaults to false
+    expect(tele({})).not.toContain('startIntervalPattern');
+    expect(tele({ useMetadataIntervalPatterns: true })).toContain('startIntervalPattern');
+    expect(tele({ fetchMode: 'ALL' })).toContain('aggregation');
+    expect(visibleRuleNodeFields('tb:filter:nope', {})).toEqual([]);
   });
 
   it('the math operations and their argument counts are ThingsBoard\'s', () => {

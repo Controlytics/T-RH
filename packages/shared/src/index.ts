@@ -330,7 +330,7 @@ export {
   RULE_MESSAGE_TYPES, MESSAGE_TYPE_SWITCH_LABELS, messageTypeSwitchLabel,
   RULE_ALARM_STATUSES, RULE_MATH_OPERATIONS, RULE_ORIGINATOR_FIELDS,
   RULE_NODE_TYPES, RULE_NODE_TYPE_BY_ID, RULE_NODE_TYPE_BY_TB_CLASS, BUILT_RULE_NODE_TYPES,
-  toRuleNodeTypeDescriptor, newRuleNodeConfig, ruleNodeConfigWithDefaults,
+  toRuleNodeTypeDescriptor, newRuleNodeConfig, ruleNodeConfigWithDefaults, visibleRuleNodeFields,
 } from './types/rule-nodes.js';
 export type {
   RuleNodeGroup, RuleNodeStatus, RuleOriginatorType, RuleDebugMode, RuleMessageType,
