@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
+import { useAuth } from '@/hooks/use-auth';
 import { useCan } from '@/hooks/use-can';
 import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
@@ -11,16 +12,17 @@ import { AcknowledgeDialog } from './acknowledge-dialog';
 import { ExportMenu } from '@/components/ExportMenu';
 import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
 import { deliverReport, deliveryToast } from '@/lib/report-delivery';
-import { createReport } from '@/lib/pdf-report';
-import {
-  buildAlarmsReport, ALARM_REPORT_LEGEND, reportSeedPeriod, reportLevel,
-} from './alarms-report';
+import { buildTemplatedReport } from '@/lib/templated-report';
+import { chooseTemplate, planScopeKey, useReportTemplatePlan } from '@/lib/report-template-plan';
+import { ReportTemplateLines } from '@/components/report-template-lines';
+import { reportSeedPeriod, reportLevel } from './alarms-report';
+import { alarmReportInput } from './alarm-report-rows';
 import { PageHero } from '@/components/ui/page-hero';
 import { Pagination } from '@/components/ui/pagination';
 import { SkeletonRows } from '@/components/ui/skeleton';
 import { AlarmStatCards } from './alarm-stat-cards';
 import {
-  AlarmFilters, EMPTY_FILTERS, hasAnyFilter, locationFilterId, useFilterScopeLabels,
+  AlarmFilters, EMPTY_FILTERS, hasAnyFilter, locationFilterId,
   type AlarmFilterState,
 } from './alarm-filters';
 import {
@@ -58,6 +60,7 @@ import {
  */
 export default function AlarmsPage() {
   const can = useCan();
+  const { user } = useAuth();
   const { toast } = useToast();
   const { formatDate, formatTime, formatDateTime, config: datetimeConfig } = useDatetimeFormat();
   // The configured zone: the filter boxes are typed in it, as every printed time is.
@@ -65,8 +68,18 @@ export default function AlarmsPage() {
   const { defaultLimit } = usePaginationDefaults();
   const [downloadOpen, setDownloadOpen] = useState(false);
 
+  /**
+   * Which report template the Alarm Report prints with (2026-11-03, page
+   * reports on templates): the SERVER's answer for the application-wide
+   * `page:alarms` kind — asked only while the dialog is open — and the
+   * operator's pick when the application has several.
+   */
+  const templatePlan = useReportTemplatePlan('page:alarms', [], { enabled: downloadOpen });
+  const [templatePicks, setTemplatePicks] = useState<Record<string, string>>({});
+  // An application kind is answered with exactly ONE section; anything else is a broken answer.
+  const templatesFailed = !!templatePlan.error || (!templatePlan.loading && templatePlan.sections.length !== 1);
+
   const [filters, setFilters] = useState<AlarmFilterState>(EMPTY_FILTERS);
-  const scopeLabels = useFilterScopeLabels(filters);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [sort, setSort] = useState<AlarmSortKey>('raisedAt');
   const [dir, setDir] = useState<'asc' | 'desc'>('desc');
@@ -227,48 +240,43 @@ export default function AlarmsPage() {
     // 2026-10-12, finding 11). Sent as given.
     const period = { from: req.period.from, to: req.period.to, label: req.period.label };
 
-    {
-      const { rows: all, total: grand } = await fetchAllForReport(period);
+    // Refused, never printed with a guessed template: the administered default
+    // is the server's answer, and it has not arrived.
+    if (templatesFailed) throw new Error('The report templates could not be loaded. Close this and try again.');
+    if (templatePlan.loading) throw new Error('The report templates are still loading. Try again in a moment.');
+    const planSection = templatePlan.sections[0];
+    const template = chooseTemplate(planSection, templatePicks[planScopeKey(planSection)]);
 
-      const doc = await createReport({
-        title: 'ALARM REPORT',
-        // PORTRAIT (operator, 2026-09-01): landscape was too wide. The table fits
-        // because the placement columns are only added at the scopes where they
-        // actually vary — see EXTRA_COLUMNS.
-        orientation: 'portrait',
-        formatDateTime,
-        reportKey: 'alarms',
-        legend: ALARM_REPORT_LEGEND,
-      });
-      buildAlarmsReport(doc, {
-        rows: all,
-        total: grand,
-        scope: {
-          ...scopeLabels,
-          // The Location ATTRIBUTE, and only when ONE instrument is in scope —
-          // every row then shares it. Across a whole Block the field names no
-          // single space, and a report that filled it in anyway would be stating
-          // one instrument's location as the report's.
-          locationName: filters.instrumentId ? (all[0]?.locationAttribute ?? '') : '',
-        },
-        period,
-        fmt: { formatDate, formatTime },
-        texts: inactivityTexts,
-        level: reportLevel(filters),
-      });
-      // Direct or Request, as configured (2026-10-01). recordCount is what the PAPER shows, never `grand`: a record claiming
-      // 3,000 alarms beside a document printing 500 would contradict itself.
-      // The instruments are the ones the PRINTED alarms belong to — what scopes
-      // who may see a request (2026-10-01); a report of no alarms is about none.
-      const outcome = await deliverReport({
-        kind: 'alarms', req, report: doc, reportType: 'Alarms', title: doc.getSnapshot().title,
-        requestMeta: { period, recordCount: all.length, search: search.trim() || undefined },
-        instrumentIds: [...new Set(all.map((a) => a.instrumentId))],
-      });
-      setDownloadOpen(false);
-      const notice = deliveryToast(outcome);
-      toast[notice.tone](notice.title, notice.message);
-    }
+    const { rows: all, total: grand } = await fetchAllForReport(period);
+
+    // The report template's chrome, info rows and columns — or, with none, the
+    // built-in: today's ALARM REPORT, PORTRAIT (operator, 2026-09-01), with the
+    // placement columns only at the levels where they vary (EXTRA_COLUMNS).
+    const { report, title, subtitle } = await buildTemplatedReport(alarmReportInput({
+      template,
+      rows: all,
+      total: grand,
+      level: reportLevel(filters),
+      period,
+      search,
+      fmt: { formatDate, formatTime, formatDateTime },
+      texts: inactivityTexts,
+      printedAt: new Date().toISOString(),
+      // The USERNAME — the identity "Printed By" and every signature print.
+      user: user?.username ?? '',
+    }));
+    // Direct or Request, as configured (2026-10-01). recordCount is what the PAPER shows, never `grand`: a record claiming
+    // 3,000 alarms beside a document printing 500 would contradict itself.
+    // The instruments are the ones the PRINTED alarms belong to — what scopes
+    // who may see a request (2026-10-01); a report of no alarms is about none.
+    const outcome = await deliverReport({
+      kind: 'alarms', req, report, reportType: 'Alarms', title, subtitle,
+      requestMeta: { period, recordCount: all.length, search: search.trim() || undefined },
+      instrumentIds: [...new Set(all.map((a) => a.instrumentId))],
+    });
+    setDownloadOpen(false);
+    const notice = deliveryToast(outcome);
+    toast[notice.tone](notice.title, notice.message);
   };
 
   const counts = data?.counts ?? { 'active-unack': 0, 'active-ack': 0, 'cleared-unack': 0, 'cleared-ack': 0 };
@@ -318,7 +326,7 @@ export default function AlarmsPage() {
         // The download exports exactly what the filters below select — Block,
         // Area, Instrument and the period — so it rides in the band as the
         // screen's one action. Icon only, as on the trend page.
-        actions={<ExportMenu surface="alarms" iconOnly onExportPdf={() => setDownloadOpen(true)} />}
+        actions={<ExportMenu surface="alarms" iconOnly onExportPdf={() => { setTemplatePicks({}); setDownloadOpen(true); }} />}
       />
 
       <div className="mb-5">
@@ -490,6 +498,17 @@ export default function AlarmsPage() {
         reportName="Alarm Report"
         kind="alarms"
         initialPeriod={reportSeedPeriod(filters, tz)}
+        extra={(
+          <ReportTemplateLines
+            kind="page:alarms"
+            sections={templatePlan.sections}
+            picks={templatePicks}
+            onPick={(scopeKey, value) => setTemplatePicks((p) => ({ ...p, [scopeKey]: value }))}
+            loading={templatePlan.loading}
+            failed={templatesFailed}
+            superAdmin={user?.role === 'SUPER_ADMIN'}
+          />
+        )}
         onCancel={() => setDownloadOpen(false)}
         onConfirm={runDownload}
       />

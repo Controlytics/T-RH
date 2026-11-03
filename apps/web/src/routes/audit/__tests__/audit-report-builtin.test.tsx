@@ -1,43 +1,29 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { builtinReportTemplate, REPORT_TEMPLATE_FIELDS, type ReportTemplateRow } from '@digilog/shared';
 import type { ReportSnapshot } from '@/lib/pdf-report';
+import type { PlanSection } from '@/lib/report-template-plan';
+import { AUDIT_RECORDS } from './fixtures/audit-records';
 
 /**
- * The Audit Trail PDF and Excel export as they printed BEFORE report templates
- * (2026-11-03, page reports on templates — spec §12, "built-in equals today").
- * Captured by driving the REAL page — its inline PDF builder had no function of
- * its own — with only the delivery and the Excel writer stubbed to keep what
- * they were handed. The report labels are the real defaults.
+ * The Audit Trail PDF and Excel export (2026-11-03, page reports on templates
+ * — spec §12, "built-in equals today"). The fixture was captured (commit
+ * f60a2474) from the page's old inline PDF builder by driving the REAL page,
+ * with only the delivery and the Excel writer stubbed to keep what they were
+ * handed; that builder is gone and the fixture is the frozen record of it. The
+ * report labels are the real defaults. The PDF now prints through the report
+ * template the server resolves (here, the plan); with none it is the built-in
+ * and must print what the old builder printed — except the subtitle, which
+ * says "Search: —" when there is no search (ruling P-2, the ONE accepted
+ * difference). The Excel export is not templated and is unchanged.
  */
 
 const FIXTURE = join(__dirname, 'fixtures', 'audit-report-builtin.json');
 
-/** Three records: a login, an attribute change whose summary runs past 80 characters, a redacted one with no IP or role. */
-const RECORDS = [
-  {
-    id: 'r1', timestamp: '2026-09-21T10:00:00.000Z', action: 'LOGIN', userId: 'superadmin', userName: 'superadmin', userRole: 'SUPER_ADMIN',
-    targetType: 'user', targetId: 'superadmin', targetName: 'superadmin', ipAddress: '10.0.0.5', beforeValue: null, afterValue: null,
-    reason: null, signatureMeaning: null, chainPosition: 1, redactedAt: null,
-  },
-  {
-    id: 'r2', timestamp: '2026-09-21T10:05:00.000Z', action: 'INSTRUMENT_ATTRIBUTE_UPDATED', userId: 'qa.lead', userName: 'qa.lead', userRole: 'QA',
-    targetType: 'instrument', targetId: '6f1c2b8e-3d4a-4b5c-8d9e-0f1a2b3c4d5e', targetName: 'CWH/RDU/046-00', ipAddress: '10.0.0.7',
-    beforeValue: { key: 'Location', value: 'Room 1' },
-    afterValue: { key: 'Location', value: 'LCMS Room-II beside the dissolution laboratory on the north corridor' },
-    reason: 'Relabelled after the layout change', signatureMeaning: null, chainPosition: 2, redactedAt: null,
-  },
-  {
-    id: 'r3', timestamp: '2026-09-21T10:10:00.000Z', action: 'USER_UPDATED', userId: 'admin', userName: 'admin', userRole: null,
-    targetType: 'user', targetId: 'operator1', targetName: 'operator1', ipAddress: null, beforeValue: null, afterValue: null,
-    reason: null, signatureMeaning: null, chainPosition: 3,
-    redactedAt: '2026-09-22T08:00:00.000Z', redactedByName: 'superadmin', redactionReason: 'Personal data removed on request',
-  },
-];
-
-const AUDIT_PAGE = { data: RECORDS, total: 3, page: 1, totalPages: 1, hardDeleteEnabled: false };
+const AUDIT_PAGE = { data: AUDIT_RECORDS, total: 3, page: 1, totalPages: 1, hardDeleteEnabled: false };
 const DIRECT = { mode: 'DIRECT', remarksRequired: true, passwordRequired: false } as const;
 const DOWNLOADS = { alarms: DIRECT, 'audit-trail': DIRECT };
 const mutate = vi.fn();
@@ -77,13 +63,47 @@ vi.mock('@/hooks/use-reauth', async (importOriginal) => ({
 }));
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
-    get: vi.fn(async (url: string) => (String(url).startsWith('/api/audit?') ? { data: RECORDS, total: RECORDS.length } : {})),
+    get: vi.fn(async (url: string) => (String(url).startsWith('/api/audit?') ? { data: AUDIT_RECORDS, total: AUDIT_RECORDS.length } : {})),
     post: vi.fn(), put: vi.fn(), delete: vi.fn(), postWithReauth: vi.fn(), putWithReauth: vi.fn(), deleteWithReauth: vi.fn(),
   },
 }));
 
+/**
+ * The template plan — the server's answer — as module-level constants (a
+ * fresh object per render re-runs effects forever). `plan` picks one; every
+ * call is recorded, so WHEN the page asks is observable.
+ */
+const APPLICATION = (resolved: ReportTemplateRow | null): PlanSection => ({
+  profileId: null, profileName: null, instrumentIds: [], resolved, templates: resolved ? [resolved] : [],
+  availableIds: REPORT_TEMPLATE_FIELDS('page:audit-trail').map((f) => f.id),
+});
+const SAVED: ReportTemplateRow = (() => {
+  const document = builtinReportTemplate('page:audit-trail');
+  document.header.title = 'Activity Log';
+  document.columns = [
+    { id: 'audit.user', heading: 'Who', show: true },
+    { id: 'audit.action', heading: 'What', show: true },
+    { id: 'audit.ip', heading: 'Where', show: false },
+  ];
+  return { id: 't1', name: 'Inspector copy', kind: 'page:audit-trail', profileId: null, isDefault: true, document } as unknown as ReportTemplateRow;
+})();
+const PLANS = {
+  builtin: { sections: [APPLICATION(null)], loading: false, error: undefined },
+  saved: { sections: [APPLICATION(SAVED)], loading: false, error: undefined },
+  failed: { sections: [], loading: false, error: new Error('503') },
+};
+let plan: (typeof PLANS)[keyof typeof PLANS] = PLANS.builtin;
+const planCalls: { kind: string; ids: readonly string[]; enabled: boolean | undefined }[] = [];
+vi.mock('@/lib/report-template-plan', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/report-template-plan')>()),
+  useReportTemplatePlan: (kind: string, ids: readonly string[], opts?: { enabled?: boolean }) => {
+    planCalls.push({ kind, ids, enabled: opts?.enabled });
+    return plan;
+  },
+}));
+
 /** What the page handed the delivery and the Excel writer. */
-const delivered: { report: { getSnapshot: () => ReportSnapshot }; title: string; subtitle?: string }[] = [];
+const delivered: { report: { getSnapshot: () => ReportSnapshot }; title: string; subtitle?: string; requestMeta: { recordCount: number } }[] = [];
 const excel: { head: string[]; rows: string[][] }[] = [];
 vi.mock('@/lib/report-delivery', () => ({
   deliverReport: async (input: (typeof delivered)[number]) => { delivered.push(input); return 'DOWNLOADED'; },
@@ -105,6 +125,8 @@ const frozen = (s: ReportSnapshot) => JSON.parse(JSON.stringify({
 beforeEach(() => {
   delivered.length = 0;
   excel.length = 0;
+  planCalls.length = 0;
+  plan = PLANS.builtin;
   // Branding with no logo of its own; the default logo request fails (no logo drawn).
   vi.stubGlobal('fetch', vi.fn(async (url: unknown) => {
     if (String(url).endsWith('/api/config/branding')) return { ok: true, json: async () => ({ companyName: 'Branding Co', appName: 'Branding App' }) };
@@ -113,28 +135,89 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-/** Export → the format → remarks → Download. */
-async function exportAs(format: 'PDF' | 'Excel') {
+/** Export → the format; returns once the download dialog shows its remarks box. */
+async function openExport(format: 'PDF' | 'Excel', search = '') {
   render(<MemoryRouter><AuditTrailPage /></MemoryRouter>);
+  if (search) fireEvent.change(screen.getByPlaceholderText(/search by user/i), { target: { value: search } });
   fireEvent.click(screen.getByRole('button', { name: /export/i }));
   fireEvent.click(screen.getByRole('button', { name: format === 'PDF' ? /export as pdf/i : /export as excel/i }));
-  fireEvent.change(await screen.findByRole('textbox', { name: /remark|reason/i }), { target: { value: 'Quarterly audit review.' } });
+  return screen.findByRole('textbox', { name: /remark|reason/i });
+}
+
+/** …then remarks → Download. */
+async function exportAs(format: 'PDF' | 'Excel', search = '') {
+  fireEvent.change(await openExport(format, search), { target: { value: 'Quarterly audit review.' } });
   fireEvent.click(screen.getByRole('button', { name: /^download$/i }));
 }
 
-describe('the Audit Trail export as it printed before templates (captured)', () => {
-  it('captures or matches the PDF and the Excel export', async () => {
+const FROZEN = JSON.parse(readFileSync(FIXTURE, 'utf8')) as { pdf: ReturnType<typeof frozen>; excel: { head: string[]; rows: string[][] } };
+const withoutSubtitle = (r: ReturnType<typeof frozen>) => { const { subtitle: _s, ...rest } = r; return rest; };
+
+describe('the built-in Audit Trail PDF on templates equals today\'s', () => {
+  it('sections, title, page, legend and chrome as captured; the subtitle says "Search: —" (ruling P-2)', async () => {
     await exportAs('PDF');
     await waitFor(() => expect(delivered).toHaveLength(1));
     const pdf = frozen(delivered[0].report.getSnapshot());
-    cleanup();
+    expect(pdf.sections).toEqual(FROZEN.pdf.sections);
+    expect(withoutSubtitle(pdf)).toEqual(withoutSubtitle(FROZEN.pdf));
+    expect(pdf.subtitle).toBe('Period: All Time  |  Search: —  |  Total: 3 record(s)  |  21 CFR Part 11 Compliant');
+    // The request is titled as printed and counts the records printed.
+    expect(delivered[0]).toMatchObject({ title: 'Audit Trail', subtitle: pdf.subtitle, requestMeta: { recordCount: 3 } });
+  });
+
+  it('with a search the subtitle quotes it, as it always did', async () => {
+    await exportAs('PDF', 'x');
+    await waitFor(() => expect(delivered).toHaveLength(1));
+    expect(delivered[0].report.getSnapshot().subtitle)
+      .toBe('Period: All Time  |  Search: "x"  |  Total: 3 record(s)  |  21 CFR Part 11 Compliant');
+  });
+
+  it('the Excel export is untouched', async () => {
     await exportAs('Excel');
     await waitFor(() => expect(excel).toHaveLength(1));
-    const captured = { pdf, excel: excel[0] };
-    if (process.env.CAPTURE === '1') {
-      mkdirSync(dirname(FIXTURE), { recursive: true });
-      writeFileSync(FIXTURE, `${JSON.stringify(captured, null, 2)}\n`, 'utf8');
-    }
-    expect(captured).toEqual(JSON.parse(readFileSync(FIXTURE, 'utf8')));
+    expect(excel[0]).toEqual(FROZEN.excel);
+  });
+});
+
+describe('the PDF dialog names the template; the Excel dialog does not', () => {
+  it('asks for the plan only while the PDF dialog is open, application-wide (no instruments)', async () => {
+    render(<MemoryRouter><AuditTrailPage /></MemoryRouter>);
+    expect(planCalls.length).toBeGreaterThan(0);
+    expect(planCalls.every((c) => c.kind === 'page:audit-trail' && c.ids.length === 0 && c.enabled === false)).toBe(true);
+    cleanup();
+    planCalls.length = 0;
+    await openExport('PDF');
+    expect(planCalls.at(-1)).toMatchObject({ kind: 'page:audit-trail', enabled: true });
+    expect(within(screen.getByRole('dialog')).getByTestId('report-template-line')).toHaveTextContent('Template: Built-in (application-wide)');
+  });
+
+  it('Excel: no template line, no plan asked', async () => {
+    await openExport('Excel');
+    expect(within(screen.getByRole('dialog')).queryByTestId('report-template-line')).toBeNull();
+    expect(planCalls.length).toBeGreaterThan(0);
+    expect(planCalls.every((c) => c.enabled === false)).toBe(true);
+  });
+});
+
+describe('a SAVED application template draws the PDF', () => {
+  it('its title and its shown columns, in its order, at jsPDF\'s widths', async () => {
+    plan = PLANS.saved;
+    await openExport('PDF');
+    expect(within(screen.getByRole('dialog')).getByTestId('report-template-line')).toHaveTextContent('Template: Inspector copy (application-wide)');
+    fireEvent.change(screen.getByRole('textbox', { name: /remark|reason/i }), { target: { value: 'Inspector request.' } });
+    fireEvent.click(screen.getByRole('button', { name: /^download$/i }));
+    await waitFor(() => expect(delivered).toHaveLength(1));
+    const snap = delivered[0].report.getSnapshot();
+    expect(snap.title).toBe('Activity Log');
+    const table = snap.sections.find((s) => s.kind === 'table');
+    expect(table).toMatchObject({ head: ['Who', 'What'], body: [['superadmin', 'LOGIN'], ['qa.lead', 'INSTRUMENT ATTRIBUTE UPDATED'], ['admin', 'USER UPDATED']] });
+    expect(table && 'columnStyles' in table ? table.columnStyles : undefined).toBeUndefined();
+  });
+
+  it('a plan that failed to load refuses the PDF: nothing is delivered, the dialog says why', async () => {
+    plan = PLANS.failed;
+    await exportAs('PDF');
+    expect(await screen.findByText(/report templates could not be loaded/i, { selector: 'p:not([role="alert"])' })).toBeInTheDocument();
+    expect(delivered).toHaveLength(0);
   });
 });

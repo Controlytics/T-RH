@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, within, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 /**
@@ -114,12 +114,14 @@ vi.mock('@/hooks/use-can', () => ({ useCan: () => () => true }));
 
 /**
  * The governed PDF download. Each step is mocked separately so the ORDER between
- * them can be asserted — that is the §11 property, not the PDF's contents.
+ * them can be asserted — that is the §11 property, not the PDF's contents. What
+ * the PDF PRINTS is pinned on the real builder in `alarm-report-builtin.test.ts`;
+ * here the builder is a spy, so what the PAGE hands it can be asserted.
  */
 const submitRequest = vi.fn();
 const logExport = vi.fn();
 const savePdf = vi.fn();
-const buildAlarmsReport = vi.fn();
+const buildTemplated = vi.fn();
 const order: string[] = [];
 vi.mock('@/lib/report-review', () => ({
   submitReportForReview: (...a: unknown[]) => submitRequest(...a),
@@ -128,16 +130,45 @@ vi.mock('@/lib/report-review', () => ({
 vi.mock('@/lib/report-export-log', () => ({
   logReportExport: (...a: unknown[]) => { order.push('log'); return logExport(...a); },
 }));
-vi.mock('@/lib/pdf-report', () => ({
-  createReport: async () => ({
-    save: (...a: unknown[]) => { order.push('save'); savePdf(...a); }, addKeyValue: vi.fn(), addTable: vi.fn(), addSectionTitle: vi.fn(),
-    getSnapshot: () => ({ version: 2, reportType: 'alarms', title: 'ALARM REPORT', config: {}, sections: [] }),
-  }),
+vi.mock('@/lib/templated-report', () => ({
+  buildTemplatedReport: async (...a: unknown[]) => {
+    buildTemplated(...a);
+    return {
+      report: {
+        save: (...s: unknown[]) => { order.push('save'); savePdf(...s); },
+        getSnapshot: () => ({ version: 3, reportType: 'alarms', title: 'ALARM REPORT', config: {}, sections: [] }),
+      },
+      title: 'ALARM REPORT',
+      subtitle: undefined,
+      recordCount: 0,
+    };
+  },
 }));
-vi.mock('../alarms-report', async (actual) => ({
-  ...(await actual<typeof import('../alarms-report')>()),
-  buildAlarmsReport: (...a: unknown[]) => buildAlarmsReport(...a),
+/**
+ * The template plan — the server's answer — as module-level constants (a fresh
+ * object per render re-runs effects forever). Every call is recorded, so WHEN
+ * the page asks is observable.
+ */
+const APPLICATION_SECTION = {
+  profileId: null, profileName: null, instrumentIds: [], resolved: null, templates: [],
+  availableIds: ['alarm.date', 'alarm.time', 'instrument.code', 'instrument.area', 'instrument.location', 'alarm.description', 'alarm.uom', 'alarm.pv', 'alarm.high', 'alarm.low'],
+};
+const PLANS = {
+  builtin: { sections: [APPLICATION_SECTION], loading: false, error: undefined as unknown },
+  loading: { sections: [], loading: true, error: undefined as unknown },
+  failed: { sections: [], loading: false, error: new Error('503') as unknown },
+};
+let plan = PLANS.builtin;
+const planCalls: { kind: string; ids: readonly string[]; enabled: boolean | undefined }[] = [];
+vi.mock('@/lib/report-template-plan', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/report-template-plan')>()),
+  useReportTemplatePlan: (kind: string, ids: readonly string[], opts?: { enabled?: boolean }) => {
+    planCalls.push({ kind, ids, enabled: opts?.enabled });
+    return plan;
+  },
 }));
+const ME = { user: { id: 'me', username: 'qa.lead', fullName: 'QA Lead', role: 'QA', permissions: [] } };
+vi.mock('@/hooks/use-auth', () => ({ useAuth: () => ME }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: { success: vi.fn(), error: vi.fn() } }) }));
 
 const apiGet = vi.fn();
@@ -400,7 +431,9 @@ describe('the Alarms page — the governed PDF download', () => {
   beforeEach(() => {
     submitRequest.mockReset().mockResolvedValue({ id: 'r1', status: 'PENDING' });
     savePdf.mockReset();
-    buildAlarmsReport.mockReset();
+    buildTemplated.mockReset();
+    plan = PLANS.builtin;
+    planCalls.length = 0;
     apiGet.mockReset().mockResolvedValue({ data: [], total: 0 });
     logExport.mockReset().mockResolvedValue(undefined);
     order.length = 0;
@@ -433,7 +466,8 @@ describe('the Alarms page — the governed PDF download', () => {
     await confirm();
     await waitFor(() => expect(submitRequest).toHaveBeenCalled());
     expect(savePdf).not.toHaveBeenCalled();
-    expect(submitRequest.mock.calls[0][0]).toMatchObject({ reportKind: 'alarms', reportType: 'Alarms', snapshot: { version: 2 }, instrumentIds: [] });
+    // v3 since 2026-11-03: every report freezes its chrome.
+    expect(submitRequest.mock.calls[0][0]).toMatchObject({ reportKind: 'alarms', reportType: 'Alarms', snapshot: { version: 3 }, instrumentIds: [] });
     expect(submitRequest.mock.calls[0][0]).not.toHaveProperty('assignee');
   });
 
@@ -502,6 +536,80 @@ describe('the Alarms page — the governed PDF download', () => {
     expect(url).toContain('pageSize=500');
     expect(url).toContain('from=');
     expect(url).toContain('to=');
+  });
+});
+
+/**
+ * Report templates (2026-11-03, page reports on templates — spec §8). The
+ * Alarm Report is APPLICATION-wide: one template set, asked with no
+ * instruments, and only while the dialog is open (a plain page view asks
+ * nothing). The dialog names the template it will print with; the page hands
+ * the builder ONE section — the built-in (its two rules at the page's level)
+ * when nothing is saved — and the period the operator confirmed.
+ */
+describe('the Alarms page — the report template', () => {
+  const confirmWith = async () => {
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: /export|download/i }));
+    const btn = await screen.findByRole('button', { name: /^request approval$/i });
+    fireEvent.change(screen.getByRole('textbox', { name: /remark|reason/i }), { target: { value: 'Monthly QA review of excursions.' } });
+    fireEvent.change(document.getElementById('report-download-password') as HTMLInputElement, { target: { value: 'Secret@123' } });
+    fireEvent.click(btn);
+  };
+
+  beforeEach(() => {
+    submitRequest.mockReset().mockResolvedValue({ id: 'r1', status: 'PENDING' });
+    buildTemplated.mockReset();
+    apiGet.mockReset().mockResolvedValue({ data: [activeUnack, clearedUnack], total: 2 });
+    downloads = DOWNLOADS.REQUEST;
+    plan = PLANS.builtin;
+    planCalls.length = 0;
+  });
+
+  it('asks for nothing on a plain page view, and application-wide once the dialog opens', async () => {
+    mount();
+    expect(planCalls.length).toBeGreaterThan(0);
+    expect(planCalls.every((c) => c.kind === 'page:alarms' && c.ids.length === 0 && c.enabled === false)).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /export|download/i }));
+    await screen.findByRole('button', { name: /^request approval$/i });
+    expect(planCalls.at(-1)).toMatchObject({ kind: 'page:alarms', enabled: true });
+    expect(screen.getByTestId('report-template-line')).toHaveTextContent('Template: Built-in (application-wide)');
+  });
+
+  it('hands the builder the built-in for the page\'s level, the confirmed period and the reader', async () => {
+    await confirmWith();
+    await waitFor(() => expect(buildTemplated).toHaveBeenCalledTimes(1));
+    const input = buildTemplated.mock.calls[0][0];
+    expect(input).toMatchObject({ kind: 'page:alarms', reportKey: 'alarms' });
+    expect(input.legend).toEqual([
+      { abbr: 'PV Value', meaning: 'Present Value' },
+      { abbr: 'UOM', meaning: 'Units of Measurement' },
+    ]);
+    expect(input.sections).toHaveLength(1);
+    const [s] = input.sections;
+    expect(s).toMatchObject({ profileId: null, profileName: null });
+    // Nothing filtered = the widest level: all ten columns, placement first.
+    expect(s.document.columns.filter((c: { show: boolean }) => c.show).map((c: { id: string }) => c.id)).toEqual([
+      'instrument.code', 'instrument.area', 'instrument.location', 'alarm.date', 'alarm.time',
+      'alarm.description', 'alarm.uom', 'alarm.pv', 'alarm.high', 'alarm.low',
+    ]);
+    expect(s.rows.map((r: Record<string, unknown>) => r['instrument.code'])).toEqual(['CWH/RDU/001-00', 'CWH/RDU/030-00']);
+    expect(input.values).toMatchObject({ user: 'qa.lead', recordCount: '2', level: 'All instruments' });
+    // The period the rows were fetched for — the dialog's — is the one printed.
+    const sent = new URLSearchParams(String(apiGet.mock.calls[0][0]).split('?')[1]);
+    expect(input.values.from).toBe(input.formatDateTime(sent.get('from')!));
+    expect(input.values.to).toBe(input.formatDateTime(sent.get('to')!));
+  });
+
+  it('a plan still loading or failed refuses the download, and nothing is requested', async () => {
+    for (const p of [PLANS.loading, PLANS.failed]) {
+      plan = p;
+      await confirmWith();
+      expect(await screen.findByText(/report templates (are still loading|could not be loaded)/i, { selector: 'p:not([role="alert"])' })).toBeInTheDocument();
+      expect(buildTemplated).not.toHaveBeenCalled();
+      expect(submitRequest).not.toHaveBeenCalled();
+      cleanup();
+    }
   });
 });
 

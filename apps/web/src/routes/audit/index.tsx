@@ -14,13 +14,15 @@ import { useToast } from '@/hooks/use-toast';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { getDefaultTemplates } from '@digilog/shared';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
-import { ACTION_COLORS, getAuditStatus, getAuditSummary, friendlyTargetType, isRedacted, redactionNote } from './audit-helpers';
+import { ACTION_COLORS, getAuditStatus, getAuditSummary } from './audit-helpers';
 import { AuditFilters } from './components/audit-filters';
 import { AuditTable } from './components/audit-table';
 import { AuditDetailModal } from './components/audit-detail-modal';
 import { Pagination } from '@/components/ui/pagination';
 import { AuditDeleteDialog } from './components/audit-delete-dialog';
-import { createReport } from '../../lib/pdf-report';
+import { buildTemplatedReport } from '@/lib/templated-report';
+import { chooseTemplate, planScopeKey, useReportTemplatePlan } from '@/lib/report-template-plan';
+import { ReportTemplateLines } from '@/components/report-template-lines';
 import { exportToExcel } from '@/lib/excel-export';
 import { logReportExport } from '@/lib/report-export-log';
 import { deliverReport, deliveryToast } from '@/lib/report-delivery';
@@ -29,8 +31,7 @@ import { ExportMenu } from '@/components/ExportMenu';
 import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
 import { useReportLabels } from '../../hooks/use-report-labels';
 import { PageHero } from '@/components/ui/page-hero';
-
-const AUDIT_COLS = ['timestamp', 'action', 'user', 'role', 'targetType', 'description', 'ipAddress'];
+import { AUDIT_REPORT_COLUMNS, auditExcelRows, auditReportInput, rowsForAuditTrail } from './audit-report-rows';
 
 export function AuditTrailPage() {
   const { user } = useAuth();
@@ -42,7 +43,8 @@ export function AuditTrailPage() {
   const { options: paginationOptions, defaultLimit } = usePaginationDefaults();
   const { labelsFor } = useReportLabels();
   const auditL = labelsFor('audit-trail');
-  const auditHead = AUDIT_COLS.map((k) => auditL.columns[k]);
+  // The Excel export's head (the PDF's headings are its template's).
+  const auditHead = AUDIT_REPORT_COLUMNS.map((c) => auditL.columns[c.labelKey]);
   // audit.export gate: ['AUDIT_EXPORT'] → SUPER_ADMIN || AUDIT_EXPORT (same as prior check).
   const canExport = can('audit.export');
   // Destructive affordances. Redact (audit.redact) preserves the hash chain and is
@@ -303,21 +305,6 @@ export function AuditTrailPage() {
       ? `${fromIso ? formatDateTime(fromIso) : 'Start'} to ${toIso ? formatDateTime(toIso) : 'Now'}`
       : 'All Time';
 
-  // The export is what an inspector actually receives, so a redacted record must
-  // announce itself here too — not only on screen. The note leads the description
-  // so it survives the truncation below.
-  const exportDescription = (r: any): string => {
-    const summary = getAuditSummary(r, templates);
-    const text = isRedacted(r) ? `${redactionNote(r)} ${summary}`.trim() : summary;
-    return text.substring(0, 80);
-  };
-
-  const mapAuditRows = (records: any[]): string[][] =>
-    records.map((r: any) => [
-      formatDateTime(r.timestamp), r.action?.replace(/_/g, ' ') ?? '-', r.userId ?? '-',
-      r.userRole ?? '-', friendlyTargetType(r), exportDescription(r), r.ipAddress ?? '-',
-    ]);
-
   // Fetch ALL records matching the active filters (not just the visible page).
   // The list API caps each request at 200, so page through until exhausted.
   const fetchAllFilteredRecords = async (): Promise<any[]> => {
@@ -358,7 +345,18 @@ export function AuditTrailPage() {
   // anything is actually generated.
   const [downloadFormat, setDownloadFormat] = useState<'PDF' | 'Excel' | null>(null);
 
-  const exportPdf = async () => setDownloadFormat('PDF');
+  /**
+   * Which report template the PDF prints with (2026-11-03, page reports on
+   * templates): the SERVER's answer for the application-wide Audit Trail kind,
+   * asked only while the PDF dialog is open, and the operator's pick when the
+   * application has several. The Excel export is not templated.
+   */
+  const templatePlan = useReportTemplatePlan('page:audit-trail', [], { enabled: downloadFormat === 'PDF' });
+  const [templatePicks, setTemplatePicks] = useState<Record<string, string>>({});
+  // An application kind is answered with exactly ONE section; anything else is a broken answer.
+  const templatesFailed = !!templatePlan.error || (!templatePlan.loading && templatePlan.sections.length !== 1);
+
+  const exportPdf = async () => { setTemplatePicks({}); setDownloadFormat('PDF'); };
   const exportExcel = async () => setDownloadFormat('Excel');
 
   // Runs once the operator confirms the download dialog. The dialog's own
@@ -387,20 +385,32 @@ export function AuditTrailPage() {
     try {
       setDownloading(true);
       if (format === 'PDF') {
+        // Refused, never printed with a guessed template: the administered
+        // default is the server's answer, and it has not arrived.
+        if (templatesFailed) throw new Error('The report templates could not be loaded. Close this and try again.');
+        if (templatePlan.loading) throw new Error('The report templates are still loading. Try again in a moment.');
+        const planSection = templatePlan.sections[0];
+        const template = chooseTemplate(planSection, templatePicks[planScopeKey(planSection)]);
         const records = await fetchForExport();
-        const report = await createReport({ reportKey: 'audit-trail',
-          title: auditL.title,
-          subtitle: auditL.subtitle || `Period: ${currentPeriod()}${search ? `  |  Search: "${search}"` : ''}  |  Total: ${records.length} record(s)  |  21 CFR Part 11 Compliant`,
-          orientation: 'landscape',
-          formatDateTime,
-        });
-        report.addTable({ head: auditHead, body: mapAuditRows(records), columnStyles: { 0: { cellWidth: 35 }, 5: { cellWidth: 65 } } });
-        const snapshot = report.getSnapshot();
+        const { report, title, subtitle } = await buildTemplatedReport(auditReportInput({
+          template,
+          records,
+          fmt: { formatDateTime },
+          templates,
+          labels: auditL,
+          period: currentPeriod(),
+          search,
+          from: fromIso ? formatDateTime(fromIso) : undefined,
+          to: toIso ? formatDateTime(toIso) : undefined,
+          printedAt: new Date().toISOString(),
+          // The USERNAME — the identity "Printed By" and every signature print.
+          user: user?.username ?? '',
+        }));
         const period = fromIso && toIso
           ? { from: fromIso, to: toIso, label: currentPeriod() }
           : undefined;
         const outcome = await deliverReport({
-          kind: 'audit-trail', req, report, reportType: 'Audit Trail', title: snapshot.title, subtitle: snapshot.subtitle,
+          kind: 'audit-trail', req, report, reportType: 'Audit Trail', title, subtitle,
           requestMeta: { ...(period ? { period } : {}), recordCount: records.length, search: search || undefined },
           // The Audit Trail is about no instrument — it is not scope-restricted.
           instrumentIds: [],
@@ -411,7 +421,10 @@ export function AuditTrailPage() {
         await reauth.executeWithResult('DOWNLOAD_REPORT', async (password) => {
           const records = await fetchForExport();
           await logExport('Excel', records.length, req.remarks, password);
-          exportToExcel({ filename: `audit-trail-${new Date().toISOString().slice(0, 10)}`, sheetName: 'Audit Trail', head: auditHead, rows: mapAuditRows(records) });
+          exportToExcel({
+            filename: `audit-trail-${new Date().toISOString().slice(0, 10)}`, sheetName: 'Audit Trail', head: auditHead,
+            rows: auditExcelRows(rowsForAuditTrail(records, { formatDateTime }, templates)),
+          });
         });
       }
       setDownloadFormat(null);
@@ -607,6 +620,18 @@ export function AuditTrailPage() {
           to: toIso ?? '',
           label: currentPeriod(),
         }}
+        // What the PDF will be printed with; the Excel export has no template.
+        extra={downloadFormat === 'PDF' ? (
+          <ReportTemplateLines
+            kind="page:audit-trail"
+            sections={templatePlan.sections}
+            picks={templatePicks}
+            onPick={(scopeKey, value) => setTemplatePicks((p) => ({ ...p, [scopeKey]: value }))}
+            loading={templatePlan.loading}
+            failed={templatesFailed}
+            superAdmin={user?.role === 'SUPER_ADMIN'}
+          />
+        ) : undefined}
         onCancel={() => setDownloadFormat(null)}
         onConfirm={runDownload}
       />

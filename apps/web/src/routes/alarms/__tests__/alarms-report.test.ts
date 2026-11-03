@@ -3,7 +3,7 @@ import {
   ALARM_REPORT_HEAD, ALARM_REPORT_LEGEND, NOT_APPLICABLE, BOUND_NOT_SHOWN, EXTRA_COLUMNS,
   periodPairs, uomFor, setPoints, reportRows, truncationNote, reportSeedPeriod,
   reportLevel, reportHead, columnWidths, scopeTableRows,
-  scopeColumnStyles, CONTENT_WIDTH_MM, buildAlarmsReport, hiddenLimitColumns,
+  scopeColumnStyles, CONTENT_WIDTH_MM, hiddenLimitColumns,
 } from '../alarms-report';
 import type { AlarmRow } from '../alarm-display';
 
@@ -573,18 +573,6 @@ describe('a switched-off bound prints NOTHING, and a limit column nobody can fil
     expect(rows[1][at]).toBe('18.0');
   });
 
-  it('buildAlarmsReport applies it, and asks for no unboxing', () => {
-    const calls: any[] = [];
-    const doc = { addTable: (o: any) => { calls.push(o); }, addSectionTitle: () => {} } as any;
-    buildAlarmsReport(doc, {
-      rows: [off(), off({ id: 'b' })], total: 2,
-      scope: { blockName: 'CWH Block', areaName: 'QC 3', locationName: 'LCMS Room-II', instrumentLabel: 'CWH/RDU/002-01' },
-      period: { from: '2026-05-27T16:00:00.000Z', to: '2026-05-28T16:00:00.000Z' }, fmt,
-    });
-    expect(calls).toHaveLength(2);
-    expect(calls[1].head).not.toContain('LOW LIMIT');
-    for (const r of calls[1].body) expect(r).toHaveLength(calls[1].head.length);
-    expect(calls[0].unboxEmpty).toBeUndefined();
-    expect(calls[1].unboxEmpty).toBeUndefined();
-  });
+  // The report APPLYING it (a dropped column, every row as wide as its head) is
+  // pinned on the templated built-in since 2026-11-03: `alarm-report-builtin.test.ts`.
 });

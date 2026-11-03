@@ -1,8 +1,6 @@
 import { zonedInputToIso } from '@/lib/zoned-input';
-import type { ReportDoc } from '@/lib/pdf-report';
 import { formatDecimals } from '@digilog/shared';
 import { alarmTypeText, triggeredText, type AlarmRow, type AlarmDisplayTexts } from './alarm-display';
-import { scopeColumnStyles, scopeTableRows } from '@/lib/report-header-block';
 
 // The header block's helpers live in `lib/report-header-block.ts` (2026-11-03); re-exported for their callers here.
 export { CONTENT_WIDTH_MM, HEADER_LABEL_MM, scopeColumnStyles, scopeTableRows } from '@/lib/report-header-block';
@@ -10,6 +8,15 @@ export { CONTENT_WIDTH_MM, HEADER_LABEL_MM, scopeColumnStyles, scopeTableRows } 
 /**
  * The ALARM REPORT, built to the operator's supplied reference (`Alarm Report.pdf`
  * at the repo root, 2026-09-01) rather than invented.
+ *
+ * SINCE 2026-11-03 (page reports on templates) the report prints through the
+ * ONE templated builder (`lib/templated-report.ts`) from a report template —
+ * or, with none, the built-in, which is this layout. `alarm-report-rows.ts`
+ * turns the alarms into that builder's input; THIS file keeps the pure helpers
+ * it is made of — the cells (`reportRows`), the level and limit rules
+ * (`EXTRA_COLUMNS`, `hiddenLimitColumns`, `reportHead`), the widths, the period
+ * pairs, the truncation line, the legend. It must never import the builder
+ * (the builder once imported from here: no cycle may form).
  *
  * That document's shape, transcribed from its own text: a two-column parameter
  * block (Block / Area / Location / Inst ID against Start Date / Start Time / End
@@ -23,10 +30,10 @@ export { CONTENT_WIDTH_MM, HEADER_LABEL_MM, scopeColumnStyles, scopeTableRows } 
  *
  * **Almost all of the end block already existed.** `createReport()` prints
  * `Printed By: <username>`, the printed timestamp and an empty bordered Remarks
- * box for handwriting, and it takes the legend as config. So this module supplies
- * the parameter block and the table, and passes the legend — it does not
- * reimplement the chrome, and `pdf-report.ts` is deliberately untouched: it is
- * shared by every report in the product.
+ * box for handwriting, and it takes the legend as config. So the report supplies
+ * only the parameter block and the table, and passes the legend — it does not
+ * reimplement the chrome, which `pdf-report.ts` draws for every report in the
+ * product.
  *
  * **What is deliberately NOT copied from the reference.** Its dates read
  * `28-05-2026` and its times `16:00`, because that is the format its own system
@@ -190,6 +197,10 @@ const orDash = (v: string) => (v.trim() ? v.trim() : '-');
  * Location COLUMNS appear exactly when they vary across the rows (`reportHead`)
  * — so the header repeated what the rows say. `AlarmReportScope` still drives
  * those columns; it is just no longer printed up here.
+ *
+ * Since 2026-11-03 the built-in template's four info rows (`page:alarms`,
+ * Start Date / Start Time / End Date / End Time) print this block through the
+ * templated builder; `alarm-report-builtin.test.ts` pins the two equal.
  */
 export function periodPairs(period: AlarmReportPeriod, fmt: AlarmReportFormatters): [string, string][] {
   return [
@@ -371,46 +382,6 @@ export function columnWidths(level: ReportLevel, hidden: ReadonlySet<LimitColumn
     if (narrow[h]) out[i] = { cellWidth: narrow[h] };
   });
   return out;
-}
-
-export function buildAlarmsReport(
-  doc: ReportDoc,
-  opts: {
-    rows: readonly AlarmRow[];
-    total: number;
-    scope: AlarmReportScope;
-    period: AlarmReportPeriod;
-    fmt: AlarmReportFormatters;
-    texts?: AlarmDisplayTexts;
-    level?: ReportLevel;
-  },
-): void {
-  const level = opts.level ?? 'instrument';
-  // A limit column no row can fill is not printed (2026-09-07).
-  const hidden = hiddenLimitColumns(opts.rows);
-  doc.addTable({
-    body: scopeTableRows(periodPairs(opts.period, opts.fmt)),
-    columnStyles: scopeColumnStyles(),
-  });
-
-  const note = truncationNote(opts.rows.length, opts.total);
-  if (note) {
-    doc.addSectionTitle(note);
-  }
-
-  doc.addTable({
-    head: reportHead(level, hidden),
-    columnStyles: columnWidths(level, hidden),
-    body: opts.rows.length
-      ? reportRows(opts.rows, opts.fmt, opts.texts, level, hidden)
-      // A report of an empty period must SAY it is empty. A table with a header
-      // and no rows reads as a rendering failure on paper, where there is no
-      // other state to check it against.
-      // Width-matched to the head for THIS level, or the empty-state row lands
-      // under the wrong columns.
-      : [reportHead(level, hidden).map((_, i) => (i === reportHead(level, hidden).indexOf('DESCRIPTION')
-        ? 'No alarms in the selected period' : '-'))],
-  });
 }
 
 /**
