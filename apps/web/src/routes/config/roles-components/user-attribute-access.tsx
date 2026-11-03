@@ -146,7 +146,7 @@ export function UserAttributeAccess() {
           )}
           {!user.roleHasUpdate && (
             <p data-testid="user-rule-no-update" className="text-xs text-amber-700">
-              Their role has no Edit Instruments permission, so this user can change no attribute whatever is set here.
+              Their role has neither Edit Settings nor Edit Instruments, so this user can change no attribute whatever is set here.
             </p>
           )}
 

@@ -128,8 +128,8 @@ export function AttributeAccessTab() {
                   // Said plainly. Without this the admin sets ALL_EDIT, sees it
                   // save, and then finds the role still cannot edit anything.
                   <p className="mt-0.5 text-xs text-amber-700">
-                    This role has no Edit Instruments permission, so its attributes
-                    are read-only whatever is set here.
+                    This role has neither Edit Settings nor Edit Instruments, so its
+                    attributes are read-only whatever is set here.
                   </p>
                 )}
               </div>

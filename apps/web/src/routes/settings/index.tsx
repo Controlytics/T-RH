@@ -147,6 +147,11 @@ export function instrumentListKey(scopeId: string | null): string {
 export function SettingsPage() {
   const can = useCan();
   const canEdit = can('settings.edit');
+  // The Instrument ID is the INSTRUMENT, not an attribute (2026-10-30): it is the
+  // MQTT client id, renaming it disconnects the device, and the API refuses it
+  // without Edit Instruments. Edit Settings alone edits attributes only — the
+  // OQ walkthrough found a Supervisor (NMT / NLT and limits only) renaming one.
+  const canEditInstrument = can('instruments.edit');
   const { formatDateTime } = useDatetimeFormat();
 
   // Block → Area → instrument. The tree is for the two selects only; the
@@ -248,7 +253,7 @@ export function SettingsPage() {
     .filter((a) => mayEdit(a.key) && draft[a.key] !== undefined && draft[a.key] !== a.value)
     .map((a) => ({ key: a.key, label: labelFor(a.key), from: a.value, to: draft[a.key] }));
   const newCode = draftCode.trim();
-  const codeChanged = showInstrumentId && Boolean(selected) && newCode !== '' && newCode !== selected!.code;
+  const codeChanged = canEditInstrument && showInstrumentId && Boolean(selected) && newCode !== '' && newCode !== selected!.code;
 
   const onSave = () => {
     // No rule on the code (2026-09-16, operator) — see `codeSchema` in
@@ -482,7 +487,7 @@ export function SettingsPage() {
             </div>
           </div>
           <dl className="grid grid-cols-1 gap-3 p-5 md:grid-cols-2">
-            {showInstrumentId && tile('Instrument ID', selected.code, editing
+            {showInstrumentId && tile('Instrument ID', selected.code, editing && canEditInstrument
               ? { edit: { value: draftCode, onChange: (v) => setDraftCode(v) } }
               : {})}
             {visibleAttrs.map((a) => (

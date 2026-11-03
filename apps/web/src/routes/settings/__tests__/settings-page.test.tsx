@@ -211,8 +211,10 @@ describe('SettingsPage', () => {
    * KEY and the reason, and re-authentication is the hook's business.
    */
   describe('inline edit', () => {
-    const startEdit = () => {
-      grants = new Set(['settings.view', 'settings.edit']);
+    // A user who may edit the instrument as well as its attributes (Maintenance);
+    // `settings.edit` alone is the Supervisor case below.
+    const startEdit = (nodes = ['settings.view', 'settings.edit', 'instruments.edit']) => {
+      grants = new Set(nodes);
       mount();
       fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     };
@@ -232,6 +234,15 @@ describe('SettingsPage', () => {
       expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+    });
+
+    it('Edit Settings ALONE edits attributes, never the Instrument ID (2026-10-30)', () => {
+      // The Instrument ID is the instrument — Edit Instruments. The OQ walkthrough
+      // found a Supervisor (NMT / NLT and limits only) renaming one from here.
+      startEdit(['settings.view', 'settings.edit']);
+      expect(within(widget()).queryByRole('textbox', { name: 'Instrument ID' })).toBeNull();
+      expect(rowValue('Instrument ID')).toBe('CWH/RDU/001-00');
+      expect(field('Location')).toHaveValue('HPLC ROOM');
     });
 
     it('Cancel discards the draft and returns to the read-only tiles', () => {

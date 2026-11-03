@@ -3346,7 +3346,10 @@ export default async function instrumentRoutes(app: FastifyInstance) {
   // A child table, one row per key (see the `InstrumentAttribute` model comment
   // for why this is not a JSONB column). Reading is on INSTRUMENT_READ — an
   // attribute is registry metadata, not a secret — while every write and delete
-  // is on INSTRUMENT_UPDATE and audited by key.
+  // is on INSTRUMENT_ATTRIBUTE_UPDATE (Edit Settings; implied by INSTRUMENT_UPDATE,
+  // see `PERMISSION_IMPLIED_BY`) and audited by key. Attributes only since
+  // 2026-10-30: the instrument itself — code, gateway, enable, token — stays on
+  // INSTRUMENT_UPDATE.
   //
   // NO INSTRUMENT ROW LOCK is taken in any of these handlers, so the lock-order
   // rule at the top of this file is not in play. An attribute write cannot
@@ -3413,8 +3416,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const access = await loadAttributeAccess(req.user?.role, req.user?.sub);
     const refusal = refuseAttributeWrite({
       access,
-      // `requirePermission('INSTRUMENT_UPDATE')` already ran as a preHandler, so
-      // reaching here means the role holds it. Passed explicitly anyway: the
+      // `requirePermission('INSTRUMENT_ATTRIBUTE_UPDATE')` already ran as a preHandler,
+      // so reaching here means the role holds it (or INSTRUMENT_UPDATE, which implies it). Passed explicitly anyway: the
       // shared rule must never be readable as "the mode alone decides".
       hasUpdatePermission: true,
       key: opts.key,
@@ -3907,7 +3910,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
 
   // POST /api/instruments/:id/attributes — set (create OR update) one attribute
   app.post('/:id/attributes', {
-    preHandler: [app.requirePermission('INSTRUMENT_UPDATE')],
+    preHandler: [app.requirePermission('INSTRUMENT_ATTRIBUTE_UPDATE')],
     schema: {
       tags: ['Instruments'],
       summary: 'Set one free-form attribute',
@@ -4011,7 +4014,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
 
   // PUT /api/instruments/:id/attributes/:key — edit an EXISTING attribute
   app.put('/:id/attributes/:key', {
-    preHandler: [app.requirePermission('INSTRUMENT_UPDATE')],
+    preHandler: [app.requirePermission('INSTRUMENT_ATTRIBUTE_UPDATE')],
     schema: {
       tags: ['Instruments'],
       summary: 'Update an existing attribute\'s value',
@@ -4096,7 +4099,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
 
   // DELETE /api/instruments/:id/attributes/:key
   app.delete('/:id/attributes/:key', {
-    preHandler: [app.requirePermission('INSTRUMENT_UPDATE')],
+    preHandler: [app.requirePermission('INSTRUMENT_ATTRIBUTE_UPDATE')],
     schema: {
       tags: ['Instruments'],
       summary: 'Remove an attribute',

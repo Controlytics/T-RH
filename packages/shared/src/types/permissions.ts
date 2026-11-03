@@ -82,6 +82,14 @@ export const PERMISSIONS = {
   INSTRUMENT_CREATE: 'INSTRUMENT_CREATE',
   INSTRUMENT_UPDATE: 'INSTRUMENT_UPDATE',
   INSTRUMENT_DELETE: 'INSTRUMENT_DELETE',
+  // Change an instrument's ATTRIBUTES — and nothing about the instrument itself
+  // (2026-10-30). The Settings page's "Edit Settings" toggle; which attributes
+  // is still narrowed by the role's Attribute Edit Access rule. Its own
+  // permission because INSTRUMENT_UPDATE also renames an instrument, relinks
+  // its gateway, disables it and hands out its token: the OQ walkthrough found a
+  // Supervisor ("NMT / NLT and limits only") changing Instrument IDs. Implied by
+  // INSTRUMENT_UPDATE (see PERMISSION_IMPLIED_BY), so no role lost anything.
+  INSTRUMENT_ATTRIBUTE_UPDATE: 'INSTRUMENT_ATTRIBUTE_UPDATE',
 
   // Functional Locations — the authoritative Block > Area grouping of
   // instruments (2026-08-13). Separate from INSTRUMENT_* on purpose: deciding
@@ -149,13 +157,29 @@ export const MANAGE_PERMISSION_SUFFIXES = [
 ] as const;
 
 /**
+ * A permission that a BROADER one also satisfies, by name (2026-10-30).
+ *
+ * `INSTRUMENT_ATTRIBUTE_UPDATE` <- `INSTRUMENT_UPDATE`: whoever may edit the
+ * instrument itself may edit its attributes, exactly as before the narrow
+ * permission existed — so roles that hold Edit Instruments keep the Settings
+ * page and the attribute routes without a data migration. The reverse is NOT
+ * true, and that is the point: Edit Settings never reaches the instrument.
+ * The ONE table, read by `hasEffectivePermission` and therefore by the API's
+ * `requirePermission` / `requireAnyPermission` and the browser's `useCan` alike.
+ */
+export const PERMISSION_IMPLIED_BY: Readonly<Record<string, readonly string[]>> = {
+  INSTRUMENT_ATTRIBUTE_UPDATE: ['INSTRUMENT_UPDATE'],
+};
+
+/**
  * Returns true if `perms` effectively grants `permission`, applying the
  * documented fallback rules:
  *
  *   1. Direct match: `perms` contains `permission` literally.
- *   2. `*_VIEW` <- `*_READ` fallback: a route gated on `INSTRUMENT_VIEW` is
+ *   2. `PERMISSION_IMPLIED_BY`: a broader permission named there satisfies it.
+ *   3. `*_VIEW` <- `*_READ` fallback: a route gated on `INSTRUMENT_VIEW` is
  *      satisfied by a role with `INSTRUMENT_READ` (read-only access).
- *   3. `*_<suffix> <- *_MANAGE` fallback: for each suffix in
+ *   4. `*_<suffix> <- *_MANAGE` fallback: for each suffix in
  *      `MANAGE_PERMISSION_SUFFIXES`, if the requested permission ends with
  *      that suffix and the user has the corresponding `*_MANAGE`, grant.
  *
@@ -164,6 +188,8 @@ export const MANAGE_PERMISSION_SUFFIXES = [
  */
 export function hasEffectivePermission(perms: readonly string[], permission: string): boolean {
   if (perms.includes(permission)) return true;
+
+  if ((PERMISSION_IMPLIED_BY[permission] ?? []).some((broader) => perms.includes(broader))) return true;
 
   if (permission.endsWith('_VIEW')) {
     const readVariant = permission.slice(0, -'_VIEW'.length) + '_READ';

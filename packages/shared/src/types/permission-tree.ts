@@ -463,9 +463,13 @@ export const PERMISSION_TREE: SidebarGroup[] = [
       { id: 'settings.view', label: 'View Settings', sidebarId: 'settings', page: 'Settings', action: 'View',
         icon: 'settings', category: 'Settings', permissions: ['INSTRUMENT_READ'], enforce: 'a',
         gate: ['INSTRUMENT_READ'], configurable: true },
+      // Attributes ONLY since 2026-10-30 (INSTRUMENT_UPDATE until then, which also
+      // renamed, relinked, disabled and tokened the instrument). The Instrument ID
+      // input on the page needs `instruments.edit`. INSTRUMENT_UPDATE still implies
+      // this permission (`PERMISSION_IMPLIED_BY`), so Edit Instruments keeps it.
       { id: 'settings.edit', label: 'Edit Settings', sidebarId: 'settings', page: 'Settings', action: 'Edit',
-        icon: 'settings-edit', category: 'Settings', permissions: ['INSTRUMENT_UPDATE', 'INSTRUMENT_READ'], enforce: 'a',
-        gate: ['INSTRUMENT_UPDATE'], configurable: true },
+        icon: 'settings-edit', category: 'Settings', permissions: ['INSTRUMENT_ATTRIBUTE_UPDATE', 'INSTRUMENT_READ'], enforce: 'a',
+        gate: ['INSTRUMENT_ATTRIBUTE_UPDATE'], configurable: true },
     ],
   },
 

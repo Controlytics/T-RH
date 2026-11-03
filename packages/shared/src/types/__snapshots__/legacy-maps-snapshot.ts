@@ -392,7 +392,7 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
     "INSTRUMENT_READ"
   ],
   "settings.edit": [
-    "INSTRUMENT_UPDATE",
+    "INSTRUMENT_ATTRIBUTE_UPDATE",
     "INSTRUMENT_READ"
   ]
 };

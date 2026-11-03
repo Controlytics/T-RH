@@ -222,14 +222,16 @@ describe('settings group (2026-09-08)', () => {
   // Access Sidebar toggles like every other page.
   const group = PERMISSION_TREE.find((g) => g.sidebarId === 'settings');
 
-  it('has a View node gated on INSTRUMENT_READ and an Edit node gated on INSTRUMENT_UPDATE', () => {
+  it('has a View node gated on INSTRUMENT_READ and an Edit node gated on INSTRUMENT_ATTRIBUTE_UPDATE', () => {
     expect(group).toBeTruthy();
     expect(group!.nodes.map((n) => n.id)).toEqual(['settings.view', 'settings.edit']);
     expect(group!.nodes.every((n) => n.configurable)).toBe(true);
     expect(resolveNodeGate('settings.view')).toEqual([PERMISSIONS.INSTRUMENT_READ]);
-    expect(resolveNodeGate('settings.edit')).toEqual([PERMISSIONS.INSTRUMENT_UPDATE]);
+    // Attributes only since 2026-10-30 — it was INSTRUMENT_UPDATE, which also
+    // renamed, relinked, disabled and tokened the instrument.
+    expect(resolveNodeGate('settings.edit')).toEqual([PERMISSIONS.INSTRUMENT_ATTRIBUTE_UPDATE]);
     // Granting Edit alone must still let the page load: the grant set carries READ.
-    expect(group!.nodes[1].permissions).toEqual([PERMISSIONS.INSTRUMENT_UPDATE, PERMISSIONS.INSTRUMENT_READ]);
+    expect(group!.nodes[1].permissions).toEqual([PERMISSIONS.INSTRUMENT_ATTRIBUTE_UPDATE, PERMISSIONS.INSTRUMENT_READ]);
   });
 
   it('is visible in the sidebar to a role holding either toggle', () => {

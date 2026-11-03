@@ -18,6 +18,7 @@ import { buildCoveringIndex, type FlNode } from '../functional-locations/tree.js
 import {
   ATTRIBUTE_ACCESS_MODES,
   effectiveAttributeAccess,
+  hasEffectivePermission,
   type AttributeAccess,
   PANELS,
   PANEL_KEYS,
@@ -734,10 +735,11 @@ export default async function roleRoutes(app: FastifyInstance) {
                   mode: { type: 'string', nullable: true },
                   keys: { type: 'array', items: { type: 'string' } },
                   requireReauth: { type: 'boolean' },
-                  /** Does the role hold INSTRUMENT_UPDATE at all? A role without
-                   *  it is read-only whatever mode is stored, and the tab has to
-                   *  be able to say so rather than showing a rule that does
-                   *  nothing. */
+                  /** May the role change attributes at all — Edit Settings
+                   *  (INSTRUMENT_ATTRIBUTE_UPDATE) or Edit Instruments, which implies
+                   *  it? A role without either is read-only whatever mode is stored,
+                   *  and the tab has to be able to say so rather than showing a rule
+                   *  that does nothing. (Name kept: it is the wire contract.) */
                   canUpdateInstruments: { type: 'boolean' },
                 },
               },
@@ -791,7 +793,7 @@ export default async function roleRoutes(app: FastifyInstance) {
           mode: access?.mode ?? null,
           keys: access?.keys ?? [],
           requireReauth: access?.requireReauth ?? false,
-          canUpdateInstruments: r.name === 'SUPER_ADMIN' || perms.includes('INSTRUMENT_UPDATE'),
+          canUpdateInstruments: r.name === 'SUPER_ADMIN' || hasEffectivePermission(perms, 'INSTRUMENT_ATTRIBUTE_UPDATE'),
         };
       }),
       availableKeys,
@@ -943,7 +945,7 @@ export default async function roleRoutes(app: FastifyInstance) {
     const roleRule = new Map(roleCfgs.map((c) => [c.role, parseAttributeAccess(c.attributeAccess)]));
     const userRule = new Map(userCfgs.map((c) => [c.userId, parseAttributeAccess(c.attributeAccess)]));
     const hasUpdate = new Map<string, boolean>();
-    for (const role of new Set(users.map((u) => u.role))) hasUpdate.set(role, await roleHasPermission(role, 'INSTRUMENT_UPDATE'));
+    for (const role of new Set(users.map((u) => u.role))) hasUpdate.set(role, await roleHasPermission(role, 'INSTRUMENT_ATTRIBUTE_UPDATE'));
     return {
       users: users.map((u) => {
         const own = userRule.get(u.id) ?? null;

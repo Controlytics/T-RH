@@ -71,8 +71,9 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
         done = true;
       }, {
         // Re-read the SERVER's toggles: they are derived from what the role now
-        // holds, so a toggle sharing a grant set (Settings Edit and Edit
-        // Instruments are both INSTRUMENT_UPDATE) shows its real state.
+        // holds, so a toggle another one implies (Edit Instruments implies Edit
+        // Settings — INSTRUMENT_UPDATE implies INSTRUMENT_ATTRIBUTE_UPDATE) shows
+        // its real state.
         onSuccess: () => { setPermDirty(false); setReason(''); setPermSaving(false); void reloadRoleConfig(); },
         onError: (error: unknown) => {
           toast.error('Save Failed', (error as { message?: string })?.message || 'Failed to save permissions');
