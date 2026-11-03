@@ -1,5 +1,63 @@
 # Changelog
 
+## [Unreleased] - Feature: TCP/IP register map — a key is tested before it is added (2026-11-03)
+
+Operator: "when instrument page for tcp/ip, when key was adding at that time give a test option before adding the key; once test is completed value was coming then user will add that key". The rule is in `docs/feature-notes.md` TCP/IP INSTRUMENTS, "Test before Add".
+Commits `67501905`, `1d74f601` (rulings K-1, K-2). **Built, not pushed, not deployed.**
+
+- **+ Add key opens a draft row**, not a row of the map: the same six inputs, validated as the map's next
+  row (a duplicate key is named under it), with Test, Add and Cancel. The map, Test connection, Create
+  Instrument and Save never see the draft until Add.
+- **Add is enabled only once the draft's own Test brought a value back**, for the draft and the target as
+  they now stand. A refusal, a device failure (No answer, Register refused, …) or "Not readable" keeps it
+  disabled; editing the draft or the target drops the answer. On Add the value moves to the new row's line.
+- **No test target, no test to wait for:** Add takes a valid draft and says "Test is not available here —
+  the key is added untested." Neither live page hits this today.
+- **Ruling K-1 — Reading off on this server:** the server's own "TCP/IP Reading is off" answer (code
+  `READING_OFF`) enables Add untested, with "Reading is off on this server — the key is added untested."
+  under the actions. Where Reading is OFF (AWS today) keys therefore go in untested.
+- **Ruling K-2 — a draft is never dropped silently:** a draft holding input says "This key is not added
+  yet — Test it, then Add." ("— press Add." once Add is enabled), and Enter in a draft input never
+  submits the New Instrument form. Create Instrument and Save still leave an un-added draft out.
+- Web only: `register-map-editor.tsx` (the six inputs are one `EditCells` for the rows and the draft) and
+  `isReadingOff` in `modbus-test.ts`; tests in `register-map-editor.test.tsx` and `create-tcpip.test.tsx`.
+  No count moved.
+
+## [Unreleased] - Feature: page reports on templates (2026-11-03)
+
+Operator: "go ahead with page reports on templates" (the standing spec, plan, build rule). The five page
+reports (Data Report, Instrument Trend, Instrument Alarms, Alarm Report, Audit Trail) are now drawn from
+the same report templates as the widget reports. Spec `docs/superpowers/specs/2026-11-03-page-reports-on-templates-design.md`; plan `docs/superpowers/plans/2026-11-03-page-reports-on-templates.md`;
+every ruling in `.superpowers/sdd/2026-11-03-page-reports-on-templates/progress.md`; the rules in `docs/feature-notes.md` PAGE REPORTS ON TEMPLATES.
+Commits `efc19fcf` `05d3bc62` (shared) · `a4333f34` `4f4057f6` (api) · `f16a0761` `09b838b8` `beceb9e9` (web lib) · `2c99c4f4` `a99f3bac` (Report Templates page) · `f60a2474` `fd2e4b16` `907c9ab8` (Alarm Report, Audit Trail) · `7eff0bc6` `aef8a3d1` `d1c257e3` (Data Report, Instrument Trend, Instrument Alarms). **Built, not pushed, not deployed.**
+
+- **Template kinds.** A template is for a KIND: one of the 14 widget types or one of five page kinds
+  (`page:data-report`, `page:trend`, `page:instrument-alarms`, `page:alarms`, `page:audit-trail`): 19
+  kinds. The first three page kinds belong to an instrument profile; `page:alarms` and `page:audit-trail`
+  are application-wide (no profile). No template = the kind's built-in, which prints what the page printed before.
+- **Migration `20261103120000_report_templates_page_kinds`** (hand-authored): `report_templates.widget_type`
+  renamed `kind` (every stored row kept), `profile_id` nullable (NULL = application-wide), the three unique
+  indexes rebuilt on `COALESCE(profile_id, '')` so two application templates cannot collide. No new model or enum.
+- **API.** `GET/POST /api/report-templates` take `kind` (and `profileId` only for a profile kind); a wrong scope is
+  400 `SCOPE_MISMATCH`; reads of an application-wide kind need only a signed-in user, profile kinds keep
+  `INSTRUMENT_READ`; a column the kind cannot print is 400 `COLUMN_NOT_FOR_KIND`.
+- **Snapshot v3 for every report.** Every report records its header, logo and footer; v2 snapshots still replay.
+- **Configuration → Report Templates** has a tab per page report, an application scope with no profile picker,
+  and live previews. The five download dialogs say which template they will use and refuse when the template
+  plan failed or is still loading.
+- **Final fix wave** (`b9565a80`, `86204f0b` and the follow-up): a multi-instrument Data Report's title carries every value its
+  instruments share (an Area-wise "{area}" prints the Area); an empty period under a saved template that hides
+  TEMPERATURE also says "No readings in the selected period" (once — not when the column prints it); a failed
+  Branding, Report Page Titles or Branding-logo read REFUSES a report being made (ruling F-1; a v2 replay keeps
+  every old fallback); an instrument the plan left out is named in the dialog; instrument
+  attributes are read only when the template prints one; one title clamp for every request; the preview prints
+  the kind's legend. **Deploy API and web together and have users reload** (an old bundle's `widgetType=` gets
+  400 from `/resolve`); the rollback recipe is in the feature note.
+- **Counts** (commands from root `CLAUDE.md`, 2026-11-03): models 40, enums 13, modules 27, permissions 46,
+  reauth actions 58, config defs 37, config pages 24, `<Route`s 57, shared type files 40 are all UNCHANGED.
+  Migrations 54 (`ls apps/api/prisma/migrations | grep -v lock | wc -l`; 53 before). Report kinds 22
+  (unchanged). Template kinds 19 (14 widget + 5 page). Report placeholders 27 (10 before).
+
 ## [Unreleased] - Feature: widget reports and report templates (2026-11-02)
 
 Operator: "whenever i added a new widgets added report download option should be added, in report
@@ -7,7 +65,7 @@ each and every field or keys or headers, footers, logos everything should be con
 each instrument profile and each widget report should configurable … for each widget each report
 template should be createable". Spec `docs/superpowers/specs/2026-11-02-widget-report-templates-design.md`;
 the rules in `docs/feature-notes.md` WIDGET REPORTS AND REPORT TEMPLATES. Commits `97ed4d78` (shared) · `26107a97` `cdc4f9ec` (api) · `81e68924` (lib) · `8bcda03c` `c206b12d` `39797eb1` (widgets) · `471db4fc` `abdcd7d3` (config page) · `5d421649` (CSP) · fix wave `1a14ea59` `7358f093`.
-**Built, not pushed, not deployed.**
+**Pushed to `trh/data-layer` and DEPLOYED to AWS `ea7dee9` on 2026-11-03** (`90632e8 -> ea7dee9`, lockfile unchanged, migration `20261102150000_report_templates` applied, health 200; `/api/report-templates` 401 unauthenticated, CSP `frame-src 'self' blob:` + `frame-ancestors 'self'` served, `report-templates-*.js` / `widget-report-*.js` chunks in the bundle). Gate on the final tree 2026-11-03: the 12 API files that were red re-ran green one at a time (root cause was the fixture user RB0001's password expiry, not a stripped role — see `vitest.global-setup.ts`), `report-templates.e2e` 14/14, touched web files 65/65 (pages-hero green alone after a 5 s timeout under load).
 
 - **Download report on every dashboard widget** (`/` and `/dashboards/:id`), governed like every
   other PDF: 14 new report kinds `widget:<type>` (Direct or Request per kind under Configuration →
@@ -93,6 +151,32 @@ Commits `cf02b4ef..` on `data-layer` after the plan `363c7263`. **Deployed to AW
   Inactivity Alarms on AWS at deploy; 101-01 is registered FRESH as a TCP/IP instrument after the
   deploy and its old token withdrawn (spec §15 Q1). Part 3 (the Plant Reader for an AWS server) is
   not started.
+
+## [Unreleased] - Fix: "Edit Settings" edits attributes only — a Supervisor can no longer change the Instrument ID (2026-10-30)
+
+Operator: "fix the supervisor instrument ID edit issue". Found by the T&RH OQ walkthrough: the
+Settings page's "Edit Settings" toggle granted `INSTRUMENT_UPDATE`, which also renames an
+instrument (its MQTT client id), relinks its gateway, disables it and hands out its token — so a
+Supervisor, whose role is NMT / NLT switches and limits only, could change the Instrument ID in
+Settings and edit the instrument by URL.
+
+- New permission **`INSTRUMENT_ATTRIBUTE_UPDATE`** (45 → 46). `settings.edit` grants and gates on
+  it; the three attribute routes require it. The instrument itself stays on `INSTRUMENT_UPDATE`.
+- **`INSTRUMENT_UPDATE` implies it** (`PERMISSION_IMPLIED_BY`, read by `hasEffectivePermission`),
+  so every role holding Edit Instruments keeps attribute editing — no data migration. A role that
+  held only Edit Settings keeps `INSTRUMENT_UPDATE` until its Permissions tab is saved again.
+- Settings: the Instrument ID input appears only with Edit Instruments. Attribute Edit Access's
+  warning now reads "neither Edit Settings nor Edit Instruments".
+- Local: SUPERVISOR re-saved (now `INSTRUMENT_ATTRIBUTE_UPDATE`, no `INSTRUMENT_UPDATE`); checked on
+  screen with a throwaway Supervisor (deleted): eight editable fields, Instrument ID read-only, the
+  instrument page shows no Edit / Disable / token, the API refuses rename and token with 403.
+- Tests: new `e2e/instrument-attribute-permission.e2e.test.ts` (6) and shared
+  `permission-implication.test.ts` (5), both mutation-checked; settings-page test (+1,
+  mutation-checked); tree test and frozen snapshot updated for the intended change; shared 600,
+  related API e2e (role-attribute-access, user-attribute-access, instrument-attributes,
+  role-permission-toggles, bulk-update, bulk-attributes, instrument-profiles, device-attributes,
+  unused-permissions) and web suites green one file at a time; web + API typecheck clean.
+  **Committed `92ec2cfc` on 2026-11-03 (with the test-setup fix `73c984a5`); ships with the page-reports deploy.**
 
 ## [Unreleased] - Fix: a wrong signature password on Acknowledge Alarm now SAYS so (2026-10-30)
 

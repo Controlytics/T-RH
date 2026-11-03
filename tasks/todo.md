@@ -1,5 +1,24 @@
 # tasks/todo.md
 
+## 2026-11-03 - Page reports on templates (the five page reports drawn from report templates)
+
+Operator: "go ahead with page reports on templates". Spec `docs/superpowers/specs/2026-11-03-page-reports-on-templates-design.md`, plan
+`docs/superpowers/plans/2026-11-03-page-reports-on-templates.md`, SDD ledger and every ruling in `.superpowers/sdd/2026-11-03-page-reports-on-templates/progress.md`;
+the rules are in `docs/feature-notes.md` PAGE REPORTS ON TEMPLATES. **Built, not pushed, not deployed.**
+
+- [x] T1 shared - template kinds, page specs, placeholders 10 to 27, page built-ins (`efc19fcf`, `05d3bc62`)
+- [x] T2 API - `kind` column, application-wide kinds, scope rules, read gate, `COLUMN_NOT_FOR_KIND`, migration `20261103120000_report_templates_page_kinds` (`a4333f34`, `4f4057f6`)
+- [x] T3 web lib - snapshot v3 for every report, `buildTemplatedReport`, template-lines component and plan hook (`f16a0761`, `09b838b8`, `beceb9e9`)
+- [x] T4 web - Data Report, Instrument Trend, Instrument Alarms on templates (`7eff0bc6`, `aef8a3d1`, `d1c257e3`)
+- [x] T5 web - Alarm Report and Audit Trail on templates (`f60a2474`, `fd2e4b16`, `907c9ab8`)
+- [x] T6 web - Configuration > Report Templates: page-report tabs, application scope, previews (`2c99c4f4`, `a99f3bac`)
+- [x] T7 docs - changelog, feature note, endpoints, package notes, counts (this entry)
+- [ ] Whole-branch review (controller), then the final fix wave
+- [ ] The gate: API suite (single fork, test DB), shared suite, every touched web file one per process, tsc x3, `npm run lint`, `npm run db:verify-migrations`
+- [ ] Render-check the five page reports and the Report Templates page in a browser (nothing was rendered in one during the build)
+- [ ] Push and deploy ONLY at the operator's word; before deploying read AWS `report_templates` over SSM (expected 0 rows)
+- [ ] Deferred minors from the ledger: shared arrays assigned by reference in `TEMPLATE_KIND_SPECS`; logo bytes in every snapshot against the 8 MB body limit; `PAGE_REPORT_KEYS` copied in the preview; DATE / TIME sample columns by id suffix; `kindFromParams` exported from a component file; sample LOW LIMIT above HIGH LIMIT; stale `profileId` in the URL falling back silently; refusal tests loose (either message, no loading case for audit); plan wiring and refusal strings duplicated across the Alarms and Audit pages (a lib helper); `{search}` trimmed on Alarms but not Audit; orphan helpers `AlarmReportScope` / `instrumentAlarmsHeaderPairs` / `periodPairs` and the unread `ScopedInstrument.profileId`; a `before` title note followed by a picture; 84 pre-existing type errors in other API test files that no gate compiles
+
 ## 2026-10-31 — TCP/IP (Modbus) instruments, parts 1–2 (the application reads the device)
 
 Operator: "if user selected TCP/IP then in the instrument creation tcp/ip need to integrate, for one
@@ -304,4 +323,12 @@ Spec `docs/superpowers/specs/2026-10-27-device-certificates-design.md`, plan `do
 - [x] T9 docs + counts (CHANGELOG, feature note, CLAUDE x3, AGENTS, endpoints, runbooks)
 - [ ] Push to trh, deploy (lockfile moved -> npm ci; one migration), then `enable-device-certificates.sh` dry run -> --apply (operator-confirmed)
 - [ ] In the app on AWS: issue `Test`'s certificate, switch "Testing Profile" ON (reason), device engineer loads client.crt + client.key (Quectel seclevel 2) and retests
+## 2026-11-03 — Widget reports: gate finished, PUSHED + DEPLOYED
+
+- [x] 12 formerly-red API files + `report-templates.e2e` + `instrument-attribute-permission.e2e` green one at a time (14 files). Root cause of the 65 reds: RB0001 aged into the 90-day password expiry on 2026-11-02 → 403 PASSWORD_EXPIRED; `vitest.global-setup.ts` now stamps `passwordChangedAt` (UNCOMMITTED, with the Supervisor fix).
+- [x] Touched web files 65/65 (pages-hero timed out at 5 s under load, green alone 3.1 s).
+- [x] Pushed `90632e8f..ea7dee92` to `trh/data-layer`; deployed over SSM, log `/root/deploy-20261103.log`: migration applied, health 200. Post-checks: routes 401 unauth, CSP as intended (m10 verified), bundle chunks present.
+- [ ] Operator: reload open browsers (PWA cache); verify-chain after the schema change; try a widget's Download report + the preview iframe on AWS in a real browser.
+- [ ] Still UNCOMMITTED: the Supervisor Instrument-ID fix (`INSTRUMENT_ATTRIBUTE_UPDATE`, since 2026-10-30) + the global-setup password stamp — the gate ran on the tree WITH them.
+
 - ## Widget reports (2026-11-02): parked m9 — a key outside the profile's measurements / displayKeys cannot be a collapsed key: column (prints in the long form only); extend the catalogue if a profile needs it.

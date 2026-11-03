@@ -157,7 +157,7 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   25 → 26 (2026-10-31): `modbus`, TCP/IP (Modbus) instruments — Test connection, the status route, the Reader.
   24 → 25 (2026-09-07): `report-reviews`, the report review workflow.
   23 → 24 (2026-08-27): `alarm-webhooks`, the alarm annunciator.
-- **Database:** **40 Prisma models, 13 enums** (39 → 40 on 2026-11-02: `ReportTemplate`, migration `20261102150000_report_templates` — `widget_type` a validated string, no enum; 38 → 39 on 2026-10-31: `ModbusPollStatus`, migration `20261031130000_modbus_poll_status` — the TCP/IP reading status; `20261031120000_tcpip_instruments` added columns and a partial unique index only, and `connection` is a validated string, not an enum; 37 → 38 on 2026-10-26: `MeasurementType`, migration `20261026120000_profile_measurements`; 36/13 → 37/13 on 2026-09-22: `FloorplanRoomLink`, migration `20260922120000_floorplan_polygons_links`; the link `kind` is a validated string, NOT an enum — see the Layout Designer note) (35/12 → 36/13 on 2026-09-07: `ReportReview` + `ReportReviewStatus`, migration `20260907120000_report_reviews`) (36/13 → 35/12 on 2026-08-31: `AlarmRule` + `AlarmComparison` removed with the alarm-rules feature) (`grep -cE "^model " / "^enum "`).
+- **Database:** **40 Prisma models, 13 enums** (unchanged on 2026-11-03 by page reports on templates: migration `20261103120000_report_templates_page_kinds` renamed `report_templates.widget_type` to `kind` and made `profile_id` nullable — no model, enum or Postgres type moved; migrations 54, `ls apps/api/prisma/migrations | grep -v lock | wc -l`; modules 27, permissions 46, reauth actions 58, defs 37, config pages 24, routes 57 and type files 40 are also unchanged, re-derived 2026-11-03) (39 → 40 on 2026-11-02: `ReportTemplate`, migration `20261102150000_report_templates` — `widget_type` a validated string, no enum; 38 → 39 on 2026-10-31: `ModbusPollStatus`, migration `20261031130000_modbus_poll_status` — the TCP/IP reading status; `20261031120000_tcpip_instruments` added columns and a partial unique index only, and `connection` is a validated string, not an enum; 37 → 38 on 2026-10-26: `MeasurementType`, migration `20261026120000_profile_measurements`; 36/13 → 37/13 on 2026-09-22: `FloorplanRoomLink`, migration `20260922120000_floorplan_polygons_links`; the link `kind` is a validated string, NOT an enum — see the Layout Designer note) (35/12 → 36/13 on 2026-09-07: `ReportReview` + `ReportReviewStatus`, migration `20260907120000_report_reviews`) (36/13 → 35/12 on 2026-08-31: `AlarmRule` + `AlarmComparison` removed with the alarm-rules feature) (`grep -cE "^model " / "^enum "`).
   34 → 36 (2026-08-27): `AlarmWebhookTarget` + `AlarmWebhookDelivery`
   (migration `20260827120000_alarm_webhooks`). **The enum count did NOT move** —
   that target's `method`, `event` and `status` are validated strings, the same
@@ -173,10 +173,15 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   Only `compliance_core_db` + `compliance_core_db_test` exist — **no TimescaleDB,
   no `digilog_tsdb`**. The test database is migrated **separately**; a migration
   applied to only one of them makes every instrument-touching e2e 500.
-- **Permissions:** **45** constants, **58** reauth actions in **8** categories (57 → 58 on 2026-11-02: `UPDATE_REPORT_TEMPLATE` under the EXISTING `Reports` category, ships OFF),
+- **Permissions:** **46** constants, **58** reauth actions in **8** categories (57 → 58 on 2026-11-02: `UPDATE_REPORT_TEMPLATE` under the EXISTING `Reports` category, ships OFF),
   **15** sidebar items (`grep -cE` against `permissions.ts` / `reauth-actions.ts`
   / `sidebar-items.ts`), **15** permission-tree groups / **56** nodes / **39** feature
   privileges, **39** shared type files (`ls packages/shared/src/types/*.ts | grep -v test | wc -l`; 38 → 39 on 2026-10-31: `modbus.ts`).
+  2026-10-30: 45 → 46 permissions (`INSTRUMENT_ATTRIBUTE_UPDATE`) — "Edit Settings" now
+  grants attributes ONLY; the instrument itself (ID, gateway, enable, token) stays on
+  `INSTRUMENT_UPDATE`, which IMPLIES the new one (`PERMISSION_IMPLIED_BY` in
+  `permissions.ts`), so no role lost anything. Nodes 56, privileges 39, reauth 57 unchanged.
+  See `docs/feature-notes.md` EDIT SETTINGS IS ATTRIBUTES ONLY.
   2026-10-29 (dashboard builder phase 1): 56 → 57 reauth actions (`UPDATE_DASHBOARD`
   under the EXISTING `Configuration` category, ships OFF), 14 → 15 sidebar items and
   tree groups (`dashboards`, appended LAST; its group's visibility is the EXISTING

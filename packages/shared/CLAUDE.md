@@ -27,7 +27,7 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 ## Exports Inventory
 
 ### Permissions
-- `PERMISSIONS` enum — **45** permission constants (44 → 45 on 2026-10-26, `REPORT_REVIEW_REJECT`; 42 → 44 on 2026-09-07, `REPORT_REVIEW_READ` / `REPORT_REVIEW_APPROVE`; earlier verified `grep -cE "^\s+[A-Z_]+:\s*'"
+- `PERMISSIONS` enum — **46** permission constants (45 → 46 on 2026-10-30, `INSTRUMENT_ATTRIBUTE_UPDATE` — Edit Settings, attributes only, implied by `INSTRUMENT_UPDATE` through `PERMISSION_IMPLIED_BY`, the one implication table `hasEffectivePermission` reads; 44 → 45 on 2026-10-26, `REPORT_REVIEW_REJECT`; 42 → 44 on 2026-09-07, `REPORT_REVIEW_READ` / `REPORT_REVIEW_APPROVE`; earlier verified `grep -cE "^\s+[A-Z_]+:\s*'"
   packages/shared/src/types/permissions.ts` 2026-08-24; see Live Type Inventory below). The examples
   this line used to give — `ASSET_CREATE`, `ASSET_READ`, `FILTER_MANAGE` — don't exist any more
   (asset/filter domain removed); current examples: `USER_CREATE`, `USER_READ`, `USER_UPDATE`.
@@ -60,7 +60,8 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 
 > **The per-file counts in the table below are inherited from upstream DigiLog and were
 > NEVER true in this fork.** Verified by `grep` 2026-08-27, the real numbers are
-> **45** permission constants, **39** feature privileges (38 → 39 on 2026-10-26: `reports.reject`,
+> **46** permission constants (45 → 46 on 2026-10-30: `INSTRUMENT_ATTRIBUTE_UPDATE`; `settings.edit`
+> grants it instead of `INSTRUMENT_UPDATE`, frozen snapshot updated), **39** feature privileges (38 → 39 on 2026-10-26: `reports.reject`,
 > Approve and Reject Reports split into two toggles; 45 → 38 on 2026-10-24: seven toggles
 > that could never take effect left the Permissions tab — the two Alarm Rules nodes were deleted,
 > Dashboards create / manage / assign, Delete Users and Field IDs stay as nodes, not configurable),
@@ -128,11 +129,11 @@ someone may be using was not part of that change.
 
 ### Type files (live, re-derived 2026-10-05)
 
-`packages/shared/src/types/` contains **40 type files** (2026-11-02, 39 → 40 with `report-templates.ts` — the report template document, the per-widget-type report fields, the built-in templates, placeholders; `report-downloads.ts` builds 14 `widget:<type>` kinds, 8 → 22; 2026-10-31, 38 → 39 with `modbus.ts` — the TCP/IP register map, device networks and keys-file converter; 2026-10-29, 37 → 38 with `dashboard-document.ts`; 36 → 37 with `profile-display-keys.ts`; 35 → 36 with `dashboard-widgets.ts`; 34 → 35 with `data-keys.ts`; `ls packages/shared/src/types/*.ts | grep -v test | wc -l`, 2026-10-26; 33 → 34 with `profile-measurements.ts`). The ones that carry a count:
+`packages/shared/src/types/` contains **40 type files** (2026-11-03: unchanged at 40 — `report-templates.ts` gained the template KINDS: `TEMPLATE_KINDS` = the 14 `WIDGET_TYPES` + `PAGE_TEMPLATE_KINDS` (`page:data-report`, `page:trend`, `page:instrument-alarms`, `page:alarms`, `page:audit-trail`), 19 in all; `TEMPLATE_KIND_SPECS` (scope `profile` | `application`, `profileFields`, placeholders, label), `templateKindScope`, `templateKindTakesProfileFields`, `REPORT_TEMPLATE_FIELDS(kind)`, `builtinReportTemplate(kind)` whose page built-ins reproduce what the pages printed, and `REPORT_PLACEHOLDERS` 10 → 27; `templateKindOf` throws on a non-kind; kinds are validated strings, appended to and never renamed. 2026-11-02, 39 → 40 with `report-templates.ts` — the report template document, the per-widget-type report fields, the built-in templates, placeholders; `report-downloads.ts` builds 14 `widget:<type>` kinds, 8 → 22; 2026-10-31, 38 → 39 with `modbus.ts` — the TCP/IP register map, device networks and keys-file converter; 2026-10-29, 37 → 38 with `dashboard-document.ts`; 36 → 37 with `profile-display-keys.ts`; 35 → 36 with `dashboard-widgets.ts`; 34 → 35 with `data-keys.ts`; `ls packages/shared/src/types/*.ts | grep -v test | wc -l`, 2026-10-26; 33 → 34 with `profile-measurements.ts`). The ones that carry a count:
 
 | File | Live count (command, 2026-10-05) |
 |---|---|
-| `permissions.ts` | **45** permission constants (`grep -cE "^\s+[A-Z_]+:\s*'"`) |
+| `permissions.ts` | **46** permission constants (`grep -cE "^\s+[A-Z_]+:\s*'"`, 2026-10-30) + `PERMISSION_IMPLIED_BY` |
 | `feature-privileges.ts` | **39** feature privileges + `FEATURE_TO_PERMISSION_MAP`, DERIVED from `PERMISSION_TREE` (`legacy-maps-derived.test.ts` pins 39; 38 until 2026-10-26, 45 until 2026-10-24) |
 | `reauth-actions.ts` | **57** reauth actions in **8** categories (56 → 57 on 2026-10-29, `UPDATE_DASHBOARD`) (`grep -cE "^\s+[A-Z_]+:"`; `grep -oE "category: '[^']+'" \| sort -u \| wc -l`) |
 | `roles.ts` | Role constants + hierarchy + display labels; `defaultRoles` lives in `apps/api/prisma/default-roles.ts` |
