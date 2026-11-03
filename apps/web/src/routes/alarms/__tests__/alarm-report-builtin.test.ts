@@ -146,9 +146,10 @@ describe('a SAVED Alarm Report template prints exactly what it shows (spec §8)'
     const low = table.head.indexOf('LOW LIMIT');
     expect(high).toBeGreaterThan(-1);
     for (const row of table.body) {
-      // Nothing is invented for a switched-off bound.
-      expect(['', '—']).toContain(row[high]);
-      expect(['', '—']).toContain(row[low]);
+      // Nothing is invented for a switched-off bound: an EMPTY box, as the
+      // built-in prints it (ruling T3-E — a page kind's '' prints '').
+      expect(row[high]).toBe('');
+      expect(row[low]).toBe('');
     }
     // A saved template takes jsPDF's widths, not the built-in's.
     expect(table.columnStyles).toBeUndefined();
