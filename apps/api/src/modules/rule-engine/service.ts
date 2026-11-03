@@ -31,6 +31,7 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog, clampSignatureMeaning } from '../../lib/audit.js';
 import { stripHtml } from '../../lib/sanitize.js';
 import { AppError } from '../../lib/errors.js';
+import { mergeMaskedSecrets, maskDocumentSecrets, changedSecrets } from './secrets.js';
 
 /** The shipped root chain's id — fixed by migration `20261103181000_rule_chains`. */
 export const SEEDED_ROOT_CHAIN_ID = 'b1a7e000-0000-4000-8000-000000000000';
@@ -137,6 +138,16 @@ export const stateOf = (row: Pick<RuleChain, 'name' | 'root' | 'debugMode' | 're
   document: readRuleChainDocument(row.document),
 });
 
+/**
+ * A state as an AUDIT row records it: the whole document with every secret
+ * leaf masked (`secrets.ts`; ruling T2-C). The audit trail is immutable and
+ * read by AUDIT_READ holders, so a broker password or a bot token must never
+ * enter it — the precedent is the dynamic config PUT, which redacts a def's
+ * `secret` settings from CONFIG_CHANGED. What changed among the secrets is
+ * named instead (`secretsChanged` on RULE_CHAIN_UPDATED).
+ */
+export const auditStateOf = (state: RuleChainState): RuleChainState => ({ ...state, document: maskDocumentSecrets(state.document) });
+
 /** JSON with every object's keys sorted — the stored JSONB reorders keys, so plain JSON.stringify cannot compare. */
 export function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
@@ -204,6 +215,11 @@ async function assertNameFree(tx: Prisma.TransactionClient, name: string, except
  * RULE_CHAIN_NOT_FOUND, 409 STALE (`expectedUpdatedAt` is not the stored
  * version — nothing is written) and 409 NAME_IN_USE.
  *
+ * On a save, a credential sent back as "***" keeps the value stored for that
+ * node id and type (`mergeMaskedSecrets`, before the strict parse; ruling
+ * T2-B). Audit values record the document with its credentials masked and, on
+ * an update, name the credentials that changed (`secretsChanged`; ruling T2-C).
+ *
  * A save that changes nothing (name, both flags and the document compared as
  * canonical JSON) writes nothing and audits nothing, and is answered before the
  * version check — the dashboards precedent: an honest second click is not a
@@ -235,7 +251,9 @@ export async function saveChain(
       ...actor,
       action: imported ? 'RULE_CHAIN_IMPORTED' : 'RULE_CHAIN_CREATED',
       targetType: RULE_CHAIN_TARGET_TYPE, targetId: row.id,
-      afterValue: imported ? { ...stateOf(row), warnings: [...input.importWarnings!], source: 'thingsboard' } : stateOf(row),
+      afterValue: imported
+        ? { ...auditStateOf(stateOf(row)), warnings: [...input.importWarnings!], source: 'thingsboard' }
+        : auditStateOf(stateOf(row)),
       reason,
       signatureMeaning: meaning(`Rule chain "${name}" ${imported ? 'imported' : 'created'}`),
     }, tx);
@@ -246,7 +264,6 @@ export async function saveChain(
   if (!input.expectedUpdatedAt || Number.isNaN(input.expectedUpdatedAt.getTime())) {
     throw new RuleChainError(400, 'VALIDATION_ERROR', 'A save carries the expectedUpdatedAt the editor loaded.');
   }
-  const document = parseDocumentOrThrow(input.document);
   const nameIn = input.name === undefined ? undefined : cleanChainName(input.name);
 
   // Row lock: two saves of one chain queue here, and the second sees the first's version.
@@ -255,6 +272,11 @@ export async function saveChain(
   const cur = await tx.ruleChain.findUniqueOrThrow({ where: { id } });
 
   const before = stateOf(cur);
+  // A secret sent back as "***" (from a masked read or an export) KEEPS the
+  // value stored for that node id and type — merged BEFORE the strict parse,
+  // so "***" never overwrites a real credential (ruling T2-B). Nothing stored
+  // for it = it stays "***", and the node refuses it at run time (Task 6).
+  const document = parseDocumentOrThrow(mergeMaskedSecrets(input.document, before.document).document);
   const after: RuleChainState = {
     name: nameIn ?? cur.name,
     root: cur.root,
@@ -284,10 +306,13 @@ export async function saveChain(
     },
   });
   if (documentChanged) await rebuildProjection(tx, id, document);
+  const secretsChanged = changedSecrets(before.document, document);
   await auditLog({
     ...actor,
     action: 'RULE_CHAIN_UPDATED', targetType: RULE_CHAIN_TARGET_TYPE, targetId: id,
-    beforeValue: before, afterValue: after, reason,
+    beforeValue: auditStateOf(before),
+    afterValue: { ...auditStateOf(after), ...(secretsChanged.length > 0 ? { secretsChanged } : {}) },
+    reason,
     signatureMeaning: meaning(`Rule chain "${after.name}" updated`),
   }, tx);
   return { kind: 'saved', row };
@@ -359,7 +384,7 @@ export async function deleteChain(id: string, actor: RuleChainActor, reasonIn: u
     await auditLog({
       ...actor,
       action: 'RULE_CHAIN_DELETED', targetType: RULE_CHAIN_TARGET_TYPE, targetId: id,
-      beforeValue: stateOf(cur), reason,
+      beforeValue: auditStateOf(stateOf(cur)), reason,
       signatureMeaning: meaning(`Rule chain "${cur.name}" deleted`),
     }, tx);
   }, RULE_CHAIN_WRITE_TX);

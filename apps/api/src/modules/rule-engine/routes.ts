@@ -14,6 +14,8 @@ import {
   RULE_CHAIN_WRITE_TX,
 } from './service.js';
 import { exportChain, exportFileName, importChain } from './import-export.js';
+import { maskDocumentSecrets } from './secrets.js';
+import { roleHasPermission } from '../../plugins/rbac.js';
 
 /**
  * `/api/rule-chains` — rule chains (Task 2 of the rule-chains plan; spec
@@ -33,8 +35,11 @@ import { exportChain, exportFileName, importChain } from './import-export.js';
  * - Exactly one root: `POST /:id/root` moves it (`setRoot`); the root cannot
  *   be deleted (409 ROOT_CHAIN), nor can a chain another chain calls (409
  *   CHAIN_IN_USE).
- * - The export masks credentials (ruling S-5, import-export.ts). `GET /:id`
- *   does NOT: the editor (Task 7) shows a stored secret masked itself.
+ * - Credentials (secrets.ts, ONE rule): the export always masks them as
+ *   "***" (ruling S-5); `GET /:id` masks them unless the caller holds
+ *   RULE_CHAIN_MANAGE (ruling T2-B); a save or an import that sends "***"
+ *   KEEPS the value stored for that node id, and an import reports each node
+ *   whose credential must be entered again; audit rows record them masked.
  * - `/stats`, `/test-script` and `POST /api/rule-engine/v1/messages` answer
  *   stubs until the engine exists (Task 3 wires them).
  */
@@ -48,15 +53,21 @@ const NODE_TYPE_DESCRIPTORS = RULE_NODE_TYPES.map(toRuleNodeTypeDescriptor);
 
 type DetailRow = Pick<RuleChain, 'id' | 'name' | 'root' | 'debugMode' | 'reEnterOnRuleNodeWrites' | 'document' | 'updatedAt' | 'updatedBy'>;
 
-/** One chain on the wire. The stored document is read FORGIVINGLY: one bad node never blanks a chain. */
-export function presentDetail(row: DetailRow) {
+/**
+ * One chain on the wire. The stored document is read FORGIVINGLY: one bad node
+ * never blanks a chain. `masked`: every credential leaf as "***" (secrets.ts) —
+ * for a caller WITHOUT RULE_CHAIN_MANAGE (ruling T2-B). Every route that only a
+ * MANAGE holder reaches answers unmasked: the editor needs the values.
+ */
+export function presentDetail(row: DetailRow, opts: { masked?: boolean } = {}) {
+  const document = readRuleChainDocument(row.document);
   return {
     id: row.id,
     name: row.name,
     root: row.root,
     debugMode: row.debugMode,
     reEnterOnRuleNodeWrites: row.reEnterOnRuleNodeWrites,
-    document: readRuleChainDocument(row.document),
+    document: opts.masked ? maskDocumentSecrets(document) : document,
     updatedAt: row.updatedAt.toISOString(),
     updatedBy: row.updatedBy,
   };
@@ -180,7 +191,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Rule Chains'],
       summary: 'One rule chain with its document',
-      description: 'The stored document read forgivingly: a node that no longer passes its type reads as Unsupported, a dangling connection is dropped.',
+      description: 'The stored document read forgivingly: a node that no longer passes its type reads as Unsupported, a dangling connection is dropped. Credentials (passwords, tokens, private keys, an Authorization header) read as "***" unless the caller holds RULE_CHAIN_MANAGE.',
       params: idParams,
       response: detailResponse,
     },
@@ -188,7 +199,8 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const row = await prisma.ruleChain.findUnique({ where: { id } });
     if (!row) return notFound(reply);
-    return presentDetail(row);
+    // The ONE resolver requirePermission uses, so "may see the secrets" and "may save the chain" cannot differ.
+    return presentDetail(row, { masked: !(await roleHasPermission(req.user.role, MANAGE)) });
   });
 
   // ─── EXPORT ────────────────────────────────────────────

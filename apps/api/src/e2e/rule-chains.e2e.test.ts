@@ -158,7 +158,8 @@ afterAll(async () => {
     await prisma.$executeRaw`UPDATE rule_chains SET root = false WHERE root AND id <> ${SEEDED}::uuid`;
     await prisma.$executeRaw`UPDATE rule_chains SET root = true WHERE id = ${SEEDED}::uuid`;
   } catch (e) { console.error('restore root', e); }
-  try { await prisma.ruleChain.deleteMany({ where: { id: { in: chains } } }); } catch (e) { console.error('cleanup chains', e); }
+  // By id, AND by this run's suffix: a case that fails (or a mutation run) may have created a chain it never recorded.
+  try { await prisma.ruleChain.deleteMany({ where: { OR: [{ id: { in: chains } }, { name: { contains: S } }], root: false } }); } catch (e) { console.error('cleanup chains', e); }
   try {
     await prisma.session.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
@@ -671,5 +672,132 @@ describe('Configuration → Rule Engine', () => {
     await restoreConfig('rule-engine', engineBefore);
     await restoreConfig('rule-engine-attributes', attrsBefore);
     cfg.invalidateRuleEngineConfigCache();
+  });
+});
+
+describe('credentials (ruling T2-B)', () => {
+  /** A REST node on basic credentials with an Authorization header, and a Slack node. */
+  function secretDoc(): RuleChainDocument {
+    const rest = node('tb:external:rest-api-call', 'Call MES', 100, 100, {
+      ...newRuleNodeConfig('tb:external:rest-api-call'),
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer sekret-bearer' },
+      credentials: { type: 'basic', username: 'mesuser', password: 'sekret-pass' },
+    });
+    const slack = node('tb:external:send-to-slack', 'Tell Slack', 300, 100, { ...newRuleNodeConfig('tb:external:send-to-slack'), botToken: 'xoxb-sekret-token' });
+    return { version: 1, firstNodeId: rest.id, nodes: [rest, slack], connections: [{ from: rest.id, to: slack.id, relation: 'Success' }] };
+  }
+  const cfgOf = (d: Detail | RuleChainDocument, i: number) => ('document' in d ? d.document : d).nodes[i].config as any;
+  const storedDoc = async (id: string) => (await prisma.ruleChain.findUniqueOrThrow({ where: { id } })).document as unknown as RuleChainDocument;
+  const auditText = async (id: string) => JSON.stringify(await auditFor(id));
+
+  it('GET /:id masks credentials for a READ-only caller; a MANAGE holder reads the values', async () => {
+    const row = await create(`Creds read ${S}`, secretDoc());
+    const asReader = await get(`/api/rule-chains/${row.id}`, rd);
+    expect(asReader.statusCode, asReader.body).toBe(200);
+    expect(asReader.body).not.toMatch(/sekret/);
+    const masked = asReader.json() as Detail;
+    expect(cfgOf(masked, 0).credentials).toEqual({ type: 'basic', username: 'mesuser', password: '***' });
+    expect(cfgOf(masked, 0).headers).toEqual({ 'Content-Type': 'application/json', Authorization: '***' });
+    expect(cfgOf(masked, 1).botToken).toBe('***');
+
+    for (const who of [mg, sa]) {
+      const full = (await get(`/api/rule-chains/${row.id}`, who)).json() as Detail;
+      expect(cfgOf(full, 0).credentials.password).toBe('sekret-pass');
+      expect(cfgOf(full, 0).headers.Authorization).toBe('Bearer sekret-bearer');
+      expect(cfgOf(full, 1).botToken).toBe('xoxb-sekret-token');
+    }
+  });
+
+  it('a save that sends "***" KEEPS the stored secret; a new value replaces it; audit rows never hold one', async () => {
+    const row = await create(`Creds save ${S}`, secretDoc());
+    // The editor sends back the masked document it was shown, with a rename.
+    const masked = (await get(`/api/rule-chains/${row.id}`, rd)).json() as Detail;
+    const sent = structuredClone(masked.document);
+    sent.nodes[1].name = 'Tell Slack v2';
+    const res = await send('PUT', `/api/rule-chains/${row.id}`, { document: sent, expectedUpdatedAt: row.updatedAt, reason: 'Rename' }, mg);
+    expect(res.statusCode, res.body).toBe(200);
+    const saved = res.json() as Detail;
+    expect(cfgOf(saved, 0).credentials.password).toBe('sekret-pass');
+    expect(cfgOf(saved, 1)).toMatchObject({ botToken: 'xoxb-sekret-token' });
+    const back = (await get(`/api/rule-chains/${row.id}`, mg)).json() as Detail;
+    expect(cfgOf(back, 0).credentials.password).toBe('sekret-pass');
+    expect(cfgOf(back, 0).headers.Authorization).toBe('Bearer sekret-bearer');
+    expect(cfgOf(back, 1).botToken).toBe('xoxb-sekret-token');
+    expect(back.document.nodes[1].name).toBe('Tell Slack v2');
+    expect(cfgOf(await storedDoc(row.id), 0).credentials.password).toBe('sekret-pass');
+    expect((await prisma.ruleNode.findFirstOrThrow({ where: { chainId: row.id, id: back.document.nodes[1].id } })).config).toMatchObject({ botToken: 'xoxb-sekret-token' });
+
+    // Sending "***" for everything and changing nothing else is no change at all.
+    const again = await send('PUT', `/api/rule-chains/${row.id}`, { document: sent, expectedUpdatedAt: saved.updatedAt, reason: 'No-op' }, mg);
+    expect(again.statusCode, again.body).toBe(200);
+    expect((again.json() as Detail).updatedAt).toBe(saved.updatedAt);
+
+    // A new password replaces the stored one; the audit row names it, never shows it.
+    const next = structuredClone(back.document);
+    (next.nodes[0].config as any).credentials.password = 'sekret-new';
+    const changed = await send('PUT', `/api/rule-chains/${row.id}`, { document: next, expectedUpdatedAt: back.updatedAt, reason: 'Rotate' }, mg);
+    expect(changed.statusCode, changed.body).toBe(200);
+    expect(cfgOf(await storedDoc(row.id), 0).credentials.password).toBe('sekret-new');
+    const updates = await auditFor(row.id, 'RULE_CHAIN_UPDATED');
+    expect(updates).toHaveLength(2);
+    expect(updates[0].afterValue.secretsChanged).toBeUndefined();
+    expect(updates[1].afterValue.secretsChanged).toEqual(['Node "Call MES": credentials.password']);
+    expect(updates[1].afterValue.document.nodes[0].config.credentials).toEqual({ type: 'basic', username: 'mesuser', password: '***' });
+    expect(await auditText(row.id)).not.toMatch(/sekret/);
+  });
+
+  it('a NEW node sent with "***" has nothing to keep: it stays "***"', async () => {
+    const row = await create(`Creds new node ${S}`, twoNodeDoc());
+    const doc = structuredClone(row.document);
+    doc.nodes.push(node('tb:external:send-to-slack', 'New Slack', 600, 100, { ...newRuleNodeConfig('tb:external:send-to-slack'), botToken: '***' }));
+    const res = await send('PUT', `/api/rule-chains/${row.id}`, { document: doc, expectedUpdatedAt: row.updatedAt, reason: 'Add Slack' }, mg);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(cfgOf(await storedDoc(row.id), 2).botToken).toBe('***');
+  });
+
+  it('a node that keeps its id but changes TYPE inherits no secret from what it was', async () => {
+    const row = await create(`Creds retype ${S}`, secretDoc());
+    const doc = structuredClone(row.document);
+    const rest = doc.nodes[0];
+    doc.nodes[0] = {
+      ...rest, type: 'tb:external:mqtt', name: 'Now MQTT',
+      config: { ...newRuleNodeConfig('tb:external:mqtt'), host: 'broker.local', credentials: { type: 'basic', username: 'mesuser', password: '***' } },
+    };
+    const res = await send('PUT', `/api/rule-chains/${row.id}`, { document: doc, expectedUpdatedAt: row.updatedAt, reason: 'Retype' }, mg);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(cfgOf(await storedDoc(row.id), 0).credentials.password).toBe('***');
+  });
+
+  it('export → import: the masked credentials stay "***" and the response names each node whose credential must be entered', async () => {
+    const row = await create(`Creds export ${S}`, secretDoc());
+    const exp = await get(`/api/rule-chains/${row.id}/export`, mg);
+    expect(exp.statusCode, exp.body).toBe(200);
+    expect(exp.body).not.toMatch(/sekret/);
+    const res = await send('POST', '/api/rule-chains/import', { json: exp.json(), name: `Creds imported ${S}`, reason: 'From file' }, mg);
+    expect(res.statusCode, res.body).toBe(201);
+    const { id, warnings } = res.json() as { id: string; warnings: string[] };
+    chains.push(id);
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0]).toMatch(/^Node "Call MES": credential must be entered \(.*credentials\.password.*\)/);
+    expect(warnings[0]).toContain('headers.Authorization');
+    expect(warnings[1]).toMatch(/^Node "Tell Slack": credential must be entered \(botToken\)/);
+    const stored = await storedDoc(id);
+    expect(cfgOf(stored, 0).credentials).toEqual({ type: 'basic', username: 'mesuser', password: '***' });
+    expect(cfgOf(stored, 1).botToken).toBe('***');
+    expect(stored.nodes.map((n) => n.type)).toEqual(['tb:external:rest-api-call', 'tb:external:send-to-slack']);
+    const audit = await auditFor(id, 'RULE_CHAIN_IMPORTED');
+    expect(audit[0].afterValue.warnings).toEqual(warnings);
+    // The original's audit rows hold no secret either.
+    expect(await auditText(row.id)).not.toMatch(/sekret/);
+  });
+});
+
+describe('the audit userId guard (ruling T2-A)', () => {
+  it('INSTRUMENT_ATTRIBUTE_SET / _REMOVED with no user still throw: a rule node writes them as SYSTEM', async () => {
+    const { auditLog } = await import('../lib/audit.js');
+    for (const action of ['INSTRUMENT_ATTRIBUTE_SET', 'INSTRUMENT_ATTRIBUTE_REMOVED']) {
+      await expect(auditLog({ action, targetType: 'Instrument', targetId: randomUUID() }))
+        .rejects.toThrow(`audit.userId required for action='${action}'`);
+    }
   });
 });
