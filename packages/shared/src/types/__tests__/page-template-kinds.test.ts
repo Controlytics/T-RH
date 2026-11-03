@@ -135,9 +135,9 @@ describe('PAGE_REPORT_FIELDS — each page kind\'s built-in fields (spec §6)', 
     for (const id of ids('page:instrument-alarms')) expect(alarmTable.has(id), id).toBe(true);
   });
 
-  it('Alarm Report: the ten columns', () => {
-    expect(ids('page:alarms')).toEqual(['alarm.date', 'alarm.time', 'instrument.code', 'instrument.area', 'instrument.location', 'alarm.description', 'alarm.uom', 'alarm.pv', 'alarm.high', 'alarm.low']);
-    expect(labels('page:alarms')).toEqual(['DATE', 'TIME', 'INSTRUMENT ID', 'AREA', 'LOCATION', 'DESCRIPTION', 'UOM', 'PV VALUE', 'HIGH LIMIT', 'LOW LIMIT']);
+  it('Alarm Report: the ten columns, the placement columns FIRST — today\'s `reportHead` is EXTRA_COLUMNS then ALARM_REPORT_HEAD (ruling T1-F)', () => {
+    expect(ids('page:alarms')).toEqual(['instrument.code', 'instrument.area', 'instrument.location', 'alarm.date', 'alarm.time', 'alarm.description', 'alarm.uom', 'alarm.pv', 'alarm.high', 'alarm.low']);
+    expect(labels('page:alarms')).toEqual(['INSTRUMENT ID', 'AREA', 'LOCATION', 'DATE', 'TIME', 'DESCRIPTION', 'UOM', 'PV VALUE', 'HIGH LIMIT', 'LOW LIMIT']);
   });
 
   it('Audit Trail: the seven columns, headed as report-labels\' defaults', () => {
@@ -273,6 +273,7 @@ describe('builtinReportTemplate — a page kind\'s built-in IS today\'s layout (
     expect(b.infoBlock.map((r) => r.source)).toEqual(['fromDate', 'fromTime', 'toDate', 'toTime']);
     expect(b.infoBlock.map((r) => r.label)).toEqual(['Start Date', 'Start Time', 'End Date', 'End Time']);
     expect(b.columns).toEqual(allShown('page:alarms'));
+    expect(b.columns.map((c) => c.heading)).toEqual(['INSTRUMENT ID', 'AREA', 'LOCATION', 'DATE', 'TIME', 'DESCRIPTION', 'UOM', 'PV VALUE', 'HIGH LIMIT', 'LOW LIMIT']);
     expect(b.columns.filter((c) => c.show)).toHaveLength(10);
     expect(b.notes.legend).toBeUndefined();
   });
@@ -300,7 +301,7 @@ describe('builtinReportTemplate — a page kind\'s built-in IS today\'s layout (
     expect(builtinReportTemplate('page:trend').infoBlock[0].label).toBe('Block');
     expect(builtinReportTemplate('page:trend').infoBlock).toHaveLength(8);
     expect(builtinReportTemplate('page:instrument-alarms').infoBlock[0].label).toBe('Block');
-    expect(builtinReportTemplate('page:alarms').columns[0].heading).toBe('DATE');
+    expect(builtinReportTemplate('page:alarms').columns[0].heading).toBe('INSTRUMENT ID');
   });
 });
 

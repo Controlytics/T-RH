@@ -321,12 +321,14 @@ export const PAGE_REPORT_FIELDS: Record<PageTemplateKind, readonly ReportField[]
     field('alarm.clearedAt', 'Cleared', 'datetime'),
     field('alarm.status', 'Status', 'status'),
   ],
+  // The placement columns FIRST, as today's `reportHead` prints them
+  // (`EXTRA_COLUMNS[level]` then `ALARM_REPORT_HEAD`) — ruling T1-F.
   'page:alarms': [
-    field('alarm.date', 'DATE', 'datetime'),
-    field('alarm.time', 'TIME', 'datetime'),
     field('instrument.code', 'INSTRUMENT ID', 'text'),
     field('instrument.area', 'AREA', 'text'),
     field('instrument.location', 'LOCATION', 'text'),
+    field('alarm.date', 'DATE', 'datetime'),
+    field('alarm.time', 'TIME', 'datetime'),
     field('alarm.description', 'DESCRIPTION', 'text'),
     field('alarm.uom', 'UOM', 'text'),
     field('alarm.pv', 'PV VALUE', 'number'),
