@@ -22,14 +22,15 @@ const COLORS = {
   white: [255, 255, 255] as [number, number, number],
 };
 
-let cachedLogo: { data: string; w: number; h: number } | null = null;
 let cachedLogoDataUrl: string | null = null;
 
 /**
  * The Branding logo as a `data:` URL, or null — fetched once per page load and
- * cached (as the drawn logo always was). Split out of `loadLogo` (2026-11-02)
- * so a report TEMPLATE's chrome can carry the logo's bytes into its snapshot
- * without the `Image()` measurement below, which never settles in jsdom.
+ * cached (as the drawn logo always was). Every report's chrome carries these
+ * BYTES into its snapshot (v3), so a replay draws the logo it was signed with
+ * and fetches nothing; the drawing measures them with jsPDF's synchronous
+ * `getImageProperties`, never an `Image()` load (2026-11-03: the `loadLogo`
+ * that did that for page reports went when every report gained a chrome).
  */
 async function loadBrandingLogoDataUrl(): Promise<string | null> {
   if (cachedLogoDataUrl) return cachedLogoDataUrl;
@@ -53,23 +54,6 @@ async function loadBrandingLogoDataUrl(): Promise<string | null> {
     });
     cachedLogoDataUrl = dataUrl;
     return dataUrl;
-  } catch { return null; }
-}
-
-async function loadLogo(): Promise<{ data: string; w: number; h: number } | null> {
-  if (cachedLogo) return cachedLogo;
-  try {
-    const dataUrl = await loadBrandingLogoDataUrl();
-    if (!dataUrl) return null;
-    // Get natural dimensions to preserve aspect ratio
-    const dims: { w: number; h: number } = await new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
-      img.onerror = () => resolve({ w: 1, h: 1 });
-      img.src = dataUrl;
-    });
-    cachedLogo = { data: dataUrl, w: dims.w, h: dims.h };
-    return cachedLogo;
   } catch { return null; }
 }
 
@@ -137,11 +121,13 @@ async function loadBranding(): Promise<{ companyName: string; appName: string }>
 }
 
 /**
- * The CHROME a report template draws with (2026-11-02, widget report
- * templates) — everything around the data: the identity, the logo, the accent,
- * the footer, the page. A report drawn from a chrome fetches NOTHING for it,
- * and its snapshot (v3) freezes the chrome, so an approved copy replays with
- * the logo and names it was signed under even after Branding changes.
+ * The CHROME a report draws with (2026-11-02, widget report templates; every
+ * report since 2026-11-03) — everything around the data: the identity, the
+ * logo, the accent, the footer, the page. A template gives its own
+ * (`loadReportChrome`); a report with none gets today's
+ * (`defaultReportChrome`). Either way it is resolved BEFORE drawing, and the
+ * snapshot (v3) freezes it, so an approved copy replays with the logo and
+ * names it was signed under even after Branding changes.
  */
 export interface ReportChrome {
   companyName: string;
@@ -192,6 +178,26 @@ export async function loadReportChrome(doc: ReportTemplateDocument): Promise<Rep
 
 /** The footer every report printed before templates: page numbers, Printed By, Printed Date & Time. */
 const DEFAULT_FOOTER: ReportChrome['footer'] = { showPageNumbers: true, showPrintedBy: true, showPrintedAt: true, signatureLine: false };
+
+/**
+ * The chrome of a report NO template draws (2026-11-03): exactly what every
+ * page report fetched at draw time before then — the company and app name
+ * (Configuration → Report Page Titles over Branding), the Branding logo's
+ * bytes, the default footer — plus the report's own app-name line and
+ * orientation. Resolved up front so the snapshot can freeze it (v3) and a
+ * replay never reads today's Branding into yesterday's approved report.
+ */
+export async function defaultReportChrome(config: Pick<ReportConfig, 'showAppName' | 'orientation'>): Promise<ReportChrome> {
+  const [{ companyName, appName }, logoDataUrl] = await Promise.all([loadBranding(), loadBrandingLogoDataUrl()]);
+  return {
+    companyName,
+    appName,
+    showAppName: config.showAppName ?? true,
+    logoDataUrl,
+    footer: { ...DEFAULT_FOOTER },
+    orientation: config.orientation ?? 'portrait',
+  };
+}
 
 function isReportChrome(v: unknown): v is ReportChrome {
   const c = v as Partial<ReportChrome> | null;
@@ -292,10 +298,11 @@ export interface ReportConfig {
    */
   draft?: boolean;
   /**
-   * Draw from this CHROME (a report template's, 2026-11-02) instead of
-   * fetching Branding / Report Page Titles / the logo. It wins over
-   * `orientation` and `showAppName`, and the snapshot becomes v3 with it
-   * frozen. Absent = every page report, exactly as before (v2).
+   * Draw from this CHROME (a report template's, 2026-11-02; a snapshot's on
+   * replay) instead of fetching Branding / Report Page Titles / the logo. It
+   * wins over `orientation` and `showAppName`. Absent = `defaultReportChrome`
+   * — today's Branding, fetched up front. Either way the snapshot is v3 with
+   * the chrome frozen (2026-11-03).
    */
   chrome?: ReportChrome;
 }
@@ -426,10 +433,12 @@ export type NoteColor = 'red' | 'muted' | 'text';
  * database — the table they lived in was dropped in the 2026-07-18 strip — so
  * `normaliseSnapshot` refuses v1 rather than migrating it (it accepts v2 and v3).
  *
- * v3 (2026-11-02) = v2 + `chrome`: a report drawn from a template's chrome
- * (`ReportConfig.chrome`) freezes it, and the replay draws from it with no
- * fetch. Page reports (Data Report, Alarms, Trend, Audit) still write v2 and
- * still fetch Branding when replayed — spec §15.8 left them untouched.
+ * v3 (2026-11-02) = v2 + `chrome`: the report's chrome is frozen and the
+ * replay draws from it with no fetch. Since 2026-11-03 EVERY report writes v3
+ * — a template's chrome, or for a report with none the one `createReport`
+ * resolves up front (`defaultReportChrome`). A v2 snapshot (every page report
+ * requested before then) has no chrome and is still READ: its replay fetches
+ * today's Branding, exactly as it always did.
  */
 export type SnapshotSection =
   | { kind: 'table'; title?: string; head: string[]; body: TableCell[][]; columnStyles?: Record<number, any>; bold?: boolean[][] }
@@ -441,14 +450,18 @@ export type SnapshotSection =
 
 export interface ReportSnapshot {
   version: 2 | 3;
-  /** The audit reportType, e.g. 'Instrument Time Series'. */
+  /**
+   * The report's `reportKey` (`ReportConfig.reportKey`, e.g. `'instrument-trend'`,
+   * `'alarms'`, `'Widget: Gauge'`) — NOT the audit `reportType`, which the
+   * request carries separately. A replay hands it back as `reportKey`.
+   */
   reportType: string;
   title: string;
   subtitle?: string;
   orientation?: 'portrait' | 'landscape';
   config: { legend?: ReportConfig['legend']; typography?: ReportConfig['typography']; showAppName?: boolean };
   sections: SnapshotSection[];
-  /** v3 only — the chrome the report was drawn with; the replay draws from it and fetches nothing. */
+  /** v3 — the chrome the report was drawn with; the replay draws from it and fetches nothing. Absent on a v2. */
   chrome?: ReportChrome;
 }
 
@@ -558,16 +571,17 @@ export const LEGACY_TYPOGRAPHY_2026_10_06: ReportTypography = {
 const GUTTER_MM = 14;
 
 export async function createReport(config: ReportConfig): Promise<ReportDoc> {
-  // A template's chrome is drawn as given: nothing about the identity or the
-  // logo is fetched (the v3 replay's whole promise). Without one, every page
-  // report loads Branding exactly as before.
-  const chrome = config.chrome;
-  const [logo, branding, me, signatories] = await Promise.all([
-    chrome ? Promise.resolve(null) : loadLogo(),
-    chrome ? Promise.resolve({ companyName: chrome.companyName, appName: chrome.appName }) : loadBranding(),
+  // The chrome is resolved BEFORE drawing, in every case (2026-11-03): a
+  // template's (or a snapshot's) is drawn as given and nothing about the
+  // identity or the logo is fetched — the v3 replay's whole promise; without
+  // one, today's Branding is fetched once, here, exactly what a page report
+  // always printed, and frozen in the snapshot like a template's.
+  const [chrome, me, signatories] = await Promise.all([
+    config.chrome ? Promise.resolve(config.chrome) : defaultReportChrome(config),
     loadCurrentUser(), loadSignatories(),
   ]);
-  const footer = chrome?.footer ?? DEFAULT_FOOTER;
+  const branding = { companyName: chrome.companyName, appName: chrome.appName };
+  const footer = chrome.footer;
   /**
    * "Page x of N" is a record's COMPLETENESS mark (GDP): a template may leave
    * it off a plain download, never off a draft under review or a signed copy
@@ -575,8 +589,8 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
    */
   const showPageNumbers = footer.showPageNumbers || !!config.draft
     || !!config.signatures?.length || !!config.signatureTable?.length;
-  const accent = hexRgb(chrome?.accentColor);
-  const orientation = chrome?.orientation ?? config.orientation;
+  const accent = hexRgb(chrome.accentColor);
+  const orientation = chrome.orientation;
   const t: ReportTypography = { ...DEFAULT_TYPOGRAPHY, ...config.typography };
   const headingFont = () => doc.setFont('helvetica', t.headingWeight);
   const normalFont = () => doc.setFont('helvetica', 'normal');
@@ -592,7 +606,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
   // Labels configured for the generator's role (reportKey -> label), if any.
   const sig = me.role ? (signatories ?? {})[me.role] : undefined;
   const printedAt = config.formatDateTime(new Date().toISOString());
-  const doc = new jsPDF({ orientation: orientation ?? 'portrait', unit: 'mm', format: 'a4' });
+  const doc = new jsPDF({ orientation, unit: 'mm', format: 'a4' });
   const pw = doc.internal.pageSize.width;
   const ph = doc.internal.pageSize.height;
   let y = 10;
@@ -621,10 +635,11 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
   y = 6;
 
   // ── Logo (aspect-ratio preserved, max 12mm tall) ──
-  // A chrome's logo is measured from its own bytes (`getImageProperties`,
+  // The chrome's logo is measured from its own bytes (`getImageProperties`,
   // synchronous) — never an `Image()` load, which a replay would wait on.
-  let drawnLogo = logo;
-  if (chrome?.logoDataUrl) {
+  // Bytes jsPDF cannot read draw no logo (as an unreadable logo never did).
+  let drawnLogo: { data: string; w: number; h: number } | null = null;
+  if (chrome.logoDataUrl) {
     try {
       const p = doc.getImageProperties(chrome.logoDataUrl);
       drawnLogo = { data: chrome.logoDataUrl, w: p.width, h: p.height };
@@ -664,7 +679,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
   doc.setFontSize(t.companyPt); doc.setTextColor(...COLORS.primary);
   const centreFor = (text: string) => centredX(doc.getTextWidth(text), pw, logoEndX);
   doc.text(branding.companyName, centreFor(branding.companyName), companyBaseline, { align: 'center' });
-  const showAppName = chrome ? chrome.showAppName : config.showAppName !== false;
+  const showAppName = chrome.showAppName;
   if (showAppName) {
     doc.setFontSize(t.appNamePt); doc.setTextColor(...COLORS.muted);
     doc.text(branding.appName, centreFor(branding.appName), appBaseline, { align: 'center' });
@@ -763,7 +778,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     // "Legend:" label.
     const legendParts = [
       ...(legendItems.length ? [legendItems.map((l) => `${l.abbr} = ${l.meaning}`).join('      ')] : []),
-      ...(chrome?.legend?.trim() ? [chrome.legend.trim()] : []),
+      ...(chrome.legend?.trim() ? [chrome.legend.trim()] : []),
     ];
     const legendText = legendParts.length ? 'Legend:   ' + legendParts.join('      ') : '';
     const legendLines = legendText ? (doc.splitTextToSize(legendText, pw - 28) as string[]) : [];
@@ -818,7 +833,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     // Remarks — empty bordered box for handwriting
     labelFont();
     doc.setFontSize(t.labelPt); doc.setTextColor(...COLORS.primary);
-    doc.text(`${chrome?.remarksLabel?.trim() || 'Remarks'}:`, 14, by + 3 * kLabel);
+    doc.text(`${chrome.remarksLabel?.trim() || 'Remarks'}:`, 14, by + 3 * kLabel);
     by += 4 * kLabel;
     doc.setDrawColor(...COLORS.border); doc.setLineWidth(0.3);
     doc.rect(14, by, pw - 28, 22);
@@ -1044,11 +1059,9 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
         config: { legend: config.legend, typography: { ...t }, showAppName: config.showAppName },
         sections: snapSections,
       };
-      // v3: the chrome it was DRAWN with, frozen (a copy — a caller mutating
-      // its object afterwards cannot rewrite the record).
-      return chrome
-        ? { version: 3, ...base, orientation: chrome.orientation, chrome: { ...chrome, footer: { ...chrome.footer } } }
-        : { version: 2, ...base };
+      // v3, always (2026-11-03): the chrome it was DRAWN with, frozen (a copy —
+      // a caller mutating its object afterwards cannot rewrite the record).
+      return { version: 3, ...base, orientation: chrome.orientation, chrome: { ...chrome, footer: { ...chrome.footer } } };
     },
   };
 }
@@ -1082,7 +1095,8 @@ export async function renderSnapshotToPdf(
     signatureTable: opts.signatureTable,
     draft: opts.draft,
     // v3: the frozen chrome — no Branding, Report Page Titles or logo fetch.
-    // v2: no chrome, so the page report's chrome is fetched as it always was.
+    // v2 (stored before 2026-11-03): no chrome, so `createReport` resolves
+    // today's, as the page report always was replayed.
     ...(snapshot.version === 3 && snapshot.chrome ? { chrome: snapshot.chrome } : {}),
   });
   for (const s of snapshot.sections) {

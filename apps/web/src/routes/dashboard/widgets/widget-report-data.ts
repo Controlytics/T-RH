@@ -5,10 +5,12 @@
  * Three parts:
  *
  * 1. `useWidgetReportPlan` — while the dialog is open: the widget's instruments
- *    (the widget's OWN query, one SWR key), the SERVER's resolution of which
- *    template each of their profiles uses (`GET /api/report-templates/resolve`),
- *    each profile's templates (the picker) and field catalogue. Nothing here
- *    decides a template; the server's answer is shown and used.
+ *    (the widget's OWN query, one SWR key) handed to the ONE plan hook
+ *    (`lib/report-template-plan.ts`, kind = the widget type): the SERVER's
+ *    resolution of which template each of their profiles uses (`GET
+ *    /api/report-templates/resolve?kind=…`), each profile's templates (the
+ *    picker) and field catalogue. Nothing here decides a template; the
+ *    server's answer is shown and used.
  *
  * 2. `collectWidgetReport` — on confirm: the widget's data for the dialog's
  *    period, asked through the SAME fetchers and URL builders the widget's own
@@ -37,15 +39,15 @@
  * VALUE: they carry jsPDF, and this module is on the dashboard's main bundle.
  * The dialog imports the builder dynamically, on confirm.
  */
-import useSWR from 'swr';
 import {
-  DATA_KEYS_PER_REQUEST_MAX, REPORT_TEMPLATE_RESOLVE_IDS_MAX, WIDGET_INSTRUMENTS_MAX, WIDGET_REPORT_FIELDS, coerceReading, formatDecimals,
-  type AlarmTypeNames, type CustomWidget, type DataKeyRef, type LatestKeyValue, type LatestValuesRow, type ReportField,
-  type ReportTemplateDocument, type ReportTemplateRow, type WidgetKey, type WidgetType,
+  DATA_KEYS_PER_REQUEST_MAX, WIDGET_INSTRUMENTS_MAX, coerceReading, formatDecimals,
+  type AlarmTypeNames, type CustomWidget, type DataKeyRef, type LatestKeyValue, type LatestValuesRow,
+  type ReportTemplateDocument, type WidgetKey,
 } from '@digilog/shared';
 import type { WidgetReportRow, WidgetReportValue } from '@/lib/widget-report';
 import type { RasterImage } from '@/lib/svg-raster';
 import { apiClient } from '@/lib/api-client';
+import { useReportTemplatePlan, type PlanSection } from '@/lib/report-template-plan';
 import type { SensorWords } from '@/hooks/use-failure-text';
 import type { AlarmWidgetFilterValue } from '@/routes/alarms/alarm-widget-filters';
 import {
@@ -688,56 +690,15 @@ export async function collectWidgetReport(input: CollectInput): Promise<Collecte
 
 // ── The plan, while the dialog is open ─────────────────────────────────────
 
-export interface PlanSection {
-  profileId: string;
-  profileName: string;
-  /** The widget's instruments of this profile that the viewer can see, in the widget's order. */
-  instrumentIds: string[];
-  /** The server's resolution: the profile's default template for the type, or null = the built-in. */
-  resolved: ReportTemplateRow | null;
-  /** Every template this profile has for the type (the picker). */
-  templates: ReportTemplateRow[];
-  /** This profile's field catalogue ids (`[]` for a type with no fields). */
-  availableIds: string[];
-}
-
-
-interface ResolvedSection { profileId: string; profileName: string; instrumentIds: string[]; template: ReportTemplateRow | null }
-
-async function resolveSections(type: WidgetType, ids: readonly string[]): Promise<ResolvedSection[]> {
-  const merged = new Map<string, ResolvedSection>();
-  // The route takes at most REPORT_TEMPLATE_RESOLVE_IDS_MAX ids: a selection of
-  // ~320 is asked in runs and merged (ruling R11), never cut.
-  for (let k = 0; k < ids.length; k += REPORT_TEMPLATE_RESOLVE_IDS_MAX) {
-    const qs = new URLSearchParams({ widgetType: type, instrumentIds: ids.slice(k, k + REPORT_TEMPLATE_RESOLVE_IDS_MAX).join(',') });
-    const { sections } = await apiClient.get<{ sections: ResolvedSection[] }>(`/api/report-templates/resolve?${qs.toString()}`);
-    for (const s of sections ?? []) {
-      const held = merged.get(s.profileId);
-      if (held) held.instrumentIds.push(...s.instrumentIds);
-      else merged.set(s.profileId, { ...s, instrumentIds: [...s.instrumentIds] });
-    }
-  }
-  return [...merged.values()];
-}
-
-async function profileDetails(type: WidgetType, profileIds: readonly string[], withCatalogue: boolean) {
-  return Promise.all(profileIds.map(async (profileId) => {
-    const qs = new URLSearchParams({ profileId, widgetType: type }).toString();
-    const [list, catalogue] = await Promise.all([
-      apiClient.get<{ data: ReportTemplateRow[] }>(`/api/report-templates?${qs}`),
-      withCatalogue ? apiClient.get<{ fields: ReportField[] }>(`/api/report-templates/catalogue?${qs}`) : Promise.resolve({ fields: [] as ReportField[] }),
-    ]);
-    return { profileId, templates: list.data ?? [], availableIds: (catalogue.fields ?? []).map((f) => f.id) };
-  }));
-}
-
 /**
- * Which template each of the widget's profiles uses — the server's answer —
- * with each profile's templates and catalogue. Every type resolves its
- * selection, a text card included (fix wave 1): the sections' instrument ids
- * are the VISIBLE instruments the widget covers, and they scope the report's
- * approval request like any other. A type with no fields (text card, floor
- * plan) asks no catalogue; its templates are asked like any other (review I2).
+ * Which template each of the widget's profiles uses — the server's answer,
+ * through the ONE plan every download dialog uses (`useReportTemplatePlan`,
+ * `kind` = the widget type) — over the widget's OWN instruments. Every type
+ * resolves its selection, a text card included (fix wave 1): the sections'
+ * instrument ids are the VISIBLE instruments the widget covers, and they
+ * scope the report's approval request like any other. A type with no fields
+ * (text card, floor plan) asks no catalogue; its templates are asked like any
+ * other (review I2).
  */
 export function useWidgetReportPlan(widget: CustomWidget, selection: WidgetSelection): {
   ids: string[];
@@ -746,33 +707,6 @@ export function useWidgetReportPlan(widget: CustomWidget, selection: WidgetSelec
   error: unknown;
 } {
   const { ids, loading: idsLoading, error: idsError } = useWidgetInstrumentIds(widget.source, selection);
-  const wanted = !idsLoading && !idsError;
-  const resolved = useSWR<ResolvedSection[]>(
-    wanted && ids.length > 0 ? ['widget-report-resolve', widget.type, ids.join(',')] : null,
-    () => resolveSections(widget.type, ids),
-    { revalidateOnFocus: false },
-  );
-  const profileIds = (resolved.data ?? []).map((s) => s.profileId);
-  const fieldless = WIDGET_REPORT_FIELDS[widget.type].length === 0;
-  const details = useSWR(
-    profileIds.length > 0 ? ['widget-report-templates', widget.type, profileIds.join(',')] : null,
-    () => profileDetails(widget.type, profileIds, !fieldless),
-    { revalidateOnFocus: false },
-  );
-  const sections: PlanSection[] = (resolved.data ?? []).map((s) => {
-    const d = details.data?.find((x) => x.profileId === s.profileId);
-    return {
-      profileId: s.profileId,
-      profileName: s.profileName,
-      instrumentIds: s.instrumentIds,
-      resolved: s.template,
-      templates: d?.templates ?? [],
-      availableIds: d?.availableIds ?? [],
-    };
-  });
-  const asked = wanted && ids.length > 0;
-  const loading = idsLoading
-    || (asked && resolved.data === undefined && !resolved.error)
-    || (profileIds.length > 0 && details.data === undefined && !details.error);
-  return { ids, sections, loading, error: idsError ?? resolved.error ?? details.error };
+  const plan = useReportTemplatePlan(widget.type, ids, { enabled: !idsLoading && !idsError });
+  return { ids, sections: plan.sections, loading: idsLoading || plan.loading, error: idsError ?? plan.error };
 }

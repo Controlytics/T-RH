@@ -7,6 +7,9 @@
  * with above its fields: per instrument profile, the template the SERVER
  * resolved ("Template: <name> (<profile>)", or "Built-in"), a picker when the
  * profile has more than one, and — for a SUPER_ADMIN — the way to the editor.
+ * Those lines are `components/report-template-lines.tsx` and the plan behind
+ * them `lib/report-template-plan.ts` (2026-11-03), the SAME two every page's
+ * download dialog uses; this dialog adds only the widget's one-section rule.
  *
  * On confirm: the widget's data for the dialog's period (`collectWidgetReport`,
  * the widget's own fetchers), split into its profiles' sections, printed by
@@ -20,13 +23,14 @@
  * "—" is a placeholder in the PDF, never a date on the wire.
  */
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import {
   DEFAULT_PERIOD, PERIOD_PRESETS, WIDGET_REPORT_FIELDS, WIDGET_REPORT_KIND, WIDGET_TYPE_SPECS,
   builtinReportTemplate, coerceReportTemplateDocument, widgetReportType,
   type CustomWidget, type Placeholder, type ReportTemplateDocument, type ReportTemplateRow,
 } from '@digilog/shared';
 import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
+import { ReportTemplateLines } from '@/components/report-template-lines';
+import { chooseTemplate, planScopeKey } from '@/lib/report-template-plan';
 import type { WidgetReportSection } from '@/lib/widget-report';
 import { useAuth } from '@/hooks/use-auth';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
@@ -37,12 +41,7 @@ import { useAlarmDisplayTexts } from '../selection-alarms';
 import type { WidgetSelection } from './use-widget-data';
 import { useWidgetReportViewRegistry } from './widget-report-view';
 import { BAR_DEFAULTS } from './bar-chart-model';
-import {
-  collectWidgetReport, reportRefs, sectionRows, useWidgetReportPlan, type PlanSection,
-} from './widget-report-data';
-
-/** The picker's value for "print with the built-in template". */
-const BUILTIN = '__builtin__';
+import { collectWidgetReport, reportRefs, sectionRows, useWidgetReportPlan } from './widget-report-data';
 
 /** `POST /api/report-reviews` caps the title and the subtitle at these lengths. */
 const REQUEST_TITLE_MAX = 500;
@@ -91,11 +90,6 @@ export function printsOneTable(widget: CustomWidget): boolean {
     || (widget.type === 'bar_chart' && (widget.options.groupBy ?? BAR_DEFAULTS.groupBy) === 'all');
 }
 
-function chooseTemplate(s: PlanSection, pick: string | undefined): ReportTemplateRow | null {
-  if (pick === BUILTIN) return null;
-  return s.templates.find((t) => t.id === pick) ?? s.resolved;
-}
-
 function OpenWidgetReportDialog({ widget, selection, dashboardTitle, selectionLabel, onClose }: WidgetReportDialogProps) {
   const type = widget.type;
   const windowed = WIDGET_TYPE_SPECS[type].followsWindow;
@@ -131,10 +125,11 @@ function OpenWidgetReportDialog({ widget, selection, dashboardTitle, selectionLa
    */
   const sections: ChosenSection[] = useMemo(() => {
     const chosen = plan.sections.map((s) => {
-      const template = chooseTemplate(s, picks[s.profileId]);
+      const template = chooseTemplate(s, picks[planScopeKey(s)]);
       return {
-        profileId: s.profileId,
-        profileName: s.profileName,
+        // A widget type is profile-scoped: the server names a profile on every section.
+        profileId: s.profileId ?? '',
+        profileName: s.profileName ?? '',
         instrumentIds: s.instrumentIds,
         availableIds: s.availableIds,
         template,
@@ -246,12 +241,11 @@ function OpenWidgetReportDialog({ widget, selection, dashboardTitle, selectionLa
       initialPeriod={initialPeriod}
       showPeriod={windowed}
       extra={(
-        <WidgetReportTemplates
-          type={type}
-          sections={sections}
-          plan={plan.sections}
+        <ReportTemplateLines
+          kind={type}
+          sections={plan.sections}
           picks={picks}
-          onPick={(profileId, value) => setPicks((p) => ({ ...p, [profileId]: value }))}
+          onPick={(scopeKey, value) => setPicks((p) => ({ ...p, [scopeKey]: value }))}
           loading={plan.loading}
           oneSection={printsOneTable(widget)}
           failed={plan.error !== undefined && plan.error !== null}
@@ -261,68 +255,5 @@ function OpenWidgetReportDialog({ widget, selection, dashboardTitle, selectionLa
       onCancel={onClose}
       onConfirm={runDownload}
     />
-  );
-}
-
-/**
- * What the report will be printed with, per profile: the server's resolution
- * (or the one picked), a picker when the profile has more than one template,
- * and for a SUPER_ADMIN the way to the editor.
- */
-export function WidgetReportTemplates({ type, sections, plan, picks, onPick, loading, oneSection, failed, superAdmin }: {
-  type: CustomWidget['type'];
-  sections: readonly ChosenSection[];
-  plan: readonly PlanSection[];
-  picks: Readonly<Record<string, string>>;
-  onPick: (profileId: string, value: string) => void;
-  loading: boolean;
-  /** The report is one section whatever the selection holds (`printsOneTable`). */
-  oneSection: boolean;
-  failed: boolean;
-  superAdmin: boolean;
-}) {
-  if (failed) {
-    return <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">The report templates could not be loaded.</p>;
-  }
-  if (loading) return <p className="text-sm text-slate-500">Loading the report templates…</p>;
-  if (!oneSection && plan.length === 0) {
-    return <p className="text-sm text-slate-600" data-testid="widget-report-template">No instruments in this selection — the report says so.</p>;
-  }
-  return (
-    <ul className="space-y-2" aria-label="Report templates">
-      {sections.map((s) => {
-        const p = plan.find((x) => x.profileId === s.profileId);
-        const name = s.template ? s.template.name : 'Built-in';
-        const profile = s.profileName || p?.profileName || '';
-        return (
-          <li key={s.profileId || 'builtin'} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-            <p className="text-sm font-medium text-slate-800" data-testid="widget-report-template">
-              {profile ? `Template: ${name} (${profile})` : `Template: ${name}`}
-            </p>
-            {p && p.templates.length > 1 && (
-              <select
-                aria-label={`Template for ${p.profileName}`}
-                className="ctl ctl-sm mt-1.5 w-full"
-                value={picks[p.profileId] ?? p.resolved?.id ?? BUILTIN}
-                onChange={(e) => onPick(p.profileId, e.target.value)}
-              >
-                {p.templates.map((t) => (
-                  <option key={t.id} value={t.id}>{t.isDefault ? `${t.name} (default)` : t.name}</option>
-                ))}
-                <option value={BUILTIN}>Built-in</option>
-              </select>
-            )}
-            {superAdmin && p && (
-              <Link
-                to={`/config/report-templates?${new URLSearchParams({ profileId: p.profileId, widgetType: type }).toString()}`}
-                className="mt-1 inline-block text-xs font-semibold text-[var(--theme-primary)] hover:underline"
-              >
-                Edit report templates for {p.profileName}
-              </Link>
-            )}
-          </li>
-        );
-      })}
-    </ul>
   );
 }

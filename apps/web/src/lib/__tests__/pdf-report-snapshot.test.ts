@@ -60,7 +60,8 @@ describe('ReportSnapshot v2', () => {
   it('records every drawing call in order, with the chrome that shaped the page', async () => {
     const report = await build();
     const snap = report.getSnapshot();
-    expect(snap.version).toBe(2);
+    // v3 since 2026-11-03: every report freezes the chrome it was drawn with.
+    expect(snap.version).toBe(3);
     expect(snap.reportType).toBe('Instrument Time Series');
     expect(snap.title).toBe('Temperature and RH Data Report');
     // The WHOLE resolved scale is frozen (2026-10-07), so a replay prints at the
@@ -229,7 +230,8 @@ async function titlesReads(): Promise<unknown[][]> {
  * ReportSnapshot v3 (2026-11-02, widget report templates): a report drawn from
  * a template's CHROME — company, app name, logo, accent, footer, orientation —
  * freezes that chrome in the snapshot, and the replay draws from it and
- * fetches NOTHING. A v2 snapshot (every page report) replays as before. Spec
+ * fetches NOTHING. Since 2026-11-03 every report is v3 (see the describe
+ * below); a v2 snapshot stored before then replays as before. Spec
  * docs/superpowers/specs/2026-11-02-widget-report-templates-design.md §8, §12.
  */
 describe('ReportSnapshot v3 — the chrome is frozen', () => {
@@ -296,16 +298,18 @@ describe('ReportSnapshot v3 — the chrome is frozen', () => {
     expect(text).not.toContain('Controlytics AI Pvt Ltd');
   });
 
-  it('a report with no chrome is still v2, and a v2 snapshot still replays the old way — branding fetched', async () => {
+  it('a report given no chrome resolves TODAY\'s chrome up front and freezes it too (v3 for every report, 2026-11-03)', async () => {
     const original = await build();
     const snap = original.getSnapshot();
-    expect(snap.version).toBe(2);
-    expect(snap).not.toHaveProperty('chrome');
+    expect(snap.version).toBe(3);
+    expect(snap.chrome?.showAppName).toBe(false);
+    expect(snap.chrome?.orientation).toBe('portrait');
+    // Its replay draws from that frozen chrome: nothing is fetched.
     const fetchSpy = forbidFetch();
     const replay = await renderSnapshotToPdf(normaliseSnapshot(JSON.parse(JSON.stringify(snap))), { formatDateTime });
     expect(replay.doc.getNumberOfPages()).toBe(original.doc.getNumberOfPages());
-    expect(fetchSpy).toHaveBeenCalled();
-    expect(replay.getSnapshot().version).toBe(2);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(replay.getSnapshot().chrome).toEqual(snap.chrome);
   });
 
   it('the footer flags hide only the GENERATOR\'s own lines; text, signature line, remarks label and legend print', async () => {
@@ -397,6 +401,102 @@ describe('ReportSnapshot v3 — the chrome is frozen', () => {
     const rgb = [0xc0, 0x39, 0x2b].map((v) => v / 255);
     const ops = [...stream.matchAll(/([\d.]+) ([\d.]+) ([\d.]+) rg/g)].map((m) => [Number(m[1]), Number(m[2]), Number(m[3])]);
     expect(ops.filter((o) => o.every((v, i) => Math.abs(v - rgb[i]) < 0.006)).length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+/**
+ * Snapshot v3 for EVERY report (2026-11-03, page reports on templates — spec
+ * docs/superpowers/specs/2026-11-03-page-reports-on-templates-design.md §9):
+ * `createReport` resolves the chrome BEFORE drawing even when no template
+ * gives one — Branding, Report Page Titles, the Branding logo's bytes, the
+ * default footer — and `getSnapshot` freezes it. An approved page report then
+ * replays with the names and logo it was signed under, fetching nothing. A v2
+ * snapshot (every page report requested before this build) has no chrome and
+ * still replays with today's Branding, exactly as before (plan Review Focus 1).
+ */
+describe('Snapshot v3 for every report — the chrome is resolved up front', () => {
+  let addImage: ReturnType<typeof vi.fn>;
+  beforeEach(async () => {
+    const jspdf: any = await import('jspdf');
+    addImage = vi.fn(jspdf.default.API.addImage);
+    jspdf.default.API.addImage = addImage;
+    const { apiClient } = await import('@/lib/api-client');
+    (apiClient.get as any).mockClear();
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  const PNG_BYTES = Uint8Array.from(atob(PNG_1x1.split(',')[1]), (c) => c.charCodeAt(0));
+  /** Today's Branding and its logo, as the public endpoint serves them. */
+  function liveBranding(companyName = 'Live Branding Ltd') {
+    const fetchSpy = vi.fn(async (url: unknown) => {
+      const u = String(url);
+      if (u.endsWith('/api/config/branding')) return { ok: true, json: async () => ({ companyName, appName: 'Live Monitor', logoUrl: '/logo.png' }) };
+      if (u === '/logo.png') return { ok: true, blob: async () => new Blob([PNG_BYTES], { type: 'image/png' }) };
+      throw new Error(`unexpected fetch ${u}`);
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+    return fetchSpy;
+  }
+  const brandingCalls = (spy: ReturnType<typeof vi.fn>) => spy.mock.calls.filter((c) => String(c[0]).endsWith('/api/config/branding'));
+
+  it('(a) a report with NO chrome writes v3 with today\'s Branding, logo and the default footer frozen', async () => {
+    liveBranding();
+    const report = await createReport({ title: 'T', formatDateTime });
+    report.addTable({ head: ['A'], body: [['1']] });
+    const snap = report.getSnapshot();
+    expect(snap.version).toBe(3);
+    expect(snap.chrome).toEqual({
+      companyName: 'Live Branding Ltd',
+      appName: 'Live Monitor',
+      showAppName: true,
+      logoDataUrl: PNG_1x1,
+      footer: { showPageNumbers: true, showPrintedBy: true, showPrintedAt: true, signatureLine: false },
+      orientation: 'portrait',
+    });
+    // The frozen record passes the ONE reader every stored snapshot goes through.
+    expect(normaliseSnapshot(JSON.parse(JSON.stringify(snap)))).toEqual(JSON.parse(JSON.stringify(snap)));
+    // `showAppName: false` and `orientation` given to the report reach its chrome.
+    const quiet = await createReport({ title: 'T', formatDateTime, showAppName: false, orientation: 'landscape' });
+    expect(quiet.getSnapshot().chrome).toMatchObject({ showAppName: false, orientation: 'landscape' });
+    expect(quiet.pw).toBeGreaterThan(quiet.ph);
+  });
+
+  it('(b) its replay fetches NOTHING — the Branding of the day it was signed prints, not today\'s', async () => {
+    liveBranding();
+    const original = await createReport({ title: 'T', formatDateTime });
+    original.addTable({ head: ['A'], body: [['1']] });
+    const stored = normaliseSnapshot(JSON.parse(JSON.stringify(original.getSnapshot())));
+    // Branding is re-branded since; every fetch is a failure on this path.
+    const fetchSpy = forbidFetch();
+    const { apiClient } = await import('@/lib/api-client');
+    (apiClient.get as any).mockClear();
+    addImage.mockClear();
+    const replay = await renderSnapshotToPdf(stored, { formatDateTime });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(await titlesReads()).toEqual([]);
+    // The frozen logo is drawn from the snapshot's own bytes.
+    expect(addImage.mock.calls.filter((c) => c[0] === PNG_1x1)).toHaveLength(1);
+    replay.save('v3-page-replay.pdf');
+    const text = pageTexts(replay.doc).join(' ');
+    expect(text).toContain('Live Branding Ltd');
+    expect(text).toContain('Live Monitor');
+    expect(text).not.toContain('Controlytics AI Pvt Ltd');
+  });
+
+  it('(c) a v2 snapshot stored before this build has no chrome: its replay DOES fetch today\'s Branding', async () => {
+    const v2 = normaliseSnapshot({
+      version: 2, reportType: 'alarms', title: 'ALARM REPORT', orientation: 'portrait',
+      config: { showAppName: true }, sections: [{ kind: 'table', head: ['DATE'], body: [['2026-10-06']] }],
+    });
+    const fetchSpy = liveBranding('Branding Of Today Ltd');
+    const replay = await renderSnapshotToPdf(v2, { formatDateTime });
+    expect(brandingCalls(fetchSpy).length).toBeGreaterThan(0);
+    replay.save('v2-replay.pdf');
+    expect(pageTexts(replay.doc).join(' ')).toContain('Branding Of Today Ltd');
+    // A replay is itself drawn from a chrome, so its own snapshot is v3 of TODAY's
+    // chrome (by design; nothing stores a replay's snapshot).
+    expect(replay.getSnapshot().version).toBe(3);
+    expect(replay.getSnapshot().chrome?.companyName).toBe('Branding Of Today Ltd');
   });
 });
 

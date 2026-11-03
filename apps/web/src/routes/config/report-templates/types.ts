@@ -1,30 +1,18 @@
-import type { WidgetType } from '@digilog/shared';
-
 /**
- * One `report_templates` row as `GET /api/report-templates` serves it
- * (plan Task 2). `document` is typed `unknown` on purpose: it is read through
- * `coerceReportTemplateDocument`, the ONE forgiving reader, never trusted as is.
+ * The Report Templates page's wire helpers. A template row is the SHARED
+ * `ReportTemplateRow` (`@digilog/shared`: `kind`, `profileId: string | null`
+ * — null for an application-wide kind), read through
+ * `coerceReportTemplateDocument`, the ONE forgiving reader; the page keeps no
+ * second definition of it (2026-11-03, page reports on templates).
+ *
+ * The URL builders are the ONE pair every caller uses — this page and every
+ * download dialog's plan (`lib/report-template-plan.ts`, where they live):
+ * `?kind=` always, `profileId` only for a profile-scoped kind.
  */
-export interface ReportTemplateRow {
-  id: string;
-  profileId: string;
-  widgetType: WidgetType;
-  name: string;
-  isDefault: boolean;
-  document: unknown;
-  createdAt: string;
-  updatedAt: string;
-  updatedBy: string | null;
-}
+export { reportTemplatesCatalogueUrl, reportTemplatesListUrl } from '@/lib/report-template-plan';
 
 export interface ReportTemplateProfile {
   id: string;
   name: string;
   instrumentCount?: number;
 }
-
-export const reportTemplatesListUrl = (profileId: string, widgetType: WidgetType) =>
-  `/api/report-templates?profileId=${encodeURIComponent(profileId)}&widgetType=${encodeURIComponent(widgetType)}`;
-
-export const reportTemplatesCatalogueUrl = (profileId: string, widgetType: WidgetType) =>
-  `/api/report-templates/catalogue?profileId=${encodeURIComponent(profileId)}&widgetType=${encodeURIComponent(widgetType)}`;

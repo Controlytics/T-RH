@@ -63,7 +63,7 @@ const renamed = (heads: Record<string, string>): ReportTemplateDocument => {
   return d;
 };
 const row = (id: string, name: string, document: ReportTemplateDocument, isDefault: boolean) => ({
-  id, profileId: 'p1', widgetType: 'gauge', name, isDefault, document,
+  id, profileId: 'p1', kind: 'gauge', name, isDefault, document,
   createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z', updatedBy: 'admin',
 });
 const PLANT_A = row('t-a', 'Plant A', renamed({ 'instrument.code': 'Tag', 'reading.value': 'Reading' }), true);
@@ -170,7 +170,7 @@ describe('WidgetReportDialog', () => {
     AUTH.user.role = 'SUPER_ADMIN';
     open();
     const link = await screen.findByRole('link', { name: /Edit report templates/ });
-    expect(link.getAttribute('href')).toBe('/config/report-templates?profileId=p1&widgetType=gauge');
+    expect(link.getAttribute('href')).toBe('/config/report-templates?kind=gauge&profileId=p1');
   });
 
   it('a widget whose rows name no instrument (alarm counts) prints ONE table for all its profiles — never "No records." under the rest', async () => {
@@ -263,7 +263,7 @@ describe('WidgetReportDialog', () => {
     });
 
     it("I2 — a text card prints its FIRST profile's resolved template; m5 — {user} is the USERNAME", async () => {
-      const tpl = { ...row('t-text', 'Shift memo', textDoc(), true), widgetType: 'text_card' };
+      const tpl = { ...row('t-text', 'Shift memo', textDoc(), true), kind: 'text_card' };
       answer([{ profileId: 'p1', profileName: 'T&RH', instrumentIds: ['i1'], template: tpl }]);
       open2(TEXT);
       expect(await screen.findByText('Template: Shift memo (T&RH)')).toBeInTheDocument();
@@ -302,7 +302,7 @@ describe('WidgetReportDialog', () => {
     it('m8 — an alarm table\'s {period} says "As filtered"', async () => {
       const doc = builtinReportTemplate('alarm_table');
       doc.header.subtitle = '{period}';
-      answer([{ profileId: 'p1', profileName: 'T&RH', instrumentIds: ['i1'], template: { ...row('t-al', 'Alarms', doc, true), widgetType: 'alarm_table' } }],
+      answer([{ profileId: 'p1', profileName: 'T&RH', instrumentIds: ['i1'], template: { ...row('t-al', 'Alarms', doc, true), kind: 'alarm_table' } }],
         (url) => (url.startsWith('/api/alarms') ? { data: [], total: 0 } : {}));
       open2({ id: 'w-al', type: 'alarm_table', title: 'Alarms', source: { mode: 'selection' }, keys: [], options: {} } as CustomWidget);
       await screen.findByText('Template: Alarms (T&RH)');
@@ -313,7 +313,7 @@ describe('WidgetReportDialog', () => {
       const doc = textDoc();
       doc.header.title = '{selection}';
       doc.header.subtitle = '{selection} {selection}';
-      answer([{ profileId: 'p1', profileName: 'T&RH', instrumentIds: ['i1'], template: { ...row('t-long', 'Long', doc, true), widgetType: 'text_card' } }]);
+      answer([{ profileId: 'p1', profileName: 'T&RH', instrumentIds: ['i1'], template: { ...row('t-long', 'Long', doc, true), kind: 'text_card' } }]);
       open2(TEXT, 'x'.repeat(600));
       await screen.findByText('Template: Long (T&RH)');
       const call = await confirm();
