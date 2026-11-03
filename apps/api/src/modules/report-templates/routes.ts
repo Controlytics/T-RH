@@ -33,13 +33,19 @@ import {
  *   catalogue or a resolve that names the wrong scope is a 400 SCOPE_MISMATCH
  *   (`scopeMismatch`) — a profile id on an application kind, none on a profile
  *   kind.
- * - **Reading** needs INSTRUMENT_READ and nothing more: the download needs the
- *   list, the catalogue and `resolve` for any viewer of a report. Profiles are
- *   not visibility-scoped anywhere in this API (a profile is a device type, the
- *   profile routes' rule), so a profile "out of view" is one that does not
- *   exist: 404. `resolve` IS scoped — it drops an instrument the caller cannot
- *   see, silently (the report never had it). An application kind's resolve
- *   names no instrument.
+ * - **Reading** (`readGate`, controller ruling T2-A 2026-11-03): an
+ *   APPLICATION-WIDE kind's templates are read by any signed-in user — the
+ *   Alarms and Audit Trail pages' own permissions gate those downloads, and
+ *   such a template names no instrument. Everything else — a profile kind, a
+ *   list with no `kind` (it mixes both scopes), a kind that is no kind — needs
+ *   INSTRUMENT_READ and nothing more: the download needs the list, the
+ *   catalogue and `resolve` for any viewer of a report. `GET /:id` decides by
+ *   the STORED row's kind, after the row is found (a missing row is 404).
+ *   Profiles are not visibility-scoped anywhere in this API (a profile is a
+ *   device type, the profile routes' rule), so a profile "out of view" is one
+ *   that does not exist: 404. `resolve` IS scoped — it drops an instrument the
+ *   caller cannot see, silently (the report never had it). An application
+ *   kind's resolve names no instrument.
  * - **Writing** is SUPER_ADMIN only, checked by ROLE in a `preValidation`
  *   hook so a non-super-admin is a 403 whatever they sent (the dashboards
  *   precedent). Then: the row (404) → `enforceReauth('UPDATE_REPORT_TEMPLATE')`
@@ -151,8 +157,8 @@ const catalogueQuery = z.object({ kind: kindSchema, profileId: profileIdSchema.o
 
 // ─── replies ─────────────────────────────────────────────────────────────────
 
-const invalid = (reply: FastifyReply, r: Pick<Refusal, 'message'> & { details?: Refusal['details'] }) =>
-  reply.code(400).send({ error: 'VALIDATION_ERROR', message: r.message, ...(r.details ? { details: r.details } : {}) });
+const invalid = (reply: FastifyReply, r: Pick<Refusal, 'message'> & { error?: Refusal['error']; details?: Refusal['details'] }) =>
+  reply.code(400).send({ error: r.error ?? 'VALIDATION_ERROR', message: r.message, ...(r.details ? { details: r.details } : {}) });
 const invalidQuery = (reply: FastifyReply, error: z.ZodError) => invalid(reply, {
   message: error.issues[0]?.message ?? 'Bad query',
   details: error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
@@ -179,14 +185,30 @@ async function superAdminOnly(req: FastifyRequest, reply: FastifyReply) {
 const asJson = (d: unknown) => d as Prisma.InputJsonValue;
 const present = (row: Parameters<typeof presentTemplate>[0]) => presentTemplate(row) as ReportTemplateRow;
 
+/** `page:alarms` / `page:audit-trail` — read by any signed-in user. Anything else (absent, an array, no kind) is not. */
+const isApplicationKind = (k: unknown): boolean => isTemplateKindValue(k) && templateKindScope(k) === 'application';
+
 export default async function reportTemplateRoutes(app: FastifyInstance) {
+  /**
+   * The READ gate (controller ruling T2-A): INSTRUMENT_READ, by the decorator's
+   * OWN check — SUPER_ADMIN and the permission fallbacks cannot drift from
+   * every other route — unless the kind is application-wide. The global auth
+   * hook has already answered 401 to a caller with no session.
+   */
+  const instrumentRead = app.requirePermission('INSTRUMENT_READ');
+  /** The gate for a read whose kind is in the QUERY: decided on the raw value, before it is parsed. */
+  const readGate = async (req: FastifyRequest, reply: FastifyReply) => {
+    if (isApplicationKind((req.query as { kind?: unknown }).kind)) return;
+    return instrumentRead(req, reply);
+  };
+
   // ─── LIST ──────────────────────────────────────────────
   app.get('/', {
-    preHandler: [app.requirePermission('INSTRUMENT_READ')],
+    preHandler: [readGate],
     schema: {
       tags: ['Report Templates'],
       summary: 'Report templates, by profile and / or kind',
-      description: 'Both filters optional; `profileId` omitted lists every scope, application-wide rows included (their `profileId` is null). Ordered by kind (TEMPLATE_KINDS order), then name ignoring case. The document is read forgivingly: a corrupt one reads as the kind\'s built-in.',
+      description: 'Both filters optional; `profileId` omitted lists every scope, application-wide rows included (their `profileId` is null). Ordered by kind (TEMPLATE_KINDS order), then name ignoring case. The document is read forgivingly: a corrupt one reads as the kind\'s built-in. Needs INSTRUMENT_READ, except with `kind` an application-wide kind (page:alarms, page:audit-trail): then any signed-in user. A list with no `kind` mixes both scopes and needs INSTRUMENT_READ.',
       querystring: { type: 'object', properties: { profileId: { type: 'string' }, kind: kindQuery } },
       response: { 200: { type: 'object', properties: { data: { type: 'array', items: rowSchema } } }, ...errorResponses },
     },
@@ -206,11 +228,11 @@ export default async function reportTemplateRoutes(app: FastifyInstance) {
 
   // ─── CATALOGUE ─────────────────────────────────────────
   app.get('/catalogue', {
-    preHandler: [app.requirePermission('INSTRUMENT_READ')],
+    preHandler: [readGate],
     schema: {
       tags: ['Report Templates'],
       summary: 'The fields a template of this kind (× profile) may print',
-      description: 'Built-in (per kind), then by the kind\'s profile fields: a reportable widget type adds key:<k> (the profile\'s measured device keys, measured: true, then its trend-page display keys) and attr:<k> (the profile\'s attribute keys, labelled by Attribute Display Names; sensor-offset keys for a SUPER_ADMIN only); a per-profile page kind adds attr:<k> only; pie_chart, alarm_counts and the application-wide kinds their built-ins only; text_card and floorplan: none. `profileId` is required for a profile kind and refused for an application-wide one (400 SCOPE_MISMATCH). 404 PROFILE_NOT_FOUND for no such profile.',
+      description: 'Built-in (per kind), then by the kind\'s profile fields: a reportable widget type adds key:<k> (the profile\'s measured device keys, measured: true, then its trend-page display keys) and attr:<k> (the profile\'s attribute keys, labelled by Attribute Display Names; sensor-offset keys for a SUPER_ADMIN only); a per-profile page kind adds attr:<k> only; pie_chart, alarm_counts and the application-wide kinds their built-ins only; text_card and floorplan: none. `profileId` is required for a profile kind and refused for an application-wide one (400 SCOPE_MISMATCH). 404 PROFILE_NOT_FOUND for no such profile. Needs INSTRUMENT_READ, except for an application-wide kind (any signed-in user).',
       querystring: { type: 'object', properties: { kind: kindQuery, profileId: { type: 'string' } } },
       response: { 200: { type: 'object', properties: { fields: { type: 'array', items: fieldSchema } } }, ...errorResponses },
     },
@@ -232,11 +254,11 @@ export default async function reportTemplateRoutes(app: FastifyInstance) {
 
   // ─── RESOLVE ───────────────────────────────────────────
   app.get('/resolve', {
-    preHandler: [app.requirePermission('INSTRUMENT_READ')],
+    preHandler: [readGate],
     schema: {
       tags: ['Report Templates'],
       summary: 'Which template a download uses, per profile (or application-wide)',
-      description: `A profile kind: the report's instruments grouped by profile, sections in the order each profile first appears in \`instrumentIds\`; each section's template is the profile's DEFAULT for the kind, or null (the built-in). An instrument the caller cannot see, or that does not exist, is dropped silently. \`instrumentIds\` is required (a comma list, at most ${REPORT_TEMPLATE_RESOLVE_IDS_MAX}); empty = no sections. An application-wide kind (page:alarms, page:audit-trail): NO \`instrumentIds\` (400 SCOPE_MISMATCH if sent) and ONE section { profileId: null, profileName: null, instrumentIds: [], template: the kind's default or null }.`,
+      description: `A profile kind (needs INSTRUMENT_READ): the report's instruments grouped by profile, sections in the order each profile first appears in \`instrumentIds\`; each section's template is the profile's DEFAULT for the kind, or null (the built-in). An instrument the caller cannot see, or that does not exist, is dropped silently. \`instrumentIds\` is required (a comma list, at most ${REPORT_TEMPLATE_RESOLVE_IDS_MAX}); empty = no sections. An application-wide kind (page:alarms, page:audit-trail; any signed-in user): NO \`instrumentIds\` (400 SCOPE_MISMATCH if sent) and ONE section { profileId: null, profileName: null, instrumentIds: [], template: the kind's default or null }.`,
       querystring: { type: 'object', properties: { kind: kindQuery, instrumentIds: { type: 'string' } } },
       response: { 200: { type: 'object', properties: { sections: { type: 'array', items: sectionSchema } } }, ...errorResponses },
     },
@@ -279,10 +301,10 @@ export default async function reportTemplateRoutes(app: FastifyInstance) {
 
   // ─── ONE ───────────────────────────────────────────────
   app.get('/:id', {
-    preHandler: [app.requirePermission('INSTRUMENT_READ')],
     schema: {
       tags: ['Report Templates'],
       summary: 'One report template',
+      description: 'Decided by the STORED row\'s kind, after the row is found: an application-wide template is read by any signed-in user, any other needs INSTRUMENT_READ (403). A missing row is 404.',
       params: idParams,
       response: { 200: rowSchema, ...errorResponses },
     },
@@ -291,6 +313,10 @@ export default async function reportTemplateRoutes(app: FastifyInstance) {
     const row = await findTemplate(id);
     const out = row ? presentTemplate(row) : null;
     if (!out) return templateNotFound(reply);
+    if (!isApplicationKind(out.kind)) {
+      await instrumentRead(req, reply);
+      if (reply.sent) return reply;
+    }
     return out;
   });
 

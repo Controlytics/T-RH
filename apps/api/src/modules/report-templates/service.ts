@@ -16,10 +16,11 @@
  *   shared schema AGAIN on the cleaned value — so a heading that is nothing but
  *   markup is refused in the schema's own words, never stored blank — then the
  *   one rule the kind-agnostic document schema leaves to the server: a built-in
- *   column must be a field of THIS kind (`REPORT_TEMPLATE_FIELDS`). `key:` /
- *   `attr:` columns are never checked against the profile: a key can be added
- *   later, and a column the profile lacks prints as "not available" at
- *   download (spec §6).
+ *   column must be a field of THIS kind (`REPORT_TEMPLATE_FIELDS`), and a
+ *   `key:` / `attr:` field must be one the kind can print at all
+ *   (`fieldNotForKind`, 400 COLUMN_NOT_FOR_KIND). They are never checked
+ *   against the PROFILE: a key can be added later, and a column the profile
+ *   lacks prints as "not available" at download (spec §6).
  * - **One reader for every row** (`presentTemplate`): the document goes through
  *   `coerceReportTemplateDocument`, so a corrupt row reads as the built-in.
  * - **Every write holds its SCOPE's lock** (`lockScope`): the profile row lock
@@ -36,7 +37,7 @@
 import type { FastifyRequest } from 'fastify';
 import type { Prisma } from '@prisma/client';
 import {
-  REPORT_TEMPLATE_FIELDS, isTemplateKind, templateKindLabel, templateKindScope,
+  REPORT_TEMPLATE_FIELDS, isTemplateKind, templateKindLabel, templateKindScope, templateKindTakesProfileFields,
   coerceReportTemplateDocument, reportTemplateCreateSchema, reportTemplateUpdateSchema,
   type TemplateKind, type ReportTemplateDocument, type ReportTemplateRow,
 } from '@digilog/shared';
@@ -115,7 +116,8 @@ export function byName(a: { name: string; id: string }, b: { name: string; id: s
 
 // ─── the write parser ────────────────────────────────────────────────────────
 
-export interface Refusal { ok: false; message: string; details: { path: string; message: string }[] }
+/** A write refused. `error` is the 400's code — VALIDATION_ERROR unless named (`COLUMN_NOT_FOR_KIND`). */
+export interface Refusal { ok: false; error?: 'COLUMN_NOT_FOR_KIND'; message: string; details: { path: string; message: string }[] }
 
 function refusal(issues: readonly ZodIssue[], prefix: string[] = []): Refusal {
   const details = issues.map((i) => ({ path: [...prefix, ...i.path].join('.'), message: i.message }));
@@ -158,6 +160,36 @@ export function foreignBuiltinColumn(kind: TemplateKind, d: ReportTemplateDocume
   return foreign ? `"${foreign.id}" is not a field of ${article(label).toLowerCase()} ${label} template` : null;
 }
 
+/**
+ * A profile field the kind's template can never print (controller ruling
+ * T2-B, 2026-11-03): a `key:` column unless the kind takes ALL profile fields, an
+ * `attr:` column or `attr:` information-row source when it takes NONE
+ * (`templateKindTakesProfileFields`). The catalogue never offers them; this
+ * refuses a hand-made write the same way, for EVERY kind — pie chart and alarm
+ * counts included. Not checked: whether the profile HAS the key or attribute
+ * (it may gain it later; spec §6). `key:` cannot be an info-row source at all
+ * (the shared schema). Null = fine.
+ */
+export function fieldNotForKind(kind: TemplateKind, d: ReportTemplateDocument): Refusal | null {
+  const takes = templateKindTakesProfileFields(kind);
+  const label = kindLabel(kind);
+  const refuse = (path: string, id: string, what: string): Refusal => {
+    const message = `"${id}" cannot be printed by ${article(label).toLowerCase()} ${label} template: it takes no ${what}.`;
+    return { ok: false, error: 'COLUMN_NOT_FOR_KIND', message, details: [{ path, message }] };
+  };
+  if (takes !== 'all') {
+    const key = d.columns.find((c) => c.id.startsWith('key:'));
+    if (key) return refuse('document.columns', key.id, 'device keys');
+  }
+  if (takes === 'none') {
+    const attr = d.columns.find((c) => c.id.startsWith('attr:'));
+    if (attr) return refuse('document.columns', attr.id, 'instrument attributes');
+    const row = d.infoBlock.find((r) => r.source.startsWith('attr:'));
+    if (row) return refuse('document.infoBlock', row.source, 'instrument attributes');
+  }
+  return null;
+}
+
 /** What a create stores. `profileId` null = application-wide (whether it FITS the kind is `scopeMismatch`'s). */
 export type CreateWrite = { profileId: string | null; kind: TemplateKind; name: string; isDefault: boolean; document: ReportTemplateDocument };
 
@@ -185,6 +217,8 @@ export function parseCreate(body: unknown): { ok: true; value: CreateWrite } | R
   if (!second.success) return refusal(second.error.issues);
   const foreign = foreignBuiltinColumn(second.data.kind, second.data.document);
   if (foreign) return { ok: false, message: foreign, details: [{ path: 'document.columns', message: foreign }] };
+  const notForKind = fieldNotForKind(second.data.kind, second.data.document);
+  if (notForKind) return notForKind;
   return { ok: true, value: { ...second.data, profileId: second.data.profileId ?? null } };
 }
 
@@ -204,6 +238,8 @@ export function parseUpdate(body: unknown, kind: TemplateKind): { ok: true; valu
   if (second.data.document) {
     const foreign = foreignBuiltinColumn(kind, second.data.document);
     if (foreign) return { ok: false, message: foreign, details: [{ path: 'document.columns', message: foreign }] };
+    const notForKind = fieldNotForKind(kind, second.data.document);
+    if (notForKind) return notForKind;
   }
   return { ok: true, value: second.data };
 }

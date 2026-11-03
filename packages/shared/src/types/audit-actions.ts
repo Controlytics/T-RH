@@ -158,10 +158,13 @@ export const AUDIT_ACTIONS = {
   REPORT_REVIEW_APPROVED: 'REPORT_REVIEW_APPROVED',
   REPORT_REVIEW_REJECTED: 'REPORT_REVIEW_REJECTED',
   REPORT_DOWNLOADED: 'REPORT_DOWNLOADED',
-  // Report templates (2026-11-02): what a widget's Download report prints, per
-  // instrument profile × widget type. Written by SUPER_ADMIN; targetType
-  // 'report_template', afterValue / beforeValue carry the name, profile, widget
-  // type, default flag and the WHOLE document.
+  // Report templates (2026-11-02; page kinds 2026-11-03): what a report prints,
+  // per template KIND (a widget type or a `page:` kind) and scope (an instrument
+  // profile, or application-wide). Written by SUPER_ADMIN; targetType
+  // 'report_template', afterValue / beforeValue carry the name, the `kind`, the
+  // scope — `profileId` / `profileName`, both null for an application-wide
+  // template — the default flag and the WHOLE document. Rows written before
+  // 2026-11-03 carry `widgetType` instead of `kind`.
   REPORT_TEMPLATE_CREATED: 'REPORT_TEMPLATE_CREATED',
   REPORT_TEMPLATE_UPDATED: 'REPORT_TEMPLATE_UPDATED',
   REPORT_TEMPLATE_DELETED: 'REPORT_TEMPLATE_DELETED',

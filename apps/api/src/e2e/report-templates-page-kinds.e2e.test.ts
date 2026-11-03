@@ -19,7 +19,15 @@
  *     only, of an application kind its built-ins only;
  *   - resolve of an application kind is ONE section with no profile;
  *   - the audit rows name `kind` and the scope; a profile's DELETE never takes
- *     an application-wide template with it.
+ *     an application-wide template with it;
+ *   - (ruling T2-A) the READ gate follows the scope: an application-wide kind is
+ *     read by any signed-in user — here a role with AUDIT_READ / ALARM_READ and
+ *     NO INSTRUMENT_READ — while a profile kind, a list with no kind and a
+ *     stored profile template still need INSTRUMENT_READ (403);
+ *   - (ruling T2-B) a field the kind can never print is 400 COLUMN_NOT_FOR_KIND
+ *     on create and update — `key:` unless the kind takes every profile field,
+ *     `attr:` (column or information row) when it takes none (mutation: drop
+ *     each refusal → its own case fails).
  *
  * Owns its super admin, reader role and user, profiles and instrument.
  * Application-wide rows are GLOBAL in the shared test database, so every name
@@ -41,12 +49,14 @@ import {
 const S = Date.now().toString(36).toUpperCase();
 const s = S.toLowerCase();
 const READER = `RTPK_READ_${S}`;
+/** A role with NO INSTRUMENT_READ — the Alarms / Audit Trail reader of ruling T2-A. */
+const NOREAD = `RTPK_NOREAD_${S}`;
 const PW = 'Rep0rtPageK1nds';
-const NAME = { sa: `rtpk_sa_${s}`, rd: `rtpk_rd_${s}` };
+const NAME = { sa: `rtpk_sa_${s}`, rd: `rtpk_rd_${s}`, no: `rtpk_no_${s}` };
 
 let app: FastifyInstance;
 type H = Record<string, string>;
-let sa: H, rd: H;
+let sa: H, rd: H, no: H;
 const userIds: string[] = [];
 const profiles: string[] = [];
 const instruments: string[] = [];
@@ -89,7 +99,7 @@ function measurements() {
 
 const post = (body: Record<string, unknown>, headers: H = sa) =>
   app.inject({ method: 'POST', url: '/api/report-templates', headers, payload: body as never });
-async function create(body: { kind: TemplateKind; name: string; profileId?: string | null; isDefault?: boolean }): Promise<Row> {
+async function create(body: { kind: TemplateKind; name: string; profileId?: string | null; isDefault?: boolean; document?: unknown }): Promise<Row> {
   const res = await post({ document: builtinReportTemplate(body.kind), ...body });
   expect(res.statusCode, res.body).toBe(201);
   const row = res.json() as Row;
@@ -113,9 +123,11 @@ const auditFor = (templateId: string): Promise<AuditRow[]> => prisma.auditTrail.
 beforeAll(async () => {
   app = await buildApp();
   await prisma.role.create({ data: { name: READER, displayName: READER, hierarchyLevel: 2, permissions: ['INSTRUMENT_READ'] } });
+  await prisma.role.create({ data: { name: NOREAD, displayName: NOREAD, hierarchyLevel: 2, permissions: ['AUDIT_READ', 'ALARM_READ'] } });
   invalidateRolePermsCache();
   await makeUser(NAME.sa, 'SUPER_ADMIN');
   await makeUser(NAME.rd, READER);
+  await makeUser(NAME.no, NOREAD);
 
   PNAME = `RTPK Profile ${S}`;
   P = await makeProfile(PNAME, {
@@ -130,6 +142,7 @@ beforeAll(async () => {
 
   sa = { authorization: `Bearer ${await loginAs(app, NAME.sa, PW)}` };
   rd = { authorization: `Bearer ${await loginAs(app, NAME.rd, PW)}` };
+  no = { authorization: `Bearer ${await loginAs(app, NAME.no, PW)}` };
 });
 
 afterAll(async () => {
@@ -145,7 +158,7 @@ afterAll(async () => {
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
   } catch (e) { console.error('cleanup users', e); }
   try {
-    await prisma.role.deleteMany({ where: { name: READER } });
+    await prisma.role.deleteMany({ where: { name: { in: [READER, NOREAD] } } });
     invalidateRolePermsCache();
   } catch (e) { console.error('cleanup roles', e); }
   invalidateProfileMeasurementsCache();
@@ -379,5 +392,140 @@ describe('/api/report-templates — page kinds and the application scope', () =>
     expect(audit[1].beforeValue).not.toHaveProperty('widgetType');
     // The application-wide rows are untouched.
     expect(await prisma.reportTemplate.findUnique({ where: { id: plant.id } })).not.toBeNull();
+  });
+
+  // ─── ruling T2-A: the READ gate follows the scope ──────────────────────────
+
+  it('an application-wide kind is read by any signed-in user, with NO INSTRUMENT_READ', async () => {
+    const open = await create({ kind: 'page:audit-trail', name: `Open read ${S}` });
+
+    const resolved = await get('/resolve?kind=page:audit-trail', no);
+    expect(resolved.statusCode, resolved.body).toBe(200);
+    const sections = resolved.json().sections as Section[];
+    expect(sections).toHaveLength(1);
+    expect(sections[0]).toMatchObject({ profileId: null, profileName: null, instrumentIds: [] });
+
+    const listed = await get('/?kind=page:audit-trail', no);
+    expect(listed.statusCode, listed.body).toBe(200);
+    const rows = (listed.json() as { data: Row[] }).data;
+    expect(rows.map((r) => r.id)).toContain(open.id);
+    expect(rows.every((r) => r.kind === 'page:audit-trail' && r.profileId === null)).toBe(true);
+
+    const catalogue = await get('/catalogue?kind=page:audit-trail', no);
+    expect(catalogue.statusCode, catalogue.body).toBe(200);
+    expect(fieldsOf(catalogue)).toEqual(REPORT_TEMPLATE_FIELDS('page:audit-trail'));
+
+    const one = await get(`/${open.id}`, no);
+    expect(one.statusCode, one.body).toBe(200);
+    expect(one.json()).toEqual(open);
+
+    // The scope rules still hold on an open read.
+    const withIds = await get(`/resolve?kind=page:alarms&instrumentIds=${I}`, no);
+    expect(withIds.statusCode, withIds.body).toBe(400);
+    expect(withIds.json().error).toBe('SCOPE_MISMATCH');
+  });
+
+  it('a profile kind, a list with no kind and a stored profile template still need INSTRUMENT_READ: 403', async () => {
+    const closed = await create({ kind: 'page:instrument-alarms', profileId: P, name: `Closed read ${S}` });
+    for (const res of [
+      await get(`/resolve?kind=page:data-report&instrumentIds=${I}`, no),
+      await get(`/catalogue?kind=page:data-report&profileId=${P}`, no),
+      await get('/?kind=page:data-report', no),
+      // No kind: the list mixes both scopes.
+      await get('/', no),
+      await get(`/?profileId=${P}`, no),
+      // Found, and a profile kind: 403 only after the row is found.
+      await get(`/${closed.id}`, no),
+    ]) {
+      expect(res.statusCode, res.body).toBe(403);
+      expect(res.json().error).toBe('FORBIDDEN');
+    }
+    // A row that does not exist is 404, as before.
+    const ghost = await get(`/${randomUUID()}`, no);
+    expect(ghost.statusCode, ghost.body).toBe(404);
+    expect(ghost.json().error).toBe('TEMPLATE_NOT_FOUND');
+    // The same reads for a holder of INSTRUMENT_READ: 200.
+    expect((await get(`/${closed.id}`, rd)).statusCode).toBe(200);
+    expect((await get(`/catalogue?kind=page:data-report&profileId=${P}`, rd)).statusCode).toBe(200);
+  });
+
+  it('no session is 401 whatever the kind', async () => {
+    for (const url of ['/resolve?kind=page:audit-trail', '/?kind=page:alarms', '/catalogue?kind=page:alarms']) {
+      const res = await app.inject({ method: 'GET', url: `/api/report-templates${url}` });
+      expect(res.statusCode, `${url} ${res.body}`).toBe(401);
+    }
+  });
+
+  // ─── ruling T2-B: a field the kind can never print is refused ──────────────
+
+  it('a key: column on a kind that takes no device keys: 400 COLUMN_NOT_FOR_KIND, on create and on update', async () => {
+    const dr = builtinReportTemplate('page:data-report');
+    const onPage = await post({
+      kind: 'page:data-report', profileId: P, name: `Key col ${S}`,
+      document: { ...dr, columns: [...dr.columns, { id: 'key:t', heading: 'T', show: true }] },
+    });
+    expect(onPage.statusCode, onPage.body).toBe(400);
+    expect(onPage.json().error).toBe('COLUMN_NOT_FOR_KIND');
+    expect(onPage.json().message).toContain('"key:t"');
+    expect(onPage.json().message).toContain('Data Report');
+
+    // Every kind: a pie chart takes no device keys either (its catalogue already withholds them).
+    const pie = builtinReportTemplate('pie_chart');
+    const onPie = await post({
+      kind: 'pie_chart', profileId: P, name: `Key pie ${S}`,
+      document: { ...pie, columns: [...pie.columns, { id: 'key:t', heading: 'T', show: true }] },
+    });
+    expect(onPie.statusCode, onPie.body).toBe(400);
+    expect(onPie.json().error).toBe('COLUMN_NOT_FOR_KIND');
+    expect(await prisma.reportTemplate.count({ where: { name: { in: [`Key col ${S}`, `Key pie ${S}`] } } })).toBe(0);
+
+    // The same rule on a save.
+    const t = await create({ kind: 'page:data-report', profileId: P, name: `Key save ${S}` });
+    const saved = await app.inject({
+      method: 'PUT', url: `/api/report-templates/${t.id}`, headers: sa,
+      payload: { document: { ...dr, columns: [...dr.columns, { id: 'key:rh', heading: 'RH', show: true }] } },
+    });
+    expect(saved.statusCode, saved.body).toBe(400);
+    expect(saved.json().error).toBe('COLUMN_NOT_FOR_KIND');
+    expect((await prisma.reportTemplate.findUniqueOrThrow({ where: { id: t.id } })).document).toEqual(dr);
+  });
+
+  it('an attr: information row on an application kind: 400 COLUMN_NOT_FOR_KIND', async () => {
+    const al = builtinReportTemplate('page:alarms');
+    const res = await post({
+      kind: 'page:alarms', name: `Attr row ${S}`,
+      document: { ...al, infoBlock: [...al.infoBlock, { label: 'Location', source: 'attr:Location' }] },
+    });
+    expect(res.statusCode, res.body).toBe(400);
+    expect(res.json().error).toBe('COLUMN_NOT_FOR_KIND');
+    expect(res.json().message).toContain('"attr:Location"');
+    expect(res.json().message).toContain('Alarm Report');
+    expect(await prisma.reportTemplate.count({ where: { name: `Attr row ${S}` } })).toBe(0);
+  });
+
+  it('an attr: column on an application kind: 400 COLUMN_NOT_FOR_KIND', async () => {
+    const au = builtinReportTemplate('page:audit-trail');
+    const res = await post({
+      kind: 'page:audit-trail', name: `Attr col ${S}`,
+      document: { ...au, columns: [...au.columns, { id: 'attr:Location', heading: 'Location', show: true }] },
+    });
+    expect(res.statusCode, res.body).toBe(400);
+    expect(res.json().error).toBe('COLUMN_NOT_FOR_KIND');
+    expect(res.json().message).toContain('Audit Trail');
+  });
+
+  it('what a kind CAN print is accepted: attr: on a per-profile page kind, key: on a gauge', async () => {
+    const dr = builtinReportTemplate('page:data-report');
+    const attr = await create({
+      kind: 'page:data-report', profileId: P, name: `Attr ok ${S}`,
+      document: { ...dr, columns: [...dr.columns, { id: 'attr:Location', heading: 'Location', show: true }] },
+    });
+    expect(attr.document.columns.map((c) => c.id)).toContain('attr:Location');
+    const gauge = builtinReportTemplate('gauge');
+    const key = await create({
+      kind: 'gauge', profileId: P, name: `Key ok ${S}`,
+      document: { ...gauge, columns: [...gauge.columns, { id: 'key:t', heading: 'T', show: true }] },
+    });
+    expect(key.document.columns.map((c) => c.id)).toContain('key:t');
   });
 });
