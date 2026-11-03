@@ -168,6 +168,31 @@ describe('buildTemplatedReport — the cells', () => {
   });
 });
 
+describe('buildTemplatedReport — an intentionally empty cell (ruling T3-E)', () => {
+  it('a PAGE kind prints exactly \'\' as empty; null, undefined and whitespace still print —; a WIDGET kind prints \'\' as — as before', async () => {
+    const page = await buildTemplatedReport({
+      kind: 'page:alarms', reportKey: 'alarms', values: {}, formatDateTime,
+      sections: [section({
+        profileId: null, profileName: null, document: builtinReportTemplate('page:alarms'), availableIds: builtinIds('page:alarms'),
+        rows: [{ 'alarm.date': '03/11/2026', 'alarm.pv': null, 'alarm.high': '', 'alarm.low': '   ' }],
+      })],
+    });
+    const [, records] = only(page.report.getSnapshot().sections, 'table');
+    const at = (id: string) => records.body[0][builtinIds('page:alarms').indexOf(id)];
+    expect(at('alarm.date')).toBe('03/11/2026');
+    expect(at('alarm.high')).toBe('');
+    expect(at('alarm.low')).toBe(REPORT_VALUE_MISSING);
+    expect(at('alarm.pv')).toBe(REPORT_VALUE_MISSING);
+    expect(at('alarm.uom')).toBe(REPORT_VALUE_MISSING);
+
+    const widget = await buildTemplatedReport({
+      kind: 'status_grid', reportKey: 'Widget: Status grid', values: {}, formatDateTime,
+      sections: [section({ document: builtinReportTemplate('status_grid'), availableIds: builtinIds('status_grid'), rows: [{ 'instrument.code': 'A', 'instrument.area': '' }] })],
+    });
+    expect(only(widget.report.getSnapshot().sections, 'table')[0].body).toEqual([['A', REPORT_VALUE_MISSING, REPORT_VALUE_MISSING, REPORT_VALUE_MISSING]]);
+  });
+});
+
 describe('buildTemplatedReport — page kinds', () => {
   const trendValues = {
     block: 'CWH', area: 'QC', location: 'Lab 1', instrument: 'CWH/RDU/001-00',

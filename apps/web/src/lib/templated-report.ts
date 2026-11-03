@@ -353,7 +353,16 @@ function printTable(
 ): { records: number; missing: string[] } {
   const shown = section.document.columns.filter((c) => c.show);
   if (!shown.length) return { records: 0, missing: [] };
-  const body: TableCell[][] = rows.map((row) => shown.map((c) => (available.has(c.id) ? formatReportCell(row[c.id], c) : '')));
+  // A PAGE kind's row may hold an intentionally EMPTY cell — exactly `''` —
+  // which prints empty (ruling T3-E: the Alarm Report prints a switched-off
+  // limit as an empty box, operator 2026-09-07). Nothing else changes: null,
+  // undefined and whitespace still print `—`, and a widget's `''` still `—`.
+  const pageKind = isPageTemplateKind(kind);
+  const cell = (row: ReportRow, c: ReportTemplateColumn): string => {
+    if (!available.has(c.id)) return '';
+    return pageKind && row[c.id] === '' ? '' : formatReportCell(row[c.id], c);
+  };
+  const body: TableCell[][] = rows.map((row) => shown.map((c) => cell(row, c)));
   // The grid is by built-in FIELD (the page's own column order); re-indexed to
   // the template's shown columns. A merged grain has no input row to follow.
   const fieldIndex = new Map(REPORT_TEMPLATE_FIELDS(kind).map((f, i) => [f.id, i]));
