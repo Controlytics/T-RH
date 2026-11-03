@@ -16,6 +16,9 @@ import {
 import { exportChain, exportFileName, importChain } from './import-export.js';
 import { maskDocumentSecrets } from './secrets.js';
 import { roleHasPermission } from '../../plugins/rbac.js';
+import { ruleEngine } from './engine.js';
+import { RuleScriptError, type RuleScriptKind } from './script-vm.js';
+import { newMessage, toMetadata, RULE_ENGINE_ORIGIN_KEY, REST_API_ORIGIN, type RuleOriginator } from './message.js';
 
 /**
  * `/api/rule-chains` — rule chains (Task 2 of the rule-chains plan; spec
@@ -40,8 +43,8 @@ import { roleHasPermission } from '../../plugins/rbac.js';
  *   RULE_CHAIN_MANAGE (ruling T2-B); a save or an import that sends "***"
  *   KEEPS the value stored for that node id, and an import reports each node
  *   whose credential must be entered again; audit rows record them masked.
- * - `/stats`, `/test-script` and `POST /api/rule-engine/v1/messages` answer
- *   stubs until the engine exists (Task 3 wires them).
+ * - `/stats`, `/test-script` and `POST /api/rule-engine/v1/messages` call the
+ *   engine (engine.ts, Task 3): its live numbers, its script VM, its queue.
  */
 export const UPDATE_RULE_CHAIN_ACTION = 'UPDATE_RULE_CHAIN';
 const READ = 'RULE_CHAIN_READ';
@@ -133,34 +136,47 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
     },
   }, async () => ({ data: NODE_TYPE_DESCRIPTORS }));
 
-  // ─── STATS (Task 3 fills) ──────────────────────────────
+  // ─── STATS ─────────────────────────────────────────────
   app.get('/stats', {
     ...canRead,
     schema: {
       tags: ['Rule Chains'],
       summary: 'Rule engine statistics',
-      description: 'Whether the engine is switched on (Configuration → Rule Engine), the queue depth, messages dropped, messages processed in the last minute, per chain. Zeros until the engine runs.',
+      description: 'Whether the engine is switched on (Configuration → Rule Engine), the queue depth, messages dropped since the server started (the queue was full), messages processed in the last minute, and per chain. Zeros while the engine is not running.',
       response: statsResponse,
     },
-  }, async () => ({
-    enabled: (await getRuleEngineConfig()).enabled,
-    queueDepth: 0,
-    dropped: 0,
-    processedLastMinute: 0,
-    chains: [] as { id: string; processedLastMinute: number }[],
-  }));
+  }, async () => {
+    const s = ruleEngine.stats();
+    return {
+      // The stored switch, not the engine's 1 s snapshot: a save shows at once.
+      enabled: (await getRuleEngineConfig()).enabled,
+      queueDepth: s.queueDepth,
+      dropped: s.dropped,
+      processedLastMinute: s.processedLastMinute,
+      chains: s.chains,
+    };
+  });
 
-  // ─── TEST SCRIPT (Task 3 wires) ────────────────────────
+  // ─── TEST SCRIPT ───────────────────────────────────────
   app.post('/test-script', {
     ...canManage,
     schema: {
       tags: ['Rule Chains'],
       summary: 'Run a node script against a sample message',
-      description: 'The editor\'s Test script button. 503 ENGINE_NOT_STARTED until the rule engine exists.',
+      description: 'The editor\'s Test script button: the script runs in the engine\'s script VM, with the configured time budget, against `msg` / `metadata` / `msgType` (defaults `{}`, `{}`, POST_TELEMETRY_REQUEST). 200 `{ result }` — a filter\'s boolean, a switch\'s relation list, a transform\'s message list, else the return value. 400 `{ error: SCRIPT_SYNTAX | SCRIPT_TIMEOUT | SCRIPT_ERROR | SCRIPT_RESULT, message }`. Runs whether or not the engine is switched on.',
       body: testScriptBody,
     },
-  }, async (_req, reply) =>
-    reply.code(503).send({ error: ENGINE_NOT_STARTED, message: 'The rule engine is not running yet, so a script cannot be tested.' }));
+  }, async (req, reply) => {
+    const body = req.body as { scriptType: RuleScriptKind; script: string; msg?: unknown; metadata?: Record<string, unknown>; msgType?: string };
+    try {
+      const result = await ruleEngine.runScript(body.scriptType, body.script, body.msg ?? {}, toMetadata(body.metadata ?? {}),
+        body.msgType?.trim() || 'POST_TELEMETRY_REQUEST');
+      return { result: result === undefined ? null : result };
+    } catch (err) {
+      if (err instanceof RuleScriptError) return reply.code(400).send({ error: err.code, message: err.message });
+      throw err;
+    }
+  });
 
   // ─── IMPORT ────────────────────────────────────────────
   app.post('/import', {
@@ -362,8 +378,8 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 
 /**
  * `/api/rule-engine/v1` — ThingsBoard's "REST API request": a message injected
- * into the root chain (spec §5). RULE_CHAIN_MANAGE. Task 3 wires it to the
- * engine; until then it accepts nothing and says why.
+ * into the root chain (spec §5). RULE_CHAIN_MANAGE. Fire and forget: 202 with
+ * the message id as soon as the queue admits it.
  */
 export async function ruleEngineIngressRoutes(app: FastifyInstance) {
   app.post('/messages', {
@@ -371,9 +387,24 @@ export async function ruleEngineIngressRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Rule Chains'],
       summary: 'Inject a message into the root rule chain',
-      description: 'Body `{ type?, originatorCode?, data, metadata? }` — a REST_API_REQUEST from an instrument (by code) or the system. 202 `{ accepted: false, reason: "ENGINE_NOT_STARTED" }` until the rule engine runs.',
+      description: 'Body `{ type?, originatorCode?, data, metadata? }` — a message (type REST_API_REQUEST unless given) from the instrument with that code (ignoring case; 404 ORIGINATOR_NOT_FOUND) or, with no code, from SYSTEM. `metadata.requestId` is the message id; `metadata.rule_engine_origin` is `rest_api`. 202 `{ accepted: true, msgId }`, or `{ accepted: false, reason: ENGINE_NOT_STARTED | ENGINE_DISABLED | QUEUE_REFUSED }`.',
       body: injectBody,
       response: injectResponse,
     },
-  }, async (_req, reply) => reply.code(202).send({ accepted: false, reason: ENGINE_NOT_STARTED }));
+  }, async (req, reply) => {
+    const body = req.body as { type?: string; originatorCode?: string; data: unknown; metadata?: Record<string, string> };
+    let originator: RuleOriginator = { type: 'SYSTEM', id: 'SYSTEM' };
+    const code = body.originatorCode?.trim();
+    if (code) {
+      const instrument = await ruleEngine.services.instruments.byCode(code);
+      if (!instrument) return reply.code(404).send({ error: 'ORIGINATOR_NOT_FOUND', message: `No instrument has the code "${code}".` });
+      originator = { type: 'INSTRUMENT', id: instrument.id, code: instrument.code };
+    }
+    if (!ruleEngine.started) return reply.code(202).send({ accepted: false, reason: ENGINE_NOT_STARTED });
+    const msg = newMessage(body.type?.trim() || 'REST_API_REQUEST', originator, body.data ?? null, { ...(body.metadata ?? {}) });
+    msg.metadata.requestId = msg.id;
+    msg.metadata[RULE_ENGINE_ORIGIN_KEY] = REST_API_ORIGIN;
+    if (ruleEngine.enqueue(msg)) return reply.code(202).send({ accepted: true, msgId: msg.id });
+    return reply.code(202).send({ accepted: false, reason: ruleEngine.config().enabled ? 'QUEUE_REFUSED' : 'ENGINE_DISABLED' });
+  });
 }

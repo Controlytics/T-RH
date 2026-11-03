@@ -1,0 +1,464 @@
+/**
+ * THE RULE ENGINE end to end (Task 3 of the rule-chains plan; spec
+ * docs/superpowers/specs/2026-11-03-rule-chains-design.md §5, §6) — on the
+ * TEST database, through the real ingest routes, the real engine singleton,
+ * the real debug writer and the real services.
+ *
+ * Pins:
+ *   - a telemetry post enters the ROOT chain — the shipped document
+ *     (`defaultRootChainDocument()`, the seeded chain's node ids) with debug
+ *     ON on its switch and Save Timeseries: within 2 s the Message Type Switch
+ *     has an IN row POST_TELEMETRY_REQUEST carrying `data.values.temp` and
+ *     `metadata.instrumentCode`;
+ *   - THE LOOP GUARD: with Save Timeseries writing (skip OFF), its write does
+ *     NOT come back as a second POST_TELEMETRY_REQUEST — until the chain's
+ *     "Re-enter on rule-node writes" is ON (mutation: drop the guard → the
+ *     first case sees two);
+ *   - the rule write is the ingest write path: no offset pass, an identical
+ *     reading is an upsert no-op (no TELEMETRY_READING_REWRITTEN row);
+ *   - a device attribute report enters as POST_ATTRIBUTES_REQUEST, an
+ *     instrument create as ENTITY_CREATED;
+ *   - the inject route → REST_API_REQUEST; test-script → `{ result: true }`;
+ *     `/stats` → real numbers;
+ *   - Configuration → Rule Engine `enabled = false` → nothing is processed;
+ *   - the durable task re-injects AFTER the given node (a debug row at the
+ *     next node), and `services.durable.enqueue` writes a graphile job on
+ *     `rule-engine:<originatorId>` with its runAt;
+ *   - the debug writer skips a chain that no longer exists; the hourly sweep
+ *     applies the age and the per-node cap.
+ *
+ * The seeded chain's four node types have no handlers until Tasks 4 / 5:
+ * stand-ins are registered under the REAL type ids (and restored after). The
+ * Save Timeseries stand-in writes through `services.telemetry.write` for an
+ * INGEST-origin message only, so a re-entered message cannot loop.
+ *
+ * The run's root chain is its OWN copy of the shipped document, made root for
+ * the run (raw SQL, as `setRoot` does) — the seeded chain is never edited, so
+ * a run that dies half way cannot leave the seeded document dirty (an earlier
+ * version edited it in place, and an out-of-memory run did exactly that).
+ * beforeAll removes a crashed run's copy and puts the seeded root back first;
+ * afterAll does the same. Owns its super admin, instrument and config rows.
+ */
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import type { FastifyInstance } from 'fastify';
+import { randomUUID } from 'node:crypto';
+import { DEFAULT_ROOT_CHAIN_NODE_IDS, defaultRootChainDocument, messageTypeSwitchLabel, type RuleChainDocument } from '@digilog/shared';
+import { buildApp, loginAs } from './test-helper.js';
+import { prisma } from '../lib/prisma.js';
+import { hashPassword } from '../lib/password.js';
+import { fixtureProfileId } from '../test-support/fixture-profile.js';
+import { setFixtureMeasurements } from '../test-support/fixture-measurements.js';
+import { ensurePartitions } from '../workers/telemetry-partition.worker.js';
+import { ruleEngine } from '../modules/rule-engine/engine.js';
+import { registerNode } from '../modules/rule-engine/registry.js';
+import { invalidateChainCache } from '../modules/rule-engine/service.js';
+import { invalidateRuleEngineConfigCache } from '../modules/rule-engine/config.js';
+import { insertDebugRows, toDebugRow } from '../modules/rule-engine/debug.js';
+import { newMessage, ruleNodeOrigin, type RuleMessage } from '../modules/rule-engine/message.js';
+import { runRuleEngineMessage } from '../workers/rule-engine-message.worker.js';
+import { runRuleEngineDebugSweep } from '../workers/rule-engine-debug-sweep.worker.js';
+import { invalidateOffsetConfigCache } from '../modules/instruments/load-offsets.js';
+
+const SEEDED = 'b1a7e000-0000-4000-8000-000000000000';
+const SWITCH = DEFAULT_ROOT_CHAIN_NODE_IDS.messageTypeSwitch;
+const SAVE_TS = DEFAULT_ROOT_CHAIN_NODE_IDS.saveTimeseries;
+const STAMP = Date.now().toString(36);
+const SA = `re_sa_${STAMP}`;
+const PW = 'RuleEngine@2026';
+/** This run's root chain: a copy of the shipped document (same node ids — two chains may share them). */
+const ROOT = randomUUID();
+const ROOT_NAME_PREFIX = 'RE e2e root ';
+
+let app: FastifyInstance;
+let sa: Record<string, string>;
+let userId: string;
+let inst: { id: string; code: string; token: string };
+let engineCfgBefore: { configValue: unknown; configType: string; requiresReauth: boolean } | null | undefined;
+const startedAt = new Date();
+const restores: (() => void)[] = [];
+const createdInstruments: string[] = [];
+const otherChains: string[] = [];
+
+// ─── helpers ─────────────────────────────────────────────────────────────────
+
+async function setEngineConfig(patch: Record<string, unknown>) {
+  const base = { enabled: true, skipSaveNodesForIngestOrigin: false, scriptTimeoutMs: 2000, queueCapacity: 10000, concurrency: 8,
+    debugRetentionHours: 24, debugMaxEventsPerNode: 1000, httpTimeoutMs: 10000, hopLimit: 200 };
+  const value = { ...base, ...patch };
+  await prisma.systemConfig.upsert({
+    where: { configKey: 'rule-engine' },
+    update: { configValue: value as never },
+    create: { configKey: 'rule-engine', configValue: value as never, configType: 'system', requiresReauth: false },
+  });
+  invalidateRuleEngineConfigCache();
+  await ruleEngine.refreshConfig();
+}
+
+/** The shipped document with debug ON on the switch and Save Timeseries. */
+function rootDocument(): RuleChainDocument {
+  const doc = defaultRootChainDocument();
+  return { ...doc, nodes: doc.nodes.map((n) => (n.id === SWITCH || n.id === SAVE_TS ? { ...n, debugMode: 'all' } : n)) };
+}
+
+/** This run's root chain's "Re-enter on rule-node writes". */
+async function setReEnter(on: boolean) {
+  await prisma.$executeRaw`UPDATE rule_chains SET re_enter_on_rule_node_writes = ${on} WHERE id = ${ROOT}::uuid`;
+  invalidateChainCache();
+}
+
+/** The seeded chain is the root again, and no run's copy is left (a crashed run's included). */
+async function restoreSeededRoot() {
+  await prisma.$transaction([
+    prisma.$executeRaw`UPDATE rule_chains SET root = false WHERE root AND id <> ${SEEDED}::uuid`,
+    prisma.$executeRaw`UPDATE rule_chains SET root = true WHERE id = ${SEEDED}::uuid`,
+    prisma.$executeRaw`DELETE FROM rule_chains WHERE name LIKE ${`${ROOT_NAME_PREFIX}%`}`,
+  ]);
+  invalidateChainCache();
+}
+
+type DebugRow = { node_id: string; direction: string; relation: string | null; msg_id: string; msg_type: string; originator_id: string; data: any; metadata: any; ts: Date };
+
+const rows = (where: { nodeId?: string; msgType?: string; originatorId?: string; msgId?: string; direction?: 'IN' | 'OUT' } = {}) => prisma.$queryRaw<DebugRow[]>`
+  SELECT node_id::text, direction, relation, msg_id, msg_type, originator_id, data, metadata, ts
+  FROM rule_node_debug_events
+  WHERE chain_id = ${ROOT}::uuid AND ts >= ${startedAt}
+    AND (${where.nodeId ?? null}::text IS NULL OR node_id = ${where.nodeId ?? null}::uuid)
+    AND (${where.msgType ?? null}::text IS NULL OR msg_type = ${where.msgType ?? null})
+    AND (${where.originatorId ?? null}::text IS NULL OR originator_id = ${where.originatorId ?? null})
+    AND (${where.msgId ?? null}::text IS NULL OR msg_id = ${where.msgId ?? null})
+    AND (${where.direction ?? null}::text IS NULL OR direction = ${where.direction ?? null})
+  ORDER BY id`;
+
+async function waitForRows(where: Parameters<typeof rows>[0], atLeast: number, ms = 2_000): Promise<DebugRow[]> {
+  const until = Date.now() + ms;
+  for (;;) {
+    const found = await rows(where);
+    if (found.length >= atLeast || Date.now() > until) return found;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
+/** Let the engine finish everything queued and write its debug rows. */
+async function settle() {
+  await ruleEngine.drain();
+  await new Promise((r) => setTimeout(r, 50));
+  await ruleEngine.drain();
+}
+
+const ingest = (body: unknown) => app.inject({ method: 'POST', url: '/api/ingest/v1/telemetry', headers: { authorization: `Bearer ${inst.token}` }, payload: body as never });
+
+// ─── lifecycle ───────────────────────────────────────────────────────────────
+
+beforeAll(async () => {
+  app = await buildApp();
+  await ensurePartitions(1);
+  // A crashed run's copy (and its root flag) goes first.
+  await restoreSeededRoot();
+  expect(await prisma.ruleChain.count({ where: { id: SEEDED, root: true } }), 'the seeded root chain must exist').toBe(1);
+  const cfgRow = await prisma.systemConfig.findUnique({ where: { configKey: 'rule-engine' } });
+  engineCfgBefore = cfgRow ? { configValue: cfgRow.configValue, configType: cfgRow.configType, requiresReauth: cfgRow.requiresReauth } : null;
+  // The fixture instrument carries no offset attribute, so ingest stores the reading as sent.
+  invalidateOffsetConfigCache();
+
+  const u = await prisma.user.create({
+    data: { username: SA, fullName: SA, role: 'SUPER_ADMIN', status: 'ENABLED', passwordHash: await hashPassword(PW),
+      passwordChangedAt: new Date(), isTemporaryPassword: false, forcePasswordChange: false },
+  });
+  userId = u.id;
+  sa = { authorization: `Bearer ${await loginAs(app, SA, PW)}` };
+
+  // The stand-ins (see the header), under the real type ids.
+  restores.push(registerNode('tb:filter:message-type-switch', (ctx, msg) => ctx.tellNext(msg, messageTypeSwitchLabel(msg.type))));
+  restores.push(registerNode('tb:action:save-timeseries', async (ctx, msg) => {
+    const skip = ctx.services.config().skipSaveNodesForIngestOrigin;
+    if (msg.metadata.rule_engine_origin !== 'ingest' || skip) return;
+    const data = msg.data as { ts: number; values: Record<string, unknown> };
+    await ctx.services.telemetry.write(msg.originator.id,
+      Object.entries(data.values).map(([key, value]) => ({ key, value, ts: new Date(data.ts) })), ctx.origin);
+    ctx.tellNext(msg, 'Success');
+  }));
+  restores.push(registerNode('tb:action:save-attributes', () => undefined));
+  restores.push(registerNode('tb:action:log', () => undefined));
+
+  // This run's root: the shipped document with debug ON, made root as setRoot does (old root unset first).
+  await prisma.ruleChain.create({
+    data: { id: ROOT, name: `${ROOT_NAME_PREFIX}${STAMP}`, firstNodeId: SWITCH, document: rootDocument() as never },
+  });
+  await prisma.$transaction([
+    prisma.$executeRaw`UPDATE rule_chains SET root = false WHERE id = ${SEEDED}::uuid`,
+    prisma.$executeRaw`UPDATE rule_chains SET root = true WHERE id = ${ROOT}::uuid`,
+  ]);
+  invalidateChainCache();
+  await setEngineConfig({});
+  await ruleEngine.start();
+
+  const res = await app.inject({ method: 'POST', url: '/api/instruments', headers: sa,
+    payload: { profileId: await fixtureProfileId('fixture:rule-engine'), name: `RE ${STAMP}`, code: `RE-${STAMP}` } });
+  expect(res.statusCode, res.body).toBe(201);
+  inst = res.json();
+  createdInstruments.push(inst.id);
+});
+
+afterAll(async () => {
+  try { await ruleEngine.stop(); } catch (e) { console.error('engine stop', e); }
+  while (restores.length) restores.pop()!();
+  // The seeded root back, this run's copy deleted (its debug rows cascade with it).
+  try { await restoreSeededRoot(); } catch (e) { console.error('restore seeded root', e); }
+  try {
+    if (engineCfgBefore) await prisma.systemConfig.update({ where: { configKey: 'rule-engine' }, data: engineCfgBefore as never });
+    else if (engineCfgBefore === null) await prisma.systemConfig.deleteMany({ where: { configKey: 'rule-engine' } });
+  } catch (e) { console.error('restore rule-engine config', e); }
+  invalidateRuleEngineConfigCache();
+  try { await prisma.ruleChain.deleteMany({ where: { id: { in: otherChains } } }); } catch (e) { console.error('chain cleanup', e); }
+  try {
+    await prisma.$executeRaw`DELETE FROM graphile_worker._private_jobs j USING graphile_worker._private_job_queues q
+      WHERE j.job_queue_id = q.id AND q.queue_name = ${`rule-engine:${inst?.id ?? 'none'}`}`;
+  } catch (e) { console.error('job cleanup', e); }
+  try { await prisma.deadLetter.deleteMany({ where: { instrumentId: { in: createdInstruments } } }); } catch (e) { console.error(e); }
+  for (const id of createdInstruments) {
+    try { await app.inject({ method: 'DELETE', url: `/api/instruments/${id}`, headers: sa }); } catch (e) { console.error(e); }
+  }
+  try {
+    await prisma.session.deleteMany({ where: { userId } });
+    await prisma.user.deleteMany({ where: { id: userId } });
+  } catch (e) { console.error('user cleanup', e); }
+  await app.close();
+});
+
+// ─── cases ───────────────────────────────────────────────────────────────────
+
+describe('telemetry enters the root chain', () => {
+  it('an IN row on the switch within 2 s: POST_TELEMETRY_REQUEST, data.values.temp, metadata.instrumentCode — ONCE (the loop guard)', async () => {
+    const ts = Date.now() - 5_000;
+    const posted = Date.now();
+    expect((await ingest({ ts, temp: 21.5, hum: 40 })).statusCode).toBe(200);
+    const found = await waitForRows({ nodeId: SWITCH, msgType: 'POST_TELEMETRY_REQUEST', originatorId: inst.id, direction: 'IN' }, 1);
+    expect(Date.now() - posted).toBeLessThan(2_000);
+    expect(found).toHaveLength(1);
+    const [inRow] = found;
+    expect(inRow.data.values.temp).toBe(21.5);
+    expect(inRow.data.ts).toBe(ts);
+    expect(inRow.metadata.instrumentCode).toBe(inst.code);
+    expect(inRow.metadata.instrumentName).toBe(`RE ${STAMP}`);
+    expect(inRow.metadata.transport).toBe('http');
+    expect(inRow.metadata.rule_engine_origin).toBe('ingest');
+
+    // Save Timeseries WROTE (skip OFF) — and its write did not come back.
+    await waitForRows({ nodeId: SAVE_TS, originatorId: inst.id, direction: 'OUT' }, 1);
+    await settle();
+    await new Promise((r) => setTimeout(r, 600));
+    expect(await rows({ nodeId: SWITCH, msgType: 'POST_TELEMETRY_REQUEST', originatorId: inst.id, direction: 'IN' })).toHaveLength(1);
+    const saveOut = await rows({ nodeId: SAVE_TS, originatorId: inst.id, direction: 'OUT' });
+    expect(saveOut.map((r) => r.relation)).toEqual(['Success (unconnected)']);
+  });
+
+  it('the rule write is the ingest write path: the same reading again is a no-op (no rewrite audit)', async () => {
+    const rewritten = await prisma.auditTrail.count({ where: { action: 'TELEMETRY_READING_REWRITTEN', targetId: inst.id } });
+    expect(rewritten).toBe(0);
+    const stored = await prisma.$queryRaw<{ value: unknown }[]>`
+      SELECT value FROM instrument_telemetry_history WHERE instrument_id = ${inst.id} AND key = 'temp'`;
+    expect(stored.map((s) => s.value)).toEqual([21.5]);
+  });
+
+  it('a rule write gets NO sensor-offset pass: an offset-corrected reading written back is still a no-op', async () => {
+    const profileId = await fixtureProfileId('fixture:rule-engine-offsets');
+    await setFixtureMeasurements(profileId, (ms) => ms.map((m) => (m.code === 'TEMPERATURE' ? { ...m, deviceKeys: ['t'], offsetKeys: ['Temp Off set'] } : m)));
+    const offsetsBefore = await prisma.systemConfig.findUnique({ where: { configKey: 'sensor-offsets' } });
+    await prisma.systemConfig.upsert({
+      where: { configKey: 'sensor-offsets' }, update: { configValue: { enabled: true } as never },
+      create: { configKey: 'sensor-offsets', configValue: { enabled: true } as never, configType: 'system', requiresReauth: false },
+    });
+    invalidateOffsetConfigCache();
+    try {
+      const res = await app.inject({ method: 'POST', url: '/api/instruments', headers: sa, payload: { profileId, name: `REO ${STAMP}`, code: `REO-${STAMP}` } });
+      expect(res.statusCode, res.body).toBe(201);
+      const o = res.json() as { id: string; token: string };
+      createdInstruments.push(o.id);
+      const attr = await app.inject({ method: 'POST', url: `/api/instruments/${o.id}/attributes`, headers: sa, payload: { key: 'Temp Off set', value: '+2', reason: 'calibration' } });
+      expect(attr.statusCode, attr.body).toBe(201);
+      const ts = Date.now() - 6_000;
+      const sent = await app.inject({ method: 'POST', url: '/api/ingest/v1/telemetry', headers: { authorization: `Bearer ${o.token}` }, payload: { ts, t: 23.4 } });
+      expect(sent.statusCode, sent.body).toBe(200);
+      // Save Timeseries wrote the CORRECTED reading back (its OUT row is the proof it ran).
+      expect(await waitForRows({ nodeId: SAVE_TS, originatorId: o.id, direction: 'OUT' }, 1)).toHaveLength(1);
+      await settle();
+      const stored = await prisma.$queryRaw<{ value: unknown; raw_value: unknown }[]>`
+        SELECT value, raw_value FROM instrument_telemetry_history WHERE instrument_id = ${o.id} AND key = 't'`;
+      expect(stored).toEqual([{ value: 25.4, raw_value: 23.4 }]);
+      expect(await prisma.auditTrail.count({ where: { action: 'TELEMETRY_READING_REWRITTEN', targetId: o.id } })).toBe(0);
+    } finally {
+      if (offsetsBefore) await prisma.systemConfig.update({ where: { configKey: 'sensor-offsets' }, data: { configValue: offsetsBefore.configValue as never } });
+      else await prisma.systemConfig.deleteMany({ where: { configKey: 'sensor-offsets' } });
+      invalidateOffsetConfigCache();
+    }
+  });
+
+  it('with "Re-enter on rule-node writes" ON, the write comes back once as a rule-node message', async () => {
+    await setReEnter(true);
+    try {
+      const where = { nodeId: SWITCH, msgType: 'POST_TELEMETRY_REQUEST', originatorId: inst.id, direction: 'IN' as const };
+      const before = (await rows(where)).length;
+      expect((await ingest({ ts: Date.now() - 4_000, temp: 22 })).statusCode).toBe(200);
+      await waitForRows(where, before + 2);
+      await settle();
+      const found = (await rows(where)).slice(before);
+      expect(found.map((r) => r.metadata.rule_engine_origin)).toEqual(['ingest', ruleNodeOrigin(ROOT, SAVE_TS)]);
+    } finally {
+      await setReEnter(false);
+      await settle();
+    }
+  });
+});
+
+describe('other sources', () => {
+  it('a device attribute report → POST_ATTRIBUTES_REQUEST with the changed keys, scope CLIENT_SCOPE', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/ingest/v1/attributes', headers: { authorization: `Bearer ${inst.token}` }, payload: { fw: `1.${STAMP}` } });
+    expect(res.statusCode, res.body).toBeLessThan(300);
+    const [row] = await waitForRows({ nodeId: SWITCH, msgType: 'POST_ATTRIBUTES_REQUEST', originatorId: inst.id }, 1);
+    expect(row.data).toEqual({ fw: `1.${STAMP}` });
+    expect(row.metadata.scope).toBe('CLIENT_SCOPE');
+  });
+
+  it('creating an instrument → ENTITY_CREATED, with no token in it', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/instruments', headers: sa,
+      payload: { profileId: await fixtureProfileId('fixture:rule-engine'), name: `RE2 ${STAMP}`, code: `RE2-${STAMP}` } });
+    expect(res.statusCode, res.body).toBe(201);
+    const created = res.json() as { id: string; token: string };
+    createdInstruments.push(created.id);
+    const [row] = await waitForRows({ nodeId: SWITCH, msgType: 'ENTITY_CREATED', originatorId: created.id }, 1);
+    expect(row.data).toMatchObject({ id: created.id, code: `RE2-${STAMP}` });
+    expect(JSON.stringify(row.data)).not.toContain(created.token);
+    expect(row.data.credentials).toBeUndefined();
+  });
+
+  it('the inject route → REST_API_REQUEST from the instrument named by code; an unknown code is refused', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/rule-engine/v1/messages', headers: sa,
+      payload: { originatorCode: inst.code.toLowerCase(), data: { hello: 'world' }, metadata: { source: 'e2e' } } });
+    expect(res.statusCode, res.body).toBe(202);
+    const body = res.json() as { accepted: boolean; msgId: string };
+    expect(body.accepted).toBe(true);
+    const [row] = await waitForRows({ nodeId: SWITCH, msgId: body.msgId }, 1);
+    expect(row.msg_type).toBe('REST_API_REQUEST');
+    expect(row.originator_id).toBe(inst.id);
+    expect(row.data).toEqual({ hello: 'world' });
+    expect(row.metadata).toMatchObject({ source: 'e2e', requestId: body.msgId, rule_engine_origin: 'rest_api', instrumentCode: inst.code });
+
+    const unknown = await app.inject({ method: 'POST', url: '/api/rule-engine/v1/messages', headers: sa,
+      payload: { originatorCode: `NOPE-${STAMP}`, data: {} } });
+    expect(unknown.statusCode).toBe(404);
+    expect(unknown.json().error).toBe('ORIGINATOR_NOT_FOUND');
+  });
+
+  it('a SYSTEM message when no code is given', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/rule-engine/v1/messages', headers: sa, payload: { data: { n: 1 } } });
+    expect(res.statusCode).toBe(202);
+    const [row] = await waitForRows({ nodeId: SWITCH, msgId: res.json().msgId }, 1);
+    expect(row.metadata).toMatchObject({ rule_engine_origin: 'rest_api' });
+    expect(row.originator_id).toBe('SYSTEM');
+  });
+});
+
+describe('routes', () => {
+  it('test-script runs a filter: { result: true }; a script error is a 400 naming it', async () => {
+    const ok = await app.inject({ method: 'POST', url: '/api/rule-chains/test-script', headers: sa,
+      payload: { scriptType: 'filter', script: 'return msg.temperature > 10;', msg: { temperature: 12 }, metadata: {}, msgType: 'POST_TELEMETRY_REQUEST' } });
+    expect(ok.statusCode, ok.body).toBe(200);
+    expect(ok.json()).toEqual({ result: true });
+    const bad = await app.inject({ method: 'POST', url: '/api/rule-chains/test-script', headers: sa,
+      payload: { scriptType: 'filter', script: 'while (true) {}', msg: {} } });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json().error).toBe('SCRIPT_TIMEOUT');
+  });
+
+  it('/stats: switched on, real counts', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/rule-chains/stats', headers: sa });
+    expect(res.statusCode).toBe(200);
+    const s = res.json() as { enabled: boolean; queueDepth: number; dropped: number; processedLastMinute: number; chains: { id: string; processedLastMinute: number }[] };
+    expect(s.enabled).toBe(true);
+    expect(s.processedLastMinute).toBeGreaterThan(0);
+    expect(s.chains.find((c) => c.id === ROOT)?.processedLastMinute).toBeGreaterThan(0);
+    expect(s.dropped).toBe(0);
+  });
+});
+
+describe('Configuration → Rule Engine', () => {
+  it('enabled = false: nothing is processed', async () => {
+    await setEngineConfig({ enabled: false });
+    try {
+      const ts = Date.now() - 3_000;
+      expect((await ingest({ ts, temp: 30 })).statusCode).toBe(200);
+      await new Promise((r) => setTimeout(r, 1_000));
+      await settle();
+      const found = (await rows({ nodeId: SWITCH, msgType: 'POST_TELEMETRY_REQUEST', originatorId: inst.id })).filter((r) => r.data?.ts === ts);
+      expect(found).toEqual([]);
+      const res = await app.inject({ method: 'POST', url: '/api/rule-engine/v1/messages', headers: sa, payload: { data: {} } });
+      expect(res.json()).toMatchObject({ accepted: false, reason: 'ENGINE_DISABLED' });
+    } finally {
+      await setEngineConfig({});
+    }
+  });
+});
+
+describe('the durable path', () => {
+  it('the task re-injects AFTER the given node: a debug row at the next node', async () => {
+    const msg = newMessage('POST_TELEMETRY_REQUEST', { type: 'INSTRUMENT', id: inst.id }, { ts: Date.now() - 2_000, values: { temp: 23 } }, { from: 'durable' });
+    const outcome = await runRuleEngineMessage({ message: msg, chainId: ROOT, resumeAfterNodeId: SWITCH, relation: 'Post telemetry' });
+    expect(outcome).toBe('processed');
+    const found = await waitForRows({ msgId: msg.id }, 2);
+    expect(found.map((r) => [r.node_id, r.direction, r.relation])).toEqual([
+      [SWITCH, 'OUT', 'Post telemetry'],
+      [SAVE_TS, 'IN', 'Post telemetry'],
+      // The stand-in writes only ingest-origin messages: this one ends there.
+    ]);
+  });
+
+  it('a malformed job is dropped, not retried forever', async () => {
+    expect(await runRuleEngineMessage({ message: { id: 'x' }, chainId: 'nope' })).toBe('dropped_invalid');
+  });
+
+  it('services.durable.enqueue writes a rule_engine_message job on rule-engine:<originatorId> with its runAt', async () => {
+    const msg = newMessage('POST_TELEMETRY_REQUEST', { type: 'INSTRUMENT', id: inst.id }, { ts: 1, values: {} });
+    const runAt = new Date(Date.now() + 3_600_000);
+    await ruleEngine.services.durable.enqueue(msg, ROOT, SAVE_TS, runAt);
+    const jobs = await prisma.$queryRaw<{ task_identifier: string; run_at: Date; payload: any }[]>`
+      SELECT t.identifier AS task_identifier, j.run_at, j.payload
+      FROM graphile_worker._private_jobs j
+      JOIN graphile_worker._private_tasks t ON t.id = j.task_id
+      JOIN graphile_worker._private_job_queues q ON q.id = j.job_queue_id
+      WHERE q.queue_name = ${`rule-engine:${inst.id}`}`;
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].task_identifier).toBe('rule_engine_message');
+    expect(Math.abs(new Date(jobs[0].run_at).getTime() - runAt.getTime())).toBeLessThan(1_000);
+    expect(jobs[0].payload).toMatchObject({ chainId: ROOT, resumeAfterNodeId: SAVE_TS, message: { id: msg.id, type: 'POST_TELEMETRY_REQUEST' } });
+    expect(jobs[0].payload.message._hops).toBeUndefined();
+  });
+});
+
+describe('debug rows', () => {
+  it('a batch with a row for a chain that no longer exists writes the others', async () => {
+    const mk = (chainId: string) => toDebugRow({
+      chainId, nodeId: randomUUID(), direction: 'IN', relation: null,
+      msg: newMessage('X', { type: 'SYSTEM', id: 'SYSTEM' }, { e2e: STAMP }) as RuleMessage,
+    });
+    const n = await insertDebugRows([mk(ROOT), mk(randomUUID()), mk(ROOT)]);
+    expect(n).toBe(2);
+  });
+
+  it('the hourly sweep removes rows past the retention and trims each node to its cap', async () => {
+    const chain = await prisma.ruleChain.create({ data: { name: `RE sweep ${STAMP}`, document: { version: 1, firstNodeId: null, nodes: [], connections: [] } } });
+    otherChains.push(chain.id);
+    const node = randomUUID();
+    const old = new Date(Date.now() - 3 * 3_600_000);
+    const mk = (ts: Date, i: number) => toDebugRow({ chainId: chain.id, nodeId: node, direction: 'IN', relation: null, ts,
+      msg: newMessage('X', { type: 'SYSTEM', id: 'SYSTEM' }, { i }) as RuleMessage });
+    await insertDebugRows([...Array.from({ length: 3 }, (_, i) => mk(old, i)), ...Array.from({ length: 12 }, (_, i) => mk(new Date(Date.now() - i * 1000), 100 + i))]);
+    await setEngineConfig({ debugRetentionHours: 2, debugMaxEventsPerNode: 10 });
+    try {
+      await runRuleEngineDebugSweep();
+      const left = await prisma.ruleNodeDebugEvent.findMany({ where: { chainId: chain.id }, orderBy: { ts: 'desc' }, select: { data: true } });
+      expect(left.map((r) => (r.data as { i: number }).i)).toEqual([100, 101, 102, 103, 104, 105, 106, 107, 108, 109]);
+    } finally {
+      await setEngineConfig({});
+    }
+  });
+});

@@ -1,8 +1,9 @@
 /**
  * `/api/rule-chains` and `/api/rule-engine/v1` — rule chains, Task 2 of the
  * rule-chains plan (spec docs/superpowers/specs/2026-11-03-rule-chains-design.md
- * §5, §8, §9, §10, §12). No engine yet: `/stats`, `/test-script` and the
- * inject route answer their stubs.
+ * §5, §8, §9, §10, §12). This file never STARTS the engine: `/stats` answers
+ * zeros and the inject route accepts nothing; the running engine is
+ * src/e2e/rule-engine.e2e.test.ts (Task 3).
  *
  * Pins, over HTTP:
  *   - the migration seeded EXACTLY `defaultRootChainDocument()` (fixed ids) as
@@ -628,14 +629,15 @@ describe('catalogue, stats, stubs', () => {
     expect(data.find((d) => d.id === 'tb:filter:switch').relations).toBe('dynamic');
   });
 
-  it('GET /stats answers zeros until the engine runs; test-script and the inject route answer their stubs', async () => {
+  it('with the engine NOT started (this file never starts it): /stats answers zeros, the inject route accepts nothing; test-script runs regardless', async () => {
     const stats = await get('/api/rule-chains/stats', rd);
     expect(stats.statusCode, stats.body).toBe(200);
     expect(stats.json()).toEqual({ enabled: true, queueDepth: 0, dropped: 0, processedLastMinute: 0, chains: [] });
 
+    // Task 3 wired it to the engine's script VM (src/e2e/rule-engine.e2e.test.ts covers it with the engine running).
     const script = await send('POST', '/api/rule-chains/test-script', { scriptType: 'filter', script: 'return true;', msg: {}, metadata: {}, msgType: 'POST_TELEMETRY_REQUEST' });
-    expect(script.statusCode, script.body).toBe(503);
-    expect(script.json().error).toBe('ENGINE_NOT_STARTED');
+    expect(script.statusCode, script.body).toBe(200);
+    expect(script.json()).toEqual({ result: true });
 
     const inject = await send('POST', '/api/rule-engine/v1/messages', { type: 'REST_API_REQUEST', data: { a: 1 }, metadata: { k: 'v' } });
     expect(inject.statusCode, inject.body).toBe(202);
