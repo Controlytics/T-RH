@@ -8,6 +8,7 @@ import { childMapFor } from './gateway-children.js';
 import type { IngestIdentity } from './ingest-auth.js';
 import { logger } from '../../lib/logger.js';
 import { applySensorOffsets } from './load-offsets.js';
+import { emitTelemetry, emitTelemetryBatch } from '../rule-engine/emit.js';
 
 /**
  * Transport-agnostic ingest core.
@@ -75,9 +76,9 @@ export interface DeadLetterRow {
  * `WRITE_FAILED` (503 on HTTP so a device retries after the partition is
  * created). Never throws.
  */
-type BatchReading = Parameters<typeof writeBatch>[0][number];
+export type BatchReading = Parameters<typeof writeBatch>[0][number];
 
-interface WriteResult {
+export interface WriteResult {
   /** The readings now stored. */
   stored: BatchReading[];
   /**
@@ -109,12 +110,19 @@ function isNoPartitionError(e: unknown): boolean {
  * dead-lettered and returned as `unplaceable`. The hot path is untouched — the
  * catalogue is read only after a refusal. A missing partition AHEAD of the
  * oldest one (maintenance behind) is still a retryable failure.
+ *
+ * `applyOffsets: false` (rule chains, 2026-11-03; spec §7 Save time series):
+ * the rule engine's telemetry writes come through HERE — the one write path,
+ * partition split and dead-lettering included — but WITHOUT the sensor-offset
+ * pass: a chain's values are the chain's, and correcting a value ingest
+ * already corrected would correct it twice.
  */
-async function writeBatchOrDeadLetter(
+export async function writeBatchOrDeadLetter(
   readings: BatchReading[],
   sender: { id: string; code: string },
   transport: string,
   raw: Buffer,
+  opts: { applyOffsets?: boolean } = {},
 ): Promise<WriteResult> {
   const source = { code: sender.code, transport };
   const recordLoss = async (e: unknown, lost: number): Promise<string> => {
@@ -131,7 +139,7 @@ async function writeBatchOrDeadLetter(
 
   let corrected = readings;
   try {
-    corrected = await applySensorOffsets(readings);
+    if (opts.applyOffsets !== false) corrected = await applySensorOffsets(readings);
     await writeBatch(corrected, source);
     return { stored: corrected, unplaceable: [], failure: null };
   } catch (e) {
@@ -310,6 +318,10 @@ export async function ingestPayload(args: {
       // ENQUEUES, never evaluates: the evaluator must stay out of this path, or a
       // broken evaluation could reject a telemetry write. Never throws.
       await enqueueAlarmEvaluation();
+      // Rule chains (2026-11-03, spec §5): one POST_TELEMETRY_REQUEST per child
+      // whose readings LANDED, after the commit, with the stored (offset-
+      // corrected) values. O(1) per message; never throws.
+      await emitTelemetryBatch(stored, transport);
     }
 
     // The GATEWAY itself connected and authenticated directly — that is
@@ -389,5 +401,8 @@ export async function ingestPayload(args: {
   // Same as the gateway path above: enqueue an evaluation so an excursion is raised
   // (or cleared) within seconds of the reading rather than on the next minute tick.
   await enqueueAlarmEvaluation();
+  // Rule chains (2026-11-03, spec §5): the stored readings enter the root chain
+  // as POST_TELEMETRY_REQUEST, after the commit. O(1); never throws.
+  await emitTelemetry(identity.id, result.stored, transport, undefined, identity.code);
   return { ok: true, accepted: result.stored.length };
 }
