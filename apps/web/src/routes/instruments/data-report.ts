@@ -73,10 +73,10 @@ import type { TableRow } from './trend-series';
 export { DATA_REPORT_LABEL_MM, DATA_REPORT_TYPOGRAPHY } from '@/lib/report-typography';
 
 /**
- * What a report of an EMPTY period says — in the built-in's one row (its
- * TEMPERATURE cell, `emptyDataReportRow`) and, under a saved template, also as
- * a note after the table (`buildDataReport`), so a template that hides that
- * column still says it. One wording for both.
+ * What a report of an EMPTY period says — in its one row (the TEMPERATURE
+ * cell, `emptyDataReportRow`) and, under a saved template that hides that
+ * column, as a note after the table instead (`buildDataReport`), so the
+ * statement is never lost. One wording for both.
  */
 export const DATA_REPORT_EMPTY_TEXT = 'No readings in the selected period';
 

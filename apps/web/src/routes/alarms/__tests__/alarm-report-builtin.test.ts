@@ -6,6 +6,7 @@ import type { ReportSnapshot, SnapshotSection } from '@/lib/pdf-report';
 import { buildTemplatedReport } from '@/lib/templated-report';
 import type { ReportLevel } from '../alarms-report';
 import { alarmReportInput } from '../alarm-report-rows';
+import { BRANDING_LOGO_PNG, stubBrandingFetch } from '@/test-support/branding-stub';
 import type { AlarmRow } from '../alarm-display';
 
 vi.mock('@/lib/api-client', () => ({
@@ -87,22 +88,33 @@ const CASES: Record<'all' | 'instrument' | 'empty', AlarmFixtureCase> = {
   empty: { rows: [], total: 0, level: 'area' },
 };
 
-/** What is frozen: the snapshot as JSON (an absent field is absent). */
-const frozen = (s: ReportSnapshot) => JSON.parse(JSON.stringify({
+/**
+ * The chrome less the logo's BYTES. The fixtures were captured with the logo
+ * request failing (`logoDataUrl: null`); since ruling F-1 was extended
+ * (2026-11-03) a report made now REFUSES when Branding's logo cannot be read,
+ * so it always carries the logo — pinned on its own below — and the rest of the
+ * chrome is compared as captured.
+ */
+const withoutLogo = <T extends { chrome?: unknown }>(r: T): T => {
+  const { logoDataUrl: _logo, ...chrome } = (r.chrome ?? {}) as Record<string, unknown>;
+  return { ...r, chrome };
+};
+
+/** What is frozen: the snapshot as JSON (an absent field is absent), less the logo's bytes. */
+const frozen = (s: ReportSnapshot) => withoutLogo(JSON.parse(JSON.stringify({
   version: s.version, reportType: s.reportType, title: s.title, subtitle: s.subtitle, orientation: s.orientation,
   config: s.config, chrome: s.chrome, sections: s.sections,
-}));
+})));
 
 beforeEach(() => {
-  // Branding with no logo of its own; the default logo request fails (no logo drawn).
-  vi.stubGlobal('fetch', vi.fn(async (url: unknown) => {
-    if (String(url).endsWith('/api/config/branding')) return { ok: true, json: async () => ({ companyName: 'Branding Co', appName: 'Branding App' }) };
-    return { ok: false };
-  }));
+  // Branding with no logo of its own: the bundled default logo, which answers.
+  stubBrandingFetch({ companyName: 'Branding Co', appName: 'Branding App' });
 });
 afterEach(() => { vi.unstubAllGlobals(); });
 
-const FROZEN = JSON.parse(readFileSync(FIXTURE, 'utf8')) as Record<keyof typeof CASES, ReturnType<typeof frozen>>;
+const FROZEN = Object.fromEntries(
+  Object.entries(JSON.parse(readFileSync(FIXTURE, 'utf8')) as Record<string, ReturnType<typeof frozen>>).map(([k, v]) => [k, withoutLogo(v)]),
+) as Record<keyof typeof CASES, ReturnType<typeof frozen>>;
 
 /** The report the page now prints: `alarmReportInput` (the page's own assembly) through the ONE templated builder. */
 async function templated(c: AlarmFixtureCase, template: ReportTemplateRow | null = null) {
@@ -126,6 +138,14 @@ const recordsTable = (r: ReturnType<typeof frozen>) => (r.sections as SnapshotSe
 describe('the built-in Alarm Report on templates equals today\'s', () => {
   it.each(['all', 'instrument', 'empty'] as const)('%s', async (name) => {
     expect(await templated(CASES[name])).toEqual(FROZEN[name]);
+  });
+
+  it('freezes Branding\'s logo — the bytes it was made with (ruling F-1: the configured logo or no report)', async () => {
+    const result = await buildTemplatedReport(alarmReportInput({
+      template: null, rows: [], total: 0, level: 'area', period: PERIOD, search: '',
+      fmt: { ...fmt, formatDateTime }, printedAt: '2026-05-29T08:30:00.000Z', user: 'qa.lead',
+    }));
+    expect(result.report.getSnapshot().chrome?.logoDataUrl).toBe(BRANDING_LOGO_PNG);
   });
 
   it('drops a limit column no row can fill, and every row matches its head', async () => {

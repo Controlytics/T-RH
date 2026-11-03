@@ -1,8 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { BRANDING_TAB_TITLE_DEFAULT, builtinReportTemplate } from '@digilog/shared';
 import { STUB_PNG, withoutCanvas } from '@/test-support/canvas-stub';
+import { brandingFetch } from '@/test-support/branding-stub';
+
+// Branding and its logo answer: a report made now REFUSES when either cannot be
+// read (ruling F-1, extended 2026-11-03). Branding names nothing, so the
+// reports print the shipped default names, as they did when this fetch failed.
+const realFetch = globalThis.fetch;
+beforeAll(() => { globalThis.fetch = brandingFetch() as any; });
+afterAll(() => { globalThis.fetch = realFetch; });
 
 /**
  * The three trend downloads, end to end through the page's own dispatcher.

@@ -1,9 +1,15 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { createReport } from '../pdf-report';
+import { brandingFetch } from '@/test-support/branding-stub';
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(async () => ({})), post: vi.fn(), postWithReauth: vi.fn() },
 }));
+
+// A report made now reads Branding and its logo, and refuses when it cannot (ruling F-1).
+const realFetch = globalThis.fetch;
+beforeAll(() => { globalThis.fetch = brandingFetch() as any; });
+afterAll(() => { globalThis.fetch = realFetch; });
 
 /**
  * The HEADER block of every report — the headless parameter table (Block /

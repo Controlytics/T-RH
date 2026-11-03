@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { BRANDING_LOGO_PNG, brandingFetch } from '@/test-support/branding-stub';
 import {
   BRANDING_TAB_TITLE_DEFAULT, REPORT_TEMPLATE_FIELDS, builtinReportTemplate, type TemplateKind,
 } from '@digilog/shared';
@@ -11,6 +12,11 @@ import { PNG_90x26 } from './fixtures/page-report-inputs';
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(async () => ({})), post: vi.fn(), postWithReauth: vi.fn() },
 }));
+
+// A report made now reads Branding and its logo, and refuses when it cannot (ruling F-1, extended 2026-11-03).
+const realFetch = globalThis.fetch;
+beforeAll(() => { globalThis.fetch = brandingFetch() as any; });
+afterAll(() => { globalThis.fetch = realFetch; });
 
 /**
  * The three reports drawn from each kind's BUILT-IN template — what a profile
@@ -139,9 +145,9 @@ async function capture(input: Input): Promise<{ images: any[][]; text: string; r
 describe('the trend report shows the trend', () => {
   it('embeds the chart image in the PDF', async () => {
     const { images } = await capture(baseInput());
-    // The branding logo loads over fetch, which is unavailable here, so the
-    // only image this document can carry is the chart.
+    // The chart, beside Branding's logo (the stub's own bytes) — two pictures, told apart by their bytes.
     expect(images.some((a) => a[0] === PNG && a[1] === 'PNG')).toBe(true);
+    expect(images.filter((a) => a[0] !== PNG).every((a) => a[0] === BRANDING_LOGO_PNG)).toBe(true);
   });
 
   it('draws NO chart image when the slot had nothing to plot', async () => {

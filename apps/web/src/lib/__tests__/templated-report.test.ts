@@ -7,6 +7,7 @@ import { buildTemplatedReport, type TemplatedSection } from '../templated-report
 import { DEFAULT_TYPOGRAPHY, type SnapshotSection } from '../pdf-report';
 import { scopeColumnStyles } from '../report-header-block';
 import { DATA_REPORT_TYPOGRAPHY } from '../report-typography';
+import { stubBrandingFetch } from '@/test-support/branding-stub';
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(async () => ({})), post: vi.fn(), postWithReauth: vi.fn() },
@@ -26,11 +27,9 @@ const PNG_1x1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfF
 const formatDateTime = (d: string) => d.slice(0, 16).replace('T', ' ');
 
 beforeEach(() => {
-  // Branding and nothing else; the logo request fails (no logo drawn).
-  vi.stubGlobal('fetch', vi.fn(async (url: unknown) => {
-    if (String(url).endsWith('/api/config/branding')) return { ok: true, json: async () => ({ companyName: 'Branding Co', appName: 'Branding App', logoUrl: '/logo.png' }) };
-    return { ok: false };
-  }));
+  // Branding and its logo: a report made now REFUSES when either cannot be read
+  // (ruling F-1, extended 2026-11-03). Until then the logo request failed here (no logo drawn).
+  stubBrandingFetch({ companyName: 'Branding Co', appName: 'Branding App', logoUrl: '/logo.png' });
 });
 afterEach(() => { vi.unstubAllGlobals(); });
 

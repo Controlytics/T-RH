@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { builtinReportTemplate, REPORT_TEMPLATE_FIELDS, type ReportTemplateRow } from '@digilog/shared';
 import type { ReportSnapshot } from '@/lib/pdf-report';
 import type { PlanSection } from '@/lib/report-template-plan';
+import { BRANDING_LOGO_PNG, stubBrandingFetch } from '@/test-support/branding-stub';
 import { AUDIT_RECORDS } from './fixtures/audit-records';
 
 /**
@@ -119,22 +120,31 @@ vi.mock('@/lib/excel-export', () => ({
 
 const { AuditTrailPage } = await import('../index');
 
-/** What is frozen: the snapshot as JSON (an absent field is absent). */
-const frozen = (s: ReportSnapshot) => JSON.parse(JSON.stringify({
+/**
+ * The chrome less the logo's BYTES. The fixture was captured with the logo
+ * request failing (`logoDataUrl: null`); since ruling F-1 was extended
+ * (2026-11-03) a report made now REFUSES when Branding's logo cannot be read,
+ * so it always carries the logo — pinned on its own below — and the rest of
+ * the chrome is compared as captured.
+ */
+const withoutLogo = <T extends { chrome?: unknown }>(r: T): T => {
+  const { logoDataUrl: _logo, ...chrome } = (r.chrome ?? {}) as Record<string, unknown>;
+  return { ...r, chrome };
+};
+
+/** What is frozen: the snapshot as JSON (an absent field is absent), less the logo's bytes. */
+const frozen = (s: ReportSnapshot) => withoutLogo(JSON.parse(JSON.stringify({
   version: s.version, reportType: s.reportType, title: s.title, subtitle: s.subtitle, orientation: s.orientation,
   config: s.config, chrome: s.chrome, sections: s.sections,
-}));
+})));
 
 beforeEach(() => {
   delivered.length = 0;
   excel.length = 0;
   planCalls.length = 0;
   plan = PLANS.builtin;
-  // Branding with no logo of its own; the default logo request fails (no logo drawn).
-  vi.stubGlobal('fetch', vi.fn(async (url: unknown) => {
-    if (String(url).endsWith('/api/config/branding')) return { ok: true, json: async () => ({ companyName: 'Branding Co', appName: 'Branding App' }) };
-    return { ok: false };
-  }));
+  // Branding with no logo of its own: the bundled default logo, which answers.
+  stubBrandingFetch({ companyName: 'Branding Co', appName: 'Branding App' });
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -153,7 +163,8 @@ async function exportAs(format: 'PDF' | 'Excel', search = '') {
   fireEvent.click(screen.getByRole('button', { name: /^download$/i }));
 }
 
-const FROZEN = JSON.parse(readFileSync(FIXTURE, 'utf8')) as { pdf: ReturnType<typeof frozen>; excel: { head: string[]; rows: string[][] } };
+const FROZEN_FILE = JSON.parse(readFileSync(FIXTURE, 'utf8')) as { pdf: ReturnType<typeof frozen>; excel: { head: string[]; rows: string[][] } };
+const FROZEN = { ...FROZEN_FILE, pdf: withoutLogo(FROZEN_FILE.pdf) };
 const withoutSubtitle = (r: ReturnType<typeof frozen>) => { const { subtitle: _s, ...rest } = r; return rest; };
 
 describe('the built-in Audit Trail PDF on templates equals today\'s', () => {
@@ -166,6 +177,8 @@ describe('the built-in Audit Trail PDF on templates equals today\'s', () => {
     expect(pdf.subtitle).toBe('Period: All Time  |  Search: —  |  Total: 3 record(s)  |  21 CFR Part 11 Compliant');
     // The request is titled as printed and counts the records printed.
     expect(delivered[0]).toMatchObject({ title: 'Audit Trail', subtitle: pdf.subtitle, requestMeta: { recordCount: 3 } });
+    // Branding's logo is frozen as read (ruling F-1: the configured logo, or no report).
+    expect(delivered[0].report.getSnapshot().chrome?.logoDataUrl).toBe(BRANDING_LOGO_PNG);
   });
 
   it('with a search the subtitle quotes it, as it always did', async () => {

@@ -10,6 +10,7 @@ import {
   buildDataReport, buildTrendReport, buildInstrumentAlarmsReport, planLeavesOut, templateNamesAttributes,
 } from '../page-reports';
 import { DATA_REPORT_EMPTY_TEXT, dataReportColumnStyles, limitText } from '../data-report';
+import { brandingFetch } from '@/test-support/branding-stub';
 import {
   dataA, dataB, dataCapped, formatDateTime, period, trendHeader, trendCharts, alarmRows, statusTexts, inactivityTexts,
 } from './fixtures/page-report-inputs';
@@ -64,9 +65,11 @@ function pin(name: string, actual: unknown): void {
   expect(actual).toEqual(JSON.parse(readFileSync(fixturePath(name), 'utf8')));
 }
 
-// The Branding fetches go nowhere here: the chrome is the shipped defaults, deterministically.
+// Branding names nothing here, so the chrome is the shipped defaults, deterministically — and its
+// logo answers: a report made now REFUSES when Branding or its logo cannot be read (ruling F-1,
+// extended 2026-11-03). Until then this stub made every fetch fail, which printed the same names.
 const realFetch = globalThis.fetch;
-beforeAll(() => { globalThis.fetch = vi.fn(async () => { throw new TypeError('fetch failed'); }) as any; });
+beforeAll(() => { globalThis.fetch = brandingFetch() as any; });
 afterAll(() => { globalThis.fetch = realFetch; });
 
 // ── The templated builders ─────────────────────────────────────────────────
@@ -295,7 +298,7 @@ describe('a Data Report\'s title carries every value its instruments SHARE (whol
   });
 });
 
-describe('an EMPTY period under a SAVED template still says so (whole-branch review, Important 2)', () => {
+describe('an EMPTY period under a SAVED template still says so — once (whole-branch review, Important 2)', () => {
   const sectionNotes = (report: ReportDoc) => report.getSnapshot().sections;
 
   it('a saved template that hides TEMPERATURE: a muted note after the table says the period is empty', async () => {
@@ -311,6 +314,31 @@ describe('an EMPTY period under a SAVED template still says so (whole-branch rev
     const note = all.find((s) => s.kind === 'note' && s.text === DATA_REPORT_EMPTY_TEXT);
     expect(note).toEqual({ kind: 'note', text: 'No readings in the selected period', color: 'muted' });
     expect(all.indexOf(note!)).toBeGreaterThan(all.indexOf(table));
+  });
+
+  it('a saved template that SHOWS TEMPERATURE: the row says it, and no note repeats it', async () => {
+    const shown = placementDocument('Saved');
+    shown.columns = shown.columns.map((c) => ({ ...c, show: c.id !== 'record.humidity' }));
+    const r = await buildDataReport({
+      formatDateTime, values: USER_VALUES,
+      sections: [{ ...builtinSection('page:data-report'), document: shown, builtin: false, input: dataB }],
+    });
+    expect(recordTables(r.report)[0].body).toEqual([['-', '-', DATA_REPORT_EMPTY_TEXT]]);
+    expect(notes(r.report)).not.toContain(DATA_REPORT_EMPTY_TEXT);
+  });
+
+  it('a saved template showing TEMPERATURE that the profile cannot fill: the note, since the cell prints empty', async () => {
+    const shown = placementDocument('Saved');
+    shown.columns = shown.columns.map((c) => ({ ...c, show: true }));
+    const r = await buildDataReport({
+      formatDateTime, values: USER_VALUES,
+      sections: [{
+        ...builtinSection('page:data-report', { availableIds: builtinIds('page:data-report').filter((id) => id !== 'record.temperature') }),
+        document: shown, builtin: false, input: dataB,
+      }],
+    });
+    expect(recordTables(r.report)[0].body[0][2]).toBe('');
+    expect(notes(r.report)).toContain(DATA_REPORT_EMPTY_TEXT);
   });
 
   it('the BUILT-IN prints exactly what it did: the statement in its row, and no note', async () => {

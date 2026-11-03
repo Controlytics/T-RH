@@ -148,6 +148,15 @@ const capNote = (text: string | null) => (text ? [{ text, before: true, style: '
  * so `{instrument}` stays absent — and prints `—` — rather than naming the
  * first instrument as if it were the whole report's.
  */
+/**
+ * Whether a section's template PRINTS the column the empty-period sentence
+ * rides in — `record.temperature`, the cell `emptyDataReportRow()` puts it in:
+ * shown, and in the section's catalogue (a column it cannot fill prints empty).
+ */
+function printsStatementColumn(s: Pick<DataReportSection, 'document' | 'availableIds'>): boolean {
+  return s.document.columns.some((c) => c.id === 'record.temperature' && c.show) && s.availableIds.includes('record.temperature');
+}
+
 function sharedValues(all: readonly Values[]): Values {
   if (all.length === 0) return {};
   const [first, ...rest] = all;
@@ -171,10 +180,11 @@ function sharedValues(all: readonly Values[]): Values {
  * interval, a common Block or Area — while a value that differs between them
  * (the instrument, its location, its limits) prints `—`.
  *
- * An EMPTY period under a SAVED template also says so in a muted note after the
- * table: the built-in's empty row carries the statement in its TEMPERATURE
- * cell, and a saved template may hide that column. The built-in prints exactly
- * what it always did.
+ * An EMPTY period under a SAVED template that does not print the TEMPERATURE
+ * column also says so in a muted note after the table: the empty row carries
+ * the statement in that cell, and with the column hidden it would be lost.
+ * With the column shown the row says it, so no note (no duplicate statement);
+ * the built-in prints exactly what it always did.
  */
 export async function buildDataReport(input: {
   sections: DataReportSection[];
@@ -199,7 +209,7 @@ export async function buildDataReport(input: {
     ...(printed.shownCount ? { bold: printed.bold } : {}),
     notes: [
       ...capNote(capNotice(printed, s.input.period)),
-      ...(!s.builtin && printed.shownCount === 0 ? [{ text: DATA_REPORT_EMPTY_TEXT, color: 'muted' as const }] : []),
+      ...(!s.builtin && printed.shownCount === 0 && !printsStatementColumn(s) ? [{ text: DATA_REPORT_EMPTY_TEXT, color: 'muted' as const }] : []),
     ],
     values,
     ...(s.attributes ? { attributes: s.attributes } : {}),

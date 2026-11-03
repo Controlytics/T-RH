@@ -341,8 +341,9 @@ the feature note); a failed or still-loading template plan REFUSES the download,
 left out gets its own line naming it (`planLeavesOut` → `ReportTemplateLines leftOut`); page reports fetch
 `GET /api/instruments/:id/attributes` ONLY for an instrument whose template names an `attr:` field
 (`templateNamesAttributes` — a built-in names none; the trend page reads it in PARALLEL with its own data); a
-failed Report Page Titles read REFUSES a report being made and only a v2 replay is forgiving (ruling F-1,
-`lib/pdf-report.ts`); every request's title / subtitle go through the ONE clamp `deliveredTitles`
+failed Branding, Report Page Titles or Branding-logo read REFUSES a report being made and only a v2 replay is
+forgiving (ruling F-1, `lib/pdf-report.ts`) — so a test that builds a fresh report must answer Branding and its
+logo (`test-support/branding-stub.ts`); every request's title / subtitle go through the ONE clamp `deliveredTitles`
 (`lib/report-delivery.ts`); `alarms-report.ts` must not
 value-import `templated-report.ts`; a PAGE-kind cell that is exactly `''` prints empty, not `—`. The Report
 Templates page has a tab per kind (file icon on the five page tabs), no profile picker for an application kind,

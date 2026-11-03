@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { builtinReportTemplate } from '@digilog/shared';
 import {
   createReport, renderSnapshotToPdf, normaliseSnapshot, imageFormatOf, loadReportChrome, REPORT_TITLES_UNREADABLE,
-  type ReportChrome,
+  REPORT_BRANDING_UNREADABLE, type ReportChrome,
 } from '../pdf-report';
+import { BRANDING_LOGO_PNG, brandingFetch, stubBrandingFetch } from '@/test-support/branding-stub';
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(async () => ({})), post: vi.fn(), postWithReauth: vi.fn() },
@@ -59,7 +60,10 @@ describe('ReportSnapshot v2', () => {
     const jspdf: any = await import('jspdf');
     addImage = vi.fn(jspdf.default.API.addImage);
     jspdf.default.API.addImage = addImage;
+    // A report made now reads Branding and its logo, and refuses when it cannot (ruling F-1).
+    stubBrandingFetch();
   });
+  afterEach(() => { vi.unstubAllGlobals(); });
 
   it('records every drawing call in order, with the chrome that shaped the page', async () => {
     const report = await build();
@@ -303,6 +307,7 @@ describe('ReportSnapshot v3 — the chrome is frozen', () => {
   });
 
   it('a report given no chrome resolves TODAY\'s chrome up front and freezes it too (v3 for every report, 2026-11-03)', async () => {
+    stubBrandingFetch();
     const original = await build();
     const snap = original.getSnapshot();
     expect(snap.version).toBe(3);
@@ -429,7 +434,12 @@ describe('Snapshot v3 for every report — the chrome is resolved up front', () 
   });
   afterEach(() => { vi.unstubAllGlobals(); });
 
-  const PNG_BYTES = Uint8Array.from(atob(PNG_1x1.split(',')[1]), (c) => c.charCodeAt(0));
+  /**
+   * The Branding logo's bytes: the SAME logo every Branding stub in this file
+   * serves (`BRANDING_LOGO_PNG`). The logo is cached per page load once read,
+   * so whichever test reads it first decides it for the rest of the file.
+   */
+  const PNG_BYTES = Uint8Array.from(atob(BRANDING_LOGO_PNG.split(',')[1]), (c) => c.charCodeAt(0));
   /** Today's Branding and its logo, as the public endpoint serves them. */
   function liveBranding(companyName = 'Live Branding Ltd') {
     const fetchSpy = vi.fn(async (url: unknown) => {
@@ -453,7 +463,7 @@ describe('Snapshot v3 for every report — the chrome is resolved up front', () 
       companyName: 'Live Branding Ltd',
       appName: 'Live Monitor',
       showAppName: true,
-      logoDataUrl: PNG_1x1,
+      logoDataUrl: BRANDING_LOGO_PNG,
       footer: { showPageNumbers: true, showPrintedBy: true, showPrintedAt: true, signatureLine: false },
       orientation: 'portrait',
     });
@@ -479,7 +489,7 @@ describe('Snapshot v3 for every report — the chrome is resolved up front', () 
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(await titlesReads()).toEqual([]);
     // The frozen logo is drawn from the snapshot's own bytes.
-    expect(addImage.mock.calls.filter((c) => c[0] === PNG_1x1)).toHaveLength(1);
+    expect(addImage.mock.calls.filter((c) => c[0] === BRANDING_LOGO_PNG)).toHaveLength(1);
     replay.save('v3-page-replay.pdf');
     const text = pageTexts(replay.doc).join(' ');
     expect(text).toContain('Live Branding Ltd');
@@ -499,7 +509,7 @@ describe('Snapshot v3 for every report — the chrome is resolved up front', () 
     // The whole of today's chrome is read, as a v2 replay always did: the
     // Report Page Titles override, and the Branding logo, which is drawn.
     expect((await titlesReads()).length).toBeGreaterThan(0);
-    expect(addImage.mock.calls.filter((c) => c[0] === PNG_1x1)).toHaveLength(1);
+    expect(addImage.mock.calls.filter((c) => c[0] === BRANDING_LOGO_PNG)).toHaveLength(1);
     replay.save('v2-replay.pdf');
     expect(pageTexts(replay.doc).join(' ')).toContain('Branding Of Today Ltd');
     // A replay is itself drawn from a chrome, so its own snapshot is v3 of TODAY's
@@ -575,5 +585,106 @@ describe('imageFormatOf — the BYTES decide, never the label', () => {
   it('anything it cannot name falls back to JPEG, as jsPDF was always told', () => {
     expect(imageFormatOf('data:image/gif;base64,R0lGODlhAQABAAAAACw=')).toBe('JPEG');
     expect(imageFormatOf('not a data url')).toBe('JPEG');
+  });
+});
+
+/**
+ * Ruling F-1 EXTENDED (2026-11-03): a report being made freezes the CONFIGURED
+ * chrome or nothing — a failed Branding read (names) or Branding-logo read
+ * refuses it, as a failed Report Page Titles read does; a v2 REPLAY keeps every
+ * old fallback (shipped names, no logo). A `custom` / `none` logo fetches
+ * nothing and so cannot fail.
+ *
+ * LAST in this file, and on a FRESH module per test: the Branding logo is
+ * cached per page load once read (`cachedLogoDataUrl`), so an earlier test's
+ * logo would hide the failure. `vi.resetModules` hands each test a new
+ * `pdf-report` (the api-client MOCK survives a reset, history and all).
+ */
+describe('Ruling F-1 extended — Branding and its logo', () => {
+  async function fresh() {
+    vi.resetModules();
+    const pdf = await import('../pdf-report');
+    const { apiClient } = await import('@/lib/api-client');
+    return { pdf, apiGet: apiClient.get as unknown as ReturnType<typeof vi.fn> };
+  }
+  /** Branding answered by the stub, except the URLs `fail` names, which answer as given (or reject). */
+  function brandingExcept(fail: Record<string, 'reject' | number>) {
+    const base = brandingFetch({ companyName: 'Live Branding Ltd', appName: 'Live Monitor', logoUrl: '/logo.png' });
+    const spy = vi.fn(async (url: unknown) => {
+      const u = String(url);
+      const hit = Object.keys(fail).find((k) => u.endsWith(k));
+      if (hit) {
+        if (fail[hit] === 'reject') throw new TypeError(`fetch failed: ${u}`);
+        return { ok: false, status: fail[hit], json: async () => ({ error: 'X' }), blob: async () => new Blob([]) };
+      }
+      return base(url);
+    });
+    vi.stubGlobal('fetch', spy);
+    return spy;
+  }
+  const V2 = {
+    version: 2, reportType: 'alarms', title: 'ALARM REPORT', orientation: 'portrait',
+    config: { showAppName: true }, sections: [{ kind: 'table', head: ['DATE'], body: [['2026-10-06']] }],
+  };
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('the stub answers: a report made now freezes Branding\'s names and its LOGO', async () => {
+    const { pdf } = await fresh();
+    brandingExcept({});
+    const r = await pdf.createReport({ title: 'T', formatDateTime });
+    expect(r.getSnapshot().chrome).toMatchObject({ companyName: 'Live Branding Ltd', appName: 'Live Monitor', logoDataUrl: BRANDING_LOGO_PNG });
+  });
+
+  it('(g) Branding cannot be read — the request fails, or answers an error — the report is REFUSED', async () => {
+    for (const fail of ['reject', 500] as const) {
+      const { pdf } = await fresh();
+      brandingExcept({ '/api/config/branding': fail });
+      await expect(pdf.createReport({ title: 'T', formatDateTime })).rejects.toThrow(REPORT_BRANDING_UNREADABLE);
+      await expect(pdf.loadReportChrome(builtinReportTemplate('page:alarms'))).rejects.toThrow(REPORT_BRANDING_UNREADABLE);
+      // A template with its OWN logo still prints Branding's NAMES: no logo read
+      // is made, so this refusal is the names' alone (the logo's would mask it).
+      const doc = builtinReportTemplate('page:alarms');
+      await expect(pdf.loadReportChrome({ ...doc, header: { ...doc.header, logo: { mode: 'custom', dataUrl: PNG_1x1 } } }))
+        .rejects.toThrow(REPORT_BRANDING_UNREADABLE);
+    }
+  });
+
+  it('(h) the Branding LOGO cannot be read — the request fails, or answers 404 — the report is REFUSED', async () => {
+    for (const fail of ['reject', 404] as const) {
+      const { pdf } = await fresh();
+      brandingExcept({ '/logo.png': fail });
+      await expect(pdf.createReport({ title: 'T', formatDateTime })).rejects.toThrow(REPORT_BRANDING_UNREADABLE);
+      await expect(pdf.loadReportChrome(builtinReportTemplate('page:alarms'))).rejects.toThrow(REPORT_BRANDING_UNREADABLE);
+    }
+  });
+
+  it('(h) a `custom` or `none` logo with both names fetches NOTHING — nothing to fail', async () => {
+    const { pdf, apiGet } = await fresh();
+    // `vi.resetModules` keeps the MOCK registry: the api-client mock carries every earlier test's calls.
+    apiGet.mockClear();
+    const spy = vi.fn(async () => { throw new TypeError('nothing may be fetched'); });
+    vi.stubGlobal('fetch', spy);
+    const doc = builtinReportTemplate('page:alarms');
+    const named = { ...doc.header, companyName: 'Own Co', appName: 'Own App' };
+    expect(await pdf.loadReportChrome({ ...doc, header: { ...named, logo: { mode: 'none' } } })).toMatchObject({ logoDataUrl: null });
+    expect(await pdf.loadReportChrome({ ...doc, header: { ...named, logo: { mode: 'custom', dataUrl: PNG_1x1 } } })).toMatchObject({ logoDataUrl: PNG_1x1 });
+    expect(spy).not.toHaveBeenCalled();
+    expect(apiGet).not.toHaveBeenCalled();
+  });
+
+  it('(i) a v2 REPLAY still opens with Branding AND its logo unreadable: the shipped names, no logo', async () => {
+    const { pdf } = await fresh();
+    brandingExcept({ '/api/config/branding': 'reject', '/logo.png': 404 });
+    const replay = await pdf.renderSnapshotToPdf(pdf.normaliseSnapshot(V2), { formatDateTime });
+    expect(replay.getSnapshot().chrome).toMatchObject({ companyName: 'Controlytics AI Pvt Ltd', logoDataUrl: null, showAppName: true });
+    replay.save('v2-replay-branding-down.pdf');
+    expect(pageTexts(replay.doc).join(' ')).toContain('Controlytics AI Pvt Ltd');
+  });
+
+  it('(i) a v2 REPLAY with Branding answering an error and the logo request failing: the same fallbacks', async () => {
+    const { pdf } = await fresh();
+    brandingExcept({ '/api/config/branding': 500, '/logo.png': 'reject' });
+    const replay = await pdf.renderSnapshotToPdf(pdf.normaliseSnapshot(V2), { formatDateTime });
+    expect(replay.getSnapshot().chrome).toMatchObject({ logoDataUrl: null, showAppName: true });
   });
 });

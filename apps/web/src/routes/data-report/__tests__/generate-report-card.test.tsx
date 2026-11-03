@@ -1,7 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { builtinReportTemplate } from '@digilog/shared';
+import { brandingFetch } from '@/test-support/branding-stub';
+
+// Branding and its logo answer: a report made now REFUSES when either cannot be
+// read (ruling F-1, extended 2026-11-03).
+const realFetch = globalThis.fetch;
+beforeAll(() => { globalThis.fetch = brandingFetch() as any; });
+afterAll(() => { globalThis.fetch = realFetch; });
 
 /**
  * The Generate Data Report card (2026-09-07). Operator: *"create one card only
