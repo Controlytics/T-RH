@@ -337,8 +337,13 @@ no profile). Shared: `lib/report-template-plan.ts` (`useReportTemplatePlan`, the
 builders, `chooseTemplate`), `components/report-template-lines.tsx` (the dialog's "Template: …" lines),
 `lib/report-header-block.ts`, `lib/report-typography.ts`. Rules a page must not get wrong: with no saved template
 the kind's built-in prints what the page printed before (frozen fixtures pin it; two documented differences, see
-the feature note); a failed or still-loading template plan REFUSES the download; page reports fetch
-`GET /api/instruments/:id/attributes` per printed instrument for `attr:` cells; `alarms-report.ts` must not
+the feature note); a failed or still-loading template plan REFUSES the download, and an instrument a loaded plan
+left out gets its own line naming it (`planLeavesOut` → `ReportTemplateLines leftOut`); page reports fetch
+`GET /api/instruments/:id/attributes` ONLY for an instrument whose template names an `attr:` field
+(`templateNamesAttributes` — a built-in names none; the trend page reads it in PARALLEL with its own data); a
+failed Report Page Titles read REFUSES a report being made and only a v2 replay is forgiving (ruling F-1,
+`lib/pdf-report.ts`); every request's title / subtitle go through the ONE clamp `deliveredTitles`
+(`lib/report-delivery.ts`); `alarms-report.ts` must not
 value-import `templated-report.ts`; a PAGE-kind cell that is exactly `''` prints empty, not `—`. The Report
 Templates page has a tab per kind (file icon on the five page tabs), no profile picker for an application kind,
 no columns section for a kind with no fields, and reads `?kind=` (an old `?widgetType=` still selects). Rules:
