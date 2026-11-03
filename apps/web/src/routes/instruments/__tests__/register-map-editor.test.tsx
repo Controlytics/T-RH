@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useState } from 'react';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, createEvent } from '@testing-library/react';
 import { MODBUS_MAX_KEYS, type ModbusRegisterMap } from '@digilog/shared';
 
 /**
@@ -582,8 +582,10 @@ describe('RegisterMapEditor — a key is tested before it is added (2026-11-03)'
       new Error('192.168.1.24 is outside the device networks this server may read.'), { status: 400, code: 'ADDRESS_NOT_ALLOWED' }))],
     ['a device that did not answer', 'No answer', () => post.mockResolvedValue(
       { ok: false, code: 'NO_ANSWER', message: '192.168.1.24 : 502 did not answer within 3 s.' })],
-    ['reading switched off on this server', 'Reading off', () => post.mockResolvedValue(
-      { ok: false, code: 'READING_OFF', message: 'Reading devices from this server is off.' })],
+    ['the device answered with an exception', 'Register refused', () => post.mockResolvedValue(
+      { ok: false, code: 'DEVICE_EXCEPTION', message: 'The device refused register 40005 (exception 2).' })],
+    ['too many tests (429)', 'Too many tests', () => post.mockRejectedValue(Object.assign(
+      new Error('Rate limit exceeded, retry in 59 seconds'), { status: 429, code: 'TOO_MANY_REQUESTS' }))],
     ['an answer with no value ("Not readable")', 'Not readable', () => post.mockResolvedValue(
       { ok: true, elapsedMs: 9, requests: 1, values: [], rejected: [{ key: 'Pressure', reason: 'Pressure decoded to NaN from 7FC0 0000' }] })],
   ])('%s: the answer is printed under the draft and Add stays disabled', async (_name, word, arrange) => {
@@ -595,6 +597,102 @@ describe('RegisterMapEditor — a key is tested before it is added (2026-11-03)'
     expect(await screen.findByTestId('map-test-draft')).toHaveTextContent(word);
     expect(addButton()).toBeDisabled();
     expect(addButton()).toHaveAttribute('title', UNTESTED);
+    // Not the server's "Reading is off": no untested note.
+    expect(screen.queryByTestId('map-note-draft')).not.toBeInTheDocument();
+  });
+
+  const READING_OFF = { ok: false, code: 'READING_OFF', message: 'Reading devices from this server is off (Configuration → TCP/IP Reading).' };
+
+  it('K-1: the server\'s "Reading is off" answer enables Add untested, says so under the actions, and the key goes in', async () => {
+    post.mockResolvedValue(READING_OFF);
+    render(<Harness initial={[ROW_T]} testTarget={TARGET} />);
+    openDraft();
+    fillDraft('Pressure', '40005');
+    expect(screen.queryByTestId('map-note-draft')).not.toBeInTheDocument();
+    fireEvent.click(draftTest());
+    expect(await screen.findByTestId('map-test-draft')).toHaveTextContent('Reading off');
+    expect(screen.getByTestId('map-note-draft')).toHaveTextContent(/^Reading is off on this server — the key is added untested\.$/);
+    expect(addButton()).toBeEnabled();
+    fireEvent.click(addButton());
+    expect(changes).toEqual([[ROW_T, PRESSURE]]);
+    expect(screen.queryByTestId('map-note-draft')).not.toBeInTheDocument();
+  });
+
+  it('K-1: a device that timed out is not "Reading is off" — Add stays disabled, no untested note', async () => {
+    post.mockResolvedValue({ ok: false, code: 'NO_ANSWER', message: '192.168.1.24 : 502 did not answer within 3 s — check the IP, the cable, and that the device is on.' });
+    render(<Harness initial={[ROW_T]} testTarget={TARGET} />);
+    openDraft();
+    fillDraft('Pressure', '40005');
+    fireEvent.click(draftTest());
+    expect(await screen.findByTestId('map-test-draft')).toHaveTextContent('No answer');
+    expect(addButton()).toBeDisabled();
+    expect(screen.queryByTestId('map-note-draft')).not.toBeInTheDocument();
+  });
+
+  it('K-1: the "Reading is off" answer, like any, holds only for the draft it was read with', async () => {
+    post.mockResolvedValue(READING_OFF);
+    render(<Harness testTarget={TARGET} />);
+    openDraft();
+    fillDraft('Pressure', '40005');
+    fireEvent.click(draftTest());
+    await screen.findByTestId('map-test-draft');
+    expect(addButton()).toBeEnabled();
+    const scale = screen.getByRole('spinbutton', { name: 'Scale, new key' });
+    fireEvent.change(scale, { target: { value: '2' } });
+    expect(addButton()).toBeDisabled();
+    expect(screen.queryByTestId('map-note-draft')).not.toBeInTheDocument();
+    fireEvent.change(scale, { target: { value: '1' } });
+    expect(addButton()).toBeDisabled();
+  });
+
+  it('K-2: a draft holding input says it is not added yet — until it is added, emptied or cancelled', async () => {
+    render(<Harness initial={[ROW_T]} testTarget={TARGET} />);
+    openDraft();
+    expect(screen.queryByTestId('map-pending-draft')).not.toBeInTheDocument();
+    fireEvent.change(draftKey()!, { target: { value: 'Pressure' } });
+    expect(screen.getByTestId('map-pending-draft')).toHaveTextContent(/^This key is not added yet — Test it, then Add\.$/);
+    fireEvent.change(draftKey()!, { target: { value: '' } });
+    expect(screen.queryByTestId('map-pending-draft')).not.toBeInTheDocument();
+    fillDraft('Pressure', '40005');
+    expect(screen.getByTestId('map-pending-draft')).toHaveTextContent(/^This key is not added yet — Test it, then Add\.$/);
+    await testDraftOk();
+    expect(screen.getByTestId('map-pending-draft')).toHaveTextContent(/^This key is not added yet — press Add\.$/);
+    fireEvent.click(addButton());
+    expect(screen.queryByTestId('map-pending-draft')).not.toBeInTheDocument();
+    openDraft();
+    fireEvent.change(select('Quantity, new key'), { target: { value: '1' } });
+    expect(screen.getByTestId('map-pending-draft')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel new key' }));
+    expect(screen.queryByTestId('map-pending-draft')).not.toBeInTheDocument();
+  });
+
+  it('K-2: with no test target the draft says press Add', () => {
+    render(<Harness />);
+    openDraft();
+    fillDraft('Pressure', '40005');
+    expect(screen.getByTestId('map-pending-draft')).toHaveTextContent(/^This key is not added yet — press Add\.$/);
+  });
+
+  it('K-2: Enter in a draft INPUT is held (it would submit the page\'s form); on the draft\'s buttons and in a map row it is not', () => {
+    render(<Harness initial={[ROW_T]} testTarget={TARGET} />);
+    openDraft();
+    fillDraft('Pressure', '40005');
+    const enterHeld = (el: Element) => {
+      const ev = createEvent.keyDown(el, { key: 'Enter', code: 'Enter' });
+      fireEvent(el, ev);
+      return ev.defaultPrevented;
+    };
+    expect(enterHeld(draftKey()!)).toBe(true);
+    expect(enterHeld(screen.getByRole('textbox', { name: 'Register, new key' }))).toBe(true);
+    expect(enterHeld(screen.getByRole('spinbutton', { name: 'Scale, new key' }))).toBe(true);
+    expect(enterHeld(draftTest())).toBe(false);
+    expect(enterHeld(screen.getByRole('button', { name: 'Cancel new key' }))).toBe(false);
+    expect(enterHeld(screen.getByRole('textbox', { name: 'Key, row 1' }))).toBe(false);
+    // Another key is not held.
+    const ev = createEvent.keyDown(draftKey()!, { key: 'a', code: 'KeyA' });
+    fireEvent(draftKey()!, ev);
+    expect(ev.defaultPrevented).toBe(false);
+    expect(changes).toHaveLength(0);
   });
 
   it('editing the draft after a test drops the answer and disables Add — putting it back brings neither back', async () => {

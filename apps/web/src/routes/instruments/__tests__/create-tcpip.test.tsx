@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, createEvent } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
 
 /**
@@ -127,6 +127,17 @@ const addTestedKey = async (key: string, register: string) => {
   fireEvent.click(mapSection.getByRole('button', { name: 'Add' }));
 };
 const create = () => fireEvent.click(screen.getByRole('button', { name: /create instrument/i }));
+/**
+ * Enter as a browser presses it in a text field: keydown, then — unless the
+ * keydown was prevented — implicit submission of the field's form. jsdom does
+ * not do that second part, so it is done here. Returns whether it was held.
+ */
+const pressEnter = (el: HTMLElement): boolean => {
+  const ev = createEvent.keyDown(el, { key: 'Enter', code: 'Enter' });
+  fireEvent(el, ev);
+  if (!ev.defaultPrevented) (el as HTMLInputElement).form?.requestSubmit();
+  return ev.defaultPrevented;
+};
 const createCalls = () => post.mock.calls.filter(([url]) => url === '/api/instruments');
 
 beforeEach(() => {
@@ -229,7 +240,7 @@ describe('New Instrument — Judged as is the Test-connection response', () => {
     expect(screen.getByRole('button', { name: 'Test key, row 1' })).toBeDisabled();
   });
 
-  it('a new key is tested before it is added: no address, no Test and no Add; a READING_OFF answer adds nothing', async () => {
+  it('a new key is tested before it is added: no address, no Test and no Add; Reading off on this server lets it in untested (K-1)', async () => {
     const message = 'Reading devices from this server is off (Configuration → TCP/IP Reading).';
     post.mockImplementation((url: string) => url === '/api/instruments/modbus/test'
       ? Promise.resolve({ ok: false, code: 'READING_OFF', message })
@@ -245,8 +256,27 @@ describe('New Instrument — Judged as is the Test-connection response', () => {
     typeInto(/ip address/i, '192.168.1.24');
     fireEvent.click(mapSection.getByRole('button', { name: 'Test new key' }));
     expect(await screen.findByTestId('map-test-draft')).toHaveTextContent(message);
-    expect(mapSection.getByRole('button', { name: 'Add' })).toBeDisabled();
+    expect(screen.getByTestId('map-note-draft')).toHaveTextContent('Reading is off on this server — the key is added untested.');
     expect(screen.queryAllByRole('textbox', { name: /^Key, row \d+$/ })).toHaveLength(0);
+    fireEvent.click(mapSection.getByRole('button', { name: 'Add' }));
+    expect(screen.getAllByRole('textbox', { name: /^Key, row \d+$/ }).map((i) => (i as HTMLInputElement).value)).toEqual(['Pressure']);
+  });
+
+  it('a device that does not answer keeps the new key out — Add stays disabled', async () => {
+    post.mockImplementation((url: string) => url === '/api/instruments/modbus/test'
+      ? Promise.resolve({ ok: false, code: 'NO_ANSWER', message: '192.168.1.24 : 502 did not answer within 3 s.' })
+      : Promise.resolve(CREATED_TCPIP));
+    renderAt('/instruments/new?profileId=t-1');
+    typeInto(/ip address/i, '192.168.1.24');
+    const mapSection = within(screen.getByRole('region', { name: 'Register map' }));
+    fireEvent.click(mapSection.getByRole('button', { name: '+ Add key' }));
+    typeInto('Key, new key', 'Pressure');
+    typeInto('Register, new key', '40005');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Byte order, new key' }), { target: { value: 'ABCD' } });
+    fireEvent.click(mapSection.getByRole('button', { name: 'Test new key' }));
+    expect(await screen.findByTestId('map-test-draft')).toHaveTextContent('No answer');
+    expect(mapSection.getByRole('button', { name: 'Add' })).toBeDisabled();
+    expect(screen.queryByTestId('map-note-draft')).not.toBeInTheDocument();
   });
 
   it('a READING_OFF answer prints its sentence', async () => {
@@ -289,6 +319,23 @@ describe('New Instrument — Create for a TCP/IP profile', () => {
     expect(await screen.findByText('DETAIL i-new')).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(errorToast).not.toHaveBeenCalled();
+  });
+
+  it('Enter in the new key\'s input does not submit Create (ruling K-2), and the draft says it is not added yet', async () => {
+    renderAt('/instruments/new?profileId=t-1');
+    typeInto(/instrument id/i, 'P-8');
+    typeInto(/ip address/i, '192.168.1.24');
+    const mapSection = within(screen.getByRole('region', { name: 'Register map' }));
+    fireEvent.click(mapSection.getByRole('button', { name: '+ Add key' }));
+    typeInto('Key, new key', 'Pressure');
+    expect(screen.getByTestId('map-pending-draft')).toHaveTextContent('This key is not added yet — Test it, then Add.');
+    expect(pressEnter(screen.getByRole('textbox', { name: 'Key, new key' }))).toBe(true);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(createCalls()).toHaveLength(0);
+    // The same press in a field of the form itself DOES submit — the press is real.
+    expect(pressEnter(screen.getByRole('textbox', { name: /instrument id/i }))).toBe(false);
+    await waitFor(() => expect(createCalls()).toHaveLength(1));
+    expect(createCalls()[0]![1]).toMatchObject({ code: 'P-8', modbusRegisters: [] });
   });
 
   it('a port typed by the operator is sent as a number', async () => {

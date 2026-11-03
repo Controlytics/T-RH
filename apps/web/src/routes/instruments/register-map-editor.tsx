@@ -15,7 +15,7 @@ import { cn } from '@/lib/cn';
 import { ALARM_BANNER_SOLID } from '@/routes/alarms/alarm-table';
 import { CopyMapDialog } from './copy-map-dialog';
 import {
-  isAnswered, judgedWord, pillFor, runModbusTest, targetProblem, testBody,
+  isAnswered, isReadingOff, judgedWord, pillFor, runModbusTest, targetProblem, testBody,
   type Failure, type JudgedAs, type TestOutcome, type TestTarget,
 } from './modbus-test';
 
@@ -78,7 +78,11 @@ const FIX_ROW = 'Fix this row first — see the message under it.';
 const ADD_UNTESTED = 'Test the key first — Add is enabled once a value comes back.';
 const ADD_READY = 'Add this key to the register map.';
 const NO_TEST_HERE = 'Test is not available here — the key is added untested.';
+const READING_OFF_HERE = 'Reading is off on this server — the key is added untested.';
 const MAP_FULL = `The register map already holds ${MODBUS_MAX_KEYS} keys, the most it can.`;
+/** Under a draft that holds input, so a Create or Save that leaves it out is not silent (ruling K-2). */
+const NOT_ADDED_TEST = 'This key is not added yet — Test it, then Add.';
+const NOT_ADDED_ADD = 'This key is not added yet — press Add.';
 
 /**
  * The key being added (2026-11-03): typed and tested in its own row under the
@@ -121,8 +125,12 @@ interface Draft { row: ModbusRegister; quantity?: 1 | 2; scaleText?: string }
  * value; a refusal, a failure or "Not readable" is not one), for the draft and
  * target as they stand; the answer follows the key onto its new row. With no
  * `testTarget` there is no test to wait for: Add takes a valid draft and says
- * the key goes in untested. The draft is local state: Cancel, leaving edit
- * (`readOnly`) and unmounting all discard it.
+ * the key goes in untested — and so does the server's own "TCP/IP Reading is
+ * off" answer (ruling K-1, `isReadingOff`; any other failure keeps Add off).
+ * The draft is local state: Cancel, leaving edit (`readOnly`) and unmounting
+ * all discard it. Because a Create or Save leaves it out, a draft holding input
+ * says "This key is not added yet", and Enter in its inputs never submits the
+ * page's form (ruling K-2).
  *
  * Shared by New Instrument and the instrument page (`readOnly` there until a
  * super admin edits), so nothing page-specific lives here.
@@ -340,11 +348,20 @@ export function RegisterMapEditor({
   // A VALUE came back: an `ok` answer naming one. A refusal, a failure and a
   // "Not readable" key are answers too, and none of them is a value.
   const valueBack = draftOutcome !== null && isAnswered(draftOutcome) && draftOutcome.values.length > 0;
+  // Ruling K-1: the server's own "TCP/IP Reading is off" answer is no verdict
+  // on the key — nothing was read, so nothing can be — and the key may be
+  // added untested, saying so. A device that failed and every other refusal
+  // still keep Add disabled.
+  const readingOff = draftOutcome !== null && isReadingOff(draftOutcome);
   const draftTestBlocked = targetBlocked ?? (draftIssues.length > 0 ? FIX_ROW : null);
   const addBlocked = value.length >= MODBUS_MAX_KEYS ? MAP_FULL
     : draftIssues.length > 0 ? FIX_ROW
-      : testTarget && !valueBack ? ADD_UNTESTED
+      : testTarget && !valueBack && !readingOff ? ADD_UNTESTED
         : null;
+  const draftNote = !testTarget ? NO_TEST_HERE : readingOff ? READING_OFF_HERE : undefined;
+  const draftPending = shownDraft && draftHasInput(shownDraft)
+    ? (testTarget && addBlocked !== null ? NOT_ADDED_TEST : NOT_ADDED_ADD)
+    : undefined;
 
   const addDraft = () => {
     if (!shownDraft || addBlocked !== null) return;
@@ -467,7 +484,9 @@ export function RegisterMapEditor({
               answer={draftOutcome}
               columns={columns}
               id="draft"
-              note={testTarget ? undefined : NO_TEST_HERE}
+              pending={draftPending}
+              note={draftNote}
+              onKeyDown={swallowEnter}
             >
               <EditCells
                 id="draft"
@@ -683,23 +702,43 @@ function ReadsCaption({ id, row, quantity }: { id: number | 'draft'; row: Modbus
 }
 
 /**
+ * Enter in a draft INPUT does nothing (ruling K-2): on New Instrument the
+ * editor sits inside the page's form, and the browser's implicit submission
+ * would Create the instrument with the draft — in no map — left out. Only
+ * inputs: Enter on the draft's buttons still presses them.
+ */
+function swallowEnter(e: React.KeyboardEvent<HTMLTableRowElement>) {
+  if (e.key === 'Enter' && e.target instanceof HTMLInputElement) e.preventDefault();
+}
+
+/** The draft holds something the operator put in it, which a Create or Save now would leave out. */
+function draftHasInput(d: Draft): boolean {
+  const r = d.row;
+  return r.key.trim() !== '' || r.register.trim() !== '' || r.dataType !== NEW_ROW.dataType
+    || r.byteOrder !== undefined || !Object.is(r.scale, NEW_ROW.scale) || d.quantity !== undefined;
+}
+
+/**
  * A row (or the draft); its per-key Test answer on the line beneath (Ruling
  * CR1-5); the shared schema's messages for it under that; and, for the draft,
- * a note on how it will be added.
+ * one line saying it is not added yet (left) and how it will be added (right,
+ * under the actions).
  */
 function MapRow({
-  children, errors, answer, columns, id, note,
+  children, errors, answer, columns, id, pending, note, onKeyDown,
 }: {
   children: React.ReactNode;
   errors: string[] | undefined;
   answer: TestOutcome | null;
   columns: number;
   id: number | 'draft';
+  pending?: string;
   note?: string;
+  onKeyDown?: React.KeyboardEventHandler<HTMLTableRowElement>;
 }) {
   return (
     <>
-      <TableRow>{children}</TableRow>
+      <TableRow onKeyDown={onKeyDown}>{children}</TableRow>
       {answer && (
         <tr>
           <td colSpan={columns} data-testid={`map-test-${id}`} className="bg-slate-50/80 px-4 py-1.5 text-xs">
@@ -714,10 +753,13 @@ function MapRow({
           </td>
         </tr>
       )}
-      {note && (
+      {(pending || note) && (
         <tr>
-          <td colSpan={columns} data-testid={`map-note-${id}`} className="px-4 py-1.5 text-right text-xs text-slate-500">
-            {note}
+          <td colSpan={columns} className="px-4 py-1.5 text-xs">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5">
+              {pending && <span data-testid={`map-pending-${id}`} className="font-medium text-amber-700">{pending}</span>}
+              {note && <span data-testid={`map-note-${id}`} className="ml-auto text-right text-slate-500">{note}</span>}
+            </div>
           </td>
         </tr>
       )}

@@ -90,6 +90,15 @@ export async function runModbusTest(body: Record<string, unknown>): Promise<Test
 export const isAnswered = (o: TestOutcome): o is Extract<TestAnswer, { ok: true }> => 'ok' in o && o.ok;
 
 /**
+ * The SERVER declined to read because TCP/IP Reading is off on this server
+ * (`200 {ok:false, code:'READING_OFF'}`): a configuration answer — nothing was
+ * asked of the device — as opposed to a device that failed, an address that
+ * is refused, or a request the server turned away. Keyed on the CODE, the way
+ * `pillFor` picks its word; the sentence stays the server's.
+ */
+export const isReadingOff = (o: TestOutcome): boolean => 'ok' in o && !o.ok && o.code === 'READING_OFF';
+
+/**
  * The pill for a failure. The CODE picks only the word and the colour; the
  * sentence beside it is the server's `message`, printed verbatim. A device
  * that failed is red; a setting or another instrument standing in the way is
