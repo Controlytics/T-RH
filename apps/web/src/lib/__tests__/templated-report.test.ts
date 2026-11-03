@@ -5,8 +5,8 @@ import {
 } from '@digilog/shared';
 import { buildTemplatedReport, type TemplatedSection } from '../templated-report';
 import { DEFAULT_TYPOGRAPHY, type SnapshotSection } from '../pdf-report';
-import { scopeColumnStyles } from '@/routes/alarms/alarms-report';
-import { DATA_REPORT_TYPOGRAPHY } from '@/routes/instruments/data-report';
+import { scopeColumnStyles } from '../report-header-block';
+import { DATA_REPORT_TYPOGRAPHY } from '../report-typography';
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(async () => ({})), post: vi.fn(), postWithReauth: vi.fn() },
@@ -267,5 +267,96 @@ describe('buildTemplatedReport — page kinds', () => {
       ],
     });
     expect(r.subtitle).toBe('T&RH, Pressure');
+  });
+});
+
+/** Fix round 1 (2026-11-03): rulings T3-A, T3-B and T3-C. */
+describe('buildTemplatedReport — what a page hands over beyond its rows', () => {
+  const locationRow = docFor('page:trend', (d) => { d.infoBlock = [{ label: 'Location', source: 'attr:Location' }]; });
+  const trendSection = (over: Partial<TemplatedSection>) => section({ document: locationRow, rows: [], availableIds: ['attr:Location'], ...over });
+  const headerOf = async (s: TemplatedSection) => {
+    const r = await buildTemplatedReport({ kind: 'page:trend', reportKey: 'instrument-trend', values: {}, formatDateTime, sections: [s] });
+    const snap = r.report.getSnapshot().sections;
+    return { body: only(snap, 'table')[0].body, notes: only(snap, 'note').map((n) => n.text) };
+  };
+
+  it('T3-A — an attr: info row prints the section\'s own `attributes` (a trend section has no rows to read it from)', async () => {
+    const got = await headerOf(trendSection({ attributes: { 'attr:Location': 'Lab 1' } }));
+    expect(got.body).toEqual([['Location :', 'Lab 1', '', '']]);
+    expect(got.notes).toEqual([]);
+  });
+
+  it('T3-A — the key absent prints —; the catalogue lacking it also NAMES it "Not available"', async () => {
+    const absent = await headerOf(trendSection({ attributes: { 'attr:Building': 'CWH' } }));
+    expect(absent.body).toEqual([['Location :', REPORT_VALUE_MISSING, '', '']]);
+    expect(absent.notes).toEqual([]);
+    const notInCatalogue = await headerOf(trendSection({ availableIds: [], attributes: { 'attr:Location': 'Lab 1' } }));
+    expect(notInCatalogue.body).toEqual([['Location :', REPORT_VALUE_MISSING, '', '']]);
+    expect(notInCatalogue.notes).toEqual(['Not available for this profile: Location']);
+  });
+
+  it('T3-A — attributes win over the rows; the rows are still the fallback', async () => {
+    const document = docFor('page:instrument-alarms', (d) => { d.infoBlock = [{ label: 'Building', source: 'attr:Building' }, { label: 'Room', source: 'attr:Room' }]; });
+    const r = await buildTemplatedReport({
+      kind: 'page:instrument-alarms', reportKey: 'instrument-trend', values: {}, formatDateTime,
+      sections: [section({
+        document, availableIds: [...builtinIds('page:instrument-alarms'), 'attr:Building', 'attr:Room'], attributes: { 'attr:Building': 'CWH' },
+        rows: [{ 'instrument.code': 'A', 'attr:Building': 'from a row', 'attr:Room': 'R-12' }],
+      })],
+    });
+    expect(only(r.report.getSnapshot().sections, 'table')[0].body).toEqual([['Building :', 'CWH', 'Room :', 'R-12']]);
+  });
+
+  it('T3-B — a `before` note styled as a TITLE rides on the records table, as the 2,000-row cap notice always has', async () => {
+    const cap = 'Truncated: showing the first 2,000 of 2,500 rows for Last 30 days. Narrow the period for a complete report.';
+    const r = await buildTemplatedReport({
+      kind: 'page:instrument-alarms', reportKey: 'instrument-trend', values: {}, formatDateTime,
+      sections: [section({
+        document: builtinReportTemplate('page:instrument-alarms'), availableIds: builtinIds('page:instrument-alarms'),
+        rows: [{ 'alarm.type': 'High Temperature' }], notes: [{ text: cap, before: true, style: 'title' }],
+      })],
+    });
+    const s = r.report.getSnapshot().sections;
+    expect(s.map((x) => x.kind)).toEqual(['table', 'table']);
+    const records = only(s, 'table')[1];
+    expect(records.title).toBe(cap);
+    expect(records.head[0]).toBe('Type');
+  });
+
+  it('T3-B — a picture that could not be made prints its title and WHY, in its place; with no reason, "No chart image"', async () => {
+    const r = await buildTemplatedReport({
+      kind: 'page:trend', reportKey: 'instrument-trend', values: {}, formatDateTime,
+      sections: [section({
+        document: builtinReportTemplate('page:trend'), availableIds: [], rows: [],
+        images: [
+          { title: 'Temperature', missingText: 'No temperature readings in this period.' },
+          { dataUrl: PNG_1x1, title: 'Humidity' },
+          { title: 'Pressure' },
+        ],
+      })],
+    });
+    const s = r.report.getSnapshot().sections;
+    expect(s.map((x) => x.kind)).toEqual(['table', 'title', 'note', 'title', 'image', 'title', 'note']);
+    expect(s[1]).toEqual({ kind: 'title', text: 'Temperature' });
+    expect(s[2]).toEqual({ kind: 'note', text: 'No temperature readings in this period.', color: 'muted' });
+    expect(s[6]).toEqual({ kind: 'note', text: 'No chart image', color: 'muted' });
+  });
+
+  it('T3-C — a kind with NO table names the columns its template shows, once, after the info block, and prints no table', async () => {
+    const document = docFor('page:trend', (d) => { d.columns = [col('attr:Building', 'Building', { unit: 'site' }), col('attr:Room', 'Room'), col('attr:Floor', 'Floor', { show: false })]; });
+    const r = await buildTemplatedReport({
+      kind: 'page:trend', reportKey: 'instrument-trend', values: {}, formatDateTime,
+      sections: [section({ document, availableIds: ['attr:Building', 'attr:Room'], rows: [], images: [{ dataUrl: PNG_1x1, title: 'Temperature' }] })],
+    });
+    const s = r.report.getSnapshot().sections;
+    expect(s.map((x) => x.kind)).toEqual(['table', 'note', 'title', 'image']);
+    expect(s[1]).toEqual({ kind: 'note', text: 'This report has no table; columns not printed: Building (site), Room', color: 'muted' });
+    expect(only(s, 'table').filter((t) => t.head.length > 0)).toEqual([]);
+    // A fieldless kind whose template shows no column says nothing.
+    const plain = await buildTemplatedReport({
+      kind: 'page:trend', reportKey: 'instrument-trend', values: {}, formatDateTime,
+      sections: [section({ document: builtinReportTemplate('page:trend'), availableIds: [], rows: [] })],
+    });
+    expect(only(plain.report.getSnapshot().sections, 'note')).toEqual([]);
   });
 });

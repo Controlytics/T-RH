@@ -40,8 +40,8 @@ import {
   createReport, loadReportChrome,
   type NoteColor, type ReportConfig, type ReportDoc, type TableCell,
 } from './pdf-report';
-import { DATA_REPORT_TYPOGRAPHY } from '@/routes/instruments/data-report';
-import { scopeColumnStyles, scopeTableRows } from '@/routes/alarms/alarms-report';
+import { DATA_REPORT_TYPOGRAPHY } from './report-typography';
+import { scopeColumnStyles, scopeTableRows } from './report-header-block';
 
 /** A cell as the caller hands it: text (the page's or widget's own formatting), the one raw number, or nothing. */
 export type ReportRowValue = string | number | null;
@@ -58,11 +58,27 @@ export type ReportRow = Record<string, ReportRowValue>;
  */
 export const REPORT_ROW_GROUP = '#group';
 
-/** A wrapped paragraph in a section. `before` = above the table (a cap notice, an "averaged" disclosure); otherwise under it. */
-export interface TemplatedNote { text: string; color: NoteColor; before?: boolean }
+/**
+ * A line of text in a section. `before` = above the pictures and the table (a
+ * cap notice, an "averaged" disclosure); otherwise under the table.
+ * `style: 'note'` (the default) is a wrapped paragraph in `color` (default
+ * `'text'`); `style: 'title'` is a section pill (`addSectionTitle`, `color`
+ * ignored) — a `before` title with no picture after it rides on the records
+ * table as that table's title, exactly as the page reports' 2,000-row cap
+ * notice always printed (`addCapNotice`, ruling T3-B).
+ */
+export interface TemplatedNote { text: string; color?: NoteColor; before?: boolean; style?: 'note' | 'title' }
 
-/** A picture (a chart, the floor plan) across the text column at its own proportions; `title` is printed above it. */
-export interface TemplatedImage { dataUrl: string; title?: string }
+/**
+ * A picture (a chart, the floor plan) across the text column at its own
+ * proportions; `title` is printed above it. No `dataUrl` = the picture could
+ * not be made: the title, then `missingText` as a muted note in its place (a
+ * gap must say why — today's trend chart fallback, ruling T3-B).
+ */
+export interface TemplatedImage { dataUrl?: string; title?: string; missingText?: string }
+
+/** What a picture with no bytes says, when its caller gives no reason. */
+const IMAGE_MISSING_TEXT = 'No chart image';
 
 /** Column widths / alignment by SHOWN column index, as autotable takes them. */
 export type TemplatedColumnStyles = Record<number, { cellWidth?: number | 'wrap'; halign?: 'center' }>;
@@ -98,6 +114,14 @@ export interface TemplatedSection {
   images?: TemplatedImage[];
   /** Values for THIS section's info block (its own instrument, `instrumentCount` …), over the report's. `profile` defaults to `profileName`. */
   values?: Partial<Record<Placeholder, string>>;
+  /**
+   * The section's ONE instrument's attribute values, keyed by catalogue id
+   * (`attr:<key>` → its text) — what an `attr:` info row prints, consulted
+   * BEFORE the rows (ruling T3-A). A page report fills it: a trend section has
+   * no rows to read an attribute from. An id the catalogue lacks still prints
+   * `—` and is named "Not available"; an id absent here falls back to the rows.
+   */
+  attributes?: Record<string, string>;
   /** A fresh page before this section (the Data Report's one instrument per page). Never before the first. */
   pageBreakBefore?: boolean;
   /** Passed to the records table AS GIVEN — the built-in page reports keep today's widths through it; a saved template passes none. */
@@ -230,16 +254,22 @@ export function printedRows(kind: TemplateKind, document: ReportTemplateDocument
 
 /**
  * An info row's value. A placeholder name → its value (blank / absent → `—`,
- * through the shared substitution, the ONE rule). `attr:<key>` → the
- * attribute of the section's ONE instrument (its rows' `instrument.code`); a
- * section of several instruments (or none) prints `—` — an attribute of one of
- * them would read as all of theirs — and so does an attribute this section's
- * catalogue does not have (`available`), which the caller names as not
- * available (review m3).
+ * through the shared substitution, the ONE rule). `attr:<key>` → an attribute
+ * this section's catalogue does not have (`available`) prints `—` and the
+ * caller names it as not available (review m3); otherwise the section's own
+ * `attributes` (its ONE instrument's, handed over by a page — ruling T3-A);
+ * otherwise the attribute of the section's ONE instrument read from its rows
+ * (their `instrument.code`) — a section of several instruments (or none)
+ * prints `—`, because an attribute of one of them would read as all of theirs.
  */
-function infoValue(source: string, values: Partial<Record<Placeholder, string>>, rows: ReportRow[], available?: ReadonlySet<string>): string {
+function infoValue(
+  source: string, values: Partial<Record<Placeholder, string>>, rows: ReportRow[],
+  available?: ReadonlySet<string>, attributes?: Readonly<Record<string, string>>,
+): string {
   if (source.startsWith('attr:')) {
     if (available && !available.has(source)) return REPORT_VALUE_MISSING;
+    const given = attributes?.[source];
+    if (given !== undefined) return isBlank(given) ? REPORT_VALUE_MISSING : given;
     const instruments = new Set(rows.map((r) => r['instrument.code']).filter((v) => !isBlank(v)).map(String));
     if (instruments.size !== 1) return REPORT_VALUE_MISSING;
     const v = rows.map((r) => r[source]).find((x) => !isBlank(x));
@@ -263,16 +293,17 @@ function infoValue(source: string, values: Partial<Record<Placeholder, string>>,
  */
 function printInfoBlock(
   report: ReportDoc, kind: TemplateKind, document: ReportTemplateDocument, values: Partial<Record<Placeholder, string>>,
-  rows: ReportRow[], available?: ReadonlySet<string>, infoBlockRows?: TableCell[][],
+  rows: ReportRow[], available?: ReadonlySet<string>, section?: Pick<TemplatedSection, 'infoBlockRows' | 'attributes'>,
 ): string[] {
   const pageKind = isPageTemplateKind(kind);
+  const infoBlockRows = section?.infoBlockRows;
   if (pageKind && infoBlockRows) {
     if (infoBlockRows.length) report.addTable({ body: infoBlockRows, columnStyles: headerColumnStyles(report) });
     return [];
   }
   if (!document.infoBlock.length) return [];
   // The value is always given: `addKeyValue` would print a bare "-" for a blank one.
-  const pairs = document.infoBlock.map((r) => [r.label, infoValue(r.source, values, rows, available)] as [string, string]);
+  const pairs = document.infoBlock.map((r) => [r.label, infoValue(r.source, values, rows, available, section?.attributes)] as [string, string]);
   if (pageKind) report.addTable({ body: scopeTableRows(pairs), columnStyles: headerColumnStyles(report) });
   else report.addKeyValue(pairs);
   return available
@@ -291,17 +322,29 @@ const headerColumnStyles = (report: ReportDoc) => scopeColumnStyles(Math.round(r
 /**
  * A picture across the text column (14mm gutters) at its own proportions —
  * read from its own bytes — scaled down to fit a page less its top margin and
- * footer zone. An unreadable image throws here exactly as `addImage` would: a
- * caller's bug, not swallowed.
+ * footer zone, under its title. An unreadable image throws here exactly as
+ * `addImage` would: a caller's bug, not swallowed. A picture with no bytes
+ * prints its title and, in its place, WHY there is none (muted) — a gap must
+ * not read as "no data".
  */
 function printImage(report: ReportDoc, image: TemplatedImage): void {
   if (image.title) report.addSectionTitle(image.title);
+  if (!image.dataUrl) {
+    report.addNote(image.missingText?.trim() || IMAGE_MISSING_TEXT, 'muted');
+    return;
+  }
   const maxW = report.pw - 28;
   const maxH = report.ph - 14 - 24;
   const p = report.doc.getImageProperties(image.dataUrl);
   const h = (maxW * p.height) / p.width;
   const k = Math.min(1, maxH / h);
   report.addImage(image.dataUrl, maxW * k, h * k);
+}
+
+/** A section's line of text: a section pill for `style: 'title'`, else a wrapped paragraph. */
+function printNote(report: ReportDoc, note: TemplatedNote): void {
+  if (note.style === 'title') report.addSectionTitle(note.text);
+  else report.addNote(note.text, note.color ?? 'text');
 }
 
 /** The section's table; returns the records printed and the headings of the shown columns this section cannot fill. */
@@ -336,11 +379,13 @@ function printTable(
  * the FROZEN chrome carries the filled text — review I1). The report-wide
  * pictures print first (`leadImages`). Each section then prints, in order:
  * a page break (`pageBreakBefore`, never before the first), its `title`, its
- * info block, its notes marked `before`, a fieldless widget's text, its
- * pictures (each under its title), its table (the bold grid carried), its
- * other notes, and ONE "Not available" line naming every info row and shown
- * column its catalogue does not have (spec §6, review m3). No sections = the
- * kind's built-in chrome and a line saying so.
+ * info block, on a kind with NO fields one line naming the columns its
+ * template shows but cannot print (ruling T3-C), its notes marked `before`,
+ * a fieldless widget's text, its pictures (each under its title), its table
+ * (the bold grid carried), its other notes, and ONE "Not available" line
+ * naming every info row and shown column its catalogue does not have (spec
+ * §6, review m3). No sections = the kind's built-in chrome and a line saying
+ * so.
  */
 export async function buildTemplatedReport(input: TemplatedReportInput): Promise<TemplatedReportResult> {
   const { kind, sections } = input;
@@ -385,8 +430,12 @@ export async function buildTemplatedReport(input: TemplatedReportInput): Promise
     const available = new Set(s.availableIds);
     const rows = printedRows(kind, s.document, s.rows);
     const values = { ...input.values, ...(s.profileName ? { profile: s.profileName } : {}), ...s.values };
-    const missing = printInfoBlock(report, kind, s.document, values, rows, available, s.infoBlockRows);
-    for (const note of s.notes ?? []) if (note.before) report.addNote(note.text, note.color);
+    const missing = printInfoBlock(report, kind, s.document, values, rows, available, s);
+    // A kind with no fields has no table (ruling T3-C): a column its template
+    // nevertheless shows is SAID, never silently dropped (spec §3 anti-goal).
+    const unprinted = fieldless ? s.document.columns.filter((c) => c.show).map(reportColumnHeading) : [];
+    if (unprinted.length) report.addNote(`This report has no table; columns not printed: ${unprinted.join(', ')}`, 'muted');
+    for (const note of s.notes ?? []) if (note.before) printNote(report, note);
     // Ruling T1-C1: a widget with no fields (text card, floor plan) prints what
     // it shows — its text as a paragraph, then its image — and no table.
     if (fieldless && !isBlank(s.rows[0]?.text)) report.addNote(String(s.rows[0].text), 'text');
@@ -396,7 +445,7 @@ export async function buildTemplatedReport(input: TemplatedReportInput): Promise
       recordCount += table.records;
       missing.push(...table.missing);
     }
-    for (const note of s.notes ?? []) if (!note.before) report.addNote(note.text, note.color);
+    for (const note of s.notes ?? []) if (!note.before) printNote(report, note);
     // Spec §6: what this section cannot fill is NAMED, under the table — never
     // dropped, never invented. One line, each name once.
     const names = [...new Set(missing)];

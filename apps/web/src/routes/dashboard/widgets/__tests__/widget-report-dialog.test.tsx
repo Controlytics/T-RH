@@ -324,6 +324,25 @@ describe('WidgetReportDialog', () => {
     });
   });
 
+  it('a section the server resolves with NO profile is refused, never printed under a blank one (fix round 1)', async () => {
+    get.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/report-templates/resolve')) {
+        return { sections: [
+          { profileId: 'p1', profileName: 'T&RH', instrumentIds: ['i1'], template: null },
+          { profileId: null, profileName: null, instrumentIds: ['i2'], template: null },
+        ] };
+      }
+      if (url.startsWith('/api/report-templates/catalogue')) return { fields: WIDGET_REPORT_FIELDS.gauge };
+      if (url.startsWith('/api/report-templates?')) return { data: [] };
+      return {};
+    });
+    open();
+    expect(await screen.findByRole('alert')).toHaveTextContent('The report templates could not be loaded.');
+    fireEvent.click(screen.getByRole('button', { name: 'Download' }));
+    expect(await screen.findByText(/named no instrument profile/)).toBeInTheDocument();
+    expect(deliver).not.toHaveBeenCalled();
+  });
+
   it('says "Built-in" for a profile with no default template', async () => {
     get.mockImplementation(async (url: string) => {
       if (url.startsWith('/api/report-templates/resolve')) return { sections: [{ profileId: 'p1', profileName: 'T&RH', instrumentIds: ['i1'], template: null }] };

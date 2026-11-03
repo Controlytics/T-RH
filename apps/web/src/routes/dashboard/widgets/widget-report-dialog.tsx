@@ -43,6 +43,9 @@ import { useWidgetReportViewRegistry } from './widget-report-view';
 import { BAR_DEFAULTS } from './bar-chart-model';
 import { collectWidgetReport, reportRefs, sectionRows, useWidgetReportPlan } from './widget-report-data';
 
+/** Said when the server resolves a widget's templates with no profile on a section (a widget type is profile-scoped). */
+export const UNPROFILED_MESSAGE = 'The server named no instrument profile for some of this widget\'s instruments, so the report cannot be printed. Close this and try again.';
+
 /** `POST /api/report-reviews` caps the title and the subtitle at these lengths. */
 const REQUEST_TITLE_MAX = 500;
 const REQUEST_SUBTITLE_MAX = 1000;
@@ -124,17 +127,18 @@ function OpenWidgetReportDialog({ widget, selection, dashboardTitle, selectionLa
    * section per profile, in the server's order.
    */
   const sections: ChosenSection[] = useMemo(() => {
-    const chosen = plan.sections.map((s) => {
+    const chosen = plan.sections.flatMap((s) => {
+      // Refused, not printed (`unprofiled` below): never coerced to a blank profile.
+      if (s.profileId === null || s.profileName === null) return [];
       const template = chooseTemplate(s, picks[planScopeKey(s)]);
-      return {
-        // A widget type is profile-scoped: the server names a profile on every section.
-        profileId: s.profileId ?? '',
-        profileName: s.profileName ?? '',
+      return [{
+        profileId: s.profileId,
+        profileName: s.profileName,
         instrumentIds: s.instrumentIds,
         availableIds: s.availableIds,
         template,
         document: template ? coerceReportTemplateDocument(template.document, type) : builtinReportTemplate(type),
-      };
+      }];
     });
     if (printsOneTable(widget)) {
       // ONE section always (ruling T3-2): the first profile's template over the
@@ -152,8 +156,18 @@ function OpenWidgetReportDialog({ widget, selection, dashboardTitle, selectionLa
     return chosen;
   }, [plan.sections, picks, type, widget]);
 
+  /**
+   * A widget type is PROFILE-scoped: the server names a profile on every
+   * section it resolves. A section without one is a broken answer — printing
+   * the rest would drop its instruments from the record without a word, and a
+   * blank profile would print a section named for nothing — so the dialog
+   * shows the templates as failed and refuses the download.
+   */
+  const unprofiled = plan.sections.some((s) => s.profileId === null || s.profileName === null);
+
   const runDownload = async (req: ReportDownloadRequest) => {
     if (plan.error) throw new Error('The report templates could not be loaded. Close this and try again.');
+    if (unprofiled) throw new Error(UNPROFILED_MESSAGE);
     if (plan.loading) throw new Error('The report templates are still loading. Try again in a moment.');
     const period = windowed ? { from: req.period.from, to: req.period.to } : null;
     if (period && !(Date.parse(period.from) < Date.parse(period.to))) {
@@ -248,7 +262,7 @@ function OpenWidgetReportDialog({ widget, selection, dashboardTitle, selectionLa
           onPick={(scopeKey, value) => setPicks((p) => ({ ...p, [scopeKey]: value }))}
           loading={plan.loading}
           oneSection={printsOneTable(widget)}
-          failed={plan.error !== undefined && plan.error !== null}
+          failed={(plan.error !== undefined && plan.error !== null) || unprofiled}
           superAdmin={superAdmin}
         />
       )}

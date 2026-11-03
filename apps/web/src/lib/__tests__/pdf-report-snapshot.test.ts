@@ -489,8 +489,13 @@ describe('Snapshot v3 for every report — the chrome is resolved up front', () 
       config: { showAppName: true }, sections: [{ kind: 'table', head: ['DATE'], body: [['2026-10-06']] }],
     });
     const fetchSpy = liveBranding('Branding Of Today Ltd');
+    addImage.mockClear();
     const replay = await renderSnapshotToPdf(v2, { formatDateTime });
     expect(brandingCalls(fetchSpy).length).toBeGreaterThan(0);
+    // The whole of today's chrome is read, as a v2 replay always did: the
+    // Report Page Titles override, and the Branding logo, which is drawn.
+    expect((await titlesReads()).length).toBeGreaterThan(0);
+    expect(addImage.mock.calls.filter((c) => c[0] === PNG_1x1)).toHaveLength(1);
     replay.save('v2-replay.pdf');
     expect(pageTexts(replay.doc).join(' ')).toContain('Branding Of Today Ltd');
     // A replay is itself drawn from a chrome, so its own snapshot is v3 of TODAY's
