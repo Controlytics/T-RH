@@ -215,6 +215,13 @@ afterAll(async () => {
     await prisma.$executeRaw`DELETE FROM graphile_worker._private_jobs j USING graphile_worker._private_job_queues q
       WHERE j.job_queue_id = q.id AND q.queue_name = ${`rule-engine:${inst?.id ?? 'none'}`}`;
   } catch (e) { console.error('job cleanup', e); }
+  // The notification / webhook jobs those alarms enqueued (no job runner in the e2e app).
+  for (const alarmId of createdAlarms) {
+    try {
+      await prisma.$executeRaw`DELETE FROM graphile_worker._private_jobs j USING graphile_worker._private_tasks t
+        WHERE j.task_id = t.id AND t.identifier IN ('notification', 'alarm_webhook') AND j.payload::text LIKE ${`%${alarmId}%`}`;
+    } catch (e) { console.error('job cleanup', e); }
+  }
   // Alarms restrict an instrument's delete: this run's RULE alarms go first.
   try { await prisma.alarm.deleteMany({ where: { OR: [{ id: { in: createdAlarms } }, { instrumentId: { in: createdInstruments }, source: 'RULE' }] } }); } catch (e) { console.error('alarm cleanup', e); }
   try { await prisma.deadLetter.deleteMany({ where: { instrumentId: { in: createdInstruments } } }); } catch (e) { console.error(e); }

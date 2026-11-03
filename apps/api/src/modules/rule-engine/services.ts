@@ -203,6 +203,20 @@ export const RULE_ENGINE_MESSAGE_TASK = 'rule_engine_message';
 export const ruleEngineQueueName = (originatorId: string) => `rule-engine:${originatorId}`;
 
 const ATTRIBUTE_LOCK_CLASS = 20260807; // the instrument routes' lock: one key space with them
+
+/**
+ * Every attribute lock this write needs, ALL before the first `auditLog`, in
+ * sorted key order. `auditLog` takes the audit chain's advisory lock and holds
+ * it to commit (instruments/routes.ts, LOCK-ORDER RULE): a key locked after it
+ * would cycle against a route that holds that key and waits for the chain —
+ * and two node writes of {a, b} and {b, a} would cycle on each other. Postgres
+ * would kill one with 40P01.
+ */
+async function lockAttributes(tx: Prisma.TransactionClient, instrumentId: string, keys: string[]): Promise<void> {
+  for (const key of [...new Set(keys)].sort()) {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ATTRIBUTE_LOCK_CLASS}::int, hashtext(${`${instrumentId}:${key}`}))`;
+  }
+}
 const SIGNATURE_MAX = 255;
 const clampSig = (s: string) => (s.length <= SIGNATURE_MAX ? s : `${s.slice(0, SIGNATURE_MAX - 1)}…`);
 const short = (s: string) => (s.length <= 40 ? s : `${s.slice(0, 39)}…`);
@@ -447,8 +461,8 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
         const writer = await writerOf(origin);
         const changed: [string, string][] = [];
         await prisma.$transaction(async (tx) => {
+          await lockAttributes(tx, instrumentId, entries.map(([k]) => k));
           for (const [key, value] of entries) {
-            await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ATTRIBUTE_LOCK_CLASS}::int, hashtext(${`${instrumentId}:${key}`}))`;
             const before = await tx.instrumentAttribute.findUnique({ where: { instrumentId_key: { instrumentId, key } }, select: { value: true } });
             if (before && before.value === value) continue;
             await tx.instrumentAttribute.upsert({
@@ -481,8 +495,8 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
         const writer = await writerOf(origin);
         const removed: string[] = [];
         await prisma.$transaction(async (tx) => {
+          await lockAttributes(tx, instrumentId, wanted);
           for (const key of wanted) {
-            await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ATTRIBUTE_LOCK_CLASS}::int, hashtext(${`${instrumentId}:${key}`}))`;
             const before = await tx.instrumentAttribute.findUnique({ where: { instrumentId_key: { instrumentId, key } }, select: { value: true } });
             if (!before) continue;
             await tx.instrumentAttribute.delete({ where: { instrumentId_key: { instrumentId, key } } });
