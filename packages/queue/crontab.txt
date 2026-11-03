@@ -79,3 +79,10 @@
 # jobKey=alarm_evaluation:cron: if the serial queue is busy and a tick is still
 # pending, the next tick REPLACES it rather than stacking a second one behind it.
 * * * * * alarm_evaluation ?id=alarm_evaluation&max=1&fill=0s&queue=alarm_evaluation&jobKey=alarm_evaluation:cron
+# Rule-engine debug sweep (rule chains, 2026-11-03) — hourly at :17. Deletes
+# `rule_node_debug_events` older than Configuration → Rule Engine →
+# debugRetentionHours, then trims each node to its newest
+# debugMaxEventsPerNode rows. Housekeeping: a missed run only lets the table
+# grow until the next one, so no backfill (fill=0s); max=3 retries a DB blip.
+# Handler: rule_engine_debug_sweep in apps/api/src/app.ts.
+17 * * * * rule_engine_debug_sweep ?id=rule_engine_debug_sweep&max=3&fill=0s

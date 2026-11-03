@@ -54,6 +54,9 @@ import adminRequestRoutes from './modules/admin-requests/routes.js';
 import floorplanRoutes from './modules/floorplans/routes.js';
 import { alarmEvaluationTask } from './workers/alarm-evaluation.worker.js';
 import { alarmWebhookTask } from './workers/alarm-webhook.worker.js';
+import { ruleEngineMessageTask } from './workers/rule-engine-message.worker.js';
+import { ruleEngineDebugSweepTask } from './workers/rule-engine-debug-sweep.worker.js';
+import { ruleEngine } from './modules/rule-engine/engine.js';
 import functionalLocationRoutes from './modules/functional-locations/routes.js';
 import alarmRoutes from './modules/alarms/routes.js';
 import alarmWebhookRoutes from './modules/alarm-webhooks/routes.js';
@@ -538,6 +541,15 @@ try {
         // this is enqueued with maxAttempts: 1: a buzzer that sounds twenty minutes
         // late announces a condition that no longer exists.
         alarm_webhook: alarmWebhookTask,
+
+        // Rule chains (2026-11-03) — the DURABLE path: the Checkpoint and Delay
+        // nodes hand a message here (queueName rule-engine:<originatorId>); it
+        // re-enters the engine after that node. Event-driven, no crontab entry.
+        rule_engine_message: ruleEngineMessageTask,
+
+        // Rule chains — hourly sweep of rule_node_debug_events by age and per-node
+        // cap. Registered HERE and in packages/queue/crontab.txt together.
+        rule_engine_debug_sweep: ruleEngineDebugSweepTask,
       },
       crontabPath,
     });
@@ -564,6 +576,18 @@ try {
       { err: runnerErr },
       'graphile-worker job runner FAILED to start — all scheduled jobs (notifications, PM overdue, password expiry, session sweep) will not run. Server continuing.',
     );
+  }
+
+  // The RULE ENGINE (rule chains, 2026-11-03; spec §6) — after the job runner,
+  // whose durable rule_engine_message jobs need it (a job that runs first
+  // throws ENGINE_NOT_STARTED and is retried). Whether it processes anything is
+  // Configuration → Rule Engine → enabled, read every second. Not fatal: ingest,
+  // alarms and the routes never depend on it.
+  try {
+    await ruleEngine.start();
+    app.log.info('rule engine started');
+  } catch (engineErr) {
+    app.log.error({ err: engineErr }, 'rule engine FAILED to start — no rule chain runs. Server continuing.');
   }
 
   // Telemetry partitions for the current month and the months ahead, at BOOT
@@ -664,6 +688,16 @@ const shutdown = async (signal: string) => {
   shutdownTimeout.unref();
 
   try {
+    // The rule engine FIRST: it finishes the messages in flight, writes its
+    // buffered debug rows and closes its MQTT node connections while the
+    // database and the job runner are still up. Pending durable jobs stay in
+    // graphile and run after the next start.
+    try {
+      await ruleEngine.stop();
+    } catch (engineErr) {
+      app.log.error({ err: engineErr }, 'Shutdown: rule engine stop failed');
+    }
+
     await stopJobRunner();
 
     // Before app.close(): net.Server.close() only stops ACCEPTING, so the

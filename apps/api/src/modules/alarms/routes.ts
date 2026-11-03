@@ -10,6 +10,8 @@ import { sanitizeStrings } from '../../lib/sanitize.js';
 import { resolveLocationIds, type FlNode } from '../functional-locations/tree.js';
 import { resolveVisibility } from '../instruments/visibility.js';
 import { enqueueAlarmWebhook } from '../alarm-webhooks/enqueue.js';
+import { emitAlarm } from '../rule-engine/emit.js';
+import { USER_ORIGIN } from '../rule-engine/message.js';
 import { describeSnapshot, decimalsFromSnapshot } from '../alarm-webhooks/build-variables.js';
 import { validateAcknowledgement, clampSignature } from './validation.js';
 import { loadLimitConfig, countWithoutLimits } from './load-limits.js';
@@ -570,6 +572,14 @@ export default async function alarmRoutes(app: FastifyInstance) {
       clearedAt: updated.clearedAt,
       acknowledgedBy: updated.acknowledgedBy,
       acknowledgeReason: updated.acknowledgeReason,
+    });
+    // Rule chains (2026-11-03, spec §5): ALARM_ACK enters the root chain with
+    // `metadata.acknowledgedBy`, after the commit. Never throws.
+    await emitAlarm('ALARM_ACK', updated, {
+      acknowledgedBy: updated.acknowledgedBy,
+      typeName: alarmDisplayName(typeNames, updated.source, updated.metric, updated.limitKind),
+      instrumentCode: updated.instrument?.code ?? null,
+      origin: USER_ORIGIN,
     });
 
     return {

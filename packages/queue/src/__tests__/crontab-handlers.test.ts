@@ -80,6 +80,7 @@ describe('crontab ↔ taskList', () => {
     expect([...new Set(scheduledTasks())].sort()).toEqual([
       'alarm_evaluation',
       'password_expiry_check',
+      'rule_engine_debug_sweep', // rule chains, 2026-11-03: the hourly debug-event sweep
       'session_sweep',
       'telemetry_partition_maintenance',
     ]);
@@ -119,5 +120,15 @@ describe('crontab options as graphile-worker parses them', () => {
     const lines = byTask('telemetry_partition_maintenance');
     expect(lines.length).toBe(2);
     for (const l of lines) expect(l.options.maxAttempts).toBeGreaterThan(1);
+  });
+
+  it('the rule-engine debug sweep runs once an hour, with retries and no backfill', () => {
+    const lines = byTask('rule_engine_debug_sweep');
+    expect(lines).toHaveLength(1);
+    const at = (hour: number, min: number) => lines[0].match({ min, hour, date: 3, month: 11, dow: 2 });
+    const perDay = Array.from({ length: 24 * 60 }, (_, i) => at(Math.floor(i / 60), i % 60)).filter(Boolean).length;
+    expect(perDay).toBe(24);
+    expect(lines[0].options.maxAttempts).toBeGreaterThan(1);
+    expect(lines[0].options.backfillPeriod).toBe(0);
   });
 });

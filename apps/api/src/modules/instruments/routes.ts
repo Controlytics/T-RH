@@ -65,6 +65,7 @@ import { publishChildRoster, clearChildRoster } from './child-roster.js';
 import { announceChildAttributeChange } from './child-attributes-bundle.js';
 import { logger } from '../../lib/logger.js';
 import { roleHasPermission } from '../../plugins/rbac.js';
+import { emitEntity } from '../rule-engine/emit.js';
 import { MODBUS_CONNECTIONS, MODBUS_UNIT_ID, MODBUS_INTERVAL, BULK_TCPIP_HEADINGS, coerceModbusRegisterMap } from '@digilog/shared';
 import { checkModbusAddress } from '../modbus/address.js';
 import {
@@ -2179,6 +2180,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
       // slot it cannot tell from a broker that lost the message.
       await announceRoster(parsed.data.gatewayId ?? (parsed.data.isGateway ? id : null));
       const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential, ...withProfileName } }); // post-write re-read; the write already resolved visibility
+      // Rule chains (2026-11-03, spec §5): ENTITY_CREATED, after the commit — the
+      // instrument's columns only (emit.ts whitelists them: no token, no credential).
+      if (row) await emitEntity('ENTITY_CREATED', row);
       // No `token` key at all for a TCP/IP instrument: it has none (spec §9).
       return reply.code(201).send({ ...present(row as unknown as InstrumentRow, await loadActiveWindowMinutes()), ...(token !== null ? { token } : {}) });
     } catch (err) {
@@ -2921,6 +2925,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     else if (existing.isGateway) await clearChildRoster(existing.code);
 
     const row = await prisma.instrument.findUnique({ where: { id }, include: { credentials: activeCredential, ...withProfileName } }); // post-write re-read; the write already resolved visibility
+    // Rule chains (2026-11-03, spec §5): ENTITY_UPDATED, after the commit.
+    await emitEntity('ENTITY_UPDATED', (row ?? updated) as unknown as Record<string, unknown> & { id: string });
     return present((row ?? updated) as unknown as InstrumentRow, await loadActiveWindowMinutes());
   });
 
@@ -3010,6 +3016,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // Each orphaned child's ingest identity is cached too, and it no longer has
     // a gateway that may write for it.
     for (const kid of orphaned) invalidateIngestAuthCache(kid.id);
+    // Rule chains (2026-11-03, spec §5): ENTITY_DELETED, after the commit — the
+    // row as it stood (it is gone, so the engine cannot look it up).
+    await emitEntity('ENTITY_DELETED', existing);
     return { success: true };
   });
 

@@ -8,6 +8,8 @@ import { childMapFor } from './gateway-children.js';
 import { publishAttributeDownlink, type PublishLogger } from './attribute-downlink.js';
 import { announceChildAttributeChange } from './child-attributes-bundle.js';
 import type { IngestIdentity } from './ingest-auth.js';
+import { emitAttributes } from '../rule-engine/emit.js';
+import { INGEST_ORIGIN } from '../rule-engine/message.js';
 
 /**
  * ATTRIBUTE REPORT — the device → platform attribute path (operator,
@@ -200,6 +202,10 @@ export async function ingestAttributeReport(input: {
       }
     });
     if (changed.length === 0) continue;
+
+    // Rule chains (2026-11-03, spec §5): the CHANGED keys enter the root chain as
+    // POST_ATTRIBUTES_REQUEST (scope CLIENT_SCOPE), after the commit. Never throws.
+    await emitAttributes(target.id, changed, INGEST_ORIGIN, { code: target.code });
 
     // The device reads back what the platform now holds: the per-instrument
     // slot (retained, one message per changed key, each carrying the COMPLETE

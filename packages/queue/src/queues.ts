@@ -43,3 +43,12 @@ export type QueueName = (typeof QUEUES)[keyof typeof QUEUES]['name'];
  * package's crontab test pins the two together.
  */
 export const ALARM_EVALUATION_QUEUE = 'alarm_evaluation';
+
+/**
+ * Rule chains (2026-11-03): every `rule_engine_message` job runs on the named
+ * queue `rule-engine:<originatorId>`, so one originator's durable messages
+ * (Delay, Checkpoint) are processed in order, as the in-memory queue does.
+ * Named queues are what a force-killed process leaves locked for four hours —
+ * `startJobRunner` frees every queue with this prefix at boot.
+ */
+export const RULE_ENGINE_QUEUE_PREFIX = 'rule-engine:';

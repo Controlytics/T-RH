@@ -65,3 +65,42 @@ export const alarmWebhookJobSchema = z.object({
   variables: z.record(z.string()).default({}),
 });
 export type AlarmWebhookJob = z.infer<typeof alarmWebhookJobSchema>;
+
+/** A node id / chain id: the loose 8-4-4-4-12 hex the rule-chain document accepts. */
+const ruleId = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+
+/**
+ * A rule-engine message handed to the DURABLE path (rule chains, 2026-11-03;
+ * spec §6, ruling S-4) — by the Checkpoint node, and by the Delay node with
+ * `runAt`. Enqueued with `queueName: rule-engine:<originatorId>`, so one
+ * originator's messages run in order. The `rule_engine_message` task
+ * re-injects the message at the connections AFTER `resumeAfterNodeId` under
+ * `relation` (Success). The originator type is checked by the task against
+ * the shared vocabulary (this package does not depend on @digilog/shared).
+ */
+export const ruleEngineMessageJobSchema = z.object({
+  message: z.object({
+    id: z.string().min(1).max(64),
+    type: z.string().min(1).max(255),
+    originator: z.object({
+      type: z.string().min(1),
+      id: z.string().min(1),
+      code: z.string().optional(),
+    }),
+    metadata: z.record(z.string()).default({}),
+    data: z.unknown(),
+    _stack: z.array(z.object({ chainId: ruleId, nodeId: ruleId })).optional(),
+  }),
+  chainId: ruleId,
+  resumeAfterNodeId: ruleId,
+  relation: z.string().min(1).max(128).default('Success'),
+});
+export type RuleEngineMessageJob = z.infer<typeof ruleEngineMessageJobSchema>;
+
+/**
+ * The hourly debug-event sweep (`rule_engine_debug_sweep`, crontab): no
+ * payload — the age and per-node cap are read from Configuration → Rule
+ * Engine when it runs. Unknown keys (graphile's cron `_cron` stamp) pass.
+ */
+export const ruleEngineDebugSweepJobSchema = z.object({}).passthrough();
+export type RuleEngineDebugSweepJob = z.infer<typeof ruleEngineDebugSweepJobSchema>;

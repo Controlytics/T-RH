@@ -14,7 +14,7 @@
  * shutdown sequence (telemetry batcher, MQTT, Redis, etc.) stays in charge.
  */
 
-import { ALARM_EVALUATION_QUEUE } from './queues.js';
+import { ALARM_EVALUATION_QUEUE, RULE_ENGINE_QUEUE_PREFIX } from './queues.js';
 import {
   makeWorkerUtils,
   run,
@@ -55,8 +55,15 @@ export interface StartJobRunnerOptions {
  * starting mid-pass would release the first's lock and allow one overlapping
  * pass — the pre-fix behaviour, bounded by the clear claim and the unique indexes.
  */
-export async function releaseQueueLocks(connectionString: string, queueNames: readonly string[]): Promise<void> {
-  if (queueNames.length === 0) return;
+export async function releaseQueueLocks(
+  connectionString: string,
+  queueNames: readonly string[],
+  /** Queue-name PREFIXES freed as well (rule chains: `rule-engine:` — one queue per originator). */
+  queuePrefixes: readonly string[] = [],
+): Promise<void> {
+  if (queueNames.length === 0 && queuePrefixes.length === 0) return;
+  // A prefix is matched literally: LIKE's own wildcards in it are escaped.
+  const patterns = queuePrefixes.map((p) => `${p.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
   const utils = await makeWorkerUtils({ connectionString });
   try {
     await utils.withPgClient(async (client) => {
@@ -64,14 +71,15 @@ export async function releaseQueueLocks(connectionString: string, queueNames: re
         `update graphile_worker._private_jobs as jobs
             set locked_at = null, locked_by = null
            from graphile_worker._private_job_queues as q
-          where jobs.job_queue_id = q.id and q.queue_name = any($1::text[]) and jobs.locked_at is not null`,
-        [queueNames],
+          where jobs.job_queue_id = q.id and (q.queue_name = any($1::text[]) or q.queue_name like any($2::text[]))
+            and jobs.locked_at is not null`,
+        [queueNames, patterns],
       );
       await client.query(
         `update graphile_worker._private_job_queues
             set locked_at = null, locked_by = null
-          where queue_name = any($1::text[]) and locked_at is not null`,
-        [queueNames],
+          where (queue_name = any($1::text[]) or queue_name like any($2::text[])) and locked_at is not null`,
+        [queueNames, patterns],
       );
     });
   } finally {
@@ -85,9 +93,10 @@ export async function startJobRunner(opts: StartJobRunnerOptions): Promise<Runne
   // Bootstrap the graphile_worker schema if it doesn't exist yet. Safe on
   // repeat — graphile-worker's migration runner is itself idempotent.
   await runMigrations({ connectionString: runnerOptions.connectionString });
-  // A force-killed previous process must not block the serial alarm queue for
-  // graphile's four-hour stale-lock window — see releaseQueueLocks.
-  await releaseQueueLocks(runnerOptions.connectionString!, [ALARM_EVALUATION_QUEUE]);
+  // A force-killed previous process must not block the serial alarm queue — or
+  // an originator's durable rule-engine queue (a Delay, a Checkpoint) — for
+  // graphile's four-hour stale-lock window. See releaseQueueLocks.
+  await releaseQueueLocks(runnerOptions.connectionString!, [ALARM_EVALUATION_QUEUE], [RULE_ENGINE_QUEUE_PREFIX]);
   runner = await run({ ...runnerOptions, noHandleSignals: true });
   return runner;
 }

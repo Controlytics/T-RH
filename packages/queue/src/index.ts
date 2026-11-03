@@ -1,4 +1,4 @@
-export { QUEUES, ALARM_EVALUATION_QUEUE } from './queues.js';
+export { QUEUES, ALARM_EVALUATION_QUEUE, RULE_ENGINE_QUEUE_PREFIX } from './queues.js';
 export type { QueueName } from './queues.js';
 
 export { JOB_PRIORITY } from './priorities.js';
@@ -9,12 +9,16 @@ export {
   notificationEventJobSchema,
   alarmWebhookJobSchema,
   notificationRetryJobSchema,
+  ruleEngineMessageJobSchema,
+  ruleEngineDebugSweepJobSchema,
 } from './schemas.js';
 export type {
   NotificationJob,
   NotificationEventJob,
   AlarmWebhookJob,
   NotificationRetryJob,
+  RuleEngineMessageJob,
+  RuleEngineDebugSweepJob,
 } from './schemas.js';
 
 export { getProducer, getRunnerOptions, closeProducer } from './connection.js';

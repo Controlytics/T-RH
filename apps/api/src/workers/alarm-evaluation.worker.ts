@@ -4,6 +4,11 @@ import { buildTelemetryOverview } from '../modules/instruments/telemetry-overvie
 import { slotConfigLookup } from '../modules/instruments/profile-measurements.js';
 import { enqueueAlarmNotification } from '../modules/alarms/enqueue-notification.js';
 import { enqueueAlarmWebhook } from '../modules/alarm-webhooks/enqueue.js';
+// Rule chains (2026-11-03, spec §5): every raise and clear below ALSO enters the
+// rule engine — `emitAlarm` beside each `enqueueAlarmWebhook` (a unit test pins
+// the two counts equal), plus INACTIVITY_EVENT / ACTIVITY_EVENT at the
+// inactivity raise and clear. After the write; never throws.
+import { emitAlarm, emitInactivity, emitActivity } from '../modules/rule-engine/emit.js';
 import {
   checkLimits,
   limitSnapshot,
@@ -259,6 +264,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
       };
       await enqueueAlarmNotification('cleared', payload);
       await enqueueAlarmWebhook('CLEARED', payload);
+      await emitAlarm('ALARM_CLEAR', closed, { isClearedAlarm: true, typeName: payload.ruleName, instrumentCode: row.code });
     }
   }
 
@@ -375,6 +381,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
           };
           await enqueueAlarmNotification('cleared', payload);
           await enqueueAlarmWebhook('CLEARED', payload);
+          await emitAlarm('ALARM_CLEAR', closed, { isClearedAlarm: true, typeName: payload.ruleName, instrumentCode: row.code });
           continue;
         }
 
@@ -472,6 +479,10 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
             decimals: check.metric === 'HUMIDITY' ? row.decimals.humidity : row.decimals.temperature,
             raisedAt: created.raisedAt,
           });
+          await emitAlarm('ALARM', created, {
+            isNewAlarm: true, instrumentCode: row.code,
+            typeName: typeName('INSTRUMENT_LIMIT', check.metric, check.limitKind, `${check.metric} ${check.limitKind} limit`),
+          });
         } else if (!check.breaching && existingId) {
           // A reading that is not current is not evidence of recovery (#8).
           if (!current) continue;
@@ -546,6 +557,10 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
               ?? (check.metric === 'HUMIDITY' ? row.decimals.humidity : row.decimals.temperature),
             raisedAt: closed.raisedAt,
             clearedAt: closed.clearedAt,
+          });
+          await emitAlarm('ALARM_CLEAR', closed, {
+            isClearedAlarm: true, instrumentCode: row.code,
+            typeName: typeName('INSTRUMENT_LIMIT', check.metric, check.limitKind, `${check.metric} ${check.limitKind} limit`),
           });
         }
       }
@@ -663,6 +678,9 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
         };
         await enqueueAlarmNotification('raised', payload);
         await enqueueAlarmWebhook('RAISED', payload);
+        await emitAlarm('ALARM', created, { isNewAlarm: true, typeName: payload.ruleName, instrumentCode: row.code });
+        // ThingsBoard's INACTIVITY_EVENT: the instrument went quiet.
+        await emitInactivity(row.instrumentId, inst?.lastSeenAt ?? null, now);
       } else if (action === 'clear' && open) {
         /**
          * THE READING THAT ENDED THE OUTAGE.
@@ -746,6 +764,9 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
         };
         await enqueueAlarmNotification('cleared', payload);
         await enqueueAlarmWebhook('CLEARED', payload);
+        await emitAlarm('ALARM_CLEAR', closed, { isClearedAlarm: true, typeName: payload.ruleName, instrumentCode: row.code });
+        // ThingsBoard's ACTIVITY_EVENT: data resumed.
+        await emitActivity(row.instrumentId, inst?.lastSeenAt ?? null);
       }
     }
   }
@@ -863,6 +884,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
           };
           await enqueueAlarmNotification('raised', payload);
           await enqueueAlarmWebhook('RAISED', payload);
+          await emitAlarm('ALARM', created, { isNewAlarm: true, typeName: payload.ruleName, instrumentCode: row.code });
         } else if (action === 'clear' && open) {
           // The reading that cleared this IS a number — unlike an inactivity
           // alarm, which clears on the mere return of telemetry. Recording it
@@ -909,6 +931,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
           };
           await enqueueAlarmNotification('cleared', payload);
           await enqueueAlarmWebhook('CLEARED', payload);
+          await emitAlarm('ALARM_CLEAR', closed, { isClearedAlarm: true, typeName: payload.ruleName, instrumentCode: row.code });
         }
       }
     }
@@ -1044,6 +1067,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
           };
           await enqueueAlarmNotification('raised', payload);
           await enqueueAlarmWebhook('RAISED', payload);
+          await emitAlarm('ALARM', created, { isNewAlarm: true, typeName: payload.ruleName, instrumentCode: row.code });
         } else if (action === 'clear' && open) {
           // An in-range number arrived. `raw` is non-null whenever decideRange
           // says 'clear' — the conditional below is a type guard, not a second
@@ -1076,6 +1100,7 @@ export async function evaluateAlarms(now = new Date()): Promise<AlarmEvaluationR
           };
           await enqueueAlarmNotification('cleared', payload);
           await enqueueAlarmWebhook('CLEARED', payload);
+          await emitAlarm('ALARM_CLEAR', closed, { isClearedAlarm: true, typeName: payload.ruleName, instrumentCode: row.code });
         }
       }
     }
