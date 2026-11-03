@@ -1,5 +1,12 @@
 # tasks/todo.md
 
+## 2026-11-03 (evening) — DEPLOYED: page reports on templates + Supervisor fix + register-map Test-before-Add + Permissions-tab held toggles
+
+- [x] AWS `ea7dee9 -> c3e9d83` (migration `20261103120000_report_templates_page_kinds` applied; health 200; routes answer under `kind`; chunks carry the new strings), then `c3e9d83 -> d96041c` (Permissions tab shows a held toggle with its holder; `permissionsHeld` on the role GET for ROLE_MANAGE). trh/data-layer = AWS = `d96041cd`.
+- [ ] Operator: reload open browsers (an old bundle sends `widgetType=` and gets 400 on widget downloads); verify-chain after the schema change; try a page report download + a template preview on AWS; try un-selecting View Users with Edit Users on (expect a held caption).
+- [ ] AWS still owes `strip-unused-permissions` (an unmapped MANAGE grant now shows as "granted outside this tab" until then).
+- Deferred minors: see the ledger `.superpowers/sdd/2026-11-03-page-reports-on-templates/progress.md` (logo bytes in every snapshot vs 8 MB body; module-level logo cache; preview PAGE_REPORT_KEYS copy; empty-holders caption guard; register-map hint wording when Add is blocked).
+
 ## 2026-11-03 - Page reports on templates (the five page reports drawn from report templates)
 
 Operator: "go ahead with page reports on templates". Spec `docs/superpowers/specs/2026-11-03-page-reports-on-templates-design.md`, plan
