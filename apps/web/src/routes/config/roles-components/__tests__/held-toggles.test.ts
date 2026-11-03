@@ -12,11 +12,14 @@ const allOnExcept = (id: string) => Object.fromEntries(IDS.map(t => [t, t !== id
 const SIDEBAR_IDS = SIDEBAR_ITEMS.map(i => i.id);
 
 describe('heldToggles — which un-selected toggles come straight back ON', () => {
-  it('with every other toggle ON, exactly these eleven come back', () => {
+  // Eleven until 2026-11-03; rule chains added `rule_chains.view`, held by
+  // `rule_chains.manage` (whose grant carries RULE_CHAIN_READ) like every View.
+  it('with every other toggle ON, exactly these twelve come back', () => {
     const back = IDS.filter(id => heldToggles(allOnExcept(id), []).shown[id]).sort();
     expect(back).toEqual([
       'alarm_webhooks.view', 'alarms.view', 'audit.view', 'config.view', 'data_report.view',
-      'functional_locations.view', 'instruments.view', 'reports.view', 'settings.edit', 'settings.view', 'users.view',
+      'functional_locations.view', 'instruments.view', 'reports.view', 'rule_chains.view', 'settings.edit', 'settings.view',
+      'users.view',
     ]);
   });
 

@@ -182,6 +182,21 @@ export const allNavItems: NavItem[] = [
       </svg>
     ),
   },
+  {
+    // 2026-11-03: the rule engine (rule chains). Visibility is the `rule-chains`
+    // tree group (RULE_CHAIN_READ / MANAGE). The pages land in Task 7 of the
+    // rule-chains plan; until then the `*` route sends the link to `/`.
+    id: 'rule-chains',
+    label: 'Rule Chains',
+    href: '/rule-chains',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 3v12M18 9a9 9 0 01-9 9" />
+        <circle cx="18" cy="6" r="3" strokeWidth={1.5} />
+        <circle cx="6" cy="18" r="3" strokeWidth={1.5} />
+      </svg>
+    ),
+  },
 ];
 
 /**

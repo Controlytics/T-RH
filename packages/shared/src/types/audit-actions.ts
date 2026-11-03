@@ -169,6 +169,20 @@ export const AUDIT_ACTIONS = {
   REPORT_TEMPLATE_UPDATED: 'REPORT_TEMPLATE_UPDATED',
   REPORT_TEMPLATE_DELETED: 'REPORT_TEMPLATE_DELETED',
 
+  // Rule chains (2026-11-03, spec §9): every chain write, by a RULE_CHAIN_MANAGE
+  // holder with a reason. targetType 'rule_chain'; beforeValue / afterValue carry
+  // the name, the root flag and the WHOLE document (nodes, configurations,
+  // connections). IMPORTED also carries the import's warnings; ROOT_CHANGED names
+  // the chain that stopped being root; DEBUG_CLEARED the number of events removed.
+  // (Four of these names were pruned on 2026-10-05 as writer-less leftovers of
+  // DigiLog's rule engine; they return with a writer. RULE_CHAIN_SET_ROOT does not.)
+  RULE_CHAIN_CREATED: 'RULE_CHAIN_CREATED',
+  RULE_CHAIN_UPDATED: 'RULE_CHAIN_UPDATED',
+  RULE_CHAIN_DELETED: 'RULE_CHAIN_DELETED',
+  RULE_CHAIN_IMPORTED: 'RULE_CHAIN_IMPORTED',
+  RULE_CHAIN_ROOT_CHANGED: 'RULE_CHAIN_ROOT_CHANGED',
+  RULE_CHAIN_DEBUG_CLEARED: 'RULE_CHAIN_DEBUG_CLEARED',
+
   // Instruments — the device registry (2026-08-05). Bulk creation emits one
   // INSTRUMENT_CREATED per instrument rather than one row per batch, so the
   // trail stays per-entity and a single device's history is complete on its own.

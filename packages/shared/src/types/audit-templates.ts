@@ -240,6 +240,45 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     placeholders: ['actor', 'targetName'],
   },
 
+  // Rule chains (2026-11-03). Generic placeholders only — the document before and
+  // after is in the row itself.
+  RULE_CHAIN_CREATED: {
+    label: 'Rule Chain Created',
+    category: 'Configuration',
+    template: 'Rule chain "{targetName}" created by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  RULE_CHAIN_UPDATED: {
+    label: 'Rule Chain Updated',
+    category: 'Configuration',
+    template: 'Rule chain "{targetName}" updated by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  RULE_CHAIN_DELETED: {
+    label: 'Rule Chain Deleted',
+    category: 'Configuration',
+    template: 'Rule chain "{targetName}" deleted by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  RULE_CHAIN_IMPORTED: {
+    label: 'Rule Chain Imported',
+    category: 'Configuration',
+    template: 'Rule chain "{targetName}" imported by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  RULE_CHAIN_ROOT_CHANGED: {
+    label: 'Root Rule Chain Changed',
+    category: 'Configuration',
+    template: 'Rule chain "{targetName}" made the root chain by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  RULE_CHAIN_DEBUG_CLEARED: {
+    label: 'Rule Chain Debug Events Cleared',
+    category: 'Configuration',
+    template: 'Debug events of rule chain "{targetName}" cleared by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+
   // Alarm Management
   ALARM_ACKNOWLEDGED: {
     label: 'Alarm Acknowledged',

@@ -37,4 +37,7 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'settings', label: 'Settings', icon: '\u{1F6E0}\uFE0F', description: "Every instrument's details and attributes in one table, editable in place" },
   // 2026-10-29: the dashboard builder's list. `/dashboards`; visibility reuses `dashboard.view`.
   { id: 'dashboards', label: 'Dashboards', icon: '\u{1F5C2}\uFE0F', description: 'Dashboards a super admin builds and assigns' },
+  // 2026-11-03: the rule engine. `/rule-chains`; gated on RULE_CHAIN_READ through the tree.
+  // `icon` is the emoji the Roles & Access Sidebar tab prints; the nav draws its own SVG.
+  { id: 'rule-chains', label: 'Rule Chains', icon: '\u{1F500}', description: 'Rule chains: what the system does with every reading, attribute report and alarm' },
 ];

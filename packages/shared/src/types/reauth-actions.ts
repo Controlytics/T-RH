@@ -76,6 +76,10 @@ export const REAUTH_ACTIONS = {
   UPDATE_AUDIT_HARD_DELETE: { label: 'Allow / Disallow Audit Record Deletion', category: 'Configuration' },
   // 2026-10-29: every dashboard-builder write (create, edit, rename, duplicate, delete, assign).
   UPDATE_DASHBOARD: { label: 'Update Dashboard (create, edit, delete, assign)', category: 'Configuration' },
+  // 2026-11-03: every rule chain write (create, edit, import, delete, make root,
+  // clear debug). A chain decides what happens to every reading and alarm and
+  // carries scripts the server runs — a signed act. Ships OFF like every entry.
+  UPDATE_RULE_CHAIN: { label: 'Update Rule Chain (create, edit, import, delete, make root)', category: 'Configuration' },
   // 2026-05-26 audit fix (PA-REAUTH-4): notification bulk-delete is
   // destructive (irreversible, no recycle bin) and was missing reauth.
   // Single-delete uses the same key — same blast radius per row.

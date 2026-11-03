@@ -51,22 +51,40 @@ describe('AUDIT_ACTIONS ↔ AUDIT_TEMPLATE_DEFAULTS', () => {
     expect(stray).toEqual([]);
   });
 
+  // 28 names were pruned on 2026-10-05. Four of them — RULE_CHAIN_CREATED /
+  // UPDATED / DELETED / IMPORTED — came back on 2026-11-03 with the rule chains
+  // build (spec §9), whose routes write them; they are pinned as REGISTERED in
+  // the test below and left this list (28 → 24). RULE_CHAIN_SET_ROOT stays
+  // pruned: making a chain root is RULE_CHAIN_ROOT_CHANGED.
   it('carries none of the names pruned on 2026-10-05 — they have no writer in the tree', () => {
     const pruned = [
       'ROLE_ASSIGNED', 'SESSION_TIMEOUT', 'APPROVAL_REQUESTED', 'APPROVAL_GRANTED', 'APPROVAL_REJECTED',
       'STAGE_APPROVAL_APPROVED', 'STAGE_APPROVAL_REJECTED', 'STAGE_APPROVAL_SUPERSEDED',
       'DATA_VIEWED', 'DATA_EXPORTED', 'DATA_ATTRIBUTES_UPDATED', 'DATA_ARCHIVED',
       'UNAUTHORIZED_ACTION_ATTEMPT', 'ALARM_CREATED', 'ALARM_CLEARED', 'ALARM_ESCALATED',
-      'SEPARATION_OF_DUTIES_DISABLED', 'RULE_CHAIN_CREATED', 'RULE_CHAIN_UPDATED', 'RULE_CHAIN_DELETED',
-      'RULE_CHAIN_SET_ROOT', 'RULE_CHAIN_IMPORTED', 'DEVICE_CREDENTIAL_REGENERATED',
+      'SEPARATION_OF_DUTIES_DISABLED',
+      'RULE_CHAIN_SET_ROOT', 'DEVICE_CREDENTIAL_REGENERATED',
       'UNS_PATH_OVERRIDDEN', 'UNS_CONFIG_UPDATED', 'RETENTION_POLICY_UPDATED',
       'SYSTEM_CONFIG_UPDATED', 'SERVER_RESTART_TRIGGERED',
     ];
-    expect(pruned).toHaveLength(28);
+    expect(pruned).toHaveLength(24);
     for (const name of pruned) {
       expect(name in AUDIT_ACTIONS, name).toBe(false);
       expect(AUDIT_TEMPLATE_DEFAULTS[name], name).toBeUndefined();
     }
+  });
+
+  it('the six rule chain actions are registered, each with a Configuration template (2026-11-03)', () => {
+    const six = [
+      'RULE_CHAIN_CREATED', 'RULE_CHAIN_UPDATED', 'RULE_CHAIN_DELETED',
+      'RULE_CHAIN_IMPORTED', 'RULE_CHAIN_ROOT_CHANGED', 'RULE_CHAIN_DEBUG_CLEARED',
+    ];
+    for (const name of six) {
+      expect(AUDIT_ACTIONS[name as keyof typeof AUDIT_ACTIONS], name).toBe(name);
+      expect(AUDIT_TEMPLATE_DEFAULTS[name]?.category, name).toBe('Configuration');
+      expect(AUDIT_TEMPLATE_DEFAULTS[name]?.template, name).toContain('{targetName}');
+    }
+    expect(Object.keys(AUDIT_ACTIONS).filter((k) => k.startsWith('RULE_CHAIN_')).sort()).toEqual([...six].sort());
   });
 
   it('the eleven actions the API wrote without registering are registered now', () => {

@@ -483,6 +483,25 @@ export const PERMISSION_TREE: SidebarGroup[] = [
     visibilityPrivilegeIds: ['dashboard.view'],
     nodes: [],
   },
+
+  // 2026-11-03 - Rule Chains (`/rule-chains`, `/rule-chains/:id`): the
+  // ThingsBoard-style rule engine. Appended LAST — the derived sidebar map and
+  // the frozen snapshot are order-sensitive. View reads chains and their debug
+  // events; Manage writes them (and the scripts the server runs), signed with
+  // UPDATE_RULE_CHAIN. Spec: docs/superpowers/specs/2026-11-03-rule-chains-design.md §9.
+  {
+    sidebarId: 'rule-chains', label: 'Rule Chains', icon: '\u{1F500}',
+    description: 'Rule chains: what the system does with every reading, attribute report and alarm',
+    visibilityPrivilegeIds: ['rule_chains.view', 'rule_chains.manage'],
+    nodes: [
+      { id: 'rule_chains.view', label: 'View Rule Chains', sidebarId: 'rule-chains', page: 'Rule Chains', action: 'View',
+        icon: 'git-branch', category: 'Rule Chains', permissions: ['RULE_CHAIN_READ'], enforce: 'a',
+        gate: ['RULE_CHAIN_READ'], configurable: true },
+      { id: 'rule_chains.manage', label: 'Manage Rule Chains', sidebarId: 'rule-chains', page: 'Rule Chains', action: 'Manage',
+        icon: 'git-branch-edit', category: 'Rule Chains', permissions: ['RULE_CHAIN_MANAGE', 'RULE_CHAIN_READ'], enforce: 'a',
+        gate: ['RULE_CHAIN_MANAGE'], reauthAction: 'UPDATE_RULE_CHAIN', configurable: true },
+    ],
+  },
 ];
 
 // ─── Phase 5E: Canonical ordering for derived maps ───────────────────────────
@@ -504,6 +523,7 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'data_report.view',
   'reports.view', 'reports.approve', 'reports.reject',
   'settings.view', 'settings.edit',
+  'rule_chains.view', 'rule_chains.manage',
 ] as const;
 
 // ─── Derive Functions ────────────────────────────────────────────────────────

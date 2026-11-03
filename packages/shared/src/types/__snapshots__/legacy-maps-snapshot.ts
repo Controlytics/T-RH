@@ -255,6 +255,18 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
     "label": "Edit Settings",
     "category": "Settings",
     "icon": "settings-edit"
+  },
+  {
+    "id": "rule_chains.view",
+    "label": "View Rule Chains",
+    "category": "Rule Chains",
+    "icon": "git-branch"
+  },
+  {
+    "id": "rule_chains.manage",
+    "label": "Manage Rule Chains",
+    "category": "Rule Chains",
+    "icon": "git-branch-edit"
   }
 ];
 
@@ -394,6 +406,13 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   "settings.edit": [
     "INSTRUMENT_ATTRIBUTE_UPDATE",
     "INSTRUMENT_READ"
+  ],
+  "rule_chains.view": [
+    "RULE_CHAIN_READ"
+  ],
+  "rule_chains.manage": [
+    "RULE_CHAIN_MANAGE",
+    "RULE_CHAIN_READ"
   ]
 };
 
@@ -551,6 +570,16 @@ export const SIDEBAR_PRIVILEGE_MAP_SNAPSHOT: SidebarSectionSnapshot[] = [
     "description": "Dashboards a super admin builds and assigns",
     "privilegeIds": [
       "dashboard.view"
+    ]
+  },
+  {
+    "sidebarId": "rule-chains",
+    "label": "Rule Chains",
+    "icon": "🔀",
+    "description": "Rule chains: what the system does with every reading, attribute report and alarm",
+    "privilegeIds": [
+      "rule_chains.view",
+      "rule_chains.manage"
     ]
   }
 ];

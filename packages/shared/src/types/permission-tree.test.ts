@@ -13,6 +13,7 @@ import {
 } from './permission-tree.js';
 import { PERMISSIONS, hasEffectivePermission } from './permissions.js';
 import { REAUTH_ACTIONS } from './reauth-actions.js';
+import { SIDEBAR_ITEMS } from './sidebar-items.js';
 import {
   FEATURE_PRIVILEGES_SNAPSHOT,
   FEATURE_TO_PERMISSION_MAP_SNAPSHOT,
@@ -374,5 +375,52 @@ describe('privilegeTogglesFromPermissions — what the Permissions tab shows', (
     }
     // A permission no toggle offers (Delete Users is SUPER_ADMIN only) is kept.
     expect(saved(['USER_DELETE', 'USER_READ'])).toContain('USER_DELETE');
+  });
+});
+
+describe('rule-chains group (2026-11-03)', () => {
+  // Rule chains — docs/superpowers/specs/2026-11-03-rule-chains-design.md §9.
+  // Two permissions of its own: reading chains (and their debug events, which
+  // can hold readings) and authoring them (scripts run on the server).
+  const group = PERMISSION_TREE.find((g) => g.sidebarId === 'rule-chains');
+
+  it('is appended LAST — the derived maps are order-sensitive against the frozen snapshot', () => {
+    expect(PERMISSION_TREE[PERMISSION_TREE.length - 1].sidebarId).toBe('rule-chains');
+    expect(group!.nodes.map((n) => n.id)).toEqual(['rule_chains.view', 'rule_chains.manage']);
+    expect(group!.nodes.every((n) => n.configurable)).toBe(true);
+  });
+
+  it('View gates on RULE_CHAIN_READ; Manage gates on RULE_CHAIN_MANAGE, carries READ, and signs with UPDATE_RULE_CHAIN', () => {
+    expect(resolveNodeGate('rule_chains.view')).toEqual([PERMISSIONS.RULE_CHAIN_READ]);
+    expect(resolveNodeGate('rule_chains.manage')).toEqual([PERMISSIONS.RULE_CHAIN_MANAGE]);
+    expect(resolveNodePermissions('rule_chains.view')).toEqual([PERMISSIONS.RULE_CHAIN_READ]);
+    expect(resolveNodePermissions('rule_chains.manage')).toEqual([PERMISSIONS.RULE_CHAIN_MANAGE, PERMISSIONS.RULE_CHAIN_READ]);
+    expect(group!.nodes[0].reauthAction).toBeUndefined();
+    expect(group!.nodes[1].reauthAction).toBe('UPDATE_RULE_CHAIN');
+  });
+
+  it('is visible in the sidebar to a role holding either toggle', () => {
+    expect(group!.visibilityPrivilegeIds).toEqual(['rule_chains.view', 'rule_chains.manage']);
+  });
+
+  it('the derived maps END with the two new toggles and the new section', () => {
+    expect(deriveFeaturePrivileges().slice(-2).map((p) => p.id)).toEqual(['rule_chains.view', 'rule_chains.manage']);
+    expect(Object.keys(deriveFeatureToPermissionMap()).slice(-2)).toEqual(['rule_chains.view', 'rule_chains.manage']);
+    expect(deriveSidebarPrivilegeMap().at(-1)!.sidebarId).toBe('rule-chains');
+  });
+
+  it('the sidebar item is appended LAST with the group\'s label, icon and description', () => {
+    const item = SIDEBAR_ITEMS[SIDEBAR_ITEMS.length - 1];
+    expect(item.id).toBe('rule-chains');
+    expect({ label: item.label, icon: item.icon, description: item.description })
+      .toEqual({ label: group!.label, icon: group!.icon, description: group!.description });
+  });
+
+  it('a role holding Manage reads as holding View too (one grant, both toggles ON)', () => {
+    const t = privilegeTogglesFromPermissions([PERMISSIONS.RULE_CHAIN_MANAGE]);
+    expect(t['rule_chains.manage']).toBe(true);
+    expect(t['rule_chains.view']).toBe(true);
+    const r = privilegeTogglesFromPermissions([PERMISSIONS.RULE_CHAIN_READ]);
+    expect(r['rule_chains.manage']).toBe(false);
   });
 });

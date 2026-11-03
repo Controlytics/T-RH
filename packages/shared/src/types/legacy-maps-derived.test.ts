@@ -18,11 +18,11 @@ import {
 } from './__snapshots__/legacy-maps-snapshot.js';
 
 describe('Phase 5E: derived maps === original snapshots', () => {
-  it('FEATURE_PRIVILEGES (39 entries) matches snapshot exactly — order-sensitive', () => {
+  it('FEATURE_PRIVILEGES (41 entries) matches snapshot exactly — order-sensitive', () => {
     expect(FEATURE_PRIVILEGES).toEqual(FEATURE_PRIVILEGES_SNAPSHOT);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP (39 keys) matches snapshot exactly — per-key array equality', () => {
+  it('FEATURE_TO_PERMISSION_MAP (41 keys) matches snapshot exactly — per-key array equality', () => {
     expect(FEATURE_TO_PERMISSION_MAP).toEqual(FEATURE_TO_PERMISSION_MAP_SNAPSHOT);
   });
 
@@ -68,19 +68,22 @@ describe('Phase 5E: derived maps === original snapshots', () => {
     // (a SUPER_ADMIN-only screen) stay as nodes, not configurable → 38.
     // 2026-10-26 split Approve / Reject Reports into two toggles (operator: "approve
     // and reject reports both should be two different permissions") → 39.
+    // 2026-11-03 added the 16th group, rule-chains, with 2 configurable nodes
+    // (view / manage) → 41.
     const count = PERMISSION_TREE.flatMap(g => g.nodes).filter(n => n.configurable === true).length;
-    expect(count).toBe(39);
+    expect(count).toBe(41);
   });
 
-  it('FEATURE_PRIVILEGES has exactly 39 entries', () => {
-    expect(FEATURE_PRIVILEGES).toHaveLength(39);
+  it('FEATURE_PRIVILEGES has exactly 41 entries', () => {
+    expect(FEATURE_PRIVILEGES).toHaveLength(41);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP has exactly 39 keys', () => {
-    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(39);
+  it('FEATURE_TO_PERMISSION_MAP has exactly 41 keys', () => {
+    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(41);
   });
 
-  it('SIDEBAR_PRIVILEGE_MAP has exactly 15 sections', () => {
-    expect(SIDEBAR_PRIVILEGE_MAP).toHaveLength(15);
+  // 15 → 16 on 2026-11-03: rule-chains.
+  it('SIDEBAR_PRIVILEGE_MAP has exactly 16 sections', () => {
+    expect(SIDEBAR_PRIVILEGE_MAP).toHaveLength(16);
   });
 });

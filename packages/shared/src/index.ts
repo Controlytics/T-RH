@@ -319,3 +319,29 @@ export type {
 export { MODBUS_CONNECTIONS, MODBUS_INTERVAL, MODBUS_UNIT_ID, MODBUS_UNIT_ID_MESSAGE, MODBUS_INTERVAL_MESSAGE, modbusUnitIdSchema, modbusIntervalSchema, isModbusReadInterval, BULK_TCPIP_HEADINGS, MODBUS_PORT_DEFAULT, MODBUS_MAX_KEYS, MODBUS_MAX_REGISTERS_PER_REQUEST, MODBUS_DATA_TYPES, MODBUS_BYTE_ORDERS, PAYLOAD_META_KEYS, DEVICE_NETWORKS_DEFAULT, modbusRegisterSchema, modbusRegisterMapSchema, coerceModbusRegisterMap, parseModiconRef, registersFor, modbusHostSchema, parseDeviceNetworks, ipInNetworks, fromDesktopKeysFile } from './types/modbus.js';
 export type { ModbusConnection, ModbusDataType, ModbusByteOrder, ModbusRegister, ModbusRegisterMap } from './types/modbus.js';
 export { MODBUS_BYTE_ORDER_LABELS, MODBUS_QUANTITY_TYPES, registerRange } from './types/modbus.js';
+
+// Rule chains (2026-11-03): the ThingsBoard node catalogue and the chain document.
+export {
+  RULE_NODE_GROUPS, UNSUPPORTED_NODE_TYPE,
+  RULE_RELATION_SUCCESS, RULE_RELATION_FAILURE, RULE_RELATION_TRUE, RULE_RELATION_FALSE, RULE_RELATION_OTHER,
+  RULE_ORIGINATOR_TYPES, RULE_ORIGINATOR_TYPE_LABELS, TB_ENTITY_TYPE_ALIASES, toRuleOriginatorType,
+  RULE_DEBUG_MODES, RULE_NODE_NAME_MAX, RULE_CHAIN_NAME_MAX, RULE_CHAIN_NODES_MAX, RULE_RELATION_MAX,
+  RULE_SCRIPT_MAX, RULE_TEMPLATE_MAX, RULE_KEY_MAX, RULE_KEYS_MAX,
+  RULE_MESSAGE_TYPES, MESSAGE_TYPE_SWITCH_LABELS, messageTypeSwitchLabel,
+  RULE_ALARM_STATUSES, RULE_MATH_OPERATIONS, RULE_ORIGINATOR_FIELDS,
+  RULE_NODE_TYPES, RULE_NODE_TYPE_BY_ID, RULE_NODE_TYPE_BY_TB_CLASS, BUILT_RULE_NODE_TYPES,
+  toRuleNodeTypeDescriptor, newRuleNodeConfig, ruleNodeConfigWithDefaults,
+} from './types/rule-nodes.js';
+export type {
+  RuleNodeGroup, RuleNodeStatus, RuleOriginatorType, RuleDebugMode, RuleMessageType,
+  RuleNodeFieldType, RuleNodeFieldOption, RuleNodeConfigField, RuleNodeTypeSpec, RuleNodeTypeDescriptor,
+} from './types/rule-nodes.js';
+export {
+  RULE_CHAIN_DOCUMENT_VERSION, RULE_CHAIN_CONNECTIONS_MAX, DEFAULT_ROOT_CHAIN_NAME, DEFAULT_ROOT_CHAIN_NODE_IDS,
+  parseRuleChainDocument, readRuleChainDocument, emptyRuleChainDocument, defaultRootChainDocument,
+  toThingsboardExport, fromThingsboardExport, ruleChainsEqual,
+} from './types/rule-chain-document.js';
+export type {
+  RuleChainNode, RuleChainConnection, RuleChainDocument, UnsupportedNodeConfig,
+  ThingsboardNodeExport, ThingsboardRuleChainExport, ThingsboardImportResult,
+} from './types/rule-chain-document.js';

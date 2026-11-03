@@ -108,6 +108,14 @@ export const PERMISSIONS = {
   ALARM_READ: 'ALARM_READ',
   ALARM_ACKNOWLEDGE: 'ALARM_ACKNOWLEDGE',
 
+  // Rule chains (2026-11-03) — the ThingsBoard-style rule engine. READ sees the
+  // chains and their debug events (which can hold readings); MANAGE creates,
+  // edits, imports, deletes and makes root — and so writes the scripts the
+  // server runs. MANAGE implies READ (PERMISSION_IMPLIED_BY). SUPER_ADMIN holds
+  // both; no other shipped role does. Spec: 2026-11-03-rule-chains-design.md §9.
+  RULE_CHAIN_READ: 'RULE_CHAIN_READ',
+  RULE_CHAIN_MANAGE: 'RULE_CHAIN_MANAGE',
+
   // VERSION_HISTORY_VIEW was removed with the Version History page — all four
   // versioned entities it browsed all went in the Phase 0 domain strip, so the
   // page had no reachable data and every one of its tabs 404'd.
@@ -169,6 +177,9 @@ export const MANAGE_PERMISSION_SUFFIXES = [
  */
 export const PERMISSION_IMPLIED_BY: Readonly<Record<string, readonly string[]>> = {
   INSTRUMENT_ATTRIBUTE_UPDATE: ['INSTRUMENT_UPDATE'],
+  // 2026-11-03: whoever authors rule chains may read them. The `_READ <- _MANAGE`
+  // suffix rule below grants this too; it is listed so the policy reads in ONE table.
+  RULE_CHAIN_READ: ['RULE_CHAIN_MANAGE'],
 };
 
 /**
