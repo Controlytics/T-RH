@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { AcknowledgeDialog } from './acknowledge-dialog';
 import { ExportMenu } from '@/components/ExportMenu';
 import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
-import { deliverReport, deliveryToast } from '@/lib/report-delivery';
+import { deliverReport, deliveredTitles, deliveryToast } from '@/lib/report-delivery';
 import { buildTemplatedReport } from '@/lib/templated-report';
 import { chooseTemplate, planScopeKey, useReportTemplatePlan } from '@/lib/report-template-plan';
 import { ReportTemplateLines } from '@/components/report-template-lines';
@@ -270,7 +270,8 @@ export default function AlarmsPage() {
     // The instruments are the ones the PRINTED alarms belong to — what scopes
     // who may see a request (2026-10-01); a report of no alarms is about none.
     const outcome = await deliverReport({
-      kind: 'alarms', req, report, reportType: 'Alarms', title, subtitle,
+      // The ONE clamp: a long `{search}` in a saved title must not turn a Request into a bare 400.
+      kind: 'alarms', req, report, reportType: 'Alarms', ...deliveredTitles({ title, subtitle }),
       requestMeta: { period, recordCount: all.length, search: search.trim() || undefined },
       instrumentIds: [...new Set(all.map((a) => a.instrumentId))],
     });

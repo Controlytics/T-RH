@@ -25,7 +25,7 @@ import { chooseTemplate, planScopeKey, useReportTemplatePlan } from '@/lib/repor
 import { ReportTemplateLines } from '@/components/report-template-lines';
 import { exportToExcel } from '@/lib/excel-export';
 import { logReportExport } from '@/lib/report-export-log';
-import { deliverReport, deliveryToast } from '@/lib/report-delivery';
+import { deliverReport, deliveredTitles, deliveryToast } from '@/lib/report-delivery';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { ExportMenu } from '@/components/ExportMenu';
 import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
@@ -410,7 +410,8 @@ export function AuditTrailPage() {
           ? { from: fromIso, to: toIso, label: currentPeriod() }
           : undefined;
         const outcome = await deliverReport({
-          kind: 'audit-trail', req, report, reportType: 'Audit Trail', title, subtitle,
+          // The ONE clamp: a long `{search}` in the subtitle must not turn a Request into a bare 400.
+          kind: 'audit-trail', req, report, reportType: 'Audit Trail', ...deliveredTitles({ title, subtitle }),
           requestMeta: { ...(period ? { period } : {}), recordCount: records.length, search: search || undefined },
           // The Audit Trail is about no instrument — it is not scope-restricted.
           instrumentIds: [],

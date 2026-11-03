@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createReport, renderSnapshotToPdf, normaliseSnapshot, imageFormatOf, type ReportChrome } from '../pdf-report';
+import { builtinReportTemplate } from '@digilog/shared';
+import {
+  createReport, renderSnapshotToPdf, normaliseSnapshot, imageFormatOf, loadReportChrome, REPORT_TITLES_UNREADABLE,
+  type ReportChrome,
+} from '../pdf-report';
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(async () => ({})), post: vi.fn(), postWithReauth: vi.fn() },
@@ -502,6 +506,59 @@ describe('Snapshot v3 for every report — the chrome is resolved up front', () 
     // chrome (by design; nothing stores a replay's snapshot).
     expect(replay.getSnapshot().version).toBe(3);
     expect(replay.getSnapshot().chrome?.companyName).toBe('Branding Of Today Ltd');
+  });
+
+  /**
+   * Ruling F-1 (2026-11-03): a chrome resolved for a report being made NOW is
+   * frozen into its record, so a FAILED Report Page Titles read must refuse the
+   * download — never freeze Branding's name where the administered override
+   * belongs. Only a v2 replay (an old record) keeps the forgiving fallback.
+   * Rejected BY URL: `createReport` also reads `/api/auth/me`, which must not
+   * swallow a one-shot rejection.
+   */
+  async function titlesFail(): Promise<() => void> {
+    const { apiClient } = await import('@/lib/api-client');
+    (apiClient.get as any).mockImplementation(async (url: unknown) => {
+      if (String(url).includes('report-page-titles')) throw new Error('503 Service Unavailable');
+      return {};
+    });
+    return () => (apiClient.get as any).mockImplementation(async () => ({}));
+  }
+
+  it('(d) a report made with NO chrome REFUSES when Report Page Titles cannot be read — it never freezes Branding\'s name', async () => {
+    liveBranding();
+    const restore = await titlesFail();
+    try {
+      await expect(createReport({ title: 'T', formatDateTime })).rejects.toThrow(REPORT_TITLES_UNREADABLE);
+      expect((await titlesReads()).length).toBe(1);
+    } finally { restore(); }
+  });
+
+  it('(e) a TEMPLATE\'s chrome refuses the same way — unless the template names both itself, when nothing is read', async () => {
+    liveBranding();
+    const restore = await titlesFail();
+    try {
+      const doc = builtinReportTemplate('page:alarms');
+      await expect(loadReportChrome(doc)).rejects.toThrow(REPORT_TITLES_UNREADABLE);
+      const own = await loadReportChrome({ ...doc, header: { ...doc.header, companyName: 'Own Co', appName: 'Own App' } });
+      expect(own).toMatchObject({ companyName: 'Own Co', appName: 'Own App' });
+    } finally { restore(); }
+  });
+
+  it('(f) a v2 REPLAY still opens when Report Page Titles cannot be read: Branding\'s name, as it always did', async () => {
+    const v2 = normaliseSnapshot({
+      version: 2, reportType: 'alarms', title: 'ALARM REPORT', orientation: 'portrait',
+      config: { showAppName: true }, sections: [{ kind: 'table', head: ['DATE'], body: [['2026-10-06']] }],
+    });
+    liveBranding('Branding Of Today Ltd');
+    const restore = await titlesFail();
+    try {
+      const replay = await renderSnapshotToPdf(v2, { formatDateTime });
+      expect((await titlesReads()).length).toBe(1);
+      replay.save('v2-replay-titles-down.pdf');
+      expect(pageTexts(replay.doc).join(' ')).toContain('Branding Of Today Ltd');
+      expect(replay.getSnapshot().chrome).toMatchObject({ companyName: 'Branding Of Today Ltd', showAppName: true, orientation: 'portrait' });
+    } finally { restore(); }
   });
 });
 

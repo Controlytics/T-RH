@@ -14,8 +14,8 @@ export { CONTENT_WIDTH_MM, HEADER_LABEL_MM, scopeColumnStyles, scopeTableRows } 
  * or, with none, the built-in, which is this layout. `alarm-report-rows.ts`
  * turns the alarms into that builder's input; THIS file keeps the pure helpers
  * it is made of — the cells (`reportRows`), the level and limit rules
- * (`EXTRA_COLUMNS`, `hiddenLimitColumns`, `reportHead`), the widths, the period
- * pairs, the truncation line, the legend. It must never import the builder
+ * (`EXTRA_COLUMNS`, `hiddenLimitColumns`, `reportHead`), the widths, the
+ * truncation line, the legend. It must never import the builder
  * (the builder once imported from here: no cycle may form).
  *
  * That document's shape, transcribed from its own text: a two-column parameter
@@ -162,14 +162,6 @@ export const NOT_APPLICABLE = 'N/A';
  */
 export const BOUND_NOT_SHOWN = '';
 
-export interface AlarmReportScope {
-  blockName: string;
-  areaName: string;
-  /** The instrument's own `Location` attribute, when one instrument is in scope. */
-  locationName: string;
-  instrumentLabel: string;
-}
-
 export interface AlarmReportPeriod {
   /** ISO instants — the DIALOG's period, which is what the operator confirmed. */
   from: string;
@@ -186,50 +178,15 @@ export interface AlarmReportFormatters {
  *  layout is improved on, and it is the same rule the screens follow. */
 const orDash = (v: string) => (v.trim() ? v.trim() : '-');
 
-/**
- * The parameter block: the PERIOD only — Start Date / Start Time on one row,
- * End Date / End Time on the next.
- *
- * Until 2026-10-05 it paired the reference's scope column (Block / Area /
- * Location / Inst ID) against the period column. The operator removed the scope
- * half ("dont show block,area,location and instrument id in header"): the
- * scope is already stated by the table itself — the Instrument ID, Area and
- * Location COLUMNS appear exactly when they vary across the rows (`reportHead`)
- * — so the header repeated what the rows say. `AlarmReportScope` still drives
- * those columns; it is just no longer printed up here.
- *
- * Since 2026-11-03 the built-in template's four info rows (`page:alarms`,
- * Start Date / Start Time / End Date / End Time) print this block through the
- * templated builder; `alarm-report-builtin.test.ts` pins the two equal.
- */
-export function periodPairs(period: AlarmReportPeriod, fmt: AlarmReportFormatters): [string, string][] {
-  return [
-    ['Start Date', fmt.formatDate(period.from)], ['Start Time', fmt.formatTime(period.from)],
-    ['End Date', fmt.formatDate(period.to)], ['End Time', fmt.formatTime(period.to)],
-  ];
-}
-
-/**
- * The TREND PAGE's Instrument Alarms report keeps the reference's full block
- * (operator, 2026-10-05: "in alarms report on the trends page, on header,
- * Block, area, location, instrument id, start date and start time and end date
- * and end time"): scope on the left, period on the right, two per row. That
- * report is ONE instrument's, so its table has no Instrument ID / Area /
- * Location columns to say this — the header is where the scope is stated.
- * The Alarms page's report prints `periodPairs` alone.
- */
-export function instrumentAlarmsHeaderPairs(
-  scope: AlarmReportScope,
-  period: AlarmReportPeriod,
-  fmt: AlarmReportFormatters,
-): [string, string][] {
-  return [
-    ['Block', orDash(scope.blockName)], ['Start Date', fmt.formatDate(period.from)],
-    ['Area', orDash(scope.areaName)], ['Start Time', fmt.formatTime(period.from)],
-    ['Location', orDash(scope.locationName)], ['End Date', fmt.formatDate(period.to)],
-    ['Inst ID', orDash(scope.instrumentLabel)], ['End Time', fmt.formatTime(period.to)],
-  ];
-}
+// The parameter block — the PERIOD only, Start Date / Start Time on one row,
+// End Date / End Time on the next (operator, 2026-10-05: "dont show
+// block,area,location and instrument id in header"; the Instrument ID, Area and
+// Location COLUMNS appear exactly when they vary, `reportHead`) — is the
+// built-in TEMPLATE's four info rows since 2026-11-03 (`page:alarms` in
+// `@digilog/shared`), printed by the templated builder; `alarm-report-builtin.test.ts`
+// pins it equal to what this page printed before. The trend page's Instrument
+// Alarms keeps the full Block / Area / Location / Inst ID block the same way
+// (`page:instrument-alarms`).
 
 /** °C for temperature, %RH for humidity — the same legends the alarms table puts
  *  in its column headers, so the paper and the screen name one unit. */

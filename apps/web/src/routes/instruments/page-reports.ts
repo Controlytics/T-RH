@@ -7,7 +7,9 @@ import {
   type ReportRow, type TemplatedReportResult, type TemplatedSection,
 } from '@/lib/templated-report';
 import { chooseTemplate, planScopeKey, type PlanSection } from '@/lib/report-template-plan';
-import { dataReportColumnStyles, dataReportLegend, dataReportParameterRows, limitText, printsMkt } from './data-report';
+import {
+  DATA_REPORT_EMPTY_TEXT, dataReportColumnStyles, dataReportLegend, dataReportParameterRows, limitText, printsMkt,
+} from './data-report';
 import {
   capNotice, dataReportPlaceholderValues, instrumentPlaceholderValues, rowsForDataReport, rowsForInstrumentAlarms,
   trendPlaceholderValues,
@@ -63,40 +65,36 @@ export interface DataReportSection extends PageReportTemplate {
   builtin: boolean;
 }
 
-/** `POST /api/report-reviews` caps the title and the subtitle at these lengths. */
-const REQUEST_TITLE_MAX = 500;
-const REQUEST_SUBTITLE_MAX = 1000;
-
-/**
- * The title and subtitle a download hands `deliverReport`: as printed, cut with
- * an ellipsis past the request's caps. A template's placeholders can run past
- * them — a Data Report's `{profile}` names every profile — and a Request must
- * never turn into a bare 400 for it (the widget dialog's rule, review m11). The
- * PDF itself prints them whole.
- */
-export function deliveredTitles(result: Pick<TemplatedReportResult, 'title' | 'subtitle'>): { title: string; subtitle?: string } {
-  const clamp = (text: string, max: number) => (text.length <= max ? text : `${text.slice(0, max - 1)}…`);
-  return {
-    title: clamp(result.title, REQUEST_TITLE_MAX),
-    ...(result.subtitle === undefined ? {} : { subtitle: clamp(result.subtitle, REQUEST_SUBTITLE_MAX) }),
-  };
-}
-
 /** The instrument's section of the plan — with a profile — or `undefined`: the ONE test of "the server named a profile for it". */
 function planSectionFor(plan: readonly PlanSection[], instrumentId: string): (PlanSection & { profileId: string }) | undefined {
   return plan.find((s): s is PlanSection & { profileId: string } => s.profileId !== null && s.instrumentIds.includes(instrumentId));
 }
 
 /**
- * Whether a LOADED plan leaves any of these instruments without a profile — the
- * download dialog then shows the templates as failed before Confirm, as the
- * widget dialog does (Task 3, Minor 4), and the download refuses
- * (`templateForInstrument`). `false` while the plan loads or after it failed:
- * those are said on their own.
+ * The CODES of the instruments a LOADED plan leaves without a profile — `/resolve`
+ * drops an instrument the caller cannot see. The download dialog names each one
+ * before Confirm (`ReportTemplateLines`' `leftOut`: "No instrument profile
+ * resolved for <code> — the report will be refused"), and the download refuses
+ * (`templateForInstrument`). Empty while the plan loads or after it failed:
+ * those are said on their own, in their own words.
  */
-export function planLeavesOut(plan: { sections: readonly PlanSection[]; loading: boolean; error: unknown }, instrumentIds: readonly string[]): boolean {
-  if (plan.loading || (plan.error !== undefined && plan.error !== null)) return false;
-  return instrumentIds.some((id) => planSectionFor(plan.sections, id) === undefined);
+export function planLeavesOut(
+  plan: { sections: readonly PlanSection[]; loading: boolean; error: unknown },
+  instruments: readonly { id: string; code: string }[],
+): string[] {
+  if (plan.loading || (plan.error !== undefined && plan.error !== null)) return [];
+  return instruments.filter((i) => planSectionFor(plan.sections, i.id) === undefined).map((i) => i.code);
+}
+
+/**
+ * Whether a template prints an instrument ATTRIBUTE — an `attr:` column it
+ * shows or an `attr:` info row. Only then is `GET /api/instruments/:id/attributes`
+ * asked for that instrument: a built-in names none, so a built-in report reads
+ * no attributes at all.
+ */
+export function templateNamesAttributes(document: ReportTemplateDocument): boolean {
+  return document.columns.some((c) => c.show && c.id.startsWith('attr:'))
+    || document.infoBlock.some((r) => r.source.startsWith('attr:'));
 }
 
 /**
@@ -142,8 +140,21 @@ function withInstrumentCells(rows: ReportRow[], code: string, attributes: Record
 /** A `before` title: rides on the records table as its title, exactly as the cap notice always printed (ruling T3-B). */
 const capNote = (text: string | null) => (text ? [{ text, before: true, style: 'title' as const }] : []);
 
-/** The period's values every section of a Data Report shares — the one dialog's period and interval. */
-const SHARED_KEYS: readonly Placeholder[] = ['from', 'to', 'period', 'fromDate', 'fromTime', 'toDate', 'toTime', 'interval'];
+/**
+ * The values EVERY section holds, and holds alike: a key carries only when each
+ * section defines it with the same text. An Area-wise Data Report's instruments
+ * share their Block and Area (and the dialog's period and interval), so a saved
+ * title "Data Report {area}" prints the Area; they do not share an instrument,
+ * so `{instrument}` stays absent — and prints `—` — rather than naming the
+ * first instrument as if it were the whole report's.
+ */
+function sharedValues(all: readonly Values[]): Values {
+  if (all.length === 0) return {};
+  const [first, ...rest] = all;
+  return Object.fromEntries(
+    Object.entries(first).filter(([k, v]) => v !== undefined && rest.every((r) => r[k as Placeholder] === v)),
+  ) as Values;
+}
 
 /**
  * The DATA REPORT: one section per instrument, each on its own page with its
@@ -154,9 +165,16 @@ const SHARED_KEYS: readonly Placeholder[] = ['from', 'to', 'period', 'fromDate',
  * template carries its own (ruling P-1).
  *
  * Placeholders: each section's header names ITS instrument (`values` per
- * section). The report's title, subtitle and footer name the instrument only
- * when there is ONE; on a report of several they name the period alone — a
- * title naming the first instrument would read as the whole report's.
+ * section). The report's title, subtitle and footer carry every value the
+ * sections hold ALIKE (`sharedValues`): all of them on a report of one
+ * instrument; on a report of several, the shared ones — the period, the
+ * interval, a common Block or Area — while a value that differs between them
+ * (the instrument, its location, its limits) prints `—`.
+ *
+ * An EMPTY period under a SAVED template also says so in a muted note after the
+ * table: the built-in's empty row carries the statement in its TEMPERATURE
+ * cell, and a saved template may hide that column. The built-in prints exactly
+ * what it always did.
  */
 export async function buildDataReport(input: {
   sections: DataReportSection[];
@@ -179,7 +197,10 @@ export async function buildDataReport(input: {
     rows: printed.shownCount ? withInstrumentCells(printed.rows, s.input.scope.instrumentLabel, s.attributes) : printed.rows,
     // An empty period's one row is a statement, not a reading: nothing in it is bold.
     ...(printed.shownCount ? { bold: printed.bold } : {}),
-    notes: capNote(capNotice(printed, s.input.period)),
+    notes: [
+      ...capNote(capNotice(printed, s.input.period)),
+      ...(!s.builtin && printed.shownCount === 0 ? [{ text: DATA_REPORT_EMPTY_TEXT, color: 'muted' as const }] : []),
+    ],
     values,
     ...(s.attributes ? { attributes: s.attributes } : {}),
     pageBreakBefore: i > 0,
@@ -193,10 +214,7 @@ export async function buildDataReport(input: {
       }
       : {}),
   }));
-  const first = prepared[0]?.values ?? {};
-  const reportValues: Values = prepared.length === 1
-    ? { ...first, ...input.values }
-    : { ...Object.fromEntries(SHARED_KEYS.filter((k) => first[k] !== undefined).map((k) => [k, first[k]])), ...input.values };
+  const reportValues: Values = { ...sharedValues(prepared.map((p) => p.values)), ...input.values };
   return buildTemplatedReport({
     kind: 'page:data-report',
     reportKey: REPORT_KEY,

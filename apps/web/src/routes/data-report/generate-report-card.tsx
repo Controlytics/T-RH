@@ -7,14 +7,14 @@ import { useAuth } from '@/hooks/use-auth';
 import { useExportOptions } from '@/hooks/use-export-options';
 import { useSensorWords } from '@/hooks/use-failure-text';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
-import { deliverReport, deliveryToast } from '@/lib/report-delivery';
+import { deliverReport, deliveredTitles, deliveryToast } from '@/lib/report-delivery';
 import { useReportTemplatePlan } from '@/lib/report-template-plan';
 import { useToast } from '@/hooks/use-toast';
 import { themeGradient } from '@/lib/theme-styles';
 import { useTrendPeriod } from '@/routes/instruments/use-trend-data';
 import { fetchDataReportRows, fetchReportAttributes, slotExtremes } from '@/routes/instruments/data-report-fetch';
 import {
-  buildDataReport, deliveredTitles, planLeavesOut, templateForInstrument, type DataReportSection,
+  buildDataReport, planLeavesOut, templateForInstrument, templateNamesAttributes, type DataReportSection,
 } from '@/routes/instruments/page-reports';
 import { resolveBlockArea } from '@/routes/instruments/data-report';
 import type { HistoryScope } from './use-history-scope';
@@ -81,10 +81,10 @@ export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
   const plan = useReportTemplatePlan(KIND, chosenIds, { enabled: pendingDownload });
   const [picks, setPicks] = useState<Record<string, string>>({});
   const closeDialog = () => { setPendingDownload(false); setPicks({}); };
-  // The loaded plan names no profile for a selected instrument: the lines say
-  // the templates failed BEFORE Confirm (the widget dialog's rule) — never a
-  // selection that silently has no line.
-  const unplanned = pendingDownload && planLeavesOut(plan, chosenIds);
+  // The loaded plan names no profile for a selected instrument: the lines name
+  // EACH such instrument BEFORE Confirm — never a selection that silently has
+  // no line, and never "could not be loaded" about a plan that loaded.
+  const leftOut = pendingDownload ? planLeavesOut(plan, scope.chosen) : [];
 
   const runDownload = async (req: ReportDownloadRequest) => {
     const targets = scope.chosen;
@@ -110,14 +110,15 @@ export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
           const tempKey = ov?.temperature?.key ?? null;
           const humidKey = ov?.humidity?.key ?? null;
           const slotKeys = [tempKey, humidKey].filter((k): k is string => k !== null);
-          // The readings and, for a template's `attr:` rows and columns, the instrument's attributes.
+          // The readings and — only when THIS instrument's template prints an
+          // `attr:` row or column (a built-in prints none) — its attributes, in parallel.
           const [fetched, attributes] = await Promise.all([
             fetchDataReportRows({
               instrumentId: inst.id, from: reportPeriod.from, to: reportPeriod.to, intervalMs: interval, slotKeys,
             }),
-            fetchReportAttributes(inst.id),
+            templateNamesAttributes(templates[i].document) ? fetchReportAttributes(inst.id) : Promise.resolve(undefined),
           ]);
-          sections[i] = { ...templates[i], attributes, input: {
+          sections[i] = { ...templates[i], ...(attributes ? { attributes } : {}), input: {
             scope: {
               ...resolveBlockArea(scope.tree, inst.functionalLocationId ?? null),
               locationName: ov?.locationAttribute ?? '',
@@ -234,7 +235,8 @@ export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
             picks={picks}
             onPick={(scopeKey, value) => setPicks((p) => ({ ...p, [scopeKey]: value }))}
             loading={plan.loading}
-            failed={(plan.error !== undefined && plan.error !== null) || unplanned}
+            failed={plan.error !== undefined && plan.error !== null}
+            leftOut={leftOut}
             superAdmin={user?.role === 'SUPER_ADMIN'}
           />
         )}

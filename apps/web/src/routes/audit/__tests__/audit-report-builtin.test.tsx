@@ -91,6 +91,7 @@ const PLANS = {
   builtin: { sections: [APPLICATION(null)], loading: false, error: undefined },
   saved: { sections: [APPLICATION(SAVED)], loading: false, error: undefined },
   failed: { sections: [], loading: false, error: new Error('503') },
+  loading: { sections: [], loading: true, error: undefined },
 };
 let plan: (typeof PLANS)[keyof typeof PLANS] = PLANS.builtin;
 const planCalls: { kind: string; ids: readonly string[]; enabled: boolean | undefined }[] = [];
@@ -105,7 +106,9 @@ vi.mock('@/lib/report-template-plan', async (importOriginal) => ({
 /** What the page handed the delivery and the Excel writer. */
 const delivered: { report: { getSnapshot: () => ReportSnapshot }; title: string; subtitle?: string; requestMeta: { recordCount: number } }[] = [];
 const excel: { head: string[]; rows: string[][] }[] = [];
-vi.mock('@/lib/report-delivery', () => ({
+vi.mock('@/lib/report-delivery', async (importOriginal) => ({
+  // The REAL `deliveredTitles` — the one clamp every page sends its titles through.
+  ...(await importOriginal<typeof import('@/lib/report-delivery')>()),
   deliverReport: async (input: (typeof delivered)[number]) => { delivered.push(input); return 'DOWNLOADED'; },
   deliveryToast: () => ({ tone: 'success', title: 'Downloaded', message: '' }),
 }));
@@ -217,7 +220,16 @@ describe('a SAVED application template draws the PDF', () => {
   it('a plan that failed to load refuses the PDF: nothing is delivered, the dialog says why', async () => {
     plan = PLANS.failed;
     await exportAs('PDF');
-    expect(await screen.findByText(/report templates could not be loaded/i, { selector: 'p:not([role="alert"])' })).toBeInTheDocument();
+    expect(await screen.findByText('The report templates could not be loaded. Close this and try again.', { selector: 'p:not([role="alert"])' })).toBeInTheDocument();
     expect(delivered).toHaveLength(0);
+  });
+
+  it('a plan still LOADING refuses the PDF too (ruling R5-6): nothing is delivered, the dialog says it is loading', async () => {
+    plan = PLANS.loading;
+    await exportAs('PDF');
+    expect(await screen.findByText('The report templates are still loading. Try again in a moment.', { selector: 'p:not([role="alert"])' })).toBeInTheDocument();
+    expect(delivered).toHaveLength(0);
+    // The lines say it is loading — not that the templates failed.
+    expect(within(screen.getByRole('dialog')).getByText('Loading the report templates…')).toBeInTheDocument();
   });
 });

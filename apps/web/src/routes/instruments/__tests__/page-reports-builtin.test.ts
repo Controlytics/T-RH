@@ -6,8 +6,10 @@ import {
   REPORT_TEMPLATE_FIELDS, builtinReportTemplate, type ReportTemplateDocument, type TemplateKind,
 } from '@digilog/shared';
 import type { ReportDoc, SnapshotSection } from '@/lib/pdf-report';
-import { buildDataReport, buildTrendReport, buildInstrumentAlarmsReport } from '../page-reports';
-import { dataReportColumnStyles } from '../data-report';
+import {
+  buildDataReport, buildTrendReport, buildInstrumentAlarmsReport, planLeavesOut, templateNamesAttributes,
+} from '../page-reports';
+import { DATA_REPORT_EMPTY_TEXT, dataReportColumnStyles, limitText } from '../data-report';
 import {
   dataA, dataB, dataCapped, formatDateTime, period, trendHeader, trendCharts, alarmRows, statusTexts, inactivityTexts,
 } from './fixtures/page-report-inputs';
@@ -238,5 +240,122 @@ describe('instrument ATTRIBUTES on a page report (ruling T3-A)', () => {
     });
     expect(headerTables(r.report)[0].body).toEqual([['Building :', 'B-1', 'Room :', '—']]);
     expect(notes(r.report)).toContain('Not available for this profile: Room');
+  });
+});
+
+/** A saved Data Report template: its title naming the placement, and only DATE and TIME shown (TEMPERATURE hidden). */
+function placementDocument(title: string, subtitle?: string): ReportTemplateDocument {
+  const doc = builtinReportTemplate('page:data-report');
+  return {
+    ...doc,
+    header: { ...doc.header, title, ...(subtitle !== undefined ? { subtitle } : {}) },
+    columns: doc.columns.map((c) => ({ ...c, show: c.id === 'record.date' || c.id === 'record.time' })),
+  };
+}
+
+describe('a Data Report\'s title carries every value its instruments SHARE (whole-branch review, Important 1)', () => {
+  it('two instruments in one Area: {area} and {block} print; {instrument} and {location}, which differ, print —', async () => {
+    const doc = placementDocument('Data Report {area} / {block} / {instrument} / {location} / {period}');
+    const r = await buildDataReport({
+      formatDateTime, values: USER_VALUES,
+      sections: [
+        // Instrument A placed in B's Area: the same Block and Area, its own code and Location.
+        { ...builtinSection('page:data-report'), document: doc, builtin: false, input: { ...dataA, scope: { ...dataA.scope, areaName: 'QC 3' } } },
+        { ...builtinSection('page:data-report'), document: doc, builtin: false, input: dataB },
+      ],
+    });
+    expect(r.title).toBe('Data Report QC 3 / CWH Block / — / — / Last hour');
+  });
+
+  it('a value one instrument has and another lacks is not shared: an MKT on A only prints —', async () => {
+    const doc = placementDocument('MKT {mkt} · {interval}');
+    const r = await buildDataReport({
+      formatDateTime, values: USER_VALUES,
+      sections: [
+        { ...builtinSection('page:data-report'), document: doc, builtin: false, input: dataA },
+        { ...builtinSection('page:data-report'), document: doc, builtin: false, input: dataB },
+      ],
+    });
+    // A has an MKT, B none; both have the dialog's 15-minute interval.
+    expect(r.title).toBe('MKT — · 15 minutes');
+  });
+
+  it('one instrument: everything carries — its code, its Area, its Location, its limit', async () => {
+    const r = await buildDataReport({
+      formatDateTime, values: USER_VALUES,
+      sections: [{
+        ...builtinSection('page:data-report'),
+        document: placementDocument('Data Report {area} / {instrument} / {location}', '{tempLimit} by {user}'),
+        builtin: false, input: dataB,
+      }],
+    });
+    expect(r.title).toBe('Data Report QC 3 / CWH/RDU/002-00 / LCMS Room-II');
+    expect(limitText(dataB.temp)).not.toBe('');
+    expect(r.subtitle).toBe(`${limitText(dataB.temp)} by alice`);
+  });
+});
+
+describe('an EMPTY period under a SAVED template still says so (whole-branch review, Important 2)', () => {
+  const sectionNotes = (report: ReportDoc) => report.getSnapshot().sections;
+
+  it('a saved template that hides TEMPERATURE: a muted note after the table says the period is empty', async () => {
+    const r = await buildDataReport({
+      formatDateTime, values: USER_VALUES,
+      sections: [{ ...builtinSection('page:data-report'), document: placementDocument('Saved'), builtin: false, input: dataB }],
+    });
+    const all = sectionNotes(r.report);
+    const [table] = recordTables(r.report);
+    // The row the template prints holds no statement: only DATE and TIME are shown.
+    expect(table.head).toEqual(['DATE', 'TIME']);
+    expect(table.body).toEqual([['-', '-']]);
+    const note = all.find((s) => s.kind === 'note' && s.text === DATA_REPORT_EMPTY_TEXT);
+    expect(note).toEqual({ kind: 'note', text: 'No readings in the selected period', color: 'muted' });
+    expect(all.indexOf(note!)).toBeGreaterThan(all.indexOf(table));
+  });
+
+  it('the BUILT-IN prints exactly what it did: the statement in its row, and no note', async () => {
+    const r = await buildDataReport({
+      formatDateTime, values: USER_VALUES, sections: [{ ...builtinSection('page:data-report'), input: dataB }],
+    });
+    expect(recordTables(r.report)[0].body).toEqual([['-', '-', DATA_REPORT_EMPTY_TEXT, '-']]);
+    expect(notes(r.report)).not.toContain(DATA_REPORT_EMPTY_TEXT);
+  });
+
+  it('a period WITH readings under a saved template adds no such note', async () => {
+    const r = await buildDataReport({
+      formatDateTime, values: USER_VALUES,
+      sections: [{ ...builtinSection('page:data-report'), document: placementDocument('Saved'), builtin: false, input: dataA }],
+    });
+    expect(notes(r.report)).not.toContain(DATA_REPORT_EMPTY_TEXT);
+  });
+});
+
+describe('the plan helpers the download dialogs use', () => {
+  const section = (instrumentIds: string[]) => ({
+    profileId: 'p1', profileName: 'T&RH', instrumentIds, resolved: null, templates: [], availableIds: [],
+  });
+  const A = { id: 'a', code: 'CWH/RDU/001-00' };
+  const B = { id: 'b', code: 'CWH/RDU/002-00' };
+
+  it('planLeavesOut names the CODE of each instrument a LOADED plan left out, in the selection\'s order', () => {
+    expect(planLeavesOut({ sections: [section(['a'])], loading: false, error: undefined }, [A, B])).toEqual(['CWH/RDU/002-00']);
+    expect(planLeavesOut({ sections: [], loading: false, error: undefined }, [A, B])).toEqual(['CWH/RDU/001-00', 'CWH/RDU/002-00']);
+    expect(planLeavesOut({ sections: [section(['a', 'b'])], loading: false, error: undefined }, [A, B])).toEqual([]);
+  });
+
+  it('planLeavesOut says nothing while the plan loads or after it failed — those say their own', () => {
+    expect(planLeavesOut({ sections: [], loading: true, error: undefined }, [A])).toEqual([]);
+    expect(planLeavesOut({ sections: [], loading: false, error: new Error('503') }, [A])).toEqual([]);
+  });
+
+  it('templateNamesAttributes: a SHOWN attr: column or an attr: info row — never a built-in', () => {
+    const builtin = builtinReportTemplate('page:data-report');
+    expect(templateNamesAttributes(builtin)).toBe(false);
+    for (const kind of ['page:trend', 'page:instrument-alarms'] as const) expect(templateNamesAttributes(builtinReportTemplate(kind))).toBe(false);
+    expect(templateNamesAttributes({ ...builtin, infoBlock: [{ label: 'Building', source: 'attr:Building' }] })).toBe(true);
+    const column = { id: 'attr:Building', heading: 'Building', show: true };
+    expect(templateNamesAttributes({ ...builtin, columns: [...builtin.columns, column] })).toBe(true);
+    // A HIDDEN attr: column prints nothing, so it asks for nothing.
+    expect(templateNamesAttributes({ ...builtin, columns: [...builtin.columns, { ...column, show: false }] })).toBe(false);
   });
 });

@@ -98,7 +98,22 @@ function inkOn(rgb: [number, number, number]): [number, number, number] {
   return vsWhite >= vsDark ? COLORS.white : COLORS.dark;
 }
 
-async function loadBranding(): Promise<{ companyName: string; appName: string }> {
+/** What a download says when the Report Page Titles read fails for a report being made now (ruling F-1). */
+export const REPORT_TITLES_UNREADABLE = 'The report\'s company and application names (Configuration → Report Page Titles) could not be read, so the report was not made. Close this and try again.';
+
+/**
+ * The identity a report prints: Branding, then Configuration → Report Page
+ * Titles over it.
+ *
+ * `forgiving` decides what a FAILED Report Page Titles read does (ruling F-1,
+ * 2026-11-03). A report being made NOW freezes its identity into the snapshot
+ * (v3) and so into a signed record: a read that failed would freeze Branding's
+ * name where the administered override belongs, with no trace that it did — so
+ * it THROWS and the download refuses, saying why. Only a v2 REPLAY (a snapshot
+ * stored before chromes were frozen, `renderSnapshotToPdf`) is forgiving and
+ * keeps Branding's values, as it always did, so an old record still opens.
+ */
+async function loadBranding(forgiving = false): Promise<{ companyName: string; appName: string }> {
   let companyName = 'Controlytics AI Pvt Ltd';
   // The shared product default, never the upstream "DigiLog" literal (audit
   // 2026-10-03, WEB-16): a fresh install prints this in every PDF header
@@ -116,7 +131,10 @@ async function loadBranding(): Promise<{ companyName: string; appName: string }>
     const ov = await apiClient.get<{ companyName?: string; appName?: string }>('/api/config/report-page-titles/current');
     if (ov?.companyName?.trim()) companyName = ov.companyName.trim();
     if (ov?.appName?.trim()) appName = ov.appName.trim();
-  } catch { /* keep branding values */ }
+  } catch (e) {
+    // A v2 replay keeps Branding's values; a report being made refuses (ruling F-1).
+    if (!forgiving) throw new Error(REPORT_TITLES_UNREADABLE, { cause: e });
+  }
   return { companyName, appName };
 }
 
@@ -150,7 +168,8 @@ export interface ReportChrome {
  * Configuration → Report Page Titles, else Branding (the page reports' one
  * order); its logo by mode — `branding` = the Branding logo's bytes,
  * `custom` = the template's own image, `none` = none. Nothing is fetched that
- * the document does not need.
+ * the document does not need. A failed Report Page Titles read THROWS (ruling
+ * F-1): this chrome is frozen into the report's record.
  */
 export async function loadReportChrome(doc: ReportTemplateDocument): Promise<ReportChrome> {
   const companyOverride = doc.header.companyName?.trim();
@@ -186,9 +205,16 @@ const DEFAULT_FOOTER: ReportChrome['footer'] = { showPageNumbers: true, showPrin
  * bytes, the default footer — plus the report's own app-name line and
  * orientation. Resolved up front so the snapshot can freeze it (v3) and a
  * replay never reads today's Branding into yesterday's approved report.
+ *
+ * A failed Report Page Titles read THROWS here (ruling F-1) — except for
+ * `{ v2Replay: true }`, the one caller that resolves TODAY's chrome for an old
+ * record and must still open it (`renderSnapshotToPdf`).
  */
-export async function defaultReportChrome(config: Pick<ReportConfig, 'showAppName' | 'orientation'>): Promise<ReportChrome> {
-  const [{ companyName, appName }, logoDataUrl] = await Promise.all([loadBranding(), loadBrandingLogoDataUrl()]);
+export async function defaultReportChrome(
+  config: Pick<ReportConfig, 'showAppName' | 'orientation'>,
+  opts: { v2Replay?: boolean } = {},
+): Promise<ReportChrome> {
+  const [{ companyName, appName }, logoDataUrl] = await Promise.all([loadBranding(opts.v2Replay === true), loadBrandingLogoDataUrl()]);
   return {
     companyName,
     appName,
@@ -1095,9 +1121,13 @@ export async function renderSnapshotToPdf(
     signatureTable: opts.signatureTable,
     draft: opts.draft,
     // v3: the frozen chrome — no Branding, Report Page Titles or logo fetch.
-    // v2 (stored before 2026-11-03): no chrome, so `createReport` resolves
-    // today's, as the page report always was replayed.
-    ...(snapshot.version === 3 && snapshot.chrome ? { chrome: snapshot.chrome } : {}),
+    // v2 (stored before 2026-11-03): no chrome, so today's is resolved here,
+    // as the page report always was replayed — FORGIVINGLY: a failed Report
+    // Page Titles read keeps Branding's name rather than refuse to open an old
+    // record (ruling F-1; a report being made refuses instead).
+    chrome: snapshot.version === 3 && snapshot.chrome
+      ? snapshot.chrome
+      : await defaultReportChrome({ showAppName: snapshot.config?.showAppName, orientation: snapshot.orientation }, { v2Replay: true }),
   });
   for (const s of snapshot.sections) {
     switch (s.kind) {

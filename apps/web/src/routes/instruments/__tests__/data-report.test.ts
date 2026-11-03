@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { builtinReportTemplate } from '@digilog/shared';
+import { reportColumnHeading } from '@/lib/templated-report';
 import {
-  DATA_REPORT_TITLE, DATA_REPORT_HEAD, DATA_REPORT_LEGEND_BASE, DATA_REPORT_NO_DATA,
+  DATA_REPORT_LEGEND_BASE, DATA_REPORT_NO_DATA,
   dataReportLegend, dataReportParameterRows, dataReportRows, dataReportCell, dataReportIntervalText,
   scheduleRows, emptyDataReportRow, dataReportColumnStyles, resolveBlockArea, limitText,
 } from '../data-report';
@@ -41,10 +43,18 @@ const period = { from: '2026-05-27T16:36:00.000Z', to: '2026-05-28T16:36:00.000Z
 const temp = { min: null, max: 27, decimals: 1, periodMax: 22.9, periodMin: 21.2 };
 const rh = { min: null, max: 70, decimals: 0, periodMax: 63, periodMin: 58 };
 
+/**
+ * The title and the four columns are the BUILT-IN template's since 2026-11-03
+ * (`builtinReportTemplate('page:data-report')`, `@digilog/shared`) — the one
+ * source the Data Report prints them from; the headings as printed.
+ */
+const BUILTIN = builtinReportTemplate('page:data-report');
+const BUILTIN_HEAD = BUILTIN.columns.filter((c) => c.show).map(reportColumnHeading);
+
 describe('the reference layout', () => {
   it('carries the reference title and its four columns, in order', () => {
-    expect(DATA_REPORT_TITLE).toBe('Temperature and RH Data Report');
-    expect(DATA_REPORT_HEAD).toEqual(['DATE', 'TIME', 'TEMPERATURE (°C)', 'RELATIVE HUMIDITY(%)']);
+    expect(BUILTIN.header.title).toBe('Temperature and RH Data Report');
+    expect(BUILTIN_HEAD).toEqual(['DATE', 'TIME', 'TEMPERATURE (°C)', 'RELATIVE HUMIDITY(%)']);
   });
 
   it('lays the parameter block out in the reference’s order and pairing', () => {
@@ -254,13 +264,13 @@ describe('a row', () => {
   });
 
   it('says so when the period is empty, width-matched to the head', () => {
-    expect(emptyDataReportRow()).toHaveLength(DATA_REPORT_HEAD.length);
+    expect(emptyDataReportRow()).toHaveLength(BUILTIN_HEAD.length);
     expect(emptyDataReportRow()[2]).toMatch(/No readings/);
   });
 
   it('centres every column', () => {
     const styles = dataReportColumnStyles();
-    for (let i = 0; i < DATA_REPORT_HEAD.length; i++) expect(styles[i].halign).toBe('center');
+    for (let i = 0; i < BUILTIN_HEAD.length; i++) expect(styles[i].halign).toBe('center');
   });
 });
 

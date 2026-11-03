@@ -64,6 +64,30 @@ export async function deliverReport(input: {
 
 export type DeliveryOutcome = 'DOWNLOADED' | 'REQUESTED' | 'REQUESTED_NO_APPROVER';
 
+/** `POST /api/report-reviews` caps the title and the subtitle at these lengths. */
+export const REQUEST_TITLE_MAX = 500;
+export const REQUEST_SUBTITLE_MAX = 1000;
+
+/** At most `max` characters, an ellipsis saying where it was cut. */
+export function clampText(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+}
+
+/**
+ * The title and subtitle a download hands `deliverReport` — the ONE clamp every
+ * report page and the widget dialog use: as printed, cut with an ellipsis past
+ * the request's caps. A template's placeholders can run past them — a widget's
+ * `{selection}`, a Data Report's `{profile}`, an Alarm Report's `{search}` —
+ * and a Request must never turn into a bare 400 for it (review m11). The PDF
+ * itself prints them whole.
+ */
+export function deliveredTitles(result: { title: string; subtitle?: string }): { title: string; subtitle?: string } {
+  return {
+    title: clampText(result.title, REQUEST_TITLE_MAX),
+    ...(result.subtitle === undefined ? {} : { subtitle: clampText(result.subtitle, REQUEST_SUBTITLE_MAX) }),
+  };
+}
+
 /** The toast after a delivery — one wording, and one tone, for every page. */
 export function deliveryToast(outcome: DeliveryOutcome): { tone: 'success' | 'warning'; title: string; message: string } {
   if (outcome === 'DOWNLOADED') return { tone: 'success', title: 'Report downloaded', message: 'The download is recorded in the audit trail.' };

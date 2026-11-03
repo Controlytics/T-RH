@@ -34,20 +34,39 @@ export interface ReportTemplateLinesProps {
    * built-in.
    */
   oneSection?: boolean;
+  /**
+   * The CODES of instruments the loaded plan left out — `/resolve` named no
+   * profile for them (`planLeavesOut`). Each gets its own line naming it, above
+   * the template lines: the report will be refused for them, and saying "could
+   * not be loaded" about a plan that loaded fine would send the reader after the
+   * wrong fault. Ignored while loading or after a failure, which say their own.
+   */
+  leftOut?: readonly string[];
 }
 
-export function ReportTemplateLines({ kind, sections, picks, onPick, loading, failed, superAdmin, oneSection = false }: ReportTemplateLinesProps) {
+export function ReportTemplateLines({
+  kind, sections, picks, onPick, loading, failed, superAdmin, oneSection = false, leftOut = [],
+}: ReportTemplateLinesProps) {
   if (failed) {
     return <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">The report templates could not be loaded.</p>;
   }
   if (loading) return <p className="text-sm text-slate-500">Loading the report templates…</p>;
+  const leftOutLines = leftOut.length > 0 && (
+    <ul className="space-y-1" aria-label="Instruments the report templates leave out">
+      {leftOut.map((code) => (
+        <li key={code} role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" data-testid="report-template-left-out">
+          {`No instrument profile resolved for ${code} — the report will be refused`}
+        </li>
+      ))}
+    </ul>
+  );
   if (!oneSection && sections.length === 0) {
-    return <p className="text-sm text-slate-600" data-testid="report-template-line">No instruments in this selection — the report says so.</p>;
+    return leftOutLines || <p className="text-sm text-slate-600" data-testid="report-template-line">No instruments in this selection — the report says so.</p>;
   }
   const lines: { section: PlanSection | null; scope: string }[] = oneSection
     ? [{ section: sections[0] ?? null, scope: sections.map((s) => s.profileName ?? '').filter((n) => n !== '').join(', ') }]
     : sections.map((s) => ({ section: s, scope: s.profileId === null ? 'application-wide' : s.profileName ?? '' }));
-  return (
+  const templateLines = (
     <ul className="space-y-2" aria-label="Report templates">
       {lines.map(({ section: s, scope }) => {
         const key = s ? planScopeKey(s) : 'none';
@@ -85,4 +104,5 @@ export function ReportTemplateLines({ kind, sections, picks, onPick, loading, fa
       })}
     </ul>
   );
+  return leftOutLines ? <div className="space-y-2">{leftOutLines}{templateLines}</div> : templateLines;
 }

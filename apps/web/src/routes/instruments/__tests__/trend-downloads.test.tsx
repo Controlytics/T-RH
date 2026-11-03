@@ -645,8 +645,10 @@ describe('trend page downloads on report templates', () => {
     plan = EMPTY_PLAN;
     renderPage();
     fireEvent.click(exportButtons()[4]);
-    // The lines say the templates failed — never "No instruments in this selection" on a page about one.
-    expect(screen.getByRole('alert')).toHaveTextContent('The report templates could not be loaded.');
+    // The lines NAME the instrument the loaded plan left out — never "No instruments in this
+    // selection" on a page about one, and never "could not be loaded" about a plan that loaded.
+    expect(screen.getByRole('alert')).toHaveTextContent('No instrument profile resolved for DEMO-TH-142 — the report will be refused');
+    expect(screen.queryByText(/could not be loaded/)).toBeNull();
     expect(screen.queryByText(/No instruments in this selection/)).toBeNull();
     fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: 'periodic review' } });
     pickApprover();
@@ -671,6 +673,57 @@ describe('trend page downloads on report templates', () => {
     confirmDownload(3);
     expect(await screen.findByText(/templates could not be loaded. Close this/)).toBeInTheDocument();
     expect(logged).toHaveLength(0);
+  });
+
+  /**
+   * The instrument's attributes are read ONLY for a template that prints one
+   * (an `attr:` row or a shown `attr:` column), and alongside the report's own
+   * data (whole-branch review m5). Triggers: 1 = the temperature trend, 3 = the
+   * Time Series (the Data Report), 4 = the alarms.
+   */
+  const REPORTS: [number, string][] = [[1, '/telemetry?'], [3, '/telemetry?'], [4, '/api/alarms?']];
+  const getCalls = () => (apiClient.get as any).mock.calls.map((c: unknown[]) => String(c[0])) as string[];
+
+  it('a BUILT-IN report makes no attributes request — trend, Data Report and alarms alike', async () => {
+    for (const [idx] of REPORTS) {
+      saved.length = 0;
+      const view = renderPage();
+      (apiClient.get as any).mockClear();
+      await download(idx);
+      expect(getCalls().filter((u) => u.endsWith('/attributes'))).toEqual([]);
+      view.unmount();
+    }
+  });
+
+  it('a template with an `attr:` row reads them ONCE, and IN PARALLEL with the report\'s own data, not before it', async () => {
+    plan = SAVED_PLAN;
+    const get = apiClient.get as any;
+    try {
+      for (const [idx, read] of REPORTS) {
+        // The attributes answer only when released: a page that awaited them
+        // BEFORE its own read would never issue that read while they are held.
+        let release!: () => void;
+        const held = new Promise<void>((r) => { release = r; });
+        get.mockImplementation(async (url: string) => {
+          if (url.endsWith('/attributes')) await held;
+          return dataFor(url);
+        });
+        saved.length = 0;
+        const view = renderPage();
+        get.mockClear();
+        confirmDownload(idx);
+        await waitFor(() => expect(getCalls().some((u) => u.includes(read))).toBe(true));
+        expect(getCalls().filter((u) => u === '/api/instruments/i-1/attributes')).toHaveLength(1);
+        expect(saved).toHaveLength(0);
+        release();
+        await waitFor(() => expect(saved.length).toBe(1), { timeout: 5000 });
+        expect(getCalls().filter((u) => u.endsWith('/attributes'))).toHaveLength(1);
+        expect(lastPdfText()).toContain('B-1');
+        view.unmount();
+      }
+    } finally {
+      get.mockImplementation(async (url: string) => dataFor(url));
+    }
   });
 });
 

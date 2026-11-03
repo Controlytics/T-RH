@@ -61,10 +61,13 @@ const rows = [
 /**
  * A 90 x 26 PNG — the proportions of the 1800 x 520 raster `chart-image.ts`
  * produces. The templated builder sizes a picture from its own BYTES
- * (`getImageProperties`), so a 1x1 stand-in declared as 1800 x 520 would print
- * square; the rasteriser's PNG always has its declared size.
+ * (`getImageProperties`), never from the size declared beside them (pinned
+ * below with a square PNG declared as 1800 x 520).
  */
 const PNG = PNG_90x26;
+
+/** A real 1 x 1 PNG: SQUARE, unlike any chart raster's declared size. */
+const SQUARE_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 
 const readings = [
   { key: 't', value: 22.4, ts: '2026-08-24T00:10:00.000Z' },
@@ -156,6 +159,16 @@ describe('the trend report shows the trend', () => {
     // round 210, and pinning the slack would be pinning a jsPDF constant.
     expect(w).toBeCloseTo(210 - 28, 2);
     expect(h / w).toBeCloseTo(520 / 1800, 5);
+  });
+
+  it('sizes a picture from its own BYTES — a square PNG declared as 1800 x 520 prints square', async () => {
+    const { images } = await capture(baseInput({
+      charts: [{ title: 'Temperature', image: { dataUrl: SQUARE_PNG, width: 1800, height: 520 }, unavailableReason: '' }],
+    }));
+    const [, , x, , w, h] = images.find((a) => a[0] === SQUARE_PNG)!;
+    expect(x).toBe(14);
+    expect(w).toBeCloseTo(210 - 28, 2);
+    expect(h / w).toBeCloseTo(1, 5);
   });
 
   it('states that the chart is averaged when it is', async () => {

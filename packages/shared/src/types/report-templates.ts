@@ -658,8 +658,8 @@ export const reportTemplateDocumentSchema: z.ZodType<ReportTemplateDocument> = z
 /**
  * The page reports' instrument header, in today's order — Block / Area /
  * Location / Inst ID against Start Date / Start Time / End Date / End Time, two
- * per line (`instrumentAlarmsHeaderPairs` in the web app). The Data Report's
- * parameter block opens with the same eight.
+ * per line (the block every instrument page report printed before templates).
+ * The Data Report's parameter block opens with the same eight.
  */
 const INSTRUMENT_HEADER_ROWS: readonly ReportTemplateInfoRow[] = [
   { label: 'Block', source: 'block' }, { label: 'Start Date', source: 'fromDate' },

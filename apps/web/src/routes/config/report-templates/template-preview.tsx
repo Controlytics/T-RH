@@ -9,7 +9,8 @@ import { FormSection } from '@/components/ui/form-section';
 import type { TemplatedImage } from '@/lib/templated-report';
 import { loadBuildTemplatedReport } from './load-builder';
 import {
-  sampleAttributeValues, sampleChartPng, samplePlaceholderValues, sampleRowsFor, type SampleFormatters, type SampleRow,
+  sampleAttributeValues, sampleChartPng, sampleLegend, samplePlaceholderValues, sampleRowsFor,
+  type SampleFormatters, type SampleRow,
 } from './sample-rows';
 
 /** How long the draft must sit still before the PDF is drawn again. */
@@ -94,10 +95,13 @@ export function TemplatePreview({
               : sampleRowsFor(fields, at, fmt.current);
           const images: TemplatedImage[] | undefined = kind === 'page:trend' ? [{ dataUrl: sampleChartPng() }] : undefined;
           const attributes = sampleAttributeValues(kind, fields);
+          // The kind's structured legend, as its download passes it: the end block matches the PDF's.
+          const legend = sampleLegend(kind, values);
           const { report } = await build({
             kind,
             reportKey: reportKeyOf(kind),
             values,
+            ...(legend ? { legend } : {}),
             sections: [{
               profileId, profileName, document, rows, availableIds: fields.map((f) => f.id),
               ...(images ? { images } : {}),

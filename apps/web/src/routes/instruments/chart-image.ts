@@ -26,7 +26,13 @@ import { TimeSeriesChart, type ChartSeries } from '@/routes/dashboard/time-serie
 export interface ChartImage {
   /** PNG data URL, ready for `doc.addImage`. */
   dataUrl: string;
-  /** Natural width/height, so the caller can size it without distorting it. */
+  /**
+   * The raster's size in pixels. NOT what a PDF is sized by — the templated
+   * builder sizes every picture from its own BYTES (`getImageProperties`,
+   * pinned in `trend-report-chart.test.ts`). It is read by the widget trend
+   * chart's report, which composes the key under the picture
+   * (`pictureWithLegend` in `lib/svg-raster.ts`, a `RasterImage`).
+   */
   width: number;
   height: number;
 }

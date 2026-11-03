@@ -306,6 +306,32 @@ describe('the editor on a page kind', () => {
     expect(input.sections[0].attributes).toEqual({ 'attr:Building': 'Building 1', 'attr:Location': 'Location 1' });
   });
 
+  it('the preview hands the builder the kind\'s STRUCTURED legend, as its download does — the end block matches the PDF\'s', async () => {
+    const legendOf = async (url: string) => {
+      build.mockClear();
+      const view = renderPage(url);
+      newTemplate();
+      await waitFor(() => expect(build).toHaveBeenCalled());
+      const input = build.mock.calls.at(-1)![0];
+      view.unmount();
+      return input.legend;
+    };
+    // The Data Report's own rule over the sample's limits ("18.0 - 27.0": no NMT / NLT) and its MKT.
+    expect(await legendOf(`/config/report-templates?kind=page:data-report&profileId=${P1}`)).toEqual([
+      { abbr: 'Temp', meaning: 'Temperature' },
+      { abbr: 'RH', meaning: 'Relative Humidity' },
+      { abbr: 'MKT', meaning: 'Mean Kinetic Temperature' },
+    ]);
+    expect(await legendOf('/config/report-templates?kind=page:alarms')).toEqual([
+      { abbr: 'PV Value', meaning: 'Present Value' },
+      { abbr: 'UOM', meaning: 'Units of Measurement' },
+    ]);
+    // Every other kind's download passes none.
+    expect(await legendOf('/config/report-templates?kind=page:audit-trail')).toBeUndefined();
+    expect(await legendOf(`/config/report-templates?kind=page:trend&profileId=${P1}`)).toBeUndefined();
+    expect(await legendOf(`/config/report-templates?kind=gauge&profileId=${P1}`)).toBeUndefined();
+  });
+
   it('a WIDGET preview hands no attribute values — a widget section reads them from its rows, as its download does', async () => {
     renderPage(`/config/report-templates?kind=gauge&profileId=${P1}`);
     newTemplate();

@@ -40,7 +40,8 @@ const delivered = vi.fn();
 vi.mock('@/lib/widget-report', () => ({
   buildWidgetReport: async () => ({ report: { addNote: () => {} }, title: 't', recordCount: 0 }),
 }));
-vi.mock('@/lib/report-delivery', () => ({
+vi.mock('@/lib/report-delivery', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/report-delivery')>()),
   deliverReport: async (input: unknown) => { delivered(input); return 'DOWNLOADED'; },
   deliveryToast: () => ({ tone: 'success', title: 'ok', message: 'ok' }),
 }));

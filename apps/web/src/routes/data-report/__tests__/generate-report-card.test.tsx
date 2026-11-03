@@ -322,17 +322,28 @@ describe('GenerateReportCard', () => {
     expect(lastPdf).toContain('Block-A');
     expect(lastPdf).toContain('Block-B');
     expect(lastPdf.indexOf('Block-A')).toBeLessThan(lastPdf.indexOf('Block-B'));
-    // Both attributes were read, one request per instrument.
-    expect(requested).toContain(`/api/instruments/${A.id}/attributes`);
-    expect(requested).toContain(`/api/instruments/${B.id}/attributes`);
+    // Both attributes were read — the template prints an `attr:` row — ONE request per instrument.
+    expect(requested.filter((u) => u === `/api/instruments/${A.id}/attributes`)).toHaveLength(1);
+    expect(requested.filter((u) => u === `/api/instruments/${B.id}/attributes`)).toHaveLength(1);
   });
 
-  it('says before Confirm when the server names no profile for a selected instrument — never a selection with no line', () => {
+  it('a BUILT-IN report reads no attributes — it prints no `attr:` field (whole-branch review m5)', async () => {
+    renderBoth();
+    pickArea();
+    await confirmDownload('area review');
+    await waitFor(() => expect(saved.length).toBe(1), { timeout: 5000 });
+    expect(requested.some((u) => u.includes('/attributes'))).toBe(false);
+  });
+
+  it('says before Confirm when the server names no profile for a selected instrument — that instrument, by code', () => {
     plan = A_ONLY_PLAN;
     renderBoth();
     pickArea();
     fireEvent.click(screen.getByRole('button', { name: 'Export as PDF' }));
-    expect(screen.getByRole('alert')).toHaveTextContent('The report templates could not be loaded.');
+    // The plan LOADED: its line names B, and A keeps its template line — never "could not be loaded".
+    expect(screen.getByRole('alert')).toHaveTextContent(`No instrument profile resolved for ${B.code} — the report will be refused`);
+    expect(screen.queryByText(/could not be loaded/)).toBeNull();
+    expect(screen.getByTestId('report-template-line')).toHaveTextContent('Template: Built-in (T&RH)');
   });
 
   it('shows the template line, not a failure, when the plan covers every selected instrument', () => {
@@ -343,12 +354,14 @@ describe('GenerateReportCard', () => {
   });
 
   it('refuses, before reading anything, when the server names no profile for a selected instrument', async () => {
-    plan = A_ONLY_PLAN;
+    // A's template prints an `attr:` row, so a read of A's attributes would be due — and must not happen either.
+    plan = { ...A_ONLY_PLAN, sections: [section({ instrumentIds: [A.id], resolved: SAVED_TEMPLATE, templates: [SAVED_TEMPLATE] })] };
     renderBoth();
     pickArea();
     await confirmDownload('area review');
     expect(await screen.findByText(/name no instrument profile for CWH\/RDU\/002-00/)).toBeInTheDocument();
     expect(requested.some((u) => u.includes('/telemetry?'))).toBe(false);
+    expect(requested.some((u) => u.includes('/attributes'))).toBe(false);
     expect(logged).toHaveLength(0);
     expect(saved).toHaveLength(0);
   });

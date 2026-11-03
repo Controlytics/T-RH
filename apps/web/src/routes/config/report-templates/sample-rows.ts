@@ -2,6 +2,8 @@ import {
   TEMPLATE_KIND_SPECS, WIDGET_TYPE_SPECS, isPageTemplateKind,
   type Placeholder, type ReportField, type TemplateKind,
 } from '@digilog/shared';
+import { dataReportLegend } from '@/routes/instruments/data-report';
+import { ALARM_REPORT_LEGEND } from '@/routes/alarms/alarms-report';
 
 /**
  * The rows the Report Templates PREVIEW prints (2026-11-02): three rows of
@@ -122,6 +124,25 @@ export function samplePlaceholderValues(
   };
   const supplied = new Set<string>(TEMPLATE_KIND_SPECS[kind].placeholders);
   return Object.fromEntries(Object.entries(all).filter(([name]) => supplied.has(name))) as Partial<Record<Placeholder, string>>;
+}
+
+/**
+ * The STRUCTURED legend (abbreviation key) the PREVIEW hands the builder — the
+ * one the kind's download passes, so the preview's end block is the PDF's: the
+ * Data Report's (`dataReportLegend`, the page's own rule, over the sample's
+ * limits and MKT), the Alarm Report's (`ALARM_REPORT_LEGEND`), none for any
+ * other kind. The builder prints it only when the template has no legend text
+ * of its own (ruling P-1) — the same call the download makes.
+ */
+export function sampleLegend(
+  kind: TemplateKind,
+  values: Partial<Record<Placeholder, string>>,
+): { abbr: string; meaning: string }[] | undefined {
+  if (kind === 'page:data-report') {
+    return dataReportLegend([values.tempLimit ?? '', values.rhLimit ?? ''], false, values.mkt !== undefined);
+  }
+  if (kind === 'page:alarms') return [...ALARM_REPORT_LEGEND];
+  return undefined;
 }
 
 /**

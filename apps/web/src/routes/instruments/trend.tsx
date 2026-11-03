@@ -18,7 +18,7 @@ import { apiClient } from '@/lib/api-client';
 import { useSensorWords, useAlarmTypeNames } from '@/hooks/use-failure-text';
 import { ExportMenu } from '@/components/ExportMenu';
 import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
-import { deliverReport, deliveryToast, type DeliveryOutcome } from '@/lib/report-delivery';
+import { deliverReport, deliveredTitles, deliveryToast, type DeliveryOutcome } from '@/lib/report-delivery';
 import type { ReportKind } from '@digilog/shared';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -41,7 +41,7 @@ import type { ServerSlotSummary } from './data-report-fetch';
 import { intervalLabel } from './chart-interval-note';
 import type { DataReportInput, TrendChartSection } from './trend-report';
 import {
-  buildDataReport, buildInstrumentAlarmsReport, buildTrendReport, deliveredTitles, planLeavesOut, templateForInstrument,
+  buildDataReport, buildInstrumentAlarmsReport, buildTrendReport, planLeavesOut, templateForInstrument, templateNamesAttributes,
 } from './page-reports';
 import { ReportTemplateLines } from '@/components/report-template-lines';
 import { useReportTemplatePlan } from '@/lib/report-template-plan';
@@ -498,9 +498,12 @@ export function InstrumentTrend() {
   const reportPlan = useReportTemplatePlan(reportTemplateKind, id ? [id] : NO_IDS, { enabled: pendingReport !== null });
   const [templatePicks, setTemplatePicks] = useState<Record<string, string>>({});
   const closeReport = () => { setPendingReport(null); setTemplatePicks({}); };
-  // The loaded plan names no profile for this instrument: the lines say the
-  // templates failed BEFORE Confirm (the widget dialog's rule), not "no instruments".
-  const reportUnplanned = pendingReport !== null && id !== undefined && planLeavesOut(reportPlan, [id]);
+  // The loaded plan names no profile for this instrument: the lines NAME it
+  // before Confirm — not "no instruments", and not "could not be loaded" about
+  // a plan that loaded fine.
+  const reportLeftOut = pendingReport !== null && id !== undefined
+    ? planLeavesOut(reportPlan, [{ id, code: inst?.code ?? id }])
+    : [];
 
   // Fetch fresh rows for the DIALOG's chosen period — it may differ from the
   // page's, since the operator can change it in the dialog before confirming.
@@ -628,22 +631,28 @@ export function InstrumentTrend() {
       {
       // The template is the SERVER's answer (or the dialog's pick) — never
       // guessed: refused while the plan loads or after it failed, as the widget
-      // dialog refuses. Then this instrument's attributes, for a template's
-      // `attr:` rows, and the two values every report names: when it was
+      // dialog refuses. Then the two values every report names: when it was
       // printed and the USERNAME that printed it (the footer's identity).
       if (reportPlan.error) throw new Error('The report templates could not be loaded. Close this and try again.');
       if (reportPlan.loading) throw new Error('The report templates are still loading. Try again in a moment.');
       const instrumentCode = inst?.code ?? id;
-      const template = {
-        ...templateForInstrument(reportTemplateKind, reportPlan.sections, templatePicks, { id, code: instrumentCode }),
-        attributes: await fetchReportAttributes(id),
-      };
+      const chosen = templateForInstrument(reportTemplateKind, reportPlan.sections, templatePicks, { id, code: instrumentCode });
+      // This instrument's attributes — only when the template prints an `attr:`
+      // row or column (a built-in prints none), and read IN PARALLEL with each
+      // report's own data below: created inside each `Promise.all`, never left
+      // pending across another await.
+      const readAttributes = () => (templateNamesAttributes(chosen.document) ? fetchReportAttributes(id) : Promise.resolve(undefined));
+      const withAttributes = (attributes: Record<string, string> | undefined) => ({ ...chosen, ...(attributes ? { attributes } : {}) });
       const values = { date: formatDateTime(new Date().toISOString()), user: user?.username ?? '' };
 
       if (which.kind === 'trend') {
         const wantTemp = which.slot === 'temperature';
         const wantHumid = which.slot === 'humidity';
-        const fetched = await fetchTelemetryForPeriod(reportPeriod.from, reportPeriod.to);
+        const [fetched, attributes] = await Promise.all([
+          fetchTelemetryForPeriod(reportPeriod.from, reportPeriod.to),
+          readAttributes(),
+        ]);
+        const template = withAttributes(attributes);
         const rows = numericRows(fetched.history);
         // The DIALOG's period, not the page's — the operator may have widened it
         // before confirming, and the chart's x-axis must cover what it printed.
@@ -715,9 +724,13 @@ export function InstrumentTrend() {
         // word), the whole-range Max/Min from the sampled path, laid on the
         // interval schedule. See `data-report-fetch.ts` for why two requests.
         const slotKeys = [tempKey, humidKey].filter((k): k is string => k !== null);
-        const { rows, coverage, summaries } = await fetchDataReportRows({
-          instrumentId: id, from: reportPeriod.from, to: reportPeriod.to, intervalMs: reportInterval, slotKeys,
-        });
+        const [{ rows, coverage, summaries }, attributes] = await Promise.all([
+          fetchDataReportRows({
+            instrumentId: id, from: reportPeriod.from, to: reportPeriod.to, intervalMs: reportInterval, slotKeys,
+          }),
+          readAttributes(),
+        ]);
+        const template = withAttributes(attributes);
         const extremes = (key: string | null) => slotExtremes(summaries, key);
         const placement = resolveBlockArea(locationTree?.data ?? [], inst?.functionalLocationId ?? null);
         const dataInput: DataReportInput = {
@@ -765,7 +778,8 @@ export function InstrumentTrend() {
           instrumentIds: [id],
         });
       } else {
-        const rows = await fetchAlarmsForPeriod(reportPeriod.from, reportPeriod.to);
+        const [rows, attributes] = await Promise.all([fetchAlarmsForPeriod(reportPeriod.from, reportPeriod.to), readAttributes()]);
+        const template = withAttributes(attributes);
         // The header's scope is the Data Report's: Block / Area from the
         // functional location, the Location ATTRIBUTE, the instrument's code.
         const placement = resolveBlockArea(locationTree?.data ?? [], inst?.functionalLocationId ?? null);
@@ -1330,7 +1344,8 @@ export function InstrumentTrend() {
             picks={templatePicks}
             onPick={(scopeKey, value) => setTemplatePicks((p) => ({ ...p, [scopeKey]: value }))}
             loading={reportPlan.loading}
-            failed={(reportPlan.error !== undefined && reportPlan.error !== null) || reportUnplanned}
+            failed={reportPlan.error !== undefined && reportPlan.error !== null}
+            leftOut={reportLeftOut}
             superAdmin={user?.role === 'SUPER_ADMIN'}
           />
         )}

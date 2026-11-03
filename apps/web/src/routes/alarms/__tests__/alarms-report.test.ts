@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   ALARM_REPORT_HEAD, ALARM_REPORT_LEGEND, NOT_APPLICABLE, BOUND_NOT_SHOWN, EXTRA_COLUMNS,
-  periodPairs, uomFor, setPoints, reportRows, truncationNote, reportSeedPeriod,
+  uomFor, setPoints, reportRows, truncationNote, reportSeedPeriod,
   reportLevel, reportHead, columnWidths, scopeTableRows,
   scopeColumnStyles, CONTENT_WIDTH_MM, hiddenLimitColumns,
 } from '../alarms-report';
@@ -62,16 +62,9 @@ describe('the reference layout', () => {
       { abbr: 'UOM', meaning: 'Units of Measurement' },
     ]);
   });
-
-  it('prints the PERIOD only — start on one row, end on the next (operator, 2026-10-05)', () => {
-    // "in all alarms report dont show block,area,location and instrument id in
-    // header, only show start date,start time,end date and end time". The scope
-    // is stated by the table's own columns when it varies (see `reportHead`).
-    const pairs = periodPairs({ from: '2026-05-27T16:00:00.000Z', to: '2026-05-28T16:00:00.000Z' }, fmt);
-    expect(pairs.map(([k]) => k)).toEqual(['Start Date', 'Start Time', 'End Date', 'End Time']);
-    expect(pairs.map(([, v]) => v)).toEqual(['2026-05-27', '16:00', '2026-05-28', '16:00']);
-    for (const [k] of pairs) expect(['Block', 'Area', 'Location', 'Inst ID']).not.toContain(k);
-  });
+  // The PERIOD-only header block (operator, 2026-10-05) is the built-in
+  // template's four info rows since 2026-11-03 — pinned against the frozen
+  // pre-template output in `alarm-report-builtin.test.ts`.
 });
 
 describe('a row', () => {
@@ -418,7 +411,10 @@ describe('the parameter block is a TABLE, one line per field', () => {
    * It was `addKeyValue`, which stacks a grey caption ABOVE its value — two lines
    * per field, unruled.
    */
-  const pairs = () => periodPairs({ from: '2026-05-27T16:00:00.000Z', to: '2026-05-28T16:00:00.000Z' }, fmt);
+  /** The Alarm Report's period block, as its built-in template's info rows fill it. */
+  const pairs = (): [string, string][] => [
+    ['Start Date', '2026-05-27'], ['Start Time', '16:00'], ['End Date', '2026-05-28'], ['End Time', '16:00'],
+  ];
 
   it('puts label and value in ONE row, four cells wide', () => {
     const rows = scopeTableRows(pairs());

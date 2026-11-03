@@ -65,13 +65,20 @@ import type { TableRow } from './trend-series';
  * them to a literal.
  */
 
-export const DATA_REPORT_TITLE = 'Temperature and RH Data Report';
+// The title and the four columns are the built-in TEMPLATE's since 2026-11-03
+// (`builtinReportTemplate('page:data-report')` in `@digilog/shared`): the
+// reference's title and its four column headings, verbatim, in order.
 
 // This report's type scale and label column live in `lib/report-typography.ts` (2026-11-03); re-exported for their callers here.
 export { DATA_REPORT_LABEL_MM, DATA_REPORT_TYPOGRAPHY } from '@/lib/report-typography';
 
-/** The reference's four columns, verbatim, in order. */
-export const DATA_REPORT_HEAD = ['DATE', 'TIME', 'TEMPERATURE (°C)', 'RELATIVE HUMIDITY(%)'];
+/**
+ * What a report of an EMPTY period says — in the built-in's one row (its
+ * TEMPERATURE cell, `emptyDataReportRow`) and, under a saved template, also as
+ * a note after the table (`buildDataReport`), so a template that hides that
+ * column still says it. One wording for both.
+ */
+export const DATA_REPORT_EMPTY_TEXT = 'No readings in the selected period';
 
 /** What a value cell prints when the slot holds no reading (operator,
  *  2026-09-05: *"if there is no data at that interval show NA"*) — the same word
@@ -423,7 +430,7 @@ export function dataReportRows(
 /** A report of an empty period must SAY it is empty — a header with no rows
  *  reads as a rendering failure on paper. Width-matched to the head. */
 export function emptyDataReportRow(): string[] {
-  return ['-', '-', 'No readings in the selected period', '-'];
+  return ['-', '-', DATA_REPORT_EMPTY_TEXT, '-'];
 }
 
 /**

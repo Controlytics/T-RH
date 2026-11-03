@@ -65,3 +65,49 @@ describe('ReportTemplateLines — an application-wide kind', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('The report templates could not be loaded.');
   });
 });
+
+/**
+ * An instrument the LOADED plan left out — `/resolve` named no profile for it
+ * (whole-branch review m2): its own line naming its code, beside the lines of
+ * the instruments that did resolve. Never "could not be loaded" (the plan
+ * loaded) and never "No instruments in this selection" (it has one).
+ */
+describe('ReportTemplateLines — instruments the plan left out', () => {
+  const profile = (over: Partial<PlanSection> = {}): PlanSection => ({
+    profileId: 'p1', profileName: 'T&RH', instrumentIds: ['i1'], resolved: null, templates: [], availableIds: [], ...over,
+  });
+  const lines = (props: { sections: PlanSection[]; leftOut?: string[]; loading?: boolean; failed?: boolean }) => (
+    <MemoryRouter>
+      <ReportTemplateLines
+        kind="page:data-report" sections={props.sections} picks={{}} onPick={vi.fn()}
+        loading={props.loading ?? false} failed={props.failed ?? false} superAdmin={false} leftOut={props.leftOut}
+      />
+    </MemoryRouter>
+  );
+
+  it('names EACH left-out instrument on its own line, beside the template line of the ones that resolved', () => {
+    render(lines({ sections: [profile()], leftOut: ['CWH/RDU/002-00', 'CWH/RDU/003-00'] }));
+    const alerts = screen.getAllByRole('alert');
+    expect(alerts.map((a) => a.textContent)).toEqual([
+      'No instrument profile resolved for CWH/RDU/002-00 — the report will be refused',
+      'No instrument profile resolved for CWH/RDU/003-00 — the report will be refused',
+    ]);
+    expect(screen.getByTestId('report-template-line')).toHaveTextContent('Template: Built-in (T&RH)');
+    expect(screen.queryByText(/could not be loaded/)).toBeNull();
+  });
+
+  it('a plan with NO section for the one instrument: its line, never "No instruments in this selection"', () => {
+    render(lines({ sections: [], leftOut: ['DEMO-TH-142'] }));
+    expect(screen.getByRole('alert')).toHaveTextContent('No instrument profile resolved for DEMO-TH-142 — the report will be refused');
+    expect(screen.queryByText(/No instruments in this selection/)).toBeNull();
+  });
+
+  it('loading and failure keep their own words — no left-out line under either', () => {
+    const { rerender } = render(lines({ sections: [], leftOut: ['DEMO-TH-142'], loading: true }));
+    expect(screen.getByText('Loading the report templates…')).toBeInTheDocument();
+    expect(screen.queryByText(/No instrument profile resolved/)).toBeNull();
+    rerender(lines({ sections: [], leftOut: ['DEMO-TH-142'], failed: true }));
+    expect(screen.getByRole('alert')).toHaveTextContent('The report templates could not be loaded.');
+    expect(screen.queryByText(/No instrument profile resolved/)).toBeNull();
+  });
+});

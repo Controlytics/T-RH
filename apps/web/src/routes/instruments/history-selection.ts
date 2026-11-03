@@ -22,13 +22,9 @@ export interface ScopedInstrument {
   code: string;
   name: string;
   functionalLocationId?: string | null;
-  /**
-   * The instrument's profile, as the list route serves it (2026-11-03). Which
-   * report TEMPLATE an instrument prints with is NOT read from here: it is the
-   * server's grouping in the template plan (`templateForInstrument`), which
-   * also drops an instrument the caller cannot see.
-   */
-  profileId?: string | null;
+  // No `profileId` (dropped 2026-11-03, unread): which report TEMPLATE an
+  // instrument prints with is the SERVER's grouping in the template plan
+  // (`templateForInstrument`), never the list row's profile.
 }
 
 /** Which functional location id the instrument list is asked for, or null for all. */

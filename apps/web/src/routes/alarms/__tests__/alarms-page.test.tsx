@@ -122,6 +122,8 @@ const submitRequest = vi.fn();
 const logExport = vi.fn();
 const savePdf = vi.fn();
 const buildTemplated = vi.fn();
+/** What the builder stand-in titles its report — by default the built-in's fixed title. */
+let builtTitles: (input: { values: Record<string, string> }) => { title: string; subtitle?: string } = () => ({ title: 'ALARM REPORT' });
 const order: string[] = [];
 vi.mock('@/lib/report-review', () => ({
   submitReportForReview: (...a: unknown[]) => submitRequest(...a),
@@ -133,13 +135,14 @@ vi.mock('@/lib/report-export-log', () => ({
 vi.mock('@/lib/templated-report', () => ({
   buildTemplatedReport: async (...a: unknown[]) => {
     buildTemplated(...a);
+    const { title, subtitle } = builtTitles(a[0] as { values: Record<string, string> });
     return {
       report: {
         save: (...s: unknown[]) => { order.push('save'); savePdf(...s); },
-        getSnapshot: () => ({ version: 3, reportType: 'alarms', title: 'ALARM REPORT', config: {}, sections: [] }),
+        getSnapshot: () => ({ version: 3, reportType: 'alarms', title, config: {}, sections: [] }),
       },
-      title: 'ALARM REPORT',
-      subtitle: undefined,
+      title,
+      subtitle,
       recordCount: 0,
     };
   },
@@ -601,14 +604,45 @@ describe('the Alarms page — the report template', () => {
     expect(input.values.to).toBe(input.formatDateTime(sent.get('to')!));
   });
 
-  it('a plan still loading or failed refuses the download, and nothing is requested', async () => {
-    for (const p of [PLANS.loading, PLANS.failed]) {
+  it('a plan still loading or failed refuses the download — each state in its own words — and nothing is requested', async () => {
+    const refusals: [typeof PLANS.loading, string][] = [
+      [PLANS.loading, 'The report templates are still loading. Try again in a moment.'],
+      [PLANS.failed, 'The report templates could not be loaded. Close this and try again.'],
+    ];
+    for (const [p, message] of refusals) {
       plan = p;
       await confirmWith();
-      expect(await screen.findByText(/report templates (are still loading|could not be loaded)/i, { selector: 'p:not([role="alert"])' })).toBeInTheDocument();
+      expect(await screen.findByText(message, { selector: 'p:not([role="alert"])' })).toBeInTheDocument();
       expect(buildTemplated).not.toHaveBeenCalled();
       expect(submitRequest).not.toHaveBeenCalled();
       cleanup();
+    }
+  });
+
+  it('a title and subtitle longer than the request caps are CLAMPED to 500 / 1000 — a 600-character {search} is not a 400', async () => {
+    // A saved title naming {search}; the builder stand-in prints it as the real one would.
+    builtTitles = ({ values }) => ({ title: `ALARM REPORT — ${values.search}`, subtitle: `Search ${values.search} ${values.search}` });
+    try {
+      const long = 'x'.repeat(600);
+      mount();
+      fireEvent.change(screen.getByRole('searchbox', { name: 'Search alarms by instrument ID, name or location' }), { target: { value: long } });
+      // The search box is debounced (300 ms); the report reads the settled value.
+      await new Promise((r) => setTimeout(r, 400));
+      fireEvent.click(screen.getByRole('button', { name: /export|download/i }));
+      const btn = await screen.findByRole('button', { name: /^request approval$/i });
+      fireEvent.change(screen.getByRole('textbox', { name: /remark|reason/i }), { target: { value: 'Monthly QA review of excursions.' } });
+      fireEvent.change(document.getElementById('report-download-password') as HTMLInputElement, { target: { value: 'Secret@123' } });
+      fireEvent.click(btn);
+      await waitFor(() => expect(submitRequest).toHaveBeenCalled());
+      expect(buildTemplated.mock.calls[0][0].values.search).toBe(`"${long}"`);
+      const sent = submitRequest.mock.calls[0][0];
+      expect(sent.title).toHaveLength(500);
+      expect(sent.title.endsWith('…')).toBe(true);
+      expect(sent.title.startsWith('ALARM REPORT — "xxx')).toBe(true);
+      expect(sent.subtitle).toHaveLength(1000);
+      expect(sent.subtitle.endsWith('…')).toBe(true);
+    } finally {
+      builtTitles = () => ({ title: 'ALARM REPORT' });
     }
   });
 });

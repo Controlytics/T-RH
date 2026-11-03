@@ -46,15 +46,6 @@ import { collectWidgetReport, reportRefs, sectionRows, useWidgetReportPlan } fro
 /** Said when the server resolves a widget's templates with no profile on a section (a widget type is profile-scoped). */
 export const UNPROFILED_MESSAGE = 'The server named no instrument profile for some of this widget\'s instruments, so the report cannot be printed. Close this and try again.';
 
-/** `POST /api/report-reviews` caps the title and the subtitle at these lengths. */
-const REQUEST_TITLE_MAX = 500;
-const REQUEST_SUBTITLE_MAX = 1000;
-
-/** At most `max` characters, an ellipsis saying where it was cut. */
-export function clampText(text: string, max: number): string {
-  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
-}
-
 export interface WidgetReportDialogProps {
   open: boolean;
   widget: CustomWidget;
@@ -218,7 +209,7 @@ function OpenWidgetReportDialog({ widget, selection, dashboardTitle, selectionLa
       selection: widget.source.mode === 'instruments' ? 'Picked instruments' : selectionLabel,
     };
 
-    const [{ buildWidgetReport }, { deliverReport, deliveryToast }] = await Promise.all([
+    const [{ buildWidgetReport }, { deliverReport, deliveryToast, deliveredTitles }] = await Promise.all([
       import('@/lib/widget-report'),
       import('@/lib/report-delivery'),
     ]);
@@ -232,9 +223,8 @@ function OpenWidgetReportDialog({ widget, selection, dashboardTitle, selectionLa
       report: result.report,
       reportType: widgetReportType(type),
       // The request schema caps them (500 / 1000): a long `{selection}` or
-      // `{profile}` must not turn a Request into a bare 400 (review m11).
-      title: clampText(result.title, REQUEST_TITLE_MAX),
-      subtitle: result.subtitle === undefined ? undefined : clampText(result.subtitle, REQUEST_SUBTITLE_MAX),
+      // `{profile}` must not turn a Request into a bare 400 — the ONE clamp (review m11).
+      ...deliveredTitles(result),
       requestMeta: {
         recordCount: result.recordCount,
         search: widget.title,

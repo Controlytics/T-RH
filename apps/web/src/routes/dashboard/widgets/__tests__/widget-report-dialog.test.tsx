@@ -23,7 +23,9 @@ vi.mock('@/lib/api-client', () => ({
   apiClient: { get: (...a: unknown[]) => get(...a), post: (...a: unknown[]) => post(...a), postWithReauth: vi.fn() },
 }));
 const deliver = vi.fn();
-vi.mock('@/lib/report-delivery', () => ({
+vi.mock('@/lib/report-delivery', async (importOriginal) => ({
+  // The REAL `deliveredTitles` — the one clamp (m11) is the subject of a test below.
+  ...(await importOriginal<typeof import('@/lib/report-delivery')>()),
   deliverReport: (...a: unknown[]) => deliver(...a),
   deliveryToast: () => ({ tone: 'success', title: 'Report downloaded', message: 'Recorded.' }),
 }));
