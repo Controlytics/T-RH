@@ -570,6 +570,18 @@ node apps/api/dist/app.js
   CSP gained `frameSrc: ["'self'", 'blob:']` for the Report Templates preview. `report-reviews.e2e` pins
   `/api/config/report-downloads/current` to EVERY `REPORT_KINDS` key (22). Rules: `docs/feature-notes.md` WIDGET
   REPORTS AND REPORT TEMPLATES.
+- **2026-11-03 — PAGE REPORTS ON TEMPLATES (module `report-templates` changed, no new module).** Migration
+  `20261103120000_report_templates_page_kinds` (hand-authored, both databases): `widget_type` → `kind`,
+  `profile_id` nullable (NULL = application-wide), the three unique indexes on `COALESCE(profile_id, '')`
+  (Postgres treats NULLs as distinct). `kind` is one of `TEMPLATE_KINDS` (19: 14 widget types + 5 page kinds);
+  `templateKindScope(kind)` decides profile vs application scope and a wrong pairing is 400 `SCOPE_MISMATCH`.
+  **Read gate:** an application-wide kind's reads (`GET /`, `GET /:id`, `/catalogue`, `/resolve`) need only a
+  session; profile kinds and a list with no `kind` keep `INSTRUMENT_READ`; `GET /:id` is decided by the STORED
+  row's kind. Writes stay SUPER_ADMIN by role + `UPDATE_REPORT_TEMPLATE`. **`COLUMN_NOT_FOR_KIND`:** a `key:`
+  column unless the kind's `profileFields` is `'all'`, an `attr:` column or info-row source when it is
+  `'none'`, is 400 naming the id. An application default is set under `pg_advisory_xact_lock` on the kind, a
+  profile default under the profile row lock. Read a stored row's kind through `isTemplateKindValue`. Counts
+  unchanged (models 40, modules 27, reauth 58). Rules: `docs/feature-notes.md` PAGE REPORTS ON TEMPLATES.
 - **2026-10-28 — WIDGET DATA KEYS, phase 2 (dashboard widgets).** Both layout PUTs
   (`/api/config/my-dashboard-layout`, `/api/roles/dashboard-layout/role/:name`) go through ONE
   `checkLayoutWrite` (`modules/config/dashboard-layout.ts`): the strict shared writer

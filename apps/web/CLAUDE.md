@@ -313,7 +313,7 @@ never drawn twice), and every `KeyDisplayRows` row has **Remove** — a stored k
 sent is not in the picker, and Remove is its only way out (review fix pass 2026-10-29). Tests: `extra-keys.test.tsx`, `trend-extra-keys.test.tsx`,
 `display-keys-dialog.test.tsx`.
 
-## Widget reports and report templates (2026-11-02)
+## Widget reports and report templates (2026-11-02; page reports joined them 2026-11-03)
 
 Every `WidgetPanel` has a Download report icon (`widgets/widget-report-dialog.tsx`, gated by
 `useExportOptions('dashboard-widgets')`), kind `widget:<type>` through the existing `ReportDownloadDialog` (new
@@ -322,10 +322,27 @@ for the dialog's period (one pure `rowsFor<Type>` per type); `WidgetChartRegistr
 (range / zoom / filters / the floor-plan SVG), never chart instances — ECharts is SVG-rendered here, so pictures go
 through `lib/svg-raster.ts`. `lib/widget-report.ts buildWidgetReport` prints one section per profile from the
 resolved template (`GET /api/report-templates/resolve`), chrome from the first; snapshot v3 freezes that chrome
-(`lib/pdf-report.ts`; v2 page reports unchanged). A column with no decimals prints the widget's own text
+(`lib/pdf-report.ts`) for EVERY report since 2026-11-03; v2 snapshots still replay. A column with no decimals prints the widget's own text
 (`formatKeyValue`), never a raw float. Configuration → Report Templates: `routes/config/report-templates.tsx` +
 `report-templates/` (list, editor, preview = the real builder in an `<iframe>` blob URL, sample rows). Rules and
 rulings: `docs/feature-notes.md` WIDGET REPORTS AND REPORT TEMPLATES. Tests one file per process.
+
+**Page reports (2026-11-03).** The Data Report, Instrument Trend, Instrument Alarms, Alarm Report and Audit Trail
+are drawn by the ONE builder `lib/templated-report.ts buildTemplatedReport` from a template kind (`page:data-report`,
+`page:trend`, `page:instrument-alarms`, `page:alarms`, `page:audit-trail`), not by hand-built renderers
+(`renderTrendReport`, `renderDataReport(s)`, `renderAlarmsReport` are deleted). The three instrument reports go
+through `routes/instruments/page-reports.ts` (`buildDataReport`, `buildTrendReport`,
+`buildInstrumentAlarmsReport`); the Alarms and Audit pages call the builder with their kind (application-wide,
+no profile). Shared: `lib/report-template-plan.ts` (`useReportTemplatePlan`, the `(kind, profileId | null)` URL
+builders, `chooseTemplate`), `components/report-template-lines.tsx` (the dialog's "Template: …" lines),
+`lib/report-header-block.ts`, `lib/report-typography.ts`. Rules a page must not get wrong: with no saved template
+the kind's built-in prints what the page printed before (frozen fixtures pin it; two documented differences, see
+the feature note); a failed or still-loading template plan REFUSES the download; page reports fetch
+`GET /api/instruments/:id/attributes` per printed instrument for `attr:` cells; `alarms-report.ts` must not
+value-import `templated-report.ts`; a PAGE-kind cell that is exactly `''` prints empty, not `—`. The Report
+Templates page has a tab per kind (file icon on the five page tabs), no profile picker for an application kind,
+no columns section for a kind with no fields, and reads `?kind=` (an old `?widgetType=` still selects). Rules:
+`docs/feature-notes.md` PAGE REPORTS ON TEMPLATES.
 
 ## Built dashboards — `routes/dashboards/` (2026-10-29, dashboard builder phase 1)
 
@@ -638,7 +655,7 @@ removed there and add one side bar option Data Report, in that it should come"*)
   the trend page's Time Series card (period, interval, remarks), same
   `DOWNLOAD_REPORT` re-auth, same audit row BEFORE the file; each instrument is
   read through `data-report-fetch.ts` and the dialog's `progress` prop says
-  which one it is on. **The document is `renderDataReports`: one Data Report
+  which one it is on. **The document (since 2026-11-03 `buildDataReport`, `renderDataReports` was deleted): one Data Report
   page per instrument, each byte-for-byte the trend page's, NO cover block** —
   the 2026-09-05 cover (Block / Area / period / count) was dropped when the
   operator asked for "the same report of time series widget"
@@ -708,7 +725,7 @@ rebuilt to an operator reference image.
   does not follow the shared style.
 - **Its download is the DATA REPORT (2026-09-04)**, built to `Data Report.pdf`
   at the repo root: `routes/instruments/data-report.ts` (pure, tested against the
-  reference's own values) laid out by `renderDataReport` in `trend-report.ts`.
+  reference's own values) laid out since 2026-11-03 by `buildDataReport` in `page-reports.ts` (`renderDataReport` was deleted).
   **Rows are a SCHEDULE, newest first (2026-09-05):** with an interval the first
   row is the earliest reading in the period, each later slot one interval on to
   the period's end, each holding the FIRST STORED READING inside it or `NA` —

@@ -7,7 +7,10 @@ import type { ModuleConfigDefinition } from '../../../lib/config-registry.js';
  * the global Branding config; the logo always comes from Branding.
  *
  * Report-SPECIFIC titles/subtitles/columns live in "Report Labels" — not here.
- * PDF exports build their own header/footer (createReport) and are unaffected.
+ * PDF exports read the same override: `loadBranding` (apps/web/src/lib/pdf-report.ts)
+ * fetches this row's company / app name over Branding for every PDF header and footer, and
+ * a report drawn from a template uses the template's own names first (a template with
+ * none falls back to this override, then Branding).
  *
  * Replaces the former "Report Settings" config (show/hide toggles + layout),
  * removed 2026-06-29. The configurable common labels (performed-by / record-count
