@@ -10,6 +10,8 @@ import { Input } from '@/components/ui/input';
 import { FEATURE_PRIVILEGES } from '@digilog/shared';
 import type { RoleData } from '@digilog/shared';
 import { groupFeaturePrivilegesByTree } from './permission-tree-grouping';
+import type { TreePermissionNode } from './permission-tree-grouping';
+import { heldToggles, heldCaption } from './held-toggles';
 import { SkeletonRows } from '@/components/ui/skeleton';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -29,6 +31,83 @@ interface PermissionsTabProps {
 // the theme gradient (audit 2026-10-03, WEB-17) — the fixed slate and blue were
 // the one patch of this screen the ten presets did not reach.
 const DEFAULT_ROLE_ICON ='M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z';
+
+// One stable empty list, so the held computation is not redone every render
+// for a role with no stored sidebar selection.
+const NO_SIDEBAR_ITEMS: readonly string[] = [];
+
+// ─── One toggle ───────────────────────────────────────────────────────────────
+
+/**
+ * A toggle that is OFF in the user's own map but that the save will bring back
+ * ON (2026-11-03) renders CHECKED and DISABLED with `caption` — "Held by …" —
+ * under its label, so un-selecting it says at once why it stays.
+ */
+function PermissionToggle({ node, on, caption, onToggle }: {
+  node: TreePermissionNode;
+  on: boolean;
+  /** Present iff the toggle is held. */
+  caption?: string;
+  onToggle: () => void;
+}) {
+  const held = caption !== undefined;
+  const captionId = `perm-held-${node.id}`;
+  return (
+    <label
+      data-held={held ? 'true' : undefined}
+      className={`group relative flex items-center gap-4 p-4 rounded-xl border-2 transition-all duration-200 ${
+        held
+          ? 'cursor-not-allowed border-dashed bg-emerald-50/60 border-emerald-200'
+          : on
+            ? 'cursor-pointer bg-gradient-to-r from-emerald-50 to-green-50 border-emerald-200 shadow-[var(--elev-1)]'
+            : 'cursor-pointer bg-white border-slate-200 hover:border-slate-300 hover:shadow-[var(--elev-1)]'
+      }`}
+    >
+      <input
+        type="checkbox"
+        checked={on}
+        disabled={held}
+        aria-disabled={held ? 'true' : undefined}
+        aria-describedby={held ? captionId : undefined}
+        data-held={held ? 'true' : undefined}
+        // `disabled` stops a browser click; a change event from anywhere else
+        // (jsdom delivers one) must not flip a held toggle either.
+        onChange={() => { if (!held) onToggle(); }}
+        className="sr-only"
+      />
+      {/* Custom checkbox — a held one is ticked but muted */}
+      <div className={`flex-shrink-0 w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
+        held
+          ? 'bg-emerald-300 border-emerald-300'
+          : on
+            ? 'bg-gradient-to-br from-emerald-500 to-green-600 border-emerald-500 shadow-[var(--elev-1)]'
+            : 'bg-white border-slate-300 group-hover:border-slate-400'
+      }`}>
+        {on && (
+          <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+          </svg>
+        )}
+      </div>
+      {/* Label + reauth badge + why it is held */}
+      <div className="flex-1 min-w-0">
+        <span className={`text-sm font-medium transition-colors ${on ? 'text-emerald-800' : 'text-slate-600'}`}>
+          {node.label}
+        </span>
+        {node.reauthAction && (
+          <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-600 text-xs font-medium whitespace-nowrap">
+            🔒 re-auth
+          </span>
+        )}
+        {held && <p id={captionId} className="mt-1 text-xs text-slate-500">{caption}</p>}
+      </div>
+      {/* Enabled pulse dot — the role's own choice only */}
+      {on && !held && (
+        <span className="flex-shrink-0 w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+      )}
+    </label>
+  );
+}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -102,14 +181,28 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
       setPermDirty(true);
     };
 
+    // ── What the save will decide (2026-11-03) ─────────────────────────────
+    // The server rebuilds the role from these toggles and the role's STORED
+    // sidebar items (this PUT sends none), then reads the toggles back. A
+    // toggle OFF here that comes back ON is HELD — by another ON toggle, an
+    // implication or a sidebar item — and is drawn checked, disabled and
+    // named. The PUT is unchanged: the user's own toggles; the server decides.
+    const sidebarItems: readonly string[] = (roleConfig?.sidebarItems as string[] | undefined) ?? NO_SIDEBAR_ITEMS;
+    const held = useMemo(() => heldToggles(permissions, sidebarItems), [permissions, sidebarItems]);
+    const isOn = (id: string) => !!permissions[id] || !!held.shown[id];
+    const captionFor = (id: string) => (held.heldBy[id] ? heldCaption(held.heldBy[id]) : undefined);
+
+    // Counters and Enable All count what the role WILL hold, held toggles
+    // included; Disable All looks only at the role's OWN toggles — a group
+    // held only by a sidebar item has nothing of its own to turn off.
     const isGroupFullyEnabled = (fpNodeIds: string[]) =>
-      fpNodeIds.length > 0 && fpNodeIds.every(id => permissions[id]);
+      fpNodeIds.length > 0 && fpNodeIds.every(isOn);
 
     const isGroupAnyEnabled = (fpNodeIds: string[]) =>
       fpNodeIds.some(id => permissions[id]);
 
     const enabledInGroup = (fpNodeIds: string[]) =>
-      fpNodeIds.filter(id => permissions[id]).length;
+      fpNodeIds.filter(isOn).length;
 
     // ── Grouped tree (stable across renders) ──────────────────────────────
     const { groups: treeGroups, other: otherNodes } = useMemo(
@@ -118,7 +211,7 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
     );
 
     // ── Stats ─────────────────────────────────────────────────────────────
-    const enabledCount = Object.values(permissions).filter(Boolean).length;
+    const enabledCount = FEATURE_PRIVILEGES.filter(fp => isOn(fp.id)).length;
     const enabledPercentage = Math.round((enabledCount / FEATURE_PRIVILEGES.length) * 100);
 
     // ─────────────────────────────────────────────────────────────────────
@@ -284,7 +377,7 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
                   const hasMultiplePages = group.pageGroups.length > 1;
 
                   return (
-                    <div key={group.sidebarId} className="p-6">
+                    <div key={group.sidebarId} className="p-6" data-testid={`perm-group-${group.sidebarId}`}>
                       {/* Group header */}
                       <div className="flex items-center justify-between mb-5">
                         <div className="flex items-center gap-3">
@@ -334,50 +427,13 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
                             )}
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                               {pageGroup.nodes.map((node) => (
-                                <label
+                                <PermissionToggle
                                   key={node.id}
-                                  className={`group relative flex items-center gap-4 p-4 rounded-xl border-2 transition-all duration-200 cursor-pointer ${
-                                    permissions[node.id]
-                                      ? 'bg-gradient-to-r from-emerald-50 to-green-50 border-emerald-200 shadow-[var(--elev-1)]'
-                                      : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-[var(--elev-1)]'
-                                  }`}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={permissions[node.id] || false}
-                                    onChange={() => togglePermission(node.id)}
-                                    className="sr-only"
-                                  />
-                                  {/* Custom checkbox */}
-                                  <div className={`flex-shrink-0 w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
-                                    permissions[node.id]
-                                      ? 'bg-gradient-to-br from-emerald-500 to-green-600 border-emerald-500 shadow-[var(--elev-1)]'
-                                      : 'bg-white border-slate-300 group-hover:border-slate-400'
-                                  }`}>
-                                    {permissions[node.id] && (
-                                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                      </svg>
-                                    )}
-                                  </div>
-                                  {/* Label + reauth badge */}
-                                  <div className="flex-1 min-w-0">
-                                    <span className={`text-sm font-medium transition-colors ${
-                                      permissions[node.id] ? 'text-emerald-800' : 'text-slate-600'
-                                    }`}>
-                                      {node.label}
-                                    </span>
-                                    {node.reauthAction && (
-                                      <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-600 text-xs font-medium whitespace-nowrap">
-                                        🔒 re-auth
-                                      </span>
-                                    )}
-                                  </div>
-                                  {/* Enabled pulse dot */}
-                                  {permissions[node.id] && (
-                                    <span className="flex-shrink-0 w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                                  )}
-                                </label>
+                                  node={node}
+                                  on={isOn(node.id)}
+                                  caption={captionFor(node.id)}
+                                  onToggle={() => togglePermission(node.id)}
+                                />
                               ))}
                             </div>
                           </div>
@@ -427,42 +483,13 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                       {otherNodes.map((node) => (
-                        <label
+                        <PermissionToggle
                           key={node.id}
-                          className={`group relative flex items-center gap-4 p-4 rounded-xl border-2 transition-all duration-200 cursor-pointer ${
-                            permissions[node.id]
-                              ? 'bg-gradient-to-r from-emerald-50 to-green-50 border-emerald-200 shadow-[var(--elev-1)]'
-                              : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-[var(--elev-1)]'
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={permissions[node.id] || false}
-                            onChange={() => togglePermission(node.id)}
-                            className="sr-only"
-                          />
-                          <div className={`flex-shrink-0 w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
-                            permissions[node.id]
-                              ? 'bg-gradient-to-br from-emerald-500 to-green-600 border-emerald-500 shadow-[var(--elev-1)]'
-                              : 'bg-white border-slate-300 group-hover:border-slate-400'
-                          }`}>
-                            {permissions[node.id] && (
-                              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                              </svg>
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <span className={`text-sm font-medium transition-colors ${
-                              permissions[node.id] ? 'text-emerald-800' : 'text-slate-600'
-                            }`}>
-                              {node.label}
-                            </span>
-                          </div>
-                          {permissions[node.id] && (
-                            <span className="flex-shrink-0 w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                          )}
-                        </label>
+                          node={node}
+                          on={isOn(node.id)}
+                          caption={captionFor(node.id)}
+                          onToggle={() => togglePermission(node.id)}
+                        />
                       ))}
                     </div>
                   </div>

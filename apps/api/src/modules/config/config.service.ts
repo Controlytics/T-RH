@@ -4,7 +4,7 @@ import { auditLog } from '../../lib/audit.js';
 import { NotFoundError, ValidationError } from '../../lib/errors.js';
 import { configRepository } from './config.repository.js';
 import { getActionReauthConfig, invalidateReauthCache, isReauthRequired } from '../../lib/reauth-check.js';
-import { getDefaultTemplates, FEATURE_TO_PERMISSION_MAP, SIDEBAR_PRIVILEGE_MAP, privilegeTogglesFromPermissions } from '@digilog/shared';
+import { getDefaultTemplates, privilegeTogglesFromPermissions, rebuildRolePermissions } from '@digilog/shared';
 import { validateUserId } from '../../lib/user-id-validator.js';
 import { prisma } from '../../lib/prisma.js';
 import { invalidateRolePermsCache } from '../../plugins/rbac.js';
@@ -23,25 +23,11 @@ export function redactConfigSecrets(value: any, secretKeys: Set<string>): any {
 }
 
 
-/**
- * The PRIMARY (first-listed) permission(s) for a sidebar item — the minimal
- * grant that makes the item visible in the sidebar AND its page usable at a
- * baseline level. Backs the "link sidebar ↔ permissions" behaviour (2026-06-15):
- * enabling a menu for a role auto-grants this so the admin no longer has to
- * separately hand-grant the matching feature permission in the Permissions tab.
- * Returns [] for items with no privilege requirement (e.g. dashboard,
- * system-health) — those are always visible regardless of permissions.
- */
-function primaryPermsForSidebarItem(sidebarId: string): string[] {
-  // 2026-06-30: admin-requests has NO view-only/primary perm — its only perms are the ACTION
-  // perms (ADMIN_REQUEST_APPROVE / ADMIN_REQUEST_REJECT). Auto-granting an action perm on
-  // menu-enable would make it un-revokable (the "unselect doesn't take effect" bug). So
-  // admin-requests opts OUT of sidebar auto-grant; APPROVE/REJECT are granted explicitly per role.
-  if (sidebarId === 'admin-requests') return [];
-  const section = SIDEBAR_PRIVILEGE_MAP.find(s => s.sidebarId === sidebarId);
-  if (!section || section.privilegeIds.length === 0) return [];
-  return FEATURE_TO_PERMISSION_MAP[section.privilegeIds[0]] ?? [];
-}
+// A sidebar item's PRIMARY permission (the "link sidebar ↔ permissions" grant,
+// 2026-06-15, with the admin-requests opt-out of 2026-06-30) is
+// `primaryPermissionsForSidebarItem` in `@digilog/shared` since 2026-11-03 —
+// it moved there with `planRolePermissions`' rebuild so the Permissions tab
+// runs the same rule.
 
 export const configService = {
   async getConfig(key: string, schema: any, def?: { defaults?: any }) {
@@ -160,46 +146,31 @@ export const configService = {
    * the rebuild: (1) feature-privilege toggles (Permissions tab) — granular;
    * (2) enabled sidebar items (Sidebar tab) — each grants its primary perm.
    * Permissions NOT covered by any feature toggle are preserved (manual grants).
+   *
+   * The set algebra is `rebuildRolePermissions` in `@digilog/shared` (moved
+   * there 2026-11-03, unchanged): the Permissions tab runs the SAME function to
+   * show, before a save, which toggles another ON toggle or an enabled sidebar
+   * item holds — they come straight back ON (operator: "for some permissions,
+   * after un-selecting them and saving, those are not updating").
    */
   async planRolePermissions(
     role: string,
     data: { sidebarItems?: string[]; permissions?: Record<string, boolean> },
     existing: { sidebarItems?: unknown } | null,
   ): Promise<{ permissionsArray: string[]; currentPerms: string[]; added: string[]; hierarchyLevel: number }> {
-    const allMappedPerms = new Set<string>();
-    for (const perms of Object.values(FEATURE_TO_PERMISSION_MAP)) {
-      for (const p of perms) allMappedPerms.add(p);
-    }
-
     const currentRole = await prisma.role.findFirst({ where: { name: role }, select: { permissions: true, hierarchyLevel: true } });
     const currentPerms = (currentRole?.permissions as string[]) || [];
 
-    // Primary permissions implied by the role's effective sidebar selection
-    // (the just-saved list, or the existing one on a permissions-only save).
+    // The role's effective sidebar selection: the just-saved list, or the
+    // existing one on a permissions-only save.
     const effectiveSidebar = (data.sidebarItems ?? (existing?.sidebarItems as string[] | undefined) ?? []);
-    const sidebarPerms = effectiveSidebar.flatMap(primaryPermsForSidebarItem);
-
-    let permissionSet: Set<string>;
-    if (data.permissions) {
-      // Permissions tab save → full rebuild from the toggle map, preserving
-      // non-feature perms, then re-add sidebar-implied perms so a permissions
-      // save can't strip access the Sidebar tab granted.
-      permissionSet = new Set<string>(currentPerms.filter(p => !allMappedPerms.has(p)));
-      for (const [featureId, enabled] of Object.entries(data.permissions)) {
-        if (enabled && FEATURE_TO_PERMISSION_MAP[featureId]) {
-          for (const perm of FEATURE_TO_PERMISSION_MAP[featureId]) permissionSet.add(perm);
-        }
-      }
-    } else {
-      // Sidebar-only save → additive. Keep every current permission and just
-      // grant the primary perms for the enabled items. (Disabling a menu hides
-      // it via the sidebar allow-list; it does NOT revoke the permission, so a
-      // sidebar edit can never silently strip access granted elsewhere.)
-      permissionSet = new Set<string>(currentPerms);
-    }
-    for (const perm of sidebarPerms) permissionSet.add(perm);
-
-    const permissionsArray = Array.from(permissionSet);
+    // A Permissions save (toggles present) rebuilds the mapped permissions; a
+    // Sidebar-only save keeps them all. Both re-add each item's primary permission.
+    const permissionsArray = rebuildRolePermissions({
+      currentPermissions: currentPerms,
+      toggles: data.permissions,
+      sidebarItems: effectiveSidebar,
+    });
     const held = new Set(currentPerms);
     return {
       permissionsArray,

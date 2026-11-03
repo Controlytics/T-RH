@@ -138,7 +138,7 @@ someone may be using was not part of that change.
 | `reauth-actions.ts` | **57** reauth actions in **8** categories (56 → 57 on 2026-10-29, `UPDATE_DASHBOARD`) (`grep -cE "^\s+[A-Z_]+:"`; `grep -oE "category: '[^']+'" \| sort -u \| wc -l`) |
 | `roles.ts` | Role constants + hierarchy + display labels; `defaultRoles` lives in `apps/api/prisma/default-roles.ts` |
 | `permission-categories.ts` | Permission grouping for the role-access UI |
-| `permission-tree.ts` | The single Sidebar→Page→Action catalog; derives `FEATURE_PRIVILEGES` / `FEATURE_TO_PERMISSION_MAP` / `SIDEBAR_PRIVILEGE_MAP`; `resolveNodeGate(nodeId)` feeds `useCan()` |
+| `permission-tree.ts` | The single Sidebar→Page→Action catalog; derives `FEATURE_PRIVILEGES` / `FEATURE_TO_PERMISSION_MAP` / `SIDEBAR_PRIVILEGE_MAP`; `resolveNodeGate(nodeId)` feeds `useCan()`; since 2026-11-03 `rebuildRolePermissions` / `primaryPermissionsForSidebarItem` are the ONE rule a Roles & Access save writes `roles.permissions` with — the API's `planRolePermissions` and the Permissions tab both call them (it derives its maps lazily: a value import back from `feature-privileges.ts` / `sidebar-privilege-map.ts` would be an import cycle) |
 | `sidebar-items.ts` | **15** sidebar items (`grep -c "id: '"`; 14 → 15 on 2026-10-29, `dashboards`) |
 | `sidebar-privilege-map.ts` | Sidebar item → privilege binding, DERIVED from the tree's `visibilityPrivilegeIds` (**15** sections; `legacy-maps-derived.test.ts` pins 15) |
 | `audit-actions.ts` | **102** audit action constants (100 → 102 on 2026-10-31, the two TCP/IP SYSTEM actions; 98 → 100 on 2026-10-27, the device-certificate pair) (`grep -cE "^\s+[A-Z_]+:\s*'"`) |

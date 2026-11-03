@@ -26,6 +26,7 @@ import { prisma } from '../lib/prisma.js';
 import { hashPassword } from '../lib/password.js';
 import { invalidateRolePermsCache } from '../plugins/rbac.js';
 import { invalidateReauthCache } from '../lib/reauth-check.js';
+import { privilegeTogglesFromPermissions, rebuildRolePermissions } from '@digilog/shared';
 
 const S = Date.now().toString(36).toUpperCase();
 const ROLE = `RPT_${S}`;
@@ -177,6 +178,27 @@ describe('Roles & Access → Permissions shows what the role holds, and a save r
     const stored = await prisma.roleConfig.findUniqueOrThrow({ where: { role: ROLE }, select: { permissions: true } });
     expect((stored.permissions as Record<string, boolean>)['instruments.create']).toBe(true);
     expect((await shown())['instruments.create']).toBe(false);
+  });
+
+  // 2026-11-03, operator: "for some permissions, after un-selecting them and
+  // saving, those are not updating". The save is RIGHT — a role that may edit
+  // users must read them — and the Permissions tab now shows it before the save
+  // by running the server's own rule on the toggles it is about to send. This
+  // pins that the prediction IS the answer, through HTTP.
+  it('un-selecting View Users while Edit Users is on: it comes back ON, exactly as the tab predicts', async () => {
+    const res = await app.inject({ method: 'GET', url: `/api/config/roles/${ROLE}`, headers: admin });
+    const sidebarItems = res.json().sidebarItems as string[];
+    const sent = { ...res.json().permissions as Record<string, boolean>, 'users.view': false, 'users.edit': true };
+    const predicted = privilegeTogglesFromPermissions(rebuildRolePermissions({ currentPermissions: [], toggles: sent, sidebarItems }));
+    expect(predicted['users.view']).toBe(true);
+
+    const put = await app.inject({
+      method: 'PUT', url: `/api/config/roles/${ROLE}`, headers: admin,
+      payload: { permissions: sent, reason: 'e2e: a held toggle comes back' },
+    });
+    expect(put.statusCode, put.body).toBe(200);
+    expect(await held()).toEqual(expect.arrayContaining(['USER_UPDATE', 'USER_READ']));
+    expect(await shown()).toEqual(predicted);
   });
 });
 

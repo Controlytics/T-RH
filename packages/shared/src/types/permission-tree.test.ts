@@ -6,6 +6,7 @@ import {
   deriveSidebarPrivilegeMap,
   primaryPermissionsOf,
   privilegeTogglesFromPermissions,
+  rebuildRolePermissions,
   resolveNodePermissions,
   resolveNodeGate,
   resolveNodeGateRoles,
@@ -318,16 +319,17 @@ describe('privilegeTogglesFromPermissions — what the Permissions tab shows', (
     }
   });
 
-  // What a Permissions save WRITES (`planRolePermissions`): every permission
-  // no toggle maps survives as it is; every mapped one is rebuilt from the
-  // toggles. Both properties are judged by CAPABILITY — the server's own
-  // `hasEffectivePermission` — because X_MANAGE covers X_DELETE: writing
-  // NOTIFICATION_DELETE beside a held NOTIFICATION_MANAGE grants nothing new.
+  // What a Permissions save WRITES (`rebuildRolePermissions`, the API's own
+  // rule since 2026-11-03): every permission no toggle maps survives as it is;
+  // every mapped one is rebuilt from the toggles. Both properties are judged by
+  // CAPABILITY — the server's own `hasEffectivePermission` — because X_MANAGE
+  // covers X_DELETE: writing NOTIFICATION_DELETE beside a held
+  // NOTIFICATION_MANAGE grants nothing new.
   const configurable = PERMISSION_TREE.flatMap(g => g.nodes).filter(n => n.configurable === true);
-  const mapped = new Set(Object.values(map).flat());
   const ALL = Object.values(PERMISSIONS) as string[];
   const capabilities = (perms: readonly string[]) => new Set(ALL.filter(p => hasEffectivePermission(perms, p)));
-  const saved = (held: string[]) => [...held.filter(p => !mapped.has(p)), ...expand(privilegeTogglesFromPermissions(held))];
+  const saved = (held: string[]) =>
+    rebuildRolePermissions({ currentPermissions: held, toggles: privilegeTogglesFromPermissions(held), sidebarItems: [] });
   const samples: string[][] = [
     ...ALL.map(p => [p]),
     ...Object.values(map),

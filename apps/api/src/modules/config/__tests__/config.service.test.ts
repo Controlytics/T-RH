@@ -42,22 +42,25 @@ vi.mock('../../../lib/reauth-check.js', () => ({
   invalidateReauthCache: mockInvalidateReauthCache,
   isReauthRequired: mockIsReauthRequired,
 }));
-vi.mock('@digilog/shared', async (importOriginal) => ({
-  // The REAL reverse map over the REAL tree: getRoleConfig's answer is what
-  // the Permissions tab shows, so a stand-in here would test nothing.
-  privilegeTogglesFromPermissions: (await importOriginal<typeof import('@digilog/shared')>()).privilegeTogglesFromPermissions,
-  getDefaultTemplates: mockGetDefaultTemplates,
-  // role.service.ts (imported for assertRoleWithinCallerPrivilege since the
-  // 2026-10-03 API-1 fix) builds its permission catalogue from this at import
-  // time; without it the whole file failed to load.
-  PERMISSIONS: {},
-  FEATURE_TO_PERMISSION_MAP: { 'user-management': ['USER_CREATE', 'USER_READ'] },
-  FEATURE_PRIVILEGES: [{ id: 'user-management', label: 'User Management' }],
-  SIDEBAR_PRIVILEGE_MAP: [
-    { sidebarId: 'users', label: 'Users', icon: '', description: '', privilegeIds: ['user-management'] },
-    { sidebarId: 'dashboard', label: 'Dashboard', icon: '', description: '', privilegeIds: [] },
-  ],
-}));
+vi.mock('@digilog/shared', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@digilog/shared')>();
+  return {
+    // The REAL reverse map over the REAL tree: getRoleConfig's answer is what
+    // the Permissions tab shows, so a stand-in here would test nothing.
+    privilegeTogglesFromPermissions: real.privilegeTogglesFromPermissions,
+    // The REAL rebuild (2026-11-03: the rule moved into @digilog/shared, and
+    // the Permissions tab runs it too) — it reads the real tree, not the
+    // stand-in maps below.
+    rebuildRolePermissions: real.rebuildRolePermissions,
+    getDefaultTemplates: mockGetDefaultTemplates,
+    // role.service.ts (imported for assertRoleWithinCallerPrivilege since the
+    // 2026-10-03 API-1 fix) builds its permission catalogue from this at import
+    // time; without it the whole file failed to load.
+    PERMISSIONS: {},
+    FEATURE_TO_PERMISSION_MAP: { 'user-management': ['USER_CREATE', 'USER_READ'] },
+    FEATURE_PRIVILEGES: [{ id: 'user-management', label: 'User Management' }],
+  };
+});
 vi.mock('../../../lib/user-id-validator.js', () => ({ validateUserId: mockValidateUserId }));
 vi.mock('../../../lib/prisma.js', () => ({ prisma: mockPrisma }));
 
@@ -194,10 +197,12 @@ describe('configService', () => {
 
       await configService.updateRoleConfig('QA', { sidebarItems: ['users'] }, ctx as any);
 
-      // role.permissions must now include the primary perms for 'users' (USER_CREATE/USER_READ)
-      // while preserving the unrelated AUDIT_READ.
+      // role.permissions must now hold the Users menu's primary permission — USER_READ
+      // (View Users), from the REAL tree — while preserving the unrelated AUDIT_READ.
+      // (This read USER_CREATE too until 2026-11-03: that came from a stand-in map
+      // this file gave the service, not from the rule.)
       const written = mockPrisma.role.updateMany.mock.calls.at(-1)?.[0].data.permissions as string[];
-      expect(written).toEqual(expect.arrayContaining(['AUDIT_READ', 'USER_CREATE', 'USER_READ']));
+      expect(written).toEqual(['AUDIT_READ', 'USER_READ']);
     });
 
     it('sidebar-only save is additive — never drops existing permissions', async () => {

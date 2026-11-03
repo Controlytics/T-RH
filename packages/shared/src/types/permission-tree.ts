@@ -615,6 +615,114 @@ export function deriveSidebarPrivilegeMap(
   }));
 }
 
+// ─── The role permission REBUILD (2026-11-03) ────────────────────────────────
+// The ONE rule a Roles & Access save writes `roles.permissions` with. It lived
+// in the API's `config.service.ts` (`planRolePermissions` and a private
+// `primaryPermsForSidebarItem`) until 2026-11-03, when the Permissions tab had
+// to show what a save will decide BEFORE it is sent (operator: "for some
+// permissions, after un-selecting them and saving, those are not updating").
+// The server re-adds what another ON toggle or an enabled sidebar item grants,
+// so a View toggle a dependent holds came straight back ON with no word. The
+// API and the tab now call THIS function; neither keeps a copy.
+
+let rebuildMaps: {
+  featureToPermissions: Record<string, string[]>;
+  sidebar: SidebarSection[];
+  mapped: Set<string>;
+} | null = null;
+
+/**
+ * The derived maps the rebuild reads — the same values as the exported
+ * `FEATURE_TO_PERMISSION_MAP` / `SIDEBAR_PRIVILEGE_MAP`, built here on FIRST
+ * USE, never at import: `feature-privileges.ts` and `sidebar-privilege-map.ts`
+ * import this file and derive at module load, so a value import back from them
+ * would be a cycle that reaches `PERMISSION_TREE` before it exists.
+ */
+function rebuildMapsOf() {
+  if (!rebuildMaps) {
+    const featureToPermissions = deriveFeatureToPermissionMap();
+    rebuildMaps = {
+      featureToPermissions,
+      sidebar: deriveSidebarPrivilegeMap(),
+      mapped: new Set(Object.values(featureToPermissions).flat()),
+    };
+  }
+  return rebuildMaps;
+}
+
+/**
+ * The PRIMARY (first-listed) permission(s) of a sidebar item — the minimal
+ * grant that makes the item visible in the sidebar AND its page usable at a
+ * baseline level. Backs the "link sidebar ↔ permissions" behaviour
+ * (2026-06-15): enabling a menu for a role grants this, so the admin need not
+ * separately hand-grant the matching feature permission in the Permissions
+ * tab. [] for an item with no privilege requirement (dashboard, system-health)
+ * and for an unknown id. A copy: the caller may not change the derived map.
+ *
+ * One argument only, on purpose: it is handed to loops, and a `flatMap` passes
+ * the index as a second argument.
+ */
+export function primaryPermissionsForSidebarItem(sidebarId: string): string[] {
+  // 2026-06-30: admin-requests has NO view-only/primary perm — its only perms are the ACTION
+  // perms (ADMIN_REQUEST_APPROVE / ADMIN_REQUEST_REJECT). Auto-granting an action perm on
+  // menu-enable would make it un-revokable (the "unselect doesn't take effect" bug). So
+  // admin-requests opts OUT of sidebar auto-grant; APPROVE/REJECT are granted explicitly per role.
+  if (sidebarId === 'admin-requests') return [];
+  const { featureToPermissions, sidebar } = rebuildMapsOf();
+  const section = sidebar.find(s => s.sidebarId === sidebarId);
+  if (!section || section.privilegeIds.length === 0) return [];
+  return [...(featureToPermissions[section.privilegeIds[0]] ?? [])];
+}
+
+export interface RebuildRolePermissionsInput {
+  /** What the role holds now (`roles.permissions`). */
+  currentPermissions: readonly string[];
+  /**
+   * The Permissions tab's toggle map. Present (even `{}`) = a Permissions
+   * save: the mapped permissions are rebuilt from it. Absent = a Sidebar-only
+   * save: nothing is taken away.
+   */
+  toggles?: Record<string, boolean>;
+  /** The role's effective sidebar selection — each item re-grants its primary permission. */
+  sidebarItems: readonly string[];
+}
+
+/**
+ * The permission array a Roles & Access save writes. Two sources feed it: the
+ * Permissions tab's toggles (granular) and the enabled sidebar items (each
+ * grants its primary permission). A Permissions save keeps every permission no
+ * toggle maps (manual grants), adds each ON toggle's grant set, and re-adds the
+ * sidebar-implied permissions so it cannot strip access the Sidebar tab
+ * granted. A Sidebar-only save keeps every current permission — disabling a
+ * menu hides it through the sidebar allow-list, it never revokes. Order:
+ * kept permissions as held, then toggles in their map order, then sidebar
+ * items; no duplicates.
+ *
+ * Consequence the Permissions tab shows (2026-11-03): a toggle OFF whose
+ * permission another ON toggle grants, an implication covers, or an enabled
+ * sidebar item grants comes back ON — `privilegeTogglesFromPermissions` of this
+ * result is what the tab will read after the save.
+ */
+export function rebuildRolePermissions(input: RebuildRolePermissionsInput): string[] {
+  const { featureToPermissions, mapped } = rebuildMapsOf();
+  let permissionSet: Set<string>;
+  if (input.toggles) {
+    permissionSet = new Set<string>(input.currentPermissions.filter(p => !mapped.has(p)));
+    for (const [featureId, enabled] of Object.entries(input.toggles)) {
+      // Own keys only: a toggle id like `constructor` read the Object prototype
+      // here and threw while iterating it (a 500 from the API).
+      if (!enabled || !Object.prototype.hasOwnProperty.call(featureToPermissions, featureId)) continue;
+      for (const perm of featureToPermissions[featureId]) permissionSet.add(perm);
+    }
+  } else {
+    permissionSet = new Set<string>(input.currentPermissions);
+  }
+  for (const sidebarId of input.sidebarItems) {
+    for (const perm of primaryPermissionsForSidebarItem(sidebarId)) permissionSet.add(perm);
+  }
+  return Array.from(permissionSet);
+}
+
 /**
  * Task 1.5 — Resolve the GRANT-expansion permissions for a tree node by id
  * (i.e. the permissions enabling this node's toggle grants a role — same set

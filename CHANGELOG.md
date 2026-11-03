@@ -1,5 +1,36 @@
 # Changelog
 
+## [Unreleased] - Fix: Permissions tab shows a toggle another toggle or sidebar item holds (2026-11-03)
+
+Operator: "for some permissions, after un-selecting them and saving, those are not updating". The
+save was right and the tab was wrong. A Permissions save rebuilds the role's permissions from the
+toggles and re-adds the primary permission of every enabled sidebar item; the tab then reads the
+toggles back from what the role holds. So a toggle whose permission another ON toggle grants, an
+implication covers, or an enabled sidebar item grants came straight back ON after the save, with no
+word. With every other toggle ON, eleven come back: View Users, View Configuration, View Alarm
+Webhooks, View Audit Trail, View Instruments, View Functional Locations, View Alarms, View Data
+Report, View Reports, View Settings, and Edit Settings (Edit Instruments' `INSTRUMENT_UPDATE` implies it).
+
+- **One rebuild rule, shared.** `rebuildRolePermissions` and `primaryPermissionsForSidebarItem`
+  (with the admin-requests opt-out) moved from the API's `config.service.ts` into `@digilog/shared`
+  `permission-tree.ts`; `planRolePermissions` calls it. A shared test compares it with the API's
+  former algebra, order included, over every sample role, toggle map and sidebar list. One
+  deliberate difference: a toggle id naming an Object prototype property (`constructor`) is
+  ignored — the old lookup iterated the prototype function and threw a 500.
+- **The tab shows what the save will decide.** `roles-components/held-toggles.ts` runs the shared
+  rebuild and `privilegeTogglesFromPermissions` on the tab's own toggles and the role's stored
+  sidebar items. A toggle that is OFF but held renders checked and disabled, with "Held by <toggles>"
+  and/or "the <item> sidebar item" under its label, the moment it is un-selected. Each source is
+  named if it holds the toggle by itself, so View Users under five Users toggles names all five.
+  Group counters and the Enabled card count held toggles as on. Disable All looks only at the
+  role's own toggles. The PUT body is unchanged: the user's own toggles, and the server decides.
+- Tests: `role-permission-rebuild.test.ts` (shared, 14), `held-toggles.test.ts` (9) and
+  `permissions-tab-held.test.tsx` (5) in web, a new case in `e2e/role-permission-toggles.e2e.test.ts`
+  (the server's toggles after the save equal the tab's prediction). `config.service.test.ts`'s
+  sidebar case now reads the real tree (USER_READ); its USER_CREATE came from a stand-in map.
+  Mutation-checked seven ways.
+- No count moved. **Built, not pushed, not deployed.**
+
 ## [Unreleased] - Feature: TCP/IP register map — a key is tested before it is added (2026-11-03)
 
 Operator: "when instrument page for tcp/ip, when key was adding at that time give a test option before adding the key; once test is completed value was coming then user will add that key". The rule is in `docs/feature-notes.md` TCP/IP INSTRUMENTS, "Test before Add".
