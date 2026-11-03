@@ -14,7 +14,7 @@ import { themeGradient } from '@/lib/theme-styles';
 import { useTrendPeriod } from '@/routes/instruments/use-trend-data';
 import { fetchDataReportRows, fetchReportAttributes, slotExtremes } from '@/routes/instruments/data-report-fetch';
 import {
-  buildDataReport, deliveredTitles, templateForInstrument, type DataReportSection,
+  buildDataReport, deliveredTitles, planLeavesOut, templateForInstrument, type DataReportSection,
 } from '@/routes/instruments/page-reports';
 import { resolveBlockArea } from '@/routes/instruments/data-report';
 import type { HistoryScope } from './use-history-scope';
@@ -77,9 +77,14 @@ export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
    * while the dialog is open (a selection change would otherwise ask on every
    * tick). Shown in the dialog with a picker per profile that has several.
    */
-  const plan = useReportTemplatePlan(KIND, scope.chosen.map((i) => i.id), { enabled: pendingDownload });
+  const chosenIds = scope.chosen.map((i) => i.id);
+  const plan = useReportTemplatePlan(KIND, chosenIds, { enabled: pendingDownload });
   const [picks, setPicks] = useState<Record<string, string>>({});
   const closeDialog = () => { setPendingDownload(false); setPicks({}); };
+  // The loaded plan names no profile for a selected instrument: the lines say
+  // the templates failed BEFORE Confirm (the widget dialog's rule) — never a
+  // selection that silently has no line.
+  const unplanned = pendingDownload && planLeavesOut(plan, chosenIds);
 
   const runDownload = async (req: ReportDownloadRequest) => {
     const targets = scope.chosen;
@@ -229,7 +234,7 @@ export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
             picks={picks}
             onPick={(scopeKey, value) => setPicks((p) => ({ ...p, [scopeKey]: value }))}
             loading={plan.loading}
-            failed={plan.error !== undefined && plan.error !== null}
+            failed={(plan.error !== undefined && plan.error !== null) || unplanned}
             superAdmin={user?.role === 'SUPER_ADMIN'}
           />
         )}

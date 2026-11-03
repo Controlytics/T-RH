@@ -327,6 +327,21 @@ describe('GenerateReportCard', () => {
     expect(requested).toContain(`/api/instruments/${B.id}/attributes`);
   });
 
+  it('says before Confirm when the server names no profile for a selected instrument — never a selection with no line', () => {
+    plan = A_ONLY_PLAN;
+    renderBoth();
+    pickArea();
+    fireEvent.click(screen.getByRole('button', { name: 'Export as PDF' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('The report templates could not be loaded.');
+  });
+
+  it('shows the template line, not a failure, when the plan covers every selected instrument', () => {
+    renderBoth();
+    pickArea();
+    fireEvent.click(screen.getByRole('button', { name: 'Export as PDF' }));
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('refuses, before reading anything, when the server names no profile for a selected instrument', async () => {
     plan = A_ONLY_PLAN;
     renderBoth();

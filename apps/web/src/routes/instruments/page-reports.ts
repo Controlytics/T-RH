@@ -82,6 +82,23 @@ export function deliveredTitles(result: Pick<TemplatedReportResult, 'title' | 's
   };
 }
 
+/** The instrument's section of the plan — with a profile — or `undefined`: the ONE test of "the server named a profile for it". */
+function planSectionFor(plan: readonly PlanSection[], instrumentId: string): (PlanSection & { profileId: string }) | undefined {
+  return plan.find((s): s is PlanSection & { profileId: string } => s.profileId !== null && s.instrumentIds.includes(instrumentId));
+}
+
+/**
+ * Whether a LOADED plan leaves any of these instruments without a profile — the
+ * download dialog then shows the templates as failed before Confirm, as the
+ * widget dialog does (Task 3, Minor 4), and the download refuses
+ * (`templateForInstrument`). `false` while the plan loads or after it failed:
+ * those are said on their own.
+ */
+export function planLeavesOut(plan: { sections: readonly PlanSection[]; loading: boolean; error: unknown }, instrumentIds: readonly string[]): boolean {
+  if (plan.loading || (plan.error !== undefined && plan.error !== null)) return false;
+  return instrumentIds.some((id) => planSectionFor(plan.sections, id) === undefined);
+}
+
 /**
  * The template ONE instrument prints with: its section of the plan — the
  * SERVER's grouping of the instruments by profile (`PlanSection.instrumentIds`),
@@ -98,8 +115,8 @@ export function templateForInstrument(
   picks: Readonly<Record<string, string>>,
   instrument: { id: string; code: string },
 ): PageReportTemplate & { builtin: boolean } {
-  const section = plan.find((s) => s.instrumentIds.includes(instrument.id));
-  if (!section || section.profileId === null) {
+  const section = planSectionFor(plan, instrument.id);
+  if (!section) {
     throw new Error(`The report templates name no instrument profile for ${instrument.code}, so the report cannot be printed. Close this and try again.`);
   }
   const chosen = chooseTemplate(section, picks[planScopeKey(section)]);

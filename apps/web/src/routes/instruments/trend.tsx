@@ -41,7 +41,7 @@ import type { ServerSlotSummary } from './data-report-fetch';
 import { intervalLabel } from './chart-interval-note';
 import type { DataReportInput, TrendChartSection } from './trend-report';
 import {
-  buildDataReport, buildInstrumentAlarmsReport, buildTrendReport, deliveredTitles, templateForInstrument,
+  buildDataReport, buildInstrumentAlarmsReport, buildTrendReport, deliveredTitles, planLeavesOut, templateForInstrument,
 } from './page-reports';
 import { ReportTemplateLines } from '@/components/report-template-lines';
 import { useReportTemplatePlan } from '@/lib/report-template-plan';
@@ -498,6 +498,9 @@ export function InstrumentTrend() {
   const reportPlan = useReportTemplatePlan(reportTemplateKind, id ? [id] : NO_IDS, { enabled: pendingReport !== null });
   const [templatePicks, setTemplatePicks] = useState<Record<string, string>>({});
   const closeReport = () => { setPendingReport(null); setTemplatePicks({}); };
+  // The loaded plan names no profile for this instrument: the lines say the
+  // templates failed BEFORE Confirm (the widget dialog's rule), not "no instruments".
+  const reportUnplanned = pendingReport !== null && id !== undefined && planLeavesOut(reportPlan, [id]);
 
   // Fetch fresh rows for the DIALOG's chosen period — it may differ from the
   // page's, since the operator can change it in the dialog before confirming.
@@ -1327,7 +1330,7 @@ export function InstrumentTrend() {
             picks={templatePicks}
             onPick={(scopeKey, value) => setTemplatePicks((p) => ({ ...p, [scopeKey]: value }))}
             loading={reportPlan.loading}
-            failed={reportPlan.error !== undefined && reportPlan.error !== null}
+            failed={(reportPlan.error !== undefined && reportPlan.error !== null) || reportUnplanned}
             superAdmin={user?.role === 'SUPER_ADMIN'}
           />
         )}

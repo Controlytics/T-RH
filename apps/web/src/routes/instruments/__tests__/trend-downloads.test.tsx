@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
-import { builtinReportTemplate } from '@digilog/shared';
+import { BRANDING_TAB_TITLE_DEFAULT, builtinReportTemplate } from '@digilog/shared';
 import { STUB_PNG, withoutCanvas } from '@/test-support/canvas-stub';
 
 /**
@@ -288,6 +288,9 @@ describe('trend page downloads', () => {
     expect(logged[0].requestMeta.instrumentCodes).toEqual(['DEMO-TH-142']);
     // No chart raster reached the document.
     expect(images.filter((a) => a[0] === STUB_PNG)).toHaveLength(0);
+    // The approver's copy is a REPLAY of the snapshot: the Data Report's "no
+    // app-name line" rides in its frozen chrome (2026-11-03), not in a flag.
+    expect(lastPdfText()).not.toContain(BRANDING_TAB_TITLE_DEFAULT);
   });
 
   /**
@@ -542,6 +545,8 @@ describe('trend page downloads', () => {
     // canvas stub returns — this proves the raster path ran end to end and
     // jsPDF received an image. It does NOT prove the image is a chart.
     expect(images.some((a) => a[0] === STUB_PNG && a[1] === 'PNG')).toBe(true);
+    // ...and the trend report's replay keeps its app-name line (the discriminating half of the Data Report's check).
+    expect(lastPdfText()).toContain(BRANDING_TAB_TITLE_DEFAULT);
   });
 
   /**
@@ -636,10 +641,16 @@ describe('trend page downloads on report templates', () => {
     expect(logged[0].title).toBe('Instrument Trend — Temperature');
   });
 
-  it('refuses, inside the dialog, when the server names no profile for this instrument', async () => {
+  it('refuses, inside the dialog, when the server names no profile for this instrument — and says so before Confirm', async () => {
     plan = EMPTY_PLAN;
     renderPage();
-    confirmDownload(4);
+    fireEvent.click(exportButtons()[4]);
+    // The lines say the templates failed — never "No instruments in this selection" on a page about one.
+    expect(screen.getByRole('alert')).toHaveTextContent('The report templates could not be loaded.');
+    expect(screen.queryByText(/No instruments in this selection/)).toBeNull();
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: 'periodic review' } });
+    pickApprover();
+    fireEvent.click(screen.getByText('Request approval'));
     expect(await screen.findByText(/name no instrument profile for DEMO-TH-142/)).toBeInTheDocument();
     expect(logged).toHaveLength(0);
     expect(saved).toHaveLength(0);
@@ -648,6 +659,10 @@ describe('trend page downloads on report templates', () => {
   it('refuses while the templates are still loading, and after they failed', async () => {
     plan = { sections: [], loading: true, error: undefined };
     const view = renderPage();
+    fireEvent.click(exportButtons()[3]);
+    // Loading is not a failure: the lines say it is loading, not that the instrument has no profile.
+    expect(screen.getByText('Loading the report templates…')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Cancel'));
     confirmDownload(3);
     expect(await screen.findByText(/templates are still loading/)).toBeInTheDocument();
     view.unmount();
