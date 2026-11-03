@@ -3,11 +3,11 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { SkeletonRows } from '@/components/ui/skeleton';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell, TableEmpty } from '@/components/ui/table';
-import type { ReportTemplateRow } from './types';
+import type { ReportTemplateRow } from '@digilog/shared';
 
 /**
- * One widget type's templates for the selected profile — the server's list,
- * as served. Which template a DOWNLOAD uses is the server's to resolve
+ * One template kind's templates for the selected scope — a profile's, or the
+ * application-wide set of an application kind — the server's list, as served. Which template a DOWNLOAD uses is the server's to resolve
  * (`/resolve`); this list only says what the rows say: the default is starred,
  * and when no row is the default — none made yet, or the default was deleted —
  * it says the built-in is what prints (review focus 5: deleting the default

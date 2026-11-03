@@ -9,7 +9,9 @@ import {
  * Configuration → Report Templates (2026-11-02, spec §9): per instrument
  * PROFILE, per widget TYPE, any number of named templates, one default, edited
  * beside a live preview. Every write is a SUPER_ADMIN act signed under
- * UPDATE_REPORT_TEMPLATE.
+ * UPDATE_REPORT_TEMPLATE. Since 2026-11-03 every request names the template
+ * KIND (`kind=`); the page report kinds and the application-wide scope are
+ * pinned in `report-templates-page-kinds.test.tsx`.
  *
  * What is pinned here: the list is the server's for the selected profile and
  * tab; "+ New template" starts from the shared built-in; the four writes go to
@@ -35,9 +37,9 @@ const DOC_A: ReportTemplateDocument = {
   columns: [...BUILTIN_VC.columns, { id: 'key:Gone', heading: 'Gone key', show: true }],
 };
 const stamp = { createdAt: '2026-11-01T08:00:00.000Z', updatedAt: '2026-11-01T10:00:00.000Z', updatedBy: 'superadmin' };
-const ROW_A = { id: 't1', profileId: P1, widgetType: 'value_cards', name: 'Daily values', isDefault: true, document: DOC_A, ...stamp };
-const ROW_B = { id: 't2', profileId: P1, widgetType: 'value_cards', name: 'Shift report', isDefault: false, document: BUILTIN_VC, ...stamp };
-const ROW_G = { id: 't3', profileId: P1, widgetType: 'gauge', name: 'Gauge sheet', isDefault: false, document: builtinReportTemplate('gauge'), ...stamp };
+const ROW_A = { id: 't1', profileId: P1, kind: 'value_cards', name: 'Daily values', isDefault: true, document: DOC_A, ...stamp };
+const ROW_B = { id: 't2', profileId: P1, kind: 'value_cards', name: 'Shift report', isDefault: false, document: BUILTIN_VC, ...stamp };
+const ROW_G = { id: 't3', profileId: P1, kind: 'gauge', name: 'Gauge sheet', isDefault: false, document: builtinReportTemplate('gauge'), ...stamp };
 /** Decimals stored where they may not be: a built-in value, a MEASURED key, a removed key — and on a raw key, where they may. */
 const DOC_C: ReportTemplateDocument = {
   ...BUILTIN_VC,
@@ -48,7 +50,7 @@ const DOC_C: ReportTemplateDocument = {
     { id: 'key:Gone', heading: 'Gone key', show: true, decimals: 4 },
   ],
 };
-const ROW_C = { id: 't4', profileId: P1, widgetType: 'value_cards', name: 'Precision sheet', isDefault: false, document: DOC_C, ...stamp };
+const ROW_C = { id: 't4', profileId: P1, kind: 'value_cards', name: 'Precision sheet', isDefault: false, document: DOC_C, ...stamp };
 const LIST_VC = { data: [ROW_A, ROW_B, ROW_C] };
 const LIST_G = { data: [ROW_G] };
 const LIST_EMPTY = { data: [] };
@@ -62,8 +64,9 @@ const CATALOGUE_G = { fields: [...WIDGET_REPORT_FIELDS.gauge] };
 // As the SERVER serves them (review m1): no key: / attr: fields for a pie or an alarm-count report.
 const CATALOGUE_PIE = { fields: [...WIDGET_REPORT_FIELDS.pie_chart] };
 
-const listKey = (p: string, t: string) => `/api/report-templates?profileId=${p}&widgetType=${t}`;
-const catalogueKey = (p: string, t: string) => `/api/report-templates/catalogue?profileId=${p}&widgetType=${t}`;
+// As the page's URLSearchParams spells them: `kind` first (a widget type has no character to escape).
+const listKey = (p: string, t: string) => `/api/report-templates?kind=${t}&profileId=${p}`;
+const catalogueKey = (p: string, t: string) => `/api/report-templates/catalogue?kind=${t}&profileId=${p}`;
 const RESPONSES: Record<string, unknown> = {
   '/api/instrument-profiles': PROFILES,
   [listKey(P1, 'value_cards')]: LIST_VC,
@@ -123,13 +126,13 @@ const toast = { success: vi.fn(), error: vi.fn() };
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast }) }));
 vi.mock('@/hooks/use-auth', () => ({ useAuth: () => ({ user: { id: 'u', username: 'superadmin', fullName: 'Super Admin', role: 'SUPER_ADMIN', permissions: [] } }) }));
 
-/** The PDF builder (Task 3) — mocked: what is pinned is WHEN and WITH WHAT the page calls it. */
+/** The templated report builder — mocked: what is pinned is WHEN and WITH WHAT the page calls it. */
 const build = vi.fn(async (_input: any) => ({
   report: { toBlobUrl: () => `blob:preview-${build.mock.calls.length}` },
   title: 't',
   recordCount: 3,
 }));
-vi.mock('../report-templates/load-builder', () => ({ loadBuildWidgetReport: async () => build }));
+vi.mock('../report-templates/load-builder', () => ({ loadBuildTemplatedReport: async () => build }));
 
 const { ReportTemplatesConfigPage } = await import('../report-templates');
 const { sampleRowsFor } = await import('../report-templates/sample-rows');
@@ -183,9 +186,9 @@ describe('Configuration → Report Templates — the list', () => {
     expect(within(rowB).queryByText(/^default$/i)).not.toBeInTheDocument();
   });
 
-  it('offers all 14 widget types as tabs, and a tab shows ITS list', () => {
+  it('offers the 14 widget types (then the 5 page reports) as tabs, and a tab shows ITS list', () => {
     renderPage();
-    expect(screen.getAllByRole('tab')).toHaveLength(14);
+    expect(screen.getAllByRole('tab')).toHaveLength(19);
     fireEvent.click(screen.getByRole('tab', { name: 'Gauge' }));
     expect(swrKeys).toContain(listKey(P1, 'gauge'));
     expect(screen.getByText('Gauge sheet')).toBeInTheDocument();
@@ -206,11 +209,15 @@ describe('Configuration → Report Templates — the list', () => {
     expect(screen.getAllByText(/built-in template/i).length).toBeGreaterThan(0);
   });
 
-  it('?profileId=&widgetType= preselect the profile and the tab', () => {
-    renderPage(`/config/report-templates?profileId=${P2}&widgetType=gauge`);
-    expect(screen.getByRole('tab', { name: 'Gauge' })).toHaveAttribute('aria-selected', 'true');
-    expect(swrKeys).toContain(listKey(P2, 'gauge'));
-    expect(screen.getByRole('button', { name: 'Instrument profile' })).toHaveTextContent('Pressure Profile');
+  it('?profileId=&kind= preselect the profile and the tab — and an old link’s ?widgetType= still does', () => {
+    for (const url of [`/config/report-templates?profileId=${P2}&kind=gauge`, `/config/report-templates?profileId=${P2}&widgetType=gauge`]) {
+      swrKeys.length = 0;
+      const { unmount } = renderPage(url);
+      expect(screen.getByRole('tab', { name: 'Gauge' })).toHaveAttribute('aria-selected', 'true');
+      expect(swrKeys).toContain(listKey(P2, 'gauge'));
+      expect(screen.getByRole('button', { name: 'Instrument profile' })).toHaveTextContent('Pressure Profile');
+      unmount();
+    }
   });
 
   it('Set as default → PUT /:id/default, signed', async () => {
@@ -239,7 +246,7 @@ describe('Configuration → Report Templates — the list', () => {
 });
 
 describe('Configuration → Report Templates — the editor', () => {
-  it('"+ New template" starts from the shared built-in and POSTs {profileId, widgetType, name, isDefault, document}', async () => {
+  it('"+ New template" starts from the shared built-in and POSTs {profileId, kind, name, isDefault, document}', async () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: /new template/i }));
     expect(screen.getByLabelText('Title')).toHaveValue('{widget}');
@@ -250,7 +257,7 @@ describe('Configuration → Report Templates — the editor', () => {
     expect(post.mock.calls[0]![0]).toBe('/api/report-templates');
     // The catalogue's Temperature and Location were offered but never touched — not written.
     expect(lastBody(post)).toEqual({
-      profileId: P1, widgetType: 'value_cards', name: 'Night shift', isDefault: false, document: BUILTIN_VC,
+      profileId: P1, kind: 'value_cards', name: 'Night shift', isDefault: false, document: BUILTIN_VC,
     });
     expect(executed).toEqual(['UPDATE_REPORT_TEMPLATE']);
   });
@@ -525,7 +532,9 @@ describe('Configuration → Report Templates — the live preview', () => {
     const frame = await screen.findByTitle('Report preview');
     await waitFor(() => expect(frame).toHaveAttribute('src', 'blob:preview-1#view=FitH'));
     const first = build.mock.calls[0]![0];
-    expect(first.widgetType).toBe('value_cards');
+    expect(first.kind).toBe('value_cards');
+    // The download's report key, so the preview's footer reads as the download's.
+    expect(first.reportKey).toBe('Widget: Value cards');
     expect(first.sections).toHaveLength(1);
     expect(first.sections[0].availableIds).toEqual(CATALOGUE_VC.fields.map((f) => f.id));
     expect(first.sections[0].rows).toHaveLength(3);

@@ -2,9 +2,9 @@ import { useEffect, useId, useMemo, useRef, useState, type DragEvent } from 'rea
 import useSWR from 'swr';
 import { ArrowDown, ArrowUp, GripVertical, Plus, Trash2, Upload } from 'lucide-react';
 import {
-  REPORT_PLACEHOLDERS, REPORT_TEMPLATE_LOGO_MAX, REPORTABLE_WIDGET_TYPES, WIDGET_REPORT_FIELDS, WIDGET_TYPE_SPECS,
-  builtinReportTemplate, reportTemplateDocumentSchema,
-  type Placeholder, type ReportField, type ReportLogoMode, type ReportTemplateDocument, type WidgetType,
+  REPORT_TEMPLATE_FIELDS, REPORT_TEMPLATE_LOGO_MAX, TEMPLATE_KIND_SPECS,
+  builtinReportTemplate, isPlaceholder, reportTemplateDocumentSchema,
+  type Placeholder, type ReportField, type ReportLogoMode, type ReportTemplateDocument, type TemplateKind,
 } from '@digilog/shared';
 import { FormSection } from '@/components/ui/form-section';
 import { Input } from '@/components/ui/input';
@@ -17,16 +17,23 @@ import { TemplatePreview } from './template-preview';
 import { reportTemplatesCatalogueUrl } from './types';
 
 /**
- * The template EDITOR (spec §9): the document as form sections — Template,
- * Header, Information rows, Columns, Footer, Page, Notes — beside the live
- * preview (sticky on a wide screen).
+ * The template EDITOR (spec §9; page kinds 2026-11-03, spec §10): the document
+ * as form sections — Template, Header, Information rows, Columns, Footer, Page,
+ * Notes — beside the live preview (sticky on a wide screen). One editor for
+ * every template KIND, widget type or page report.
  *
  * The editor never decides what a profile can print: the Columns section is the
  * SERVER's catalogue (`GET /api/report-templates/catalogue`) merged with the
  * template's own columns (`column-rows.ts`). Until the catalogue arrives the
  * rows are the template's columns, labelled from the shared built-in fields;
  * once it arrives they are labelled from it and its other fields are offered,
- * hidden.
+ * hidden. A kind with NO fields (the text card, the floor plan, the Instrument
+ * Trend) prints no table, so it has no Columns section at all; its catalogue's
+ * `attr:` fields are offered as information rows only (ruling T3-C).
+ *
+ * The placeholder picker and the information-row sources are the KIND's own
+ * placeholders (`TEMPLATE_KIND_SPECS[kind].placeholders`) — a name the kind's
+ * download does not supply would print —.
  *
  * It validates nothing itself: Save hands the document to the page, which runs
  * the shared schema before anything is sent.
@@ -44,6 +51,24 @@ export const PLACEHOLDER_LABELS: Record<Placeholder, string> = {
   user: 'Username',
   instrumentCount: 'Number of instruments',
   selection: 'Selection',
+  // The page reports' (2026-11-03).
+  instrument: 'Instrument ID',
+  block: 'Block',
+  area: 'Area',
+  location: 'Location',
+  fromDate: 'Start date',
+  fromTime: 'Start time',
+  toDate: 'End date',
+  toTime: 'End time',
+  interval: 'Interval',
+  mkt: 'Mean kinetic temperature',
+  tempLimit: 'Temperature limit',
+  rhLimit: 'Humidity limit',
+  extremes: 'Maximum and minimum',
+  recordCount: 'Number of records',
+  search: 'Search text',
+  series: 'Series',
+  level: 'Selection level',
 };
 
 const GROUP_WORDS: Record<ReportField['group'], string> = { builtin: 'Built-in', key: 'Key', attribute: 'Attribute' };
@@ -145,20 +170,20 @@ export function documentFromDraft(d: Draft, decimalsAllowedFor: (id: string) => 
 
 /**
  * The SHARED schema's verdict on a logo — its own message, never retyped here.
- * Checked against the type's built-in document with only the logo replaced, so
+ * Checked against the kind's built-in document with only the logo replaced, so
  * the only issues it can raise are the logo's.
  */
-export function logoProblem(widgetType: WidgetType, dataUrl: string): string | null {
-  const base = builtinReportTemplate(widgetType);
+export function logoProblem(kind: TemplateKind, dataUrl: string): string | null {
+  const base = builtinReportTemplate(kind);
   const r = reportTemplateDocumentSchema.safeParse({ ...base, header: { ...base.header, logo: { mode: 'custom', dataUrl } } });
   if (r.success) return null;
   return r.error.issues.find((i) => i.path[0] === 'header' && i.path[1] === 'logo')?.message ?? r.error.issues[0]?.message ?? null;
 }
 
-/** A text box whose value is a template: a picker beside it inserts `{name}` where the caret is. */
+/** A text box whose value is a template: a picker beside it inserts `{name}` — one of the kind's `names` — where the caret is. */
 function TemplatedText({
-  label, value, onChange, maxLength, placeholder,
-}: { label: string; value: string; onChange: (v: string) => void; maxLength: number; placeholder?: string }) {
+  label, value, onChange, maxLength, names, placeholder,
+}: { label: string; value: string; onChange: (v: string) => void; maxLength: number; names: readonly Placeholder[]; placeholder?: string }) {
   const ref = useRef<HTMLInputElement>(null);
   const id = useId();
   const insert = (name: string) => {
@@ -193,7 +218,7 @@ function TemplatedText({
           onChange={(e) => { if (e.target.value) insert(e.target.value); }}
         >
           <option value="">Insert…</option>
-          {REPORT_PLACEHOLDERS.map((p) => <option key={p} value={p}>{PLACEHOLDER_LABELS[p]}</option>)}
+          {names.map((p) => <option key={p} value={p}>{PLACEHOLDER_LABELS[p]}</option>)}
         </Select>
       </div>
     </div>
@@ -219,9 +244,10 @@ const LOGO_MODES: { mode: ReportLogoMode; label: string }[] = [
 
 export interface TemplateEditorProps {
   mode: 'new' | 'edit';
-  profileId: string;
-  profileName: string;
-  widgetType: WidgetType;
+  /** The profile, or null for an application-wide kind — then no request names one. */
+  profileId: string | null;
+  profileName: string | null;
+  kind: TemplateKind;
   initialName: string;
   initialDefault: boolean;
   initialDocument: ReportTemplateDocument;
@@ -233,42 +259,45 @@ export interface TemplateEditorProps {
 }
 
 export function TemplateEditor({
-  mode, profileId, profileName, widgetType, initialName, initialDefault, initialDocument, saving, error, onSave, onCancel,
+  mode, profileId, profileName, kind, initialName, initialDefault, initialDocument, saving, error, onSave, onCancel,
 }: TemplateEditorProps) {
-  const { data: catalogue, error: catalogueError } = useSWR<{ fields: ReportField[] }>(reportTemplatesCatalogueUrl(profileId, widgetType));
+  const spec = TEMPLATE_KIND_SPECS[kind];
+  const builtinFields = REPORT_TEMPLATE_FIELDS(kind);
+  const { data: catalogue, error: catalogueError } = useSWR<{ fields: ReportField[] }>(reportTemplatesCatalogueUrl(kind, profileId));
   // The catalogue, or — only if it cannot be had — the shared built-ins, so the
   // editor still works; never fields derived from the profile here.
-  // Shown exactly as served: which fields a widget type may print — e.g. no
-  // keys or attributes on a pie or an alarm-count report — is the catalogue's
-  // rule (review m1), never re-decided here.
-  const fields = catalogue?.fields ?? (catalogueError ? WIDGET_REPORT_FIELDS[widgetType] : undefined);
-  const [draft, setDraft] = useState<Draft>(() => draftFrom(initialName, initialDefault, initialDocument, fields));
+  // Shown exactly as served: which fields a kind may print — e.g. no keys or
+  // attributes on a pie or an alarm-count report, attributes only on a page
+  // report — is the catalogue's rule (review m1), never re-decided here.
+  const fields = catalogue?.fields ?? (catalogueError ? builtinFields : undefined);
+  // A kind with no fields prints no table: no Columns section (ruling T3-C).
+  const hasColumns = builtinFields.length > 0;
+  const [draft, setDraft] = useState<Draft>(() => draftFrom(initialName, initialDefault, initialDocument, hasColumns ? fields : undefined));
   const [logoError, setLogoError] = useState<string | null>(null);
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // The catalogue arriving after the editor opened: offer its fields, hidden.
   useEffect(() => {
-    if (!fields) return;
+    if (!fields || !hasColumns) return;
     setDraft((d) => {
       const merged = withCatalogue(d.columns, fields);
       return merged === d.columns ? d : { ...d, columns: merged };
     });
-  }, [fields]);
+  }, [fields, hasColumns]);
 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((d) => ({ ...d, [key]: value }));
   const fieldById = useMemo(() => {
     const m = new Map<string, ReportField>();
-    for (const f of WIDGET_REPORT_FIELDS[widgetType]) m.set(f.id, f);
+    for (const f of builtinFields) m.set(f.id, f);
     for (const f of fields ?? []) m.set(f.id, f);
     return m;
-  }, [fields, widgetType]);
+  }, [fields, builtinFields]);
   const ownDecimals = useMemo(
     () => (id: string) => decimalsAllowed(id, fieldById.get(id), fields !== undefined),
     [fieldById, fields],
   );
   const document = useMemo(() => documentFromDraft(draft, ownDecimals), [draft, ownDecimals]);
-  const reportable = REPORTABLE_WIDGET_TYPES.includes(widgetType);
 
   // ── Columns ──
   const available = useMemo(() => (fields ? new Set(fields.map((f) => f.id)) : null), [fields]);
@@ -289,13 +318,19 @@ export function TemplateEditor({
   };
 
   // ── Information rows ──
-  const attributeFields = (fields ?? []).filter((f) => f.group === 'attribute');
+  // The kind's own placeholders, then — for a kind that prints the profile's
+  // fields — the catalogue's attributes.
+  const names = spec.placeholders;
+  const attributeFields = spec.profileFields !== 'none' ? (fields ?? []).filter((f) => f.group === 'attribute') : [];
   const sourceOptions = (current: string) => {
     const opts = [
-      ...REPORT_PLACEHOLDERS.map((p) => ({ value: p as string, label: PLACEHOLDER_LABELS[p] })),
+      ...names.map((p) => ({ value: p as string, label: PLACEHOLDER_LABELS[p] })),
       ...attributeFields.map((f) => ({ value: f.id, label: `Attribute: ${f.label}` })),
     ];
-    if (current && !opts.some((o) => o.value === current)) opts.push({ value: current, label: `${current.replace(/^attr:/, 'Attribute: ')} (not available)` });
+    if (current && !opts.some((o) => o.value === current)) {
+      const what = isPlaceholder(current) ? PLACEHOLDER_LABELS[current] : current.replace(/^attr:/, 'Attribute: ');
+      opts.push({ value: current, label: `${what} (not available)` });
+    }
     return opts;
   };
   const editInfo = (i: number, patch: Partial<InfoDraft>) =>
@@ -308,13 +343,13 @@ export function TemplateEditor({
     // A data URL is always longer than the file it encodes, so a file over the
     // cap is refused before it is read — with the schema's own message.
     if (file.size > REPORT_TEMPLATE_LOGO_MAX) {
-      setLogoError(logoProblem(widgetType, `data:image/png;base64,${'A'.repeat(REPORT_TEMPLATE_LOGO_MAX)}`));
+      setLogoError(logoProblem(kind, `data:image/png;base64,${'A'.repeat(REPORT_TEMPLATE_LOGO_MAX)}`));
       return;
     }
     const reader = new FileReader();
     reader.onload = () => {
       const url = String(reader.result ?? '');
-      const problem = logoProblem(widgetType, url);
+      const problem = logoProblem(kind, url);
       if (problem) { setLogoError(problem); return; }
       set('logoDataUrl', url);
     };
@@ -323,7 +358,7 @@ export function TemplateEditor({
   };
 
   const shownCount = draft.columns.filter((c) => c.show).length;
-  const typeLabel = WIDGET_TYPE_SPECS[widgetType].label;
+  const typeLabel = spec.label;
 
   return (
     <section aria-label="Template editor" className="space-y-4">
@@ -332,7 +367,7 @@ export function TemplateEditor({
           <h2 className="truncate text-[1.0625rem] font-semibold text-slate-900">
             {mode === 'new' ? 'New template' : `Edit “${initialName}”`}
           </h2>
-          <p className="truncate text-sm text-slate-500">{profileName} · {typeLabel}</p>
+          <p className="truncate text-sm text-slate-500">{profileName ?? 'Application-wide'} · {typeLabel}</p>
         </div>
         <div className="flex shrink-0 gap-2">
           <Button variant="outline" onClick={onCancel} disabled={saving}>Cancel</Button>
@@ -369,8 +404,8 @@ export function TemplateEditor({
           </FormSection>
 
           <FormSection title="Header">
-            <TemplatedText label="Title" value={draft.title} maxLength={200} onChange={(v) => set('title', v)} />
-            <TemplatedText label="Subtitle" value={draft.subtitle} maxLength={300} onChange={(v) => set('subtitle', v)} />
+            <TemplatedText label="Title" value={draft.title} maxLength={200} names={names} onChange={(v) => set('title', v)} />
+            <TemplatedText label="Subtitle" value={draft.subtitle} maxLength={300} names={names} onChange={(v) => set('subtitle', v)} />
             <LabelledInput label="Company name" value={draft.companyName} maxLength={120} placeholder="As configured" onChange={(v) => set('companyName', v)} />
             <LabelledInput label="Application name" value={draft.appName} maxLength={120} placeholder="As configured" onChange={(v) => set('appName', v)} />
             <Toggle label="Show application name" checked={draft.showAppName} onChange={(e) => set('showAppName', e.target.checked)} />
@@ -442,7 +477,8 @@ export function TemplateEditor({
                 variant="secondary"
                 icon={<Plus className="h-4 w-4" />}
                 disabled={draft.info.length >= 20}
-                onClick={() => set('info', [...draft.info, { key: infoKey(), label: '', source: 'dashboard' }])}
+                // A new row starts on the kind's first placeholder — one its download supplies.
+                onClick={() => set('info', [...draft.info, { key: infoKey(), label: '', source: names[0] ?? 'date' }])}
               >
                 Add row
               </Button>
@@ -469,7 +505,7 @@ export function TemplateEditor({
             )}
           </FormSection>
 
-          {reportable && (
+          {hasColumns && (
             <FormSection
               title="Columns"
               columns={1}
@@ -549,7 +585,7 @@ export function TemplateEditor({
           )}
 
           <FormSection title="Footer">
-            <TemplatedText label="Footer text" value={draft.footerText} maxLength={300} onChange={(v) => set('footerText', v)} />
+            <TemplatedText label="Footer text" value={draft.footerText} maxLength={300} names={names} onChange={(v) => set('footerText', v)} />
             <Toggle label="Page numbers" checked={draft.showPageNumbers} onChange={(e) => set('showPageNumbers', e.target.checked)} />
             <Toggle label="Printed by" checked={draft.showPrintedBy} onChange={(e) => set('showPrintedBy', e.target.checked)} />
             <Toggle label="Printed at" checked={draft.showPrintedAt} onChange={(e) => set('showPrintedAt', e.target.checked)} />
@@ -590,7 +626,7 @@ export function TemplateEditor({
         </div>
 
         <div className="min-w-0 lg:sticky lg:top-0">
-          <TemplatePreview widgetType={widgetType} profileId={profileId} profileName={profileName} document={document} fields={fields} />
+          <TemplatePreview kind={kind} profileId={profileId} profileName={profileName} document={document} fields={fields} />
         </div>
       </div>
     </section>

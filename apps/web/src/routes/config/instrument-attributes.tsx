@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import useSWR, { mutate as mutateGlobal } from 'swr';
 import {
   parseInstrumentAttributeKeys, coerceAttributeLabels, coerceSettingsHidden, isHiddenInSettings,
-  ATTRIBUTE_LABEL_MAX, type AttributeLabels, type SettingsHidden, type ProfileMeasurement,
+  ATTRIBUTE_LABEL_MAX, TEMPLATE_KINDS, type AttributeLabels, type SettingsHidden, type ProfileMeasurement,
 } from '@digilog/shared';
 import { ProfileMeasurementsEditor } from './profile-measurements/editor';
 import { ProfileDeviceCertificateSwitch } from './device-certificates/profile-switch';
@@ -437,12 +437,13 @@ export function InstrumentAttributesConfigPage() {
           <div className="space-y-1">
             <div className="flex items-baseline justify-between gap-3">
               <label htmlFor="instrument-attributes-target" className="text-sm font-medium text-slate-700">Editing</label>
-              {/* The profile's own door to its widget report templates (2026-11-02,
+              {/* The profile's own door to its report templates (2026-11-02,
                   spec §9) — beside the picker, outside its label, carrying the
-                  profile being edited. */}
+                  profile being edited, on the page's first tab (`?kind=`, the
+                  URL's word for a tab since 2026-11-03). */}
               {target && (
                 <Link
-                  to={`/config/report-templates?profileId=${encodeURIComponent(target)}`}
+                  to={`/config/report-templates?${new URLSearchParams({ kind: TEMPLATE_KINDS[0], profileId: target }).toString()}`}
                   className="text-sm font-semibold text-[var(--theme-primary,#2a78d6)] hover:underline"
                 >
                   Report templates →

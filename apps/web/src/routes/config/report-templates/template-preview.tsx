@@ -1,25 +1,45 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  WIDGET_TYPE_SPECS, type Placeholder, type ReportField, type ReportTemplateDocument, type WidgetType,
+  isPageTemplateKind, widgetReportType,
+  type PageTemplateKind, type ReportField, type ReportTemplateDocument, type TemplateKind,
 } from '@digilog/shared';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { useAuth } from '@/hooks/use-auth';
 import { FormSection } from '@/components/ui/form-section';
-import { loadBuildWidgetReport } from './load-builder';
-import { sampleRowsFor, type SampleRow } from './sample-rows';
+import type { TemplatedImage } from '@/lib/templated-report';
+import { loadBuildTemplatedReport } from './load-builder';
+import { sampleChartPng, samplePlaceholderValues, sampleRowsFor, type SampleFormatters, type SampleRow } from './sample-rows';
 
 /** How long the draft must sit still before the PDF is drawn again. */
 export const PREVIEW_DEBOUNCE_MS = 350;
 
 /**
- * The LIVE PREVIEW (spec §9): the real widget report builder — the same
- * `buildWidgetReport` a widget's Download report runs — over three sample rows
- * built from the profile's catalogue, rendered into an `<iframe>` from a blob
- * URL and redrawn, debounced, after every edit.
+ * The `reportKey` each page report is drawn under today (the snapshot's
+ * `reportType`; it chooses the footer's signatory label) — so the preview's
+ * footer reads as the download's. A widget type's is `widgetReportType`.
+ */
+const PAGE_REPORT_KEYS: Record<PageTemplateKind, string> = {
+  'page:data-report': 'instrument-trend',
+  'page:trend': 'instrument-trend',
+  'page:instrument-alarms': 'instrument-trend',
+  'page:alarms': 'alarms',
+  'page:audit-trail': 'audit-trail',
+};
+
+const reportKeyOf = (kind: TemplateKind): string => (isPageTemplateKind(kind) ? PAGE_REPORT_KEYS[kind] : widgetReportType(kind));
+
+/**
+ * The LIVE PREVIEW (spec §9; page kinds 2026-11-03): the real templated report
+ * builder — the same `buildTemplatedReport` every download runs, widget or
+ * page report — over sample rows built from the kind's catalogue and the kind's
+ * sample placeholder values (`sample-rows.ts`), rendered into an `<iframe>`
+ * from a blob URL and redrawn, debounced, after every edit. The Instrument
+ * Trend prints a grey "Chart" picture where its chart goes.
  *
  * The catalogue ids are the section's `availableIds`, exactly as at download
  * time, so a column the profile no longer has shows here as it will print:
- * empty, and named under the table as not available.
+ * empty, and named under the table as not available. An application-wide kind
+ * (`profileId` null) is one section with no profile.
  *
  * Nothing is drawn until the catalogue has arrived — before that, every key and
  * attribute column would be "not available", which is not what the template
@@ -27,16 +47,17 @@ export const PREVIEW_DEBOUNCE_MS = 350;
  * each blob URL is revoked once it is replaced or the preview goes away.
  */
 export function TemplatePreview({
-  widgetType, profileId, profileName, document, fields,
+  kind, profileId, profileName, document, fields,
 }: {
-  widgetType: WidgetType;
-  profileId: string;
-  profileName: string;
+  kind: TemplateKind;
+  /** The profile, or null for an application-wide kind. */
+  profileId: string | null;
+  profileName: string | null;
   document: ReportTemplateDocument;
-  /** The profile's catalogue for this widget type; undefined while it loads. */
+  /** The kind's catalogue (for the profile); undefined while it loads. */
   fields: readonly ReportField[] | undefined;
 }) {
-  const { formatDateTime } = useDatetimeFormat();
+  const formatters = useDatetimeFormat();
   const { user } = useAuth();
   // {user} is the USERNAME — what a download prints and the footer's Printed By shows (review m5).
   const userName = user?.username || '';
@@ -44,10 +65,10 @@ export function TemplatePreview({
   const [problem, setProblem] = useState<string | null>(null);
   const seq = useRef(0);
   const current = useRef<string | null>(null);
-  // The formatter is a fresh function every render; the latest one is read at
-  // build time instead of re-arming the debounce on every render.
-  const fmt = useRef(formatDateTime);
-  fmt.current = formatDateTime;
+  // The formatters are fresh functions every render; the latest ones are read
+  // at build time instead of re-arming the debounce on every render.
+  const fmt = useRef<SampleFormatters>(formatters);
+  fmt.current = formatters;
 
   useEffect(() => () => {
     if (current.current) URL.revokeObjectURL(current.current);
@@ -59,29 +80,22 @@ export function TemplatePreview({
     const timer = setTimeout(() => {
       void (async () => {
         try {
-          const build = await loadBuildWidgetReport();
-          const spec = WIDGET_TYPE_SPECS[widgetType];
-          const at = (iso: string) => fmt.current(iso);
-          // The values a download supplies, as samples. A present-time widget
-          // has no window: its period reads "Latest" and {from} / {to} print —.
-          const values: Partial<Record<Placeholder, string>> = {
-            dashboard: 'Sample dashboard',
-            widget: spec.label,
-            profile: profileName,
-            period: spec.followsWindow ? 'Last 24 hours' : 'Latest',
-            ...(spec.followsWindow ? { from: at('2026-11-01T09:30:00.000Z'), to: at('2026-11-02T09:30:00.000Z') } : {}),
-            date: at(new Date().toISOString()),
-            user: userName,
-            instrumentCount: '3',
-            selection: profileName,
-          };
-          const rows: SampleRow[] = fields.length === 0 && widgetType === 'text_card'
-            ? [{ text: 'The text card’s own text prints here.' }]
-            : sampleRowsFor(fields, at);
+          const build = await loadBuildTemplatedReport();
+          const at = (iso: string) => fmt.current.formatDateTime(iso);
+          const values = samplePlaceholderValues(kind, fmt.current, userName, profileName);
+          // A fieldless kind prints no table: the text card prints its text, the
+          // trend its chart; every other kind prints three sample rows.
+          const rows: SampleRow[] = kind === 'page:trend'
+            ? []
+            : fields.length === 0 && kind === 'text_card'
+              ? [{ text: 'The text card’s own text prints here.' }]
+              : sampleRowsFor(fields, at, fmt.current);
+          const images: TemplatedImage[] | undefined = kind === 'page:trend' ? [{ dataUrl: sampleChartPng() }] : undefined;
           const { report } = await build({
-            widgetType,
+            kind,
+            reportKey: reportKeyOf(kind),
             values,
-            sections: [{ profileId, profileName, document, rows, availableIds: fields.map((f) => f.id) }],
+            sections: [{ profileId, profileName, document, rows, availableIds: fields.map((f) => f.id), ...(images ? { images } : {}) }],
             formatDateTime: at,
           });
           if (mine !== seq.current) return;
@@ -97,7 +111,7 @@ export function TemplatePreview({
       })();
     }, PREVIEW_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [widgetType, profileId, profileName, document, fields, userName]);
+  }, [kind, profileId, profileName, document, fields, userName]);
 
   const landscape = document.page.orientation === 'landscape';
   return (

@@ -66,10 +66,11 @@ export function columnsFromRows(rows: readonly ColumnRow[], decimalsAllowed: (id
 /**
  * May a column carry its own `decimals`? Only a RAW key — a `key:` field the
  * catalogue lists as not measured (review C1, 2026-11-02). Every other number
- * a widget report prints (a reading's value, a range figure, a bar) is the
- * SERVER's display at the instrument's administered precision; re-rounding it
- * in the browser could print 25 for a 25.4 that crossed NMT 25.0, or 21.500
- * for a value never recorded to three places.
+ * a report prints (a widget's reading value, a range figure, a bar; every cell
+ * of a page report, which is the page's own formatted text) is the SERVER's
+ * display at the instrument's administered precision; re-rounding it in the
+ * browser could print 25 for a 25.4 that crossed NMT 25.0, or 21.500 for a
+ * value never recorded to three places.
  *
  * `field` is the catalogue's (or the built-in's) entry for the id. With the
  * catalogue not yet loaded a `key:` id is given the benefit of the doubt so an
