@@ -103,13 +103,29 @@ export function cleanReason(value: unknown): string {
 }
 
 /** The strict parse's issues as one message. Node / connection issues already name what they are about. */
-export function documentErrorMessage(err: ZodError): string {
+export function documentErrorMessage(err: ZodError, submitted?: unknown): string {
   const parts = err.issues.slice(0, 5).map((i) => {
     if (/^(Node|Connection) /.test(i.message) || i.path.length === 0) return i.message;
+    // A shape issue inside a node (`nodes.N.x`, `nodes.N.name` …) names the
+    // node as the SUBMITTED document has it, as the parse's own node issues do;
+    // `Node #N` (1-based) when that node has no usable name.
+    if (i.path[0] === 'nodes' && typeof i.path[1] === 'number') {
+      const rest = i.path.slice(2).join('.');
+      return `${submittedNodeLabel(submitted, i.path[1])}: ${rest ? `${rest} — ` : ''}${i.message}`;
+    }
     return `${i.path.join('.')}: ${i.message}`;
   });
   const more = err.issues.length > 5 ? ` (and ${err.issues.length - 5} more)` : '';
   return `The rule chain could not be saved: ${parts.join('; ')}${more}.`;
+}
+
+/** `Node "<name>"` for the node at `index` of the submitted document, else `Node #<index + 1>`. */
+function submittedNodeLabel(submitted: unknown, index: number): string {
+  const nodes = submitted && typeof submitted === 'object' ? (submitted as { nodes?: unknown }).nodes : undefined;
+  const node = Array.isArray(nodes) ? nodes[index] : undefined;
+  const name = node && typeof node === 'object' ? (node as { name?: unknown }).name : undefined;
+  const trimmed = typeof name === 'string' ? name.trim().slice(0, 80) : '';
+  return trimmed ? `Node "${trimmed}"` : `Node #${index + 1}`;
 }
 
 /** `parseRuleChainDocument`, its refusal as a 400 naming the node. */
@@ -117,7 +133,7 @@ export function parseDocumentOrThrow(value: unknown): RuleChainDocument {
   try {
     return parseRuleChainDocument(value);
   } catch (err) {
-    if (err instanceof ZodError) throw new RuleChainError(400, 'VALIDATION_ERROR', documentErrorMessage(err));
+    if (err instanceof ZodError) throw new RuleChainError(400, 'VALIDATION_ERROR', documentErrorMessage(err, value));
     throw err;
   }
 }

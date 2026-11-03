@@ -298,7 +298,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Rule Chains'],
       summary: 'Save a rule chain',
-      description: 'The WHOLE document, plus the `expectedUpdatedAt` the editor loaded: a chain changed since is 409 STALE and nothing is written. The projection is rebuilt with the document\'s node ids. A save that changes nothing writes and audits nothing. Re-auth action UPDATE_RULE_CHAIN; `reason` required.',
+      description: 'The WHOLE document, plus the `expectedUpdatedAt` the editor loaded: a chain changed since is 409 STALE and nothing is written. The projection is rebuilt with the document\'s node ids. A save that changes nothing (name, flags and document equal to the stored chain, a credential sent as "***" counting as its stored value) writes and audits nothing and answers 200 with the stored chain — decided BEFORE the version check, so even a stale `expectedUpdatedAt` is a 200 then, never a 409. Re-auth action UPDATE_RULE_CHAIN; `reason` required.',
       params: idParams,
       body: updateBody,
       response: detailResponse,

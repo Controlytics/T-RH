@@ -270,7 +270,8 @@ describe('create, save, delete', () => {
 
   it('PUT with a stale expectedUpdatedAt is 409 STALE and writes nothing', async () => {
     const row = await create(`Stale ${S}`, twoNodeDoc());
-    const stale = new Date(Date.parse(row.updatedAt) - 60_000).toISOString();
+    // ONE millisecond off: the version check is exact, never a tolerance.
+    const stale = new Date(Date.parse(row.updatedAt) - 1).toISOString();
     const res = await send('PUT', `/api/rule-chains/${row.id}`, { document: twoNodeDoc(), expectedUpdatedAt: stale, reason: REASON });
     expect(res.statusCode, res.body).toBe(409);
     expect(res.json().error).toBe('STALE');
@@ -291,6 +292,25 @@ describe('create, save, delete', () => {
     const stored = await prisma.ruleChain.findUniqueOrThrow({ where: { id: row.id } });
     expect(stored.document).toEqual(row.document);
     expect(await prisma.ruleNode.count({ where: { chainId: row.id, type: 'tb:action:does-not-exist' } })).toBe(0);
+  });
+
+  it('a shape error inside a node names the node from the submitted document (Node "<name>", else Node #N)', async () => {
+    const row = await create(`Shape ${S}`, twoNodeDoc());
+    const bad = structuredClone(row.document) as any;
+    bad.nodes[1].x = 'left';
+    const res = await send('PUT', `/api/rule-chains/${row.id}`, { document: bad, expectedUpdatedAt: row.updatedAt, reason: REASON });
+    expect(res.statusCode, res.body).toBe(400);
+    expect(res.json().error).toBe('VALIDATION_ERROR');
+    expect(res.json().message).toContain('Node "Log hot": x — ');
+    expect(res.json().message).not.toContain('nodes.1');
+
+    const unnamed = structuredClone(row.document) as any;
+    unnamed.nodes[1].name = '   ';
+    unnamed.nodes[1].y = 'up';
+    const res2 = await send('PUT', `/api/rule-chains/${row.id}`, { document: unnamed, expectedUpdatedAt: row.updatedAt, reason: REASON });
+    expect(res2.statusCode, res2.body).toBe(400);
+    expect(res2.json().message).toContain('Node #2: y — ');
+    expect((await prisma.ruleChain.findUniqueOrThrow({ where: { id: row.id } })).document).toEqual(row.document);
   });
 
   it('PUT saves the whole document: the projection is rebuilt with the new ids, before / after audited; an unchanged save writes nothing', async () => {
@@ -519,26 +539,70 @@ describe('gates', () => {
     expect(await prisma.ruleChain.count({ where: { name: `RO ${S}` } })).toBe(0);
   });
 
-  it('a MANAGE holder writes; with re-auth ON for UPDATE_RULE_CHAIN: 401 without the password, 201 with it', async () => {
+  it('a MANAGE holder writes; with re-auth ON for UPDATE_RULE_CHAIN EVERY write is 401 without the password, then succeeds with it', async () => {
     const ok = await send('POST', '/api/rule-chains', { name: `By manager ${S}`, reason: REASON }, mg);
     expect(ok.statusCode, ok.body).toBe(201);
     chains.push(ok.json().id);
     expect(ok.json().updatedBy).toBe(NAME.mg);
 
+    // Fixtures written before re-auth is switched on (the super admin's role is not in the policy anyway).
+    const edit = await create(`Reauth edit ${S}`, twoNodeDoc());
+    const doomed = await create(`Reauth delete ${S}`, twoNodeDoc());
+    await prisma.ruleNodeDebugEvent.create({
+      data: { chainId: edit.id, nodeId: edit.document.nodes[0].id, direction: 'IN', msgId: randomUUID(), msgType: 'POST_TELEMETRY_REQUEST', originatorType: 'INSTRUMENT', originatorId: 'x', data: {}, metadata: {} },
+    });
+    const renamed = structuredClone(edit.document);
+    renamed.nodes[0].name = 'Renamed under re-auth';
+
+    const cases: { what: string; method: 'POST' | 'PUT' | 'DELETE'; url: string; body: Record<string, unknown>; status: number; untouched: () => Promise<void> }[] = [
+      {
+        what: 'create', method: 'POST', url: '/api/rule-chains', body: { name: `Reauth create ${S}`, reason: REASON }, status: 201,
+        untouched: async () => expect(await prisma.ruleChain.count({ where: { name: `Reauth create ${S}` } })).toBe(0),
+      },
+      {
+        what: 'save', method: 'PUT', url: `/api/rule-chains/${edit.id}`, body: { document: renamed, expectedUpdatedAt: edit.updatedAt, reason: REASON }, status: 200,
+        untouched: async () => expect((await prisma.ruleChain.findUniqueOrThrow({ where: { id: edit.id } })).document).toEqual(edit.document),
+      },
+      {
+        what: 'clear debug', method: 'DELETE', url: `/api/rule-chains/${edit.id}/debug`, body: { reason: REASON }, status: 204,
+        untouched: async () => expect(await prisma.ruleNodeDebugEvent.count({ where: { chainId: edit.id } })).toBe(1),
+      },
+      {
+        what: 'import', method: 'POST', url: '/api/rule-chains/import', body: { json: toThingsboardExport('x', false, twoNodeDoc()), name: `Reauth import ${S}`, reason: REASON }, status: 201,
+        untouched: async () => expect(await prisma.ruleChain.count({ where: { name: `Reauth import ${S}` } })).toBe(0),
+      },
+      {
+        what: 'make root', method: 'POST', url: `/api/rule-chains/${edit.id}/root`, body: { reason: REASON }, status: 200,
+        untouched: async () => expect(await rootIds()).toEqual([SEEDED]),
+      },
+      {
+        what: 'delete', method: 'DELETE', url: `/api/rule-chains/${doomed.id}`, body: { reason: REASON }, status: 204,
+        untouched: async () => expect(await prisma.ruleChain.count({ where: { id: doomed.id } })).toBe(1),
+      },
+    ];
+
     const current = (reauthBefore?.configValue as Record<string, unknown> | undefined) ?? {};
     await storeConfig('action-reauth', { ...current, UPDATE_RULE_CHAIN: [MGR] }, reauthBefore?.configType ?? 'security');
     invalidateReauthCache();
     try {
-      const refused = await send('POST', '/api/rule-chains', { name: `Reauth ${S}`, reason: REASON }, mg);
-      expect(refused.statusCode, refused.body).toBe(401);
-      expect(refused.json().error).toBe('REAUTH_REQUIRED');
-      expect(await prisma.ruleChain.count({ where: { name: `Reauth ${S}` } })).toBe(0);
-      const done = await send('POST', '/api/rule-chains', { name: `Reauth ${S}`, reason: REASON, _currentPassword: PW }, mg);
-      expect(done.statusCode, done.body).toBe(201);
-      chains.push(done.json().id);
+      for (const c of cases) {
+        const refused = await send(c.method, c.url, { ...c.body }, mg);
+        expect(refused.statusCode, `${c.what} without the password: ${refused.body}`).toBe(401);
+        expect(refused.json().error, c.what).toBe('REAUTH_REQUIRED');
+        await c.untouched();
+        const done = await send(c.method, c.url, { ...c.body, _currentPassword: PW }, mg);
+        expect(done.statusCode, `${c.what} with the password: ${done.body}`).toBe(c.status);
+        if (c.status === 201) chains.push(done.json().id);
+      }
+      expect(await rootIds()).toEqual([edit.id]);
+      expect(await prisma.ruleChain.count({ where: { id: doomed.id } })).toBe(0);
     } finally {
       await restoreConfig('action-reauth', reauthBefore);
       invalidateReauthCache();
+      // The root moved to `edit` above: back to the seeded chain for every later case.
+      await prisma.$executeRaw`UPDATE rule_chains SET root = false WHERE root AND id <> ${SEEDED}::uuid`;
+      await prisma.$executeRaw`UPDATE rule_chains SET root = true WHERE id = ${SEEDED}::uuid`;
+      (await import('../modules/rule-engine/service.js')).invalidateChainCache();
     }
   });
 });
