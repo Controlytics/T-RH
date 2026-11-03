@@ -447,7 +447,9 @@ export interface LocationNode { id: string; name: string; children?: LocationNod
  * The Block and Area an instrument sits in, resolved BY ID through the tree —
  * never by matching an Area's name, since two Blocks may hold Areas with the
  * same name. An instrument placed directly on a Block names the Block alone.
- * The same walk `useFilterScopeLabels` makes for the alarm report.
+ * The ONE copy of this walk since 2026-11-03 (the Alarm Report's
+ * `useFilterScopeLabels` went with its unused scope block); the trend page and
+ * the Data Report page both call it.
  */
 export function resolveBlockArea(
   tree: readonly LocationNode[],
