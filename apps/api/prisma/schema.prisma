@@ -680,39 +680,49 @@ model InstrumentProfile {
   @@map("instrument_profiles")
 }
 
-/// REPORT TEMPLATES (2026-11-02): what a dashboard widget's "Download report"
-/// prints — columns, headings, header, footer, logo, page — per instrument
-/// PROFILE per widget TYPE, any number of named templates, at most one the
-/// default. Spec docs/superpowers/specs/2026-11-02-widget-report-templates-design.md §5.
+/// REPORT TEMPLATES (2026-11-02): what a report prints — columns, headings,
+/// header, footer, logo, page — per TEMPLATE KIND, any number of named
+/// templates per scope × kind, at most one the default. Spec
+/// docs/superpowers/specs/2026-11-02-widget-report-templates-design.md §5 and
+/// (2026-11-03, page reports) docs/superpowers/specs/2026-11-03-page-reports-on-templates-design.md §5.
 ///
-/// - `widgetType` is a validated string (`WIDGET_TYPES` in @digilog/shared), not
-///   a Postgres enum — the vocabulary grows with the widget types, no migration.
+/// - `kind` is a validated string (`TEMPLATE_KINDS` in @digilog/shared: a
+///   widget type or a `page:` kind), not a Postgres enum — the vocabulary grows
+///   without a migration. The column was `widget_type` until migration
+///   `20261103120000_report_templates_page_kinds`.
+/// - SCOPE: `profileId` set = the template belongs to that instrument profile;
+///   NULL = application-wide (`page:alarms`, `page:audit-trail`). Which a kind
+///   takes is `templateKindScope(kind)`; the API refuses a mismatch (400
+///   SCOPE_MISMATCH) — there is deliberately NO database CHECK (it would repeat
+///   the kind list).
 /// - `document` is validated by `reportTemplateDocumentSchema` on write and read
 ///   ONLY through `coerceReportTemplateDocument` (a corrupt one reads as the
-///   widget type's built-in).
-/// - A name is unique per (profile, widget type) IGNORING CASE. The `@@unique`
-///   below is the plain one; the case-folded unique index
-///   `report_templates_profile_type_lower_name_key` on (profile_id, widget_type,
-///   lower(name)) and the partial unique index `report_templates_one_default`
-///   on (profile_id, widget_type) WHERE is_default exist only in migration
-///   `20261102150000_report_templates` — Prisma cannot express either.
+///   kind's built-in).
+/// - A name is unique per scope × kind IGNORING CASE, and there is at most one
+///   default per scope × kind. All three unique indexes key on
+///   COALESCE(profile_id, '') so the NULL application scope collides with
+///   itself — `report_templates_scope_kind_name_key`,
+///   `report_templates_scope_kind_lower_name_key` (lower(name)) and the partial
+///   `report_templates_one_default` WHERE is_default. They exist ONLY in
+///   migration `20261103120000_report_templates_page_kinds` — Prisma cannot
+///   express an index on an expression, so there is no `@@unique` here.
 /// - ON DELETE CASCADE from the profile: a template means nothing without it.
-///   The profile DELETE route audits each template it takes with it.
+///   The profile DELETE route audits each template it takes with it; an
+///   application-wide row (NULL) is never cascaded.
 /// - `createdBy` / `updatedBy` hold the USERNAME (the profile precedent).
 model ReportTemplate {
-  id         String            @id @default(uuid())
-  profileId  String            @map("profile_id")
-  profile    InstrumentProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  widgetType String            @map("widget_type")
+  id         String             @id @default(uuid())
+  profileId  String?            @map("profile_id")
+  profile    InstrumentProfile? @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  kind       String             @map("kind")
   name       String
-  isDefault  Boolean           @default(false) @map("is_default")
+  isDefault  Boolean            @default(false) @map("is_default")
   document   Json
-  createdAt  DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt  DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
-  createdBy  String?           @map("created_by")
-  updatedBy  String?           @map("updated_by")
+  createdAt  DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdBy  String?            @map("created_by")
+  updatedBy  String?            @map("updated_by")
 
-  @@unique([profileId, widgetType, name])
   @@map("report_templates")
 }
 

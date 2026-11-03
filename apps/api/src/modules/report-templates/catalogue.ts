@@ -1,12 +1,13 @@
 /**
- * The FIELD CATALOGUE of a widget type × instrument profile — what a report
- * template of that pair may print (spec §6). Served by
- * `GET /api/report-templates/catalogue`; the editor offers exactly these, and
- * the download marks a template column outside them "not available". Never
- * re-derived in the browser.
+ * The FIELD CATALOGUE of a template kind (× instrument profile, for a profile
+ * kind) — what a report template of that kind may print (spec §6; page kinds
+ * 2026-11-03, docs/superpowers/specs/2026-11-03-page-reports-on-templates-design.md
+ * §4, §7). Served by `GET /api/report-templates/catalogue`; the editor offers
+ * exactly these, and the download marks a template column outside them "not
+ * available". Never re-derived in the browser.
  *
  * In this order:
- *   1. **Built-in** — `WIDGET_REPORT_FIELDS[widgetType]` (shared), as declared,
+ *   1. **Built-in** — `REPORT_TEMPLATE_FIELDS(kind)` (shared), as declared,
  *      `perKey` included.
  *   2. **Keys** (`key:<k>`) — the profile's MEASURED keys, measurement by
  *      measurement in the profile's order, each of its device keys
@@ -19,17 +20,20 @@
  *      Attribute Display Names. A sensor-offset key is a SUPER_ADMIN's only:
  *      absent for anyone else (the profile routes' rule, `offsetKeyTest`).
  *
- * A widget type with no field catalogue (`text_card`, `floorplan` — they print
- * what they show) lists nothing at all. `pie_chart` and `alarm_counts` list
- * their built-ins only: a slice or a figure is never one instrument, so a key
- * or attribute cell there is always empty. ONE shared predicate decides both,
- * `widgetTypeTakesProfileFields`, and the browser never filters this list again.
+ * Which of 2 and 3 a kind takes is ONE shared predicate,
+ * `templateKindTakesProfileFields`: `'all'` both (the reportable widget types),
+ * `'attributes'` 3 only (the three per-profile page kinds — a page report's
+ * rows are its own, never a device key), `'none'` neither (`pie_chart`,
+ * `alarm_counts` — a slice or a figure is never one instrument; `text_card`,
+ * `floorplan` — no built-ins either, so nothing at all; the two
+ * application-wide page kinds, which have no profile). The browser never
+ * filters this list again.
  */
 import {
-  WIDGET_REPORT_FIELDS, ATTRIBUTE_LABELS_CONFIG_KEY, widgetTypeTakesProfileFields,
+  REPORT_TEMPLATE_FIELDS, ATTRIBUTE_LABELS_CONFIG_KEY, templateKindTakesProfileFields,
   coerceProfileMeasurements, coerceProfileDisplayKeys, coerceAttributeLabels, attributeLabel,
   parseInstrumentAttributeKeys,
-  type ReportField, type WidgetType,
+  type ReportField, type TemplateKind,
 } from '@digilog/shared';
 import { prisma } from '../../lib/prisma.js';
 import { loadMeasurementTypes } from '../instruments/profile-measurements.js';
@@ -43,20 +47,31 @@ export interface CatalogueProfile {
   displayKeys: unknown;
 }
 
+/**
+ * `profile` is null for an application-wide kind (the route refuses a profile
+ * id there, and requires one for every other kind — `scopeMismatch`); a kind
+ * that takes profile fields with no profile lists its built-ins only.
+ */
 export async function buildReportCatalogue(
-  profile: CatalogueProfile,
-  widgetType: WidgetType,
+  profile: CatalogueProfile | null,
+  kind: TemplateKind,
   isSuperAdmin: boolean,
 ): Promise<ReportField[]> {
-  const builtin: ReportField[] = WIDGET_REPORT_FIELDS[widgetType].map((f) => ({ ...f }));
-  if (!widgetTypeTakesProfileFields(widgetType)) return builtin;
+  const builtin: ReportField[] = REPORT_TEMPLATE_FIELDS(kind).map((f) => ({ ...f }));
+  const takes = templateKindTakesProfileFields(kind);
+  if (takes === 'none' || !profile) return builtin;
 
-  const [types, labelsRow, isOffset] = await Promise.all([
-    loadMeasurementTypes(),
+  const noTypes: Awaited<ReturnType<typeof loadMeasurementTypes>> = [];
+  const [labelsRow, isOffset, types] = await Promise.all([
     prisma.systemConfig.findUnique({ where: { configKey: ATTRIBUTE_LABELS_CONFIG_KEY } }),
     isSuperAdmin ? Promise.resolve(() => false) : offsetKeyTest(),
+    takes === 'all' ? loadMeasurementTypes() : Promise.resolve(noTypes),
   ]);
   const labels = coerceAttributeLabels(labelsRow?.configValue);
+  const attributes: ReportField[] = parseInstrumentAttributeKeys(profile.attributeKeys)
+    .filter((k) => !isOffset(k))
+    .map((k) => ({ id: `attr:${k}`, label: attributeLabel(labels, k), group: 'attribute', kind: 'text' }));
+  if (takes === 'attributes') return [...builtin, ...attributes];
 
   const keys: ReportField[] = [];
   const seen = new Set<string>();
@@ -93,10 +108,6 @@ export async function buildReportCatalogue(
       measured: false,
     });
   }
-
-  const attributes: ReportField[] = parseInstrumentAttributeKeys(profile.attributeKeys)
-    .filter((k) => !isOffset(k))
-    .map((k) => ({ id: `attr:${k}`, label: attributeLabel(labels, k), group: 'attribute', kind: 'text' }));
 
   return [...builtin, ...keys, ...attributes];
 }

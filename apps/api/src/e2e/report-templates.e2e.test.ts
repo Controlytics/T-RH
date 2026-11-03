@@ -1,7 +1,9 @@
 /**
  * `/api/report-templates` — report templates per instrument profile per widget
  * type (2026-11-02; spec docs/superpowers/specs/2026-11-02-widget-report-templates-design.md
- * §5, §6, §7, §10, §12).
+ * §5, §6, §7, §10, §12). Since 2026-11-03 the wire field is `kind` (a widget type
+ * is one kind); the page kinds and the application scope are pinned by
+ * `report-templates-page-kinds.e2e.test.ts`.
  *
  * Pins, over HTTP:
  *   - only a SUPER_ADMIN writes, checked by ROLE before the path and the body
@@ -34,7 +36,7 @@ import { invalidateReauthCache } from '../lib/reauth-check.js';
 import { invalidateProfileMeasurementsCache } from '../modules/instruments/profile-measurements.js';
 import {
   builtinReportTemplate, WIDGET_REPORT_FIELDS, DEFAULT_PROFILE_MEASUREMENTS, ATTRIBUTE_LABELS_CONFIG_KEY,
-  type ReportTemplateDocument, type ReportField, type WidgetType,
+  type ReportTemplateDocument, type ReportField, type TemplateKind,
 } from '@digilog/shared';
 
 const S = Date.now().toString(36).toUpperCase();
@@ -67,7 +69,7 @@ let approversBefore: { configValue: unknown; configType: string; requiresReauth:
 const reviews: string[] = [];
 
 interface Row {
-  id: string; profileId: string; widgetType: WidgetType; name: string; isDefault: boolean;
+  id: string; profileId: string; kind: TemplateKind; name: string; isDefault: boolean;
   document: ReportTemplateDocument; createdAt: string; updatedAt: string; updatedBy: string | null;
 }
 interface Section { profileId: string; profileName: string; instrumentIds: string[]; template: Row | null }
@@ -111,7 +113,7 @@ const gaugeDoc = () => builtinReportTemplate('gauge');
 
 const post = (body: Record<string, unknown>, headers: H = sa) =>
   app.inject({ method: 'POST', url: '/api/report-templates', headers, payload: body as never });
-async function create(body: { profileId: string; widgetType: string; name: string; isDefault?: boolean; document?: unknown }): Promise<Row> {
+async function create(body: { profileId: string; kind: string; name: string; isDefault?: boolean; document?: unknown }): Promise<Row> {
   const res = await post({ document: gaugeDoc(), ...body });
   expect(res.statusCode, res.body).toBe(201);
   return res.json();
@@ -127,12 +129,12 @@ async function list(query: string, headers: H = sa): Promise<Row[]> {
   expect(res.statusCode, res.body).toBe(200);
   return (res.json() as { data: Row[] }).data;
 }
-const catalogue = (profileId: string, widgetType: string, headers: H = sa) =>
-  app.inject({ method: 'GET', url: `/api/report-templates/catalogue?profileId=${profileId}&widgetType=${widgetType}`, headers });
-const resolve = (widgetType: string, ids: string[] | null, headers: H = sa) =>
+const catalogue = (profileId: string, kind: string, headers: H = sa) =>
+  app.inject({ method: 'GET', url: `/api/report-templates/catalogue?profileId=${profileId}&kind=${kind}`, headers });
+const resolve = (kind: string, ids: string[] | null, headers: H = sa) =>
   app.inject({
     method: 'GET',
-    url: `/api/report-templates/resolve?widgetType=${widgetType}${ids === null ? '' : `&instrumentIds=${ids.join(',')}`}`,
+    url: `/api/report-templates/resolve?kind=${kind}${ids === null ? '' : `&instrumentIds=${ids.join(',')}`}`,
     headers,
   });
 
@@ -241,11 +243,11 @@ describe('/api/report-templates', () => {
     document.columns[0] = { ...document.columns[0], heading: 'Instrument', decimals: 2, unit: 'x' };
     document.footer.text = 'Controlled copy';
     document.notes = { remarksLabel: 'Comments', legend: 'NMT = not more than' };
-    const res = await post({ profileId: P1, widgetType: 'gauge', name: `  Gauge A ${S}  `, document });
+    const res = await post({ profileId: P1, kind: 'gauge', name: `  Gauge A ${S}  `, document });
     expect(res.statusCode, res.body).toBe(201);
     const row = res.json() as Row;
     expect(row.id).toMatch(/^[0-9a-f-]{36}$/);
-    expect(row).toMatchObject({ profileId: P1, widgetType: 'gauge', name: `Gauge A ${S}`, isDefault: false, updatedBy: NAME.sa });
+    expect(row).toMatchObject({ profileId: P1, kind: 'gauge', name: `Gauge A ${S}`, isDefault: false, updatedBy: NAME.sa });
     // Every inner key survives the response filter.
     expect(row.document).toEqual(document);
     expect(Date.parse(row.createdAt)).not.toBeNaN();
@@ -258,26 +260,26 @@ describe('/api/report-templates', () => {
     const audit = await auditFor(row.id);
     expect(audit).toHaveLength(1);
     expect(audit[0]).toMatchObject({ action: 'REPORT_TEMPLATE_CREATED', targetType: 'report_template', userId: NAME.sa });
-    expect(audit[0].afterValue).toMatchObject({ profileId: P1, widgetType: 'gauge', name: `Gauge A ${S}`, isDefault: false });
+    expect(audit[0].afterValue).toMatchObject({ profileId: P1, kind: 'gauge', name: `Gauge A ${S}`, isDefault: false });
     expect(audit[0].afterValue.document).toEqual(document);
     expect(audit[0].signatureMeaning).toContain(`Gauge A ${S}`);
   });
 
   it('a name is unique per profile and widget type IGNORING CASE (the database index): 409, nothing written', async () => {
-    const first = await create({ profileId: P1, widgetType: 'latest_table', name: `Shift ${S}`, document: builtinReportTemplate('latest_table') });
+    const first = await create({ profileId: P1, kind: 'latest_table', name: `Shift ${S}`, document: builtinReportTemplate('latest_table') });
     const before = await prisma.reportTemplate.count({ where: { profileId: P1 } });
-    const dup = await post({ profileId: P1, widgetType: 'latest_table', name: `shift ${s}`, document: builtinReportTemplate('latest_table') });
+    const dup = await post({ profileId: P1, kind: 'latest_table', name: `shift ${s}`, document: builtinReportTemplate('latest_table') });
     expect(dup.statusCode, dup.body).toBe(409);
     expect(dup.json().error).toBe('TEMPLATE_NAME_IN_USE');
     expect(await prisma.reportTemplate.count({ where: { profileId: P1 } })).toBe(before);
     expect(await prisma.auditTrail.count({ where: { action: 'REPORT_TEMPLATE_CREATED', afterValue: { path: ['name'], equals: `shift ${s}` } } })).toBe(0);
 
     // The same name on another widget type, or another profile, is another template.
-    await create({ profileId: P1, widgetType: 'gauge', name: `SHIFT ${S}` });
-    await create({ profileId: P2, widgetType: 'latest_table', name: `Shift ${S}`, document: builtinReportTemplate('latest_table') });
+    await create({ profileId: P1, kind: 'gauge', name: `SHIFT ${S}` });
+    await create({ profileId: P2, kind: 'latest_table', name: `Shift ${S}`, document: builtinReportTemplate('latest_table') });
 
     // A rename onto another template's name, in another case, is refused too.
-    const other = await create({ profileId: P1, widgetType: 'latest_table', name: `Night ${S}`, document: builtinReportTemplate('latest_table') });
+    const other = await create({ profileId: P1, kind: 'latest_table', name: `Night ${S}`, document: builtinReportTemplate('latest_table') });
     const rename = await put(other.id, { name: `SHIFT ${S}` });
     expect(rename.statusCode, rename.body).toBe(409);
     expect(rename.json().error).toBe('TEMPLATE_NAME_IN_USE');
@@ -289,10 +291,10 @@ describe('/api/report-templates', () => {
   });
 
   it('only a super admin writes — the role is checked before the path and the body', async () => {
-    const t = await create({ profileId: P1, widgetType: 'pie_chart', name: `Guarded ${S}`, document: builtinReportTemplate('pie_chart') });
+    const t = await create({ profileId: P1, kind: 'pie_chart', name: `Guarded ${S}`, document: builtinReportTemplate('pie_chart') });
     const attempts = [
-      await post({ profileId: P1, widgetType: 'pie_chart', name: `Hijack ${S}`, document: builtinReportTemplate('pie_chart') }, mg),
-      await post({ profileId: P1, widgetType: 'nope', name: '', document: {} }, mg),
+      await post({ profileId: P1, kind: 'pie_chart', name: `Hijack ${S}`, document: builtinReportTemplate('pie_chart') }, mg),
+      await post({ profileId: P1, kind: 'nope', name: '', document: {} }, mg),
       await post({}, rd),
       await put(t.id, { name: `Hijack ${S}` }, mg),
       await put(t.id, { name: 42 }, rd),
@@ -313,27 +315,27 @@ describe('/api/report-templates', () => {
 
   it('refuses what is not a template: 400 VALIDATION_ERROR; an unknown profile or template is a 404', async () => {
     const bad = [
-      await post({ profileId: P1, widgetType: 'nope', name: `Bad ${S}`, document: gaugeDoc() }),
-      await post({ profileId: P1, widgetType: 'gauge', name: '   ', document: gaugeDoc() }),
+      await post({ profileId: P1, kind: 'nope', name: `Bad ${S}`, document: gaugeDoc() }),
+      await post({ profileId: P1, kind: 'gauge', name: '   ', document: gaugeDoc() }),
       // Markup and nothing else is no name.
-      await post({ profileId: P1, widgetType: 'gauge', name: '<b></b>', document: gaugeDoc() }),
-      await post({ profileId: P1, widgetType: 'gauge', name: `Bad ${S}`, document: { ...gaugeDoc(), version: 2 } }),
+      await post({ profileId: P1, kind: 'gauge', name: '<b></b>', document: gaugeDoc() }),
+      await post({ profileId: P1, kind: 'gauge', name: `Bad ${S}`, document: { ...gaugeDoc(), version: 2 } }),
       // A built-in column of ANOTHER widget type.
       await post({
-        profileId: P1, widgetType: 'gauge', name: `Bad ${S}`,
+        profileId: P1, kind: 'gauge', name: `Bad ${S}`,
         document: { ...gaugeDoc(), columns: [...gaugeDoc().columns, { id: 'alarm.type', heading: 'Type', show: true }] },
       }),
       // A text card has no built-in fields at all.
       await post({
-        profileId: P1, widgetType: 'text_card', name: `Bad ${S}`,
+        profileId: P1, kind: 'text_card', name: `Bad ${S}`,
         document: { ...builtinReportTemplate('text_card'), columns: [{ id: 'instrument.code', heading: 'ID', show: true }] },
       }),
       // A heading that is nothing but markup is no heading.
       await post({
-        profileId: P1, widgetType: 'gauge', name: `Bad ${S}`,
+        profileId: P1, kind: 'gauge', name: `Bad ${S}`,
         document: { ...gaugeDoc(), columns: [{ id: 'instrument.code', heading: '<i></i>', show: true }] },
       }),
-      await post({ profileId: 'not-a-uuid', widgetType: 'gauge', name: `Bad ${S}`, document: gaugeDoc() }),
+      await post({ profileId: 'not-a-uuid', kind: 'gauge', name: `Bad ${S}`, document: gaugeDoc() }),
     ];
     for (const res of bad) {
       expect(res.statusCode, res.body).toBe(400);
@@ -343,7 +345,7 @@ describe('/api/report-templates', () => {
     expect(bad[4].json().message).toContain('alarm.type');
     expect(await prisma.reportTemplate.count({ where: { name: `Bad ${S}` } })).toBe(0);
 
-    const ghostProfile = await post({ profileId: randomUUID(), widgetType: 'gauge', name: `Ghost ${S}`, document: gaugeDoc() });
+    const ghostProfile = await post({ profileId: randomUUID(), kind: 'gauge', name: `Ghost ${S}`, document: gaugeDoc() });
     expect(ghostProfile.statusCode, ghostProfile.body).toBe(404);
     expect(ghostProfile.json().error).toBe('PROFILE_NOT_FOUND');
 
@@ -356,7 +358,7 @@ describe('/api/report-templates', () => {
 
     // Any key: / attr: column is accepted — a key can be added to the profile later.
     const keyed = await create({
-      profileId: P1, widgetType: 'gauge', name: `Keyed ${S}`,
+      profileId: P1, kind: 'gauge', name: `Keyed ${S}`,
       document: { ...gaugeDoc(), columns: [{ id: 'key:not-yet', heading: 'Later', show: true }, { id: 'attr:Nope', heading: 'N', show: false }] },
     });
     expect(keyed.document.columns.map((c) => c.id)).toEqual(['key:not-yet', 'attr:Nope']);
@@ -367,7 +369,7 @@ describe('/api/report-templates', () => {
     document.header.title = '<script>alert(1)</script>Daily <b>gauge</b>';
     document.columns[0].heading = '<em>Instrument</em> ID';
     document.footer.text = 'R&D <img src=x onerror=1>copy';
-    const t = await create({ profileId: P1, widgetType: 'gauge', name: `<b>Stripped</b> ${S}`, document });
+    const t = await create({ profileId: P1, kind: 'gauge', name: `<b>Stripped</b> ${S}`, document });
     expect(t.name).toBe(`Stripped ${S}`);
     expect(t.document.header.title).toBe('Daily gauge');
     expect(t.document.columns[0].heading).toBe('Instrument ID');
@@ -381,7 +383,7 @@ describe('/api/report-templates', () => {
   });
 
   it('a save that changes nothing writes and audits nothing; a change is audited before and after', async () => {
-    const t = await create({ profileId: P1, widgetType: 'bar_chart', name: `Bars ${S}`, document: builtinReportTemplate('bar_chart') });
+    const t = await create({ profileId: P1, kind: 'bar_chart', name: `Bars ${S}`, document: builtinReportTemplate('bar_chart') });
     const same = await put(t.id, { name: `Bars ${S}`, document: builtinReportTemplate('bar_chart') });
     expect(same.statusCode, same.body).toBe(200);
     expect((same.json() as Row).updatedAt).toBe(t.updatedAt);
@@ -405,9 +407,9 @@ describe('/api/report-templates', () => {
   });
 
   it('set as default clears the other, each change audited under its own name', async () => {
-    const one = await create({ profileId: P1, widgetType: 'alarm_counts', name: `One ${S}`, isDefault: true, document: builtinReportTemplate('alarm_counts') });
+    const one = await create({ profileId: P1, kind: 'alarm_counts', name: `One ${S}`, isDefault: true, document: builtinReportTemplate('alarm_counts') });
     expect(one.isDefault).toBe(true);
-    const two = await create({ profileId: P1, widgetType: 'alarm_counts', name: `Two ${S}`, document: builtinReportTemplate('alarm_counts') });
+    const two = await create({ profileId: P1, kind: 'alarm_counts', name: `Two ${S}`, document: builtinReportTemplate('alarm_counts') });
     expect(two.isDefault).toBe(false);
 
     // The browser's shape (apiClient.put(url, {})): JSON content-type, an empty object.
@@ -417,7 +419,7 @@ describe('/api/report-templates', () => {
     });
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json()).toMatchObject({ id: two.id, isDefault: true });
-    const rows = await list(`profileId=${P1}&widgetType=alarm_counts`);
+    const rows = await list(`profileId=${P1}&kind=alarm_counts`);
     expect(rows.map((r) => [r.name, r.isDefault])).toEqual([[`One ${S}`, false], [`Two ${S}`, true]]);
 
     const a1 = await auditFor(one.id);
@@ -434,16 +436,16 @@ describe('/api/report-templates', () => {
     expect((await auditFor(two.id))).toHaveLength(2);
 
     // A create AS the default clears the current one the same way.
-    const three = await create({ profileId: P1, widgetType: 'alarm_counts', name: `Three ${S}`, isDefault: true, document: builtinReportTemplate('alarm_counts') });
+    const three = await create({ profileId: P1, kind: 'alarm_counts', name: `Three ${S}`, isDefault: true, document: builtinReportTemplate('alarm_counts') });
     expect(three.isDefault).toBe(true);
     expect((await prisma.reportTemplate.findUniqueOrThrow({ where: { id: two.id } })).isDefault).toBe(false);
     expect((await auditFor(two.id)).map((r) => r.action)).toEqual(['REPORT_TEMPLATE_CREATED', 'REPORT_TEMPLATE_UPDATED', 'REPORT_TEMPLATE_UPDATED']);
-    expect(await prisma.reportTemplate.count({ where: { profileId: P1, widgetType: 'alarm_counts', isDefault: true } })).toBe(1);
+    expect(await prisma.reportTemplate.count({ where: { profileId: P1, kind: 'alarm_counts', isDefault: true } })).toBe(1);
   });
 
   it('deleting the default promotes nothing — resolve then answers the built-in (null)', async () => {
-    const def = await create({ profileId: P2, widgetType: 'status_grid', name: `Default ${S}`, isDefault: true, document: builtinReportTemplate('status_grid') });
-    const spare = await create({ profileId: P2, widgetType: 'status_grid', name: `Spare ${S}`, document: builtinReportTemplate('status_grid') });
+    const def = await create({ profileId: P2, kind: 'status_grid', name: `Default ${S}`, isDefault: true, document: builtinReportTemplate('status_grid') });
+    const spare = await create({ profileId: P2, kind: 'status_grid', name: `Spare ${S}`, document: builtinReportTemplate('status_grid') });
     const before = await resolve('status_grid', [B1]);
     expect(before.statusCode, before.body).toBe(200);
     expect((before.json().sections as Section[])[0].template?.id).toBe(def.id);
@@ -459,18 +461,18 @@ describe('/api/report-templates', () => {
     expect((await prisma.reportTemplate.findUniqueOrThrow({ where: { id: spare.id } })).isDefault).toBe(false);
     const audit = await auditFor(def.id);
     expect(audit.map((r) => r.action)).toEqual(['REPORT_TEMPLATE_CREATED', 'REPORT_TEMPLATE_DELETED']);
-    expect(audit[1].beforeValue).toMatchObject({ profileId: P2, widgetType: 'status_grid', name: `Default ${S}`, isDefault: true });
+    expect(audit[1].beforeValue).toMatchObject({ profileId: P2, kind: 'status_grid', name: `Default ${S}`, isDefault: true });
     expect(audit[1].beforeValue.document).toEqual(builtinReportTemplate('status_grid'));
 
     const after = await resolve('status_grid', [B1]);
     expect(after.json().sections).toEqual([{ profileId: P2, profileName: `RT Second ${S}`, instrumentIds: [B1], template: null }]);
-    expect((await list(`profileId=${P2}&widgetType=status_grid`)).map((r) => [r.name, r.isDefault])).toEqual([[`Spare ${S}`, false]]);
+    expect((await list(`profileId=${P2}&kind=status_grid`)).map((r) => [r.name, r.isDefault])).toEqual([[`Spare ${S}`, false]]);
   });
 
   it("a profile's deletion takes its templates with it, each one audited", async () => {
     const P3 = await makeProfile(`RT Doomed ${S}`);
-    const x = await create({ profileId: P3, widgetType: 'gauge', name: `Doomed X ${S}`, isDefault: true });
-    const y = await create({ profileId: P3, widgetType: 'instrument_list', name: `Doomed Y ${S}`, document: builtinReportTemplate('instrument_list') });
+    const x = await create({ profileId: P3, kind: 'gauge', name: `Doomed X ${S}`, isDefault: true });
+    const y = await create({ profileId: P3, kind: 'instrument_list', name: `Doomed Y ${S}`, document: builtinReportTemplate('instrument_list') });
     const res = await app.inject({ method: 'DELETE', url: `/api/instrument-profiles/${P3}`, headers: sa });
     expect(res.statusCode, res.body).toBe(200);
     expect(await prisma.instrumentProfile.findUnique({ where: { id: P3 } })).toBeNull();
@@ -478,7 +480,7 @@ describe('/api/report-templates', () => {
     for (const t of [x, y]) {
       const audit = await auditFor(t.id);
       expect(audit.map((r) => r.action)).toEqual(['REPORT_TEMPLATE_CREATED', 'REPORT_TEMPLATE_DELETED']);
-      expect(audit[1].beforeValue).toMatchObject({ profileId: P3, name: t.name, widgetType: t.widgetType });
+      expect(audit[1].beforeValue).toMatchObject({ profileId: P3, name: t.name, kind: t.kind });
       expect(audit[1].beforeValue.document).toEqual(t.document);
       expect(audit[1].signatureMeaning).toContain(`RT Doomed ${S}`);
     }
@@ -544,8 +546,8 @@ describe('/api/report-templates', () => {
   });
 
   it('resolve groups by profile in instrument order and drops what the caller cannot see', async () => {
-    const def = await create({ profileId: P1, widgetType: 'value_cards', name: `Cards ${S}`, isDefault: true, document: builtinReportTemplate('value_cards') });
-    await create({ profileId: P1, widgetType: 'value_cards', name: `Cards spare ${S}`, document: builtinReportTemplate('value_cards') });
+    const def = await create({ profileId: P1, kind: 'value_cards', name: `Cards ${S}`, isDefault: true, document: builtinReportTemplate('value_cards') });
+    await create({ profileId: P1, kind: 'value_cards', name: `Cards spare ${S}`, document: builtinReportTemplate('value_cards') });
 
     const res = await resolve('value_cards', [B1, A1, randomUUID(), A2]);
     expect(res.statusCode, res.body).toBe(200);
@@ -577,8 +579,8 @@ describe('/api/report-templates', () => {
   });
 
   it('reads need INSTRUMENT_READ and nothing more', async () => {
-    const t = await create({ profileId: P2, widgetType: 'timeseries_table', name: `Series ${S}`, document: builtinReportTemplate('timeseries_table') });
-    const rows = await list(`profileId=${P2}&widgetType=timeseries_table`, rd);
+    const t = await create({ profileId: P2, kind: 'timeseries_table', name: `Series ${S}`, document: builtinReportTemplate('timeseries_table') });
+    const rows = await list(`profileId=${P2}&kind=timeseries_table`, rd);
     expect(rows).toEqual([t]);
     const one = await app.inject({ method: 'GET', url: `/api/report-templates/${t.id}`, headers: rd });
     expect(one.statusCode, one.body).toBe(200);
@@ -598,13 +600,13 @@ describe('/api/report-templates', () => {
     ]) {
       expect(res.statusCode, res.body).toBe(403);
     }
-    const badType = await app.inject({ method: 'GET', url: `/api/report-templates?widgetType=nope`, headers: rd });
+    const badType = await app.inject({ method: 'GET', url: `/api/report-templates?kind=nope`, headers: rd });
     expect(badType.statusCode).toBe(400);
     expect(badType.json().error).toBe('VALIDATION_ERROR');
   });
 
   it('every write is behind the UPDATE_REPORT_TEMPLATE re-auth', async () => {
-    const t = await create({ profileId: P2, widgetType: 'trend_chart', name: `Reauth ${S}`, document: builtinReportTemplate('trend_chart') });
+    const t = await create({ profileId: P2, kind: 'trend_chart', name: `Reauth ${S}`, document: builtinReportTemplate('trend_chart') });
     const row = await prisma.systemConfig.findUnique({ where: { configKey: 'action-reauth' } });
     reauthBefore = row ? { configValue: row.configValue, configType: row.configType, requiresReauth: row.requiresReauth } : null;
     const policy = { ...((row?.configValue as Record<string, unknown>) ?? {}), UPDATE_REPORT_TEMPLATE: ['SUPER_ADMIN'] };
@@ -612,7 +614,7 @@ describe('/api/report-templates', () => {
     invalidateReauthCache();
     try {
       const unsigned = [
-        await post({ profileId: P2, widgetType: 'trend_chart', name: `Reauth new ${S}`, document: builtinReportTemplate('trend_chart') }),
+        await post({ profileId: P2, kind: 'trend_chart', name: `Reauth new ${S}`, document: builtinReportTemplate('trend_chart') }),
         await put(t.id, { name: `Reauth B ${S}` }),
         await setDefault(t.id),
         await remove(t.id),
@@ -625,7 +627,7 @@ describe('/api/report-templates', () => {
       expect(await prisma.reportTemplate.findUniqueOrThrow({ where: { id: t.id } })).toMatchObject({ name: `Reauth ${S}`, isDefault: false });
 
       const signed = await post(
-        { profileId: P2, widgetType: 'trend_chart', name: `Reauth new ${S}`, document: builtinReportTemplate('trend_chart'), _currentPassword: PW },
+        { profileId: P2, kind: 'trend_chart', name: `Reauth new ${S}`, document: builtinReportTemplate('trend_chart'), _currentPassword: PW },
       );
       expect(signed.statusCode, signed.body).toBe(201);
       const renamed = await put(t.id, { name: `Reauth B ${S}` }, { ...sa, 'x-reauth-password': PW });
