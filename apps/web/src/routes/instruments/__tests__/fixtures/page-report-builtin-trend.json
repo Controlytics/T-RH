@@ -1,0 +1,106 @@
+{
+  "reportType": "instrument-trend",
+  "title": "Instrument Trend — Temperature & Humidity",
+  "subtitle": "CWH/RDU/046-00 — Temperature & Humidity. The chart as seen on screen. The Instrument Time Series report covers the same readings unaveraged.",
+  "orientation": "portrait",
+  "typography": {
+    "companyPt": 19,
+    "appNamePt": 11,
+    "titlePt": 15,
+    "subtitlePt": 10,
+    "sectionPt": 12,
+    "labelPt": 10.5,
+    "tablePt": 9,
+    "tableHeadPt": 9.5,
+    "smallprintPt": 9.5,
+    "headingWeight": "bold",
+    "tableHeadAlign": "left",
+    "headerBlockPt": 11,
+    "notePt": 9.5,
+    "labelWeight": "bold",
+    "cellPadX": 1.6
+  },
+  "chrome": {
+    "companyName": "Controlytics AI Pvt Ltd",
+    "appName": "T&RH-Monitoring",
+    "showAppName": true,
+    "footer": {
+      "showPageNumbers": true,
+      "showPrintedBy": true,
+      "showPrintedAt": true,
+      "signatureLine": false
+    },
+    "orientation": "portrait"
+  },
+  "sections": [
+    {
+      "kind": "table",
+      "head": [],
+      "body": [
+        [
+          "Block :",
+          "CWH Block",
+          "Start Date :",
+          "2026-08-24"
+        ],
+        [
+          "Area :",
+          "QC 3",
+          "Start Time :",
+          "00:00"
+        ],
+        [
+          "Location :",
+          "-",
+          "End Date :",
+          "2026-08-24"
+        ],
+        [
+          "Inst ID :",
+          "CWH/RDU/046-00",
+          "End Time :",
+          "01:00"
+        ]
+      ],
+      "columnStyles": {
+        "0": {
+          "cellWidth": 32,
+          "fontStyle": "bold"
+        },
+        "1": {
+          "cellWidth": 59
+        },
+        "2": {
+          "cellWidth": 32,
+          "fontStyle": "bold"
+        },
+        "3": {
+          "cellWidth": 59
+        }
+      }
+    },
+    {
+      "kind": "note",
+      "text": "Note: the chart is AVERAGED over 5 minutes. Each point is the mean of the readings in its bucket, not a stored reading. For the same period UNAVERAGED, use the Instrument Time Series report — it prints stored readings rather than bucket means. It is built from the same sample as this report, and states its own coverage.",
+      "color": "red"
+    },
+    {
+      "kind": "title",
+      "text": "Temperature"
+    },
+    {
+      "kind": "image",
+      "widthMm": 182.001556,
+      "heightMm": 52.578227
+    },
+    {
+      "kind": "title",
+      "text": "Humidity"
+    },
+    {
+      "kind": "note",
+      "text": "No readings in this period, so there is nothing to plot.",
+      "color": "muted"
+    }
+  ]
+}

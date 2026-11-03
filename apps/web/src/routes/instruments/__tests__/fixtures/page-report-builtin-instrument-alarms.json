@@ -1,0 +1,120 @@
+{
+  "reportType": "instrument-trend",
+  "title": "Instrument Alarms",
+  "subtitle": "CWH/RDU/046-00",
+  "orientation": "portrait",
+  "typography": {
+    "companyPt": 19,
+    "appNamePt": 11,
+    "titlePt": 15,
+    "subtitlePt": 10,
+    "sectionPt": 12,
+    "labelPt": 10.5,
+    "tablePt": 9,
+    "tableHeadPt": 9.5,
+    "smallprintPt": 9.5,
+    "headingWeight": "bold",
+    "tableHeadAlign": "left",
+    "headerBlockPt": 11,
+    "notePt": 9.5,
+    "labelWeight": "bold",
+    "cellPadX": 1.6
+  },
+  "chrome": {
+    "companyName": "Controlytics AI Pvt Ltd",
+    "appName": "T&RH-Monitoring",
+    "showAppName": true,
+    "footer": {
+      "showPageNumbers": true,
+      "showPrintedBy": true,
+      "showPrintedAt": true,
+      "signatureLine": false
+    },
+    "orientation": "portrait"
+  },
+  "sections": [
+    {
+      "kind": "table",
+      "head": [],
+      "body": [
+        [
+          "Block :",
+          "CWH Block",
+          "Start Date :",
+          "2026-08-24"
+        ],
+        [
+          "Area :",
+          "QC 3",
+          "Start Time :",
+          "00:00"
+        ],
+        [
+          "Location :",
+          "-",
+          "End Date :",
+          "2026-08-24"
+        ],
+        [
+          "Inst ID :",
+          "CWH/RDU/046-00",
+          "End Time :",
+          "01:00"
+        ]
+      ],
+      "columnStyles": {
+        "0": {
+          "cellWidth": 32,
+          "fontStyle": "bold"
+        },
+        "1": {
+          "cellWidth": 59
+        },
+        "2": {
+          "cellWidth": 32,
+          "fontStyle": "bold"
+        },
+        "3": {
+          "cellWidth": 59
+        }
+      }
+    },
+    {
+      "kind": "table",
+      "head": [
+        "Type",
+        "Raised",
+        "Value",
+        "Limit",
+        "Cleared",
+        "Status"
+      ],
+      "body": [
+        [
+          "High Temperature",
+          "2026-08-24 00:12",
+          "27.4",
+          "> 27.0",
+          "—",
+          "Still pending Unacknowledged"
+        ],
+        [
+          "Low Humidity",
+          "2026-08-24 00:20",
+          "28",
+          "< 30",
+          "2026-08-24 00:35 (31)",
+          "Cleared — Unacknowledged"
+        ],
+        [
+          "Inactivity",
+          "2026-08-24 00:45",
+          "No signal",
+          "silent > 15m",
+          "—",
+          "Still pending Unacknowledged"
+        ]
+      ]
+    }
+  ]
+}

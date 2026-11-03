@@ -1,0 +1,173 @@
+{
+  "reportType": "instrument-trend",
+  "title": "Temperature and RH Data Report",
+  "orientation": "portrait",
+  "legend": [
+    {
+      "abbr": "Temp",
+      "meaning": "Temperature"
+    },
+    {
+      "abbr": "RH",
+      "meaning": "Relative Humidity"
+    },
+    {
+      "abbr": "NMT",
+      "meaning": "Not More Than"
+    },
+    {
+      "abbr": "MKT",
+      "meaning": "Mean Kinetic Temperature"
+    }
+  ],
+  "typography": {
+    "companyPt": 21,
+    "appNamePt": 12,
+    "titlePt": 17,
+    "subtitlePt": 10,
+    "sectionPt": 12,
+    "labelPt": 11,
+    "tablePt": 11,
+    "tableHeadPt": 11.5,
+    "smallprintPt": 10,
+    "headingWeight": "bold",
+    "tableHeadAlign": "center",
+    "headerBlockPt": 11,
+    "notePt": 9.5,
+    "labelWeight": "bold",
+    "cellPadX": 1.6
+  },
+  "chrome": {
+    "companyName": "Controlytics AI Pvt Ltd",
+    "appName": "T&RH-Monitoring",
+    "showAppName": false,
+    "footer": {
+      "showPageNumbers": true,
+      "showPrintedBy": true,
+      "showPrintedAt": true,
+      "signatureLine": false
+    },
+    "orientation": "portrait"
+  },
+  "sections": [
+    {
+      "kind": "table",
+      "head": [],
+      "body": [
+        [
+          "Block :",
+          "CWH Block",
+          "Start Date :",
+          "2026-08-24"
+        ],
+        [
+          "Area :",
+          "-",
+          "Start Time :",
+          "00:00"
+        ],
+        [
+          "Location :",
+          "LCMS Room-I",
+          "End Date :",
+          "2026-08-24"
+        ],
+        [
+          "Inst ID :",
+          "CWH/RDU/001-00",
+          "End Time :",
+          "01:00"
+        ],
+        [
+          "Temp. Limit :",
+          "18.0 - 25.0",
+          "RH Limit :",
+          "NMT 60"
+        ],
+        [
+          "Temp. Max :",
+          "26.9 , Temp. Min : 21.2",
+          "RH Max :",
+          "63"
+        ],
+        [
+          "Interval :",
+          "Raw (every reading)",
+          "MKT :",
+          "22.3"
+        ]
+      ],
+      "columnStyles": {
+        "0": {
+          "cellWidth": 32,
+          "fontStyle": "bold"
+        },
+        "1": {
+          "cellWidth": 59
+        },
+        "2": {
+          "cellWidth": 32,
+          "fontStyle": "bold"
+        },
+        "3": {
+          "cellWidth": 59
+        }
+      }
+    },
+    {
+      "kind": "table",
+      "title": "Truncated: showing the first 2,000 of 2,001 rows for Last hour. Narrow the period for a complete report.",
+      "head": [
+        "DATE",
+        "TIME",
+        "TEMPERATURE (°C)",
+        "RELATIVE HUMIDITY(%)"
+      ],
+      "body": [
+        [
+          "2026-08-24",
+          "00:33",
+          "22.0",
+          "45"
+        ],
+        [
+          "2026-08-24",
+          "00:00",
+          "22.9",
+          "45"
+        ]
+      ],
+      "columnStyles": {
+        "0": {
+          "cellWidth": 40,
+          "halign": "center"
+        },
+        "1": {
+          "cellWidth": 30,
+          "halign": "center"
+        },
+        "2": {
+          "halign": "center"
+        },
+        "3": {
+          "halign": "center"
+        }
+      },
+      "bold": [
+        [
+          false,
+          false,
+          false,
+          false
+        ],
+        [
+          false,
+          false,
+          false,
+          false
+        ]
+      ],
+      "bodyLength": 2000
+    }
+  ]
+}
