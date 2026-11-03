@@ -1,11 +1,38 @@
 import { describe, it, expect, vi } from 'vitest';
-import { BRANDING_TAB_TITLE_DEFAULT } from '@digilog/shared';
-import { renderTrendReport, renderDataReport, renderAlarmsReport, type TrendChartSection } from '../trend-report';
+import {
+  BRANDING_TAB_TITLE_DEFAULT, REPORT_TEMPLATE_FIELDS, builtinReportTemplate, type TemplateKind,
+} from '@digilog/shared';
+import type { AlarmRow } from '@/routes/alarms/alarm-display';
+import type { DataReportInput, TrendChartSection, TrendReportInput } from '../trend-report';
+import { buildDataReport, buildInstrumentAlarmsReport, buildTrendReport } from '../page-reports';
 import { scheduleRows } from '../data-report';
+import { PNG_90x26 } from './fixtures/page-report-inputs';
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(async () => ({})), post: vi.fn(), postWithReauth: vi.fn() },
 }));
+
+/**
+ * The three reports drawn from each kind's BUILT-IN template — what a profile
+ * with no saved template prints (2026-11-03: the hand-built renderers these
+ * assertions were written against were replaced by the templated builders in
+ * `page-reports.ts`; every assertion below is unchanged).
+ */
+const VALUES = { date: '2026-11-03 10:00', user: 'tester' };
+const builtinTemplate = (kind: TemplateKind) => ({
+  profileId: 'p1', profileName: 'T&RH', document: builtinReportTemplate(kind), builtin: true,
+  availableIds: REPORT_TEMPLATE_FIELDS(kind).map((f) => f.id),
+});
+const trendReport = async (input: TrendReportInput) =>
+  (await buildTrendReport({ ...input, ...builtinTemplate('page:trend'), values: VALUES })).report;
+const dataReports = async (inputs: DataReportInput[]) =>
+  (await buildDataReport({
+    formatDateTime: inputs[0].formatDateTime, values: VALUES,
+    sections: inputs.map((input) => ({ ...builtinTemplate('page:data-report'), input })),
+  })).report;
+const dataReport = (input: DataReportInput) => dataReports([input]);
+const alarmsReport = async (rows: AlarmRow[], input: Omit<Parameters<typeof buildInstrumentAlarmsReport>[0], 'rows' | 'values' | keyof ReturnType<typeof builtinTemplate>>) =>
+  (await buildInstrumentAlarmsReport({ ...input, rows, ...builtinTemplate('page:instrument-alarms'), values: VALUES })).report;
 
 /**
  * What this guards.
@@ -18,17 +45,11 @@ vi.mock('@/lib/api-client', () => ({
  * reasonably report that the download did nothing.
  *
  * So the assertions here are on the PICTURE and on the words actually drawn.
- * A test that only checked `renderTrendReport()` resolves without throwing
+ * A test that only checked the trend report builder resolves without throwing
  * would pass against exactly the defect it exists to catch — the old renderer
  * resolved fine.
  */
 
-const instrument = {
-  code: 'DEMO-TH-142',
-  name: 'Demo probe',
-  locationText: 'Room CWH-I/142',
-  limitsText: '18.0 - 25.0 (from this instrument)',
-};
 const period = { from: '2026-08-24T00:00:00.000Z', to: '2026-08-24T01:00:00.000Z', label: 'Last hour' };
 const formatDateTime = (d: string) => d;
 const keys = [{ key: 't', label: 'Temperature (°C)', decimals: 1 }];
@@ -37,9 +58,13 @@ const rows = [
   { ts: '2026-08-24T00:20:00.000Z', values: { t: 22.5 } },
 ];
 
-/** A 1x1 PNG — the smallest thing jsPDF will accept as an image. */
-const PNG =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+/**
+ * A 90 x 26 PNG — the proportions of the 1800 x 520 raster `chart-image.ts`
+ * produces. The templated builder sizes a picture from its own BYTES
+ * (`getImageProperties`), so a 1x1 stand-in declared as 1800 x 520 would print
+ * square; the rasteriser's PNG always has its declared size.
+ */
+const PNG = PNG_90x26;
 
 const readings = [
   { key: 't', value: 22.4, ts: '2026-08-24T00:10:00.000Z' },
@@ -53,13 +78,12 @@ const drawnChart: TrendChartSection = {
   unavailableReason: '',
 };
 
-type Input = Parameters<typeof renderTrendReport>[0];
+type Input = TrendReportInput;
 
 function baseInput(overrides: Partial<Input> = {}): Input {
   return {
     slotLabel: 'Temperature',
     charts: [drawnChart],
-    instrument,
     period,
     formatDateTime,
     averagedLabel: null,
@@ -93,7 +117,7 @@ async function capture(input: Input): Promise<{ images: any[][]; text: string; r
   jspdf.default.API.addImage = function (...args: any[]) { images.push(args); return realImage.apply(this, args); };
   let report: any;
   try {
-    report = await renderTrendReport(input);
+    report = await trendReport(input);
   } finally {
     jspdf.default.API.addImage = realImage;
   }
@@ -286,7 +310,7 @@ describe('the trend report shows the trend', () => {
 
   it('prints NO sample disclosure on the Data Report, even when built from a sample', async () => {
     // Operator, 2026-10-06: "remove that note in data report also".
-    const report = await renderDataReport(dataInput({ returned: 500, total: 7646 }));
+    const report = await dataReport(dataInput({ returned: 500, total: 7646 }));
     const text = pdfText(report);
     expect(text).not.toMatch(/REPRESENTATIVE SAMPLE/);
     expect(text).not.toMatch(/stored values across all keys/);
@@ -302,7 +326,7 @@ describe('the trend report shows the trend', () => {
     jspdf.default.API.save = function () { return this; };
     let report: any;
     try {
-      report = await renderDataReport(dataInput({ returned: 2, total: 2 }));
+      report = await dataReport(dataInput({ returned: 2, total: 2 }));
       report.save('x.pdf');
     } finally {
       jspdf.default.API.save = realSave;
@@ -340,7 +364,7 @@ describe('the trend report shows the trend', () => {
   });
 
   it('says so when the period is empty', async () => {
-    const report = await renderDataReport({ ...dataInput({ returned: 0, total: 0 }), rows: [] });
+    const report = await dataReport({ ...dataInput({ returned: 0, total: 0 }), rows: [] });
     const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x && x.head.length) as any[];
     expect(tables[0].body[0][2]).toMatch(/No readings/);
   });
@@ -356,7 +380,7 @@ describe('the trend report shows the trend', () => {
    */
   it('prints the header bold and larger, and centres the column headings', async () => {
     const { DEFAULT_TYPOGRAPHY } = await import('@/lib/pdf-report');
-    const report = await renderDataReport(dataInput({ returned: 2, total: 2 }));
+    const report = await dataReport(dataInput({ returned: 2, total: 2 }));
     const stream = pdfStream(report);
     // The company name and the title are drawn bold, above the shared default size.
     const company = fontBefore(stream, 'Controlytics AI Pvt Ltd');
@@ -388,7 +412,7 @@ describe('the trend report shows the trend', () => {
   it('drops the app-name line under the company name ("remove header on header")', async () => {
     // The branding fetch is unavailable here, so the app name would be the
     // shipped default. The trend report still prints it; this one must not.
-    const data = await renderDataReport(dataInput({ returned: 2, total: 2 }));
+    const data = await dataReport(dataInput({ returned: 2, total: 2 }));
     expect(pdfText(data)).not.toContain(BRANDING_TAB_TITLE_DEFAULT); // the shipped name is the ONE shared constant since 2026-10-05 (WEB-16)
     const { text } = await capture(baseInput());
     expect(text).toContain(BRANDING_TAB_TITLE_DEFAULT);
@@ -400,7 +424,7 @@ describe('the trend report shows the trend', () => {
     // the table's own bold size, plus its padding — against the label width
     // the report pins.
     const { DATA_REPORT_LABEL_MM, DATA_REPORT_TYPOGRAPHY } = await import('../data-report');
-    const report = await renderDataReport(dataInput({ returned: 2, total: 2 }));
+    const report = await dataReport(dataInput({ returned: 2, total: 2 }));
     const snap = report.getSnapshot().sections.find((s: any) => 'head' in s && s.head.length === 0) as any;
     const labels: string[] = snap.body.map((r: string[]) => r[0]);
     expect(labels).toContain('Temp. Limit :');
@@ -417,7 +441,7 @@ describe('the trend report shows the trend', () => {
       { ts: '2026-08-24T00:10:00.000Z', values: { t: 22.4 } },
       { ts: '2026-08-24T00:20:00.000Z', values: { t: 26.9 } },
     ];
-    const report = await renderDataReport({ ...dataInput({ returned: 2, total: 2 }), rows: scheduleRows(crossed, null, period.to) });
+    const report = await dataReport({ ...dataInput({ returned: 2, total: 2 }), rows: scheduleRows(crossed, null, period.to) });
     const table = (report.doc as any).lastAutoTable;
     // Newest first: row 0 is 26.9.
     expect(table.body[0].cells[2].text).toEqual(['26.9']);
@@ -439,7 +463,7 @@ describe('the trend report shows the trend', () => {
       { ts: '2026-08-24T00:30:00.000Z', values: { t: null } },
     ];
     const input = dataInput({ returned: 3, total: 3 });
-    const report = await renderDataReport({
+    const report = await dataReport({
       ...input,
       temp: { ...input.temp, rangeLow: 0, rangeHigh: 23 },
       rows: scheduleRows(rows2, null, period.to),
@@ -460,10 +484,9 @@ describe('the trend report shows the trend', () => {
     // report of time series widget" — each page identical to the single-
     // instrument document, nothing in front of it. The cover block that opened
     // this document from 2026-09-05 went with that decision.
-    const { renderDataReports } = await import('../trend-report');
     const one = dataInput({ returned: 2, total: 2 });
     const two = { ...one, scope: { ...one.scope, instrumentLabel: 'DEMO-TH-143' }, rows: scheduleRows([], null, period.to) };
-    const report = await renderDataReports({ formatDateTime, instruments: [one, two] });
+    const report = await dataReports([one, two]);
     const all = report.getSnapshot().sections as any[];
     // Snapshot v2 (2026-09-07) records the page break between instruments too.
     expect(all.filter((s) => s.kind === 'page-break')).toHaveLength(1);
@@ -484,7 +507,7 @@ describe('the trend report shows the trend', () => {
     // Ten-minute slots anchored on the first reading (00:10) up to the period
     // end (01:00): 00:10 and 00:20 hold readings; 00:30 to 01:00 were silent
     // and print as NA at the time each reading was due.
-    const report = await renderDataReport({
+    const report = await dataReport({
       ...dataInput({ returned: 2, total: 2 }), rows: scheduleRows(rows, 600_000, period.to), intervalMs: 600_000,
     });
     const tables = report.getSnapshot().sections.filter((x: any) => 'head' in x && x.head.length) as any[];
@@ -514,12 +537,11 @@ describe('the Instrument Alarms report header', () => {
   };
   const fmtDT = (d: string) => d.slice(0, 16).replace('T', ' ');
   const fmt = { formatDate: (d: string) => d.slice(0, 10), formatTime: (d: string) => d.slice(11, 16) };
-  const instrument = { code: 'CWH/RDU/046-00', name: 'CWH/RDU/046-00', locationText: 'Room CWH-I/222 (GC Room)', limitsText: '18.0 - 25.0' };
   const period = { from: '2026-05-27T16:00:00.000Z', to: '2026-05-28T16:00:00.000Z', label: 'Last 24h' };
   const scope = { blockName: 'CWH Block', areaName: 'QC 3', locationName: 'GC Room', instrumentLabel: 'CWH/RDU/046-00' };
 
   it('prints Block / Area / Location / Inst ID against Start and End date and time', async () => {
-    const report = await renderAlarmsReport([], instrument, period, fmtDT, undefined, undefined, { scope, fmt });
+    const report = await alarmsReport([], { period, formatDateTime: fmtDT, header: { scope, fmt } });
     const text = pdfTextOf(report);
     for (const label of ['Block :', 'Area :', 'Location :', 'Inst ID :', 'Start Date :', 'Start Time :', 'End Date :', 'End Time :']) {
       expect(text).toContain(label);
@@ -533,7 +555,7 @@ describe('the Instrument Alarms report header', () => {
   });
 
   it('prints a dash, never an empty cell, for a scope field the instrument lacks', async () => {
-    const report = await renderAlarmsReport([], instrument, period, fmtDT, undefined, undefined, { scope: { ...scope, blockName: '', areaName: '' }, fmt });
+    const report = await alarmsReport([], { period, formatDateTime: fmtDT, header: { scope: { ...scope, blockName: '', areaName: '' }, fmt } });
     expect(pdfTextOf(report)).toContain('Block : -');
   });
 });

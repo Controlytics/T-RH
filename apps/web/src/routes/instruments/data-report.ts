@@ -172,8 +172,8 @@ export function printsMkt(s: SlotExtremes): boolean {
   return typeof s.periodMkt === 'number' && Number.isFinite(s.periodMkt);
 }
 
-/** A dash, never an empty cell: on paper a blank reads as a rendering fault. */
-const orDash = (v: string) => (v.trim() ? v.trim() : '-');
+/** A dash, never an empty cell: on paper a blank reads as a rendering fault. Also what a template's `{block}` / `{area}` / … print for a blank field (`page-report-rows.ts`). */
+export const orDash = (v: string) => (v.trim() ? v.trim() : '-');
 
 /** `NMT 27.0`, `NLT 18.0`, `18.0 - 27.0`, or the set-point module's own word for
  *  "no bound" — ONE definition of how a bound is written, shared with the screens. */
@@ -230,6 +230,23 @@ function extremesRow(temp: SlotBounds & SlotExtremes, rh: SlotBounds & SlotExtre
   return only ? [only[0], { content: only[1], colSpan: 3 }] : null;
 }
 
+/**
+ * The extremes row as ONE line — each slot's pair in the row's own sentence
+ * shape (`Temp. Max : 22.9 , Temp. Min : 21.2`), the two joined by ` · ` — or
+ * `null` when no bound is in force, exactly when the row is not printed. What
+ * a report template's `{extremes}` prints (2026-11-03); the built-in Data
+ * Report still prints the row itself (`dataReportParameterRows`).
+ */
+export function dataReportExtremesText(temp: SlotBounds & SlotExtremes, rh: SlotBounds & SlotExtremes): string | null {
+  const pairs = [extremesCells('Temp.', temp), extremesCells('RH', rh)].filter((p): p is [string, string] => p !== null);
+  return pairs.length ? pairs.map(([label, value]) => `${label} ${value}`).join(' · ') : null;
+}
+
+/** The `MKT :` cell's value — the server's figure at the temperature precision — or `null` when it prints none. */
+export function dataReportMktText(temp: SlotBounds & SlotExtremes): string | null {
+  return printsMkt(temp) ? num(temp.periodMkt, temp.decimals) : null;
+}
+
 /** `Raw (every reading)` or the interval's own label — the SAME words the page's
  *  interval selector shows, from the one shared list. */
 export function dataReportIntervalText(intervalMs: number | null): string {
@@ -272,7 +289,7 @@ export function dataReportParameterRows(input: {
     ['Temp. Limit :', limitText(temp), 'RH Limit :', limitText(rh)],
     ...(extremes ? [extremes] : []),
     printsMkt(temp)
-      ? ['Interval :', dataReportIntervalText(input.intervalMs), 'MKT :', num(temp.periodMkt, temp.decimals)]
+      ? ['Interval :', dataReportIntervalText(input.intervalMs), 'MKT :', dataReportMktText(temp)!]
       : ['Interval :', { content: dataReportIntervalText(input.intervalMs), colSpan: 3 }],
   ];
 }

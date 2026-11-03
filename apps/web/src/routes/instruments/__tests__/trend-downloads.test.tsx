@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { builtinReportTemplate } from '@digilog/shared';
 import { STUB_PNG, withoutCanvas } from '@/test-support/canvas-stub';
 
 /**
@@ -81,9 +82,53 @@ function dataFor(key: string | null): any {
   if (key.includes('/api/functional-locations')) {
     return { data: [{ id: 'b1', name: 'CWH Block', children: [{ id: 'a1', name: 'QC 3(AHU-033)' }] }] };
   }
+  // The instrument's attributes, which a report template's `attr:` rows print (2026-11-03).
+  if (key === '/api/instruments/i-1/attributes') return ATTRIBUTES;
   if (key.startsWith('/api/instruments/')) return { id: 'i-1', code: 'DEMO-TH-142', name: 'Demo', functionalLocationId: 'a1' };
   return {};
 }
+
+const ATTRIBUTES = { data: [{ key: 'Building', value: 'B-1', display: null }, { key: 'Temp NMT', value: '25', display: '25.0' }] };
+
+/**
+ * Which report template each download prints with (2026-11-03, page reports on
+ * templates): the server's plan, mocked at the hook — `useReportTemplatePlan`'s
+ * own requests are pinned in `lib/__tests__/report-template-plan.test.tsx`.
+ * Module-level constants, so the hook never hands back a fresh object. The
+ * default plan resolves no template: every report prints the built-in.
+ */
+const AVAILABLE = [
+  'record.date', 'record.time', 'record.temperature', 'record.humidity',
+  'alarm.type', 'alarm.raisedAt', 'alarm.value', 'alarm.limit', 'alarm.clearedAt', 'alarm.status',
+  'attr:Building', 'attr:Temp NMT',
+];
+const BUILTIN_PLAN = {
+  sections: [{ profileId: 'p-trh', profileName: 'T&RH', instrumentIds: ['i-1'], resolved: null, templates: [], availableIds: AVAILABLE }],
+  loading: false, error: undefined,
+};
+/** A saved template the server resolves for T&RH, for every kind: its own title and an attribute info row. */
+const SAVED_TEMPLATE = {
+  id: 't-1', profileId: 'p-trh', kind: 'page:trend', name: 'Site layout', isDefault: true,
+  document: {
+    ...builtinReportTemplate('page:trend'),
+    header: { title: 'Site trend — {series}', subtitle: 'Printed by {user}', showAppName: true, logo: { mode: 'branding' as const } },
+    infoBlock: [{ label: 'Building', source: 'attr:Building' }, { label: 'Inst ID', source: 'instrument' }],
+  },
+  createdAt: '2026-11-03T00:00:00.000Z', updatedAt: '2026-11-03T00:00:00.000Z',
+};
+const SAVED_PLAN = { ...BUILTIN_PLAN, sections: [{ ...BUILTIN_PLAN.sections[0], resolved: SAVED_TEMPLATE, templates: [SAVED_TEMPLATE] }] };
+/** The server named no profile for this instrument (`/resolve` drops one the caller cannot see). */
+const EMPTY_PLAN = { sections: [], loading: false, error: undefined };
+let plan: { sections: unknown[]; loading: boolean; error: unknown } = BUILTIN_PLAN;
+const planAsked: { kind: string; ids: string[]; enabled: boolean | undefined }[] = [];
+
+vi.mock('@/lib/report-template-plan', async (importActual) => ({
+  ...(await importActual<typeof import('@/lib/report-template-plan')>()),
+  useReportTemplatePlan: (kind: string, ids: readonly string[], opts?: { enabled?: boolean }) => {
+    planAsked.push({ kind, ids: [...ids], enabled: opts?.enabled });
+    return plan;
+  },
+}));
 
 // The trend page renders the alarms widget, which since 2026-09-01 carries the
 // Acknowledge flow — so it reaches `useCan` (permission gate) and `useToast`.
@@ -132,6 +177,7 @@ vi.mock('@/lib/report-review', async () => {
 const saved: string[] = [];
 
 const { InstrumentTrend } = await import('../trend');
+const { BUILTIN_TEMPLATE_PICK } = await import('@/lib/report-template-plan');
 const { apiClient } = await import('@/lib/api-client');
 
 const jspdf: any = await import('jspdf');
@@ -202,7 +248,7 @@ async function download(buttonIndex: number) {
 }
 
 describe('trend page downloads', () => {
-  beforeEach(() => { saved.length = 0; logged.length = 0; events.length = 0; images.length = 0; lastPdf = ''; });
+  beforeEach(() => { saved.length = 0; logged.length = 0; events.length = 0; images.length = 0; lastPdf = ''; plan = BUILTIN_PLAN; planAsked.length = 0; });
 
   it('offers a download in the page header, on the temperature widget, the humidity widget, the time series and the alarms', () => {
     renderPage();
@@ -215,7 +261,7 @@ describe('trend page downloads', () => {
     await download(1);
     expect(logged[0].reportType).toBe('Instrument Trend — Temperature');
     expect(logged[0].requestMeta.instrumentCodes).toEqual(['DEMO-TH-142']);
-    expect(logged[0].snapshotVersion).toBe(2);
+    expect(logged[0].snapshotVersion).toBe(3);
   });
 
   it('names the SLOT in the audit reportType for the humidity widget', async () => {
@@ -289,7 +335,7 @@ describe('trend page downloads', () => {
       expect(logged[0].reportKind).toBe(['trend-header', 'temperature-trend', 'humidity-trend', 'time-series', 'instrument-alarms'][idx]);
       expect(logged[0].instrumentIds).toHaveLength(1);
       expect(logged[0].password).toBe('Secret@123');
-      expect(logged[0].snapshotVersion).toBe(2);
+      expect(logged[0].snapshotVersion).toBe(3);
       view.unmount();
     }
   });
@@ -528,6 +574,88 @@ describe('trend page downloads', () => {
     expect(logged[0].requestMeta.recordCount).toBe(3);
     expect(logged[0].requestMeta.period.from).toBeTruthy();
     expect(logged[0].requestMeta.period.to).toBeTruthy();
+  });
+});
+
+/**
+ * The three downloads print with REPORT TEMPLATES (2026-11-03, page reports on
+ * templates): the template the server resolves for this instrument's profile
+ * and the report's kind, shown in the dialog, pickable, never guessed.
+ */
+describe('trend page downloads on report templates', () => {
+  beforeEach(() => { saved.length = 0; logged.length = 0; events.length = 0; images.length = 0; lastPdf = ''; plan = BUILTIN_PLAN; planAsked.length = 0; });
+
+  /** Click the nth trigger, fill the remarks and the password, confirm — without waiting for a file. */
+  function confirmDownload(buttonIndex: number) {
+    fireEvent.click(exportButtons()[buttonIndex]);
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: 'periodic review' } });
+    pickApprover();
+    fireEvent.click(screen.getByText('Request approval'));
+  }
+
+  it('asks for the template of the report being downloaded — its kind, this instrument — and only while the dialog is open', () => {
+    const kinds = ['page:data-report', 'page:trend', 'page:trend', 'page:data-report', 'page:instrument-alarms'];
+    for (const [idx, kind] of kinds.entries()) {
+      planAsked.length = 0;
+      const view = renderPage();
+      expect(planAsked.length).toBeGreaterThan(0);
+      expect(planAsked.every((a) => a.enabled === false)).toBe(true);
+      fireEvent.click(exportButtons()[idx]);
+      expect(planAsked.at(-1)).toEqual({ kind, ids: ['i-1'], enabled: true });
+      view.unmount();
+    }
+  });
+
+  it('says in the dialog which template the report will print with', () => {
+    renderPage();
+    fireEvent.click(exportButtons()[1]);
+    expect(screen.getByTestId('report-template-line')).toHaveTextContent('Template: Built-in (T&RH)');
+  });
+
+  it('prints with the template the server resolved for the profile: its title, and the instrument\'s attributes', async () => {
+    plan = SAVED_PLAN;
+    renderPage();
+    await download(1);
+    expect(logged[0].title).toBe('Site trend — Temperature');
+    expect(logged[0].reportType).toBe('Instrument Trend — Temperature');
+    const text = lastPdfText();
+    expect(text).toContain('Building :');
+    expect(text).toContain('B-1');
+  });
+
+  it('prints with the template PICKED in the dialog — here the built-in over the resolved one', async () => {
+    const second = { ...SAVED_TEMPLATE, id: 't-2', name: 'Other layout', isDefault: false };
+    plan = { ...SAVED_PLAN, sections: [{ ...SAVED_PLAN.sections[0], templates: [SAVED_TEMPLATE, second] }] };
+    renderPage();
+    fireEvent.click(exportButtons()[1]);
+    fireEvent.change(screen.getByLabelText('Template for T&RH'), { target: { value: BUILTIN_TEMPLATE_PICK } });
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: 'periodic review' } });
+    pickApprover();
+    fireEvent.click(screen.getByText('Request approval'));
+    await waitFor(() => expect(saved.length).toBe(1), { timeout: 5000 });
+    expect(logged[0].title).toBe('Instrument Trend — Temperature');
+  });
+
+  it('refuses, inside the dialog, when the server names no profile for this instrument', async () => {
+    plan = EMPTY_PLAN;
+    renderPage();
+    confirmDownload(4);
+    expect(await screen.findByText(/name no instrument profile for DEMO-TH-142/)).toBeInTheDocument();
+    expect(logged).toHaveLength(0);
+    expect(saved).toHaveLength(0);
+  });
+
+  it('refuses while the templates are still loading, and after they failed', async () => {
+    plan = { sections: [], loading: true, error: undefined };
+    const view = renderPage();
+    confirmDownload(3);
+    expect(await screen.findByText(/templates are still loading/)).toBeInTheDocument();
+    view.unmount();
+    plan = { sections: [], loading: false, error: new Error('500') };
+    renderPage();
+    confirmDownload(3);
+    expect(await screen.findByText(/templates could not be loaded. Close this/)).toBeInTheDocument();
+    expect(logged).toHaveLength(0);
   });
 });
 

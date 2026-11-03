@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { builtinReportTemplate } from '@digilog/shared';
 
 /**
  * The Generate Data Report card (2026-09-07). Operator: *"create one card only
@@ -84,8 +85,49 @@ function dataFor(key: string | null): any {
   if (key.startsWith('/api/config/report-downloads/current')) return DOWNLOADS;
   if (key.startsWith('/api/config/report-approvers/current')) return APPROVERS;
   if (key.includes('action-reauth/my-actions')) return { actions: [] };
+  // Each instrument's attributes, which a report template's `attr:` rows print (2026-11-03).
+  if (key === `/api/instruments/${A.id}/attributes`) return ATTRIBUTES_A;
+  if (key === `/api/instruments/${B.id}/attributes`) return ATTRIBUTES_B;
   return {};
 }
+
+const ATTRIBUTES_A = { data: [{ key: 'Building', value: 'Block-A', display: null }] };
+const ATTRIBUTES_B = { data: [{ key: 'Building', value: 'Block-B', display: null }] };
+
+/**
+ * Which report template each instrument prints with (2026-11-03, page reports
+ * on templates): the server's plan, mocked at the hook (its requests are pinned
+ * in `lib/__tests__/report-template-plan.test.tsx`). Module-level constants.
+ * By default both instruments are one profile with no saved template.
+ */
+const AVAILABLE = ['record.date', 'record.time', 'record.temperature', 'record.humidity', 'attr:Building'];
+const section = (over: Record<string, unknown> = {}) => ({
+  profileId: 'p-trh', profileName: 'T&RH', instrumentIds: [A.id, B.id], resolved: null, templates: [], availableIds: AVAILABLE, ...over,
+});
+const BUILTIN_PLAN = { sections: [section()], loading: false, error: undefined };
+/** A saved Data Report template: its own title, the instrument's Building in the header. */
+const SAVED_TEMPLATE = {
+  id: 't-1', profileId: 'p-trh', kind: 'page:data-report', name: 'Site layout', isDefault: true,
+  document: {
+    ...builtinReportTemplate('page:data-report'),
+    header: { title: 'Site data report', showAppName: false, logo: { mode: 'branding' as const } },
+    infoBlock: [{ label: 'Building', source: 'attr:Building' }, { label: 'Inst ID', source: 'instrument' }],
+  },
+  createdAt: '2026-11-03T00:00:00.000Z', updatedAt: '2026-11-03T00:00:00.000Z',
+};
+const SAVED_PLAN = { ...BUILTIN_PLAN, sections: [section({ resolved: SAVED_TEMPLATE, templates: [SAVED_TEMPLATE] })] };
+/** The server named a profile for A only — B is not in any section. */
+const A_ONLY_PLAN = { ...BUILTIN_PLAN, sections: [section({ instrumentIds: [A.id] })] };
+let plan: { sections: unknown[]; loading: boolean; error: unknown } = BUILTIN_PLAN;
+const planAsked: { kind: string; ids: string[]; enabled: boolean | undefined }[] = [];
+
+vi.mock('@/lib/report-template-plan', async (importActual) => ({
+  ...(await importActual<typeof import('@/lib/report-template-plan')>()),
+  useReportTemplatePlan: (kind: string, ids: readonly string[], opts?: { enabled?: boolean }) => {
+    planAsked.push({ kind, ids: [...ids], enabled: opts?.enabled });
+    return plan;
+  },
+}));
 
 vi.mock('swr', () => ({
   default: (key: any) => ({ data: dataFor(typeof key === 'function' ? key() : key), isLoading: false, error: undefined }),
@@ -171,7 +213,7 @@ async function confirmDownload(remarks: string) {
 }
 
 describe('GenerateReportCard', () => {
-  beforeEach(() => { requested.length = 0; events.length = 0; logged.length = 0; saved.length = 0; lastPdf = ''; lastPages = 0; exportFormat = undefined; });
+  beforeEach(() => { requested.length = 0; events.length = 0; logged.length = 0; saved.length = 0; lastPdf = ''; lastPages = 0; exportFormat = undefined; plan = BUILTIN_PLAN; planAsked.length = 0; });
 
   it('is the text and one download icon, nothing else', () => {
     renderBoth();
@@ -225,7 +267,7 @@ describe('GenerateReportCard', () => {
     expect(saved[0]).toMatch(/^replay-/);
     // The audit type is the trend page's — it IS that report, for each instrument.
     expect(events).toEqual(['log:Instrument Time Series', `save:${saved[0]}`]);
-    expect(logged[0]).toMatchObject({ reportKind: 'data-report', reportType: 'Instrument Time Series', remarks: 'area review', password: 'Secret@123', snapshotVersion: 2 });
+    expect(logged[0]).toMatchObject({ reportKind: 'data-report', reportType: 'Instrument Time Series', remarks: 'area review', password: 'Secret@123', snapshotVersion: 3 });
     expect(logged[0].requestMeta.instrumentCodes).toEqual([A.code, B.code]);
     // The instrument IDS decide who may see the request (2026-10-01).
     expect(logged[0].instrumentIds).toEqual([A.id, B.id]);
@@ -256,6 +298,44 @@ describe('GenerateReportCard', () => {
     expect(lastPages).toBe(1);
     expect(lastPdf).toContain(A.code);
     expect(lastPdf).not.toContain(B.code);
+  });
+
+  // ── Report templates (2026-11-03, page reports on templates) ──────────────
+
+  it('asks for the Data Report templates of the SELECTED instruments, only while the dialog is open', () => {
+    renderBoth();
+    pickArea();
+    expect(planAsked.every((a) => a.enabled === false)).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Export as PDF' }));
+    expect(planAsked.at(-1)).toEqual({ kind: 'page:data-report', ids: [A.id, B.id], enabled: true });
+    expect(screen.getByTestId('report-template-line')).toHaveTextContent('Template: Built-in (T&RH)');
+  });
+
+  it('prints each instrument with its profile\'s resolved template — the title, and EACH page its own instrument\'s attribute', async () => {
+    plan = SAVED_PLAN;
+    renderBoth();
+    pickArea();
+    await confirmDownload('area review');
+    await waitFor(() => expect(saved.length).toBe(1), { timeout: 5000 });
+    expect(logged[0].title).toBe('Site data report');
+    expect(lastPages).toBe(2);
+    expect(lastPdf).toContain('Block-A');
+    expect(lastPdf).toContain('Block-B');
+    expect(lastPdf.indexOf('Block-A')).toBeLessThan(lastPdf.indexOf('Block-B'));
+    // Both attributes were read, one request per instrument.
+    expect(requested).toContain(`/api/instruments/${A.id}/attributes`);
+    expect(requested).toContain(`/api/instruments/${B.id}/attributes`);
+  });
+
+  it('refuses, before reading anything, when the server names no profile for a selected instrument', async () => {
+    plan = A_ONLY_PLAN;
+    renderBoth();
+    pickArea();
+    await confirmDownload('area review');
+    expect(await screen.findByText(/name no instrument profile for CWH\/RDU\/002-00/)).toBeInTheDocument();
+    expect(requested.some((u) => u.includes('/telemetry?'))).toBe(false);
+    expect(logged).toHaveLength(0);
+    expect(saved).toHaveLength(0);
   });
 
   it('refuses, inside the dialog, when nothing is selected', async () => {

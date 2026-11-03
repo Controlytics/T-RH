@@ -65,6 +65,21 @@ export async function fetchDataReportRows(input: {
   };
 }
 
+/**
+ * One instrument's attributes as a report template prints them (2026-11-03,
+ * ruling T3-A): `attr:<key>` → the text the attributes panel shows — the
+ * server's `display` (a limit at the instrument's own decimals) else the
+ * stored `value`. The SAME route and the same visibility as the panel; an
+ * offset key the caller may not see is simply absent, and a template naming it
+ * prints `—`.
+ */
+export async function fetchReportAttributes(instrumentId: string): Promise<Record<string, string>> {
+  const res = await apiClient.get<{ data: { key: string; value: string; display?: string | null }[] }>(
+    `/api/instruments/${instrumentId}/attributes`,
+  );
+  return Object.fromEntries(res.data.map((a) => [`attr:${a.key}`, a.display ?? a.value]));
+}
+
 /** The period extremes of one slot — and its MKT when the server sent one —
  *  or nulls for a slot with no key. */
 export function slotExtremes(

@@ -2,17 +2,25 @@ import { useState } from 'react';
 import { TELEMETRY_DECIMALS_FALLBACK } from '@digilog/shared';
 import { ExportMenu } from '@/components/ExportMenu';
 import { ReportDownloadDialog, type ReportDownloadRequest } from '@/components/report-download-dialog';
+import { ReportTemplateLines } from '@/components/report-template-lines';
+import { useAuth } from '@/hooks/use-auth';
 import { useExportOptions } from '@/hooks/use-export-options';
 import { useSensorWords } from '@/hooks/use-failure-text';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { deliverReport, deliveryToast } from '@/lib/report-delivery';
+import { useReportTemplatePlan } from '@/lib/report-template-plan';
 import { useToast } from '@/hooks/use-toast';
 import { themeGradient } from '@/lib/theme-styles';
 import { useTrendPeriod } from '@/routes/instruments/use-trend-data';
-import { fetchDataReportRows, slotExtremes } from '@/routes/instruments/data-report-fetch';
-import { renderDataReports, type DataReportInput } from '@/routes/instruments/trend-report';
+import { fetchDataReportRows, fetchReportAttributes, slotExtremes } from '@/routes/instruments/data-report-fetch';
+import {
+  buildDataReport, deliveredTitles, templateForInstrument, type DataReportSection,
+} from '@/routes/instruments/page-reports';
 import { resolveBlockArea } from '@/routes/instruments/data-report';
 import type { HistoryScope } from './use-history-scope';
+
+/** The Data Report's template kind — every download kind it is (`data-report`) maps to it. */
+const KIND = 'page:data-report';
 
 /**
  * Generate Data Report (2026-09-07). Operator: *"create one card only text
@@ -60,12 +68,27 @@ export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
   const [pendingDownload, setPendingDownload] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const { toast } = useToast();
+  const { user } = useAuth();
   const sensorWords = useSensorWords();
   const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
+  /**
+   * Which REPORT TEMPLATE each selected instrument prints with (2026-11-03,
+   * page reports on templates): the SERVER's answer per profile, asked only
+   * while the dialog is open (a selection change would otherwise ask on every
+   * tick). Shown in the dialog with a picker per profile that has several.
+   */
+  const plan = useReportTemplatePlan(KIND, scope.chosen.map((i) => i.id), { enabled: pendingDownload });
+  const [picks, setPicks] = useState<Record<string, string>>({});
+  const closeDialog = () => { setPendingDownload(false); setPicks({}); };
 
   const runDownload = async (req: ReportDownloadRequest) => {
     const targets = scope.chosen;
     if (targets.length === 0) throw new Error('Select at least one instrument to report on.');
+    // The templates are the SERVER's answer, never guessed (as every download dialog refuses).
+    if (plan.error) throw new Error('The report templates could not be loaded. Close this and try again.');
+    if (plan.loading) throw new Error('The report templates are still loading. Try again in a moment.');
+    // Every instrument's template BEFORE any read: one the server names no profile for refuses the whole report.
+    const templates = targets.map((inst) => templateForInstrument(KIND, plan.sections, picks, inst));
     const reportPeriod = { from: req.period.from, to: req.period.to, label: req.period.label };
     const interval = req.intervalMs !== undefined ? req.intervalMs : period.intervalMs;
     const fmt = { formatDate, formatTime };
@@ -75,17 +98,21 @@ export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
         // once — an Area of thirty read one after another was 60 serial round
         // trips (review, 2026-09-07). Sections land by INDEX, so the document
         // keeps the selection's order whatever order the reads complete in.
-        const sections: DataReportInput[] = new Array(targets.length);
+        const sections: DataReportSection[] = new Array(targets.length);
         let done = 0;
         const readOne = async (inst: (typeof targets)[number], i: number) => {
           const ov = scope.overviewById.get(inst.id);
           const tempKey = ov?.temperature?.key ?? null;
           const humidKey = ov?.humidity?.key ?? null;
           const slotKeys = [tempKey, humidKey].filter((k): k is string => k !== null);
-          const fetched = await fetchDataReportRows({
-            instrumentId: inst.id, from: reportPeriod.from, to: reportPeriod.to, intervalMs: interval, slotKeys,
-          });
-          sections[i] = {
+          // The readings and, for a template's `attr:` rows and columns, the instrument's attributes.
+          const [fetched, attributes] = await Promise.all([
+            fetchDataReportRows({
+              instrumentId: inst.id, from: reportPeriod.from, to: reportPeriod.to, intervalMs: interval, slotKeys,
+            }),
+            fetchReportAttributes(inst.id),
+          ]);
+          sections[i] = { ...templates[i], attributes, input: {
             scope: {
               ...resolveBlockArea(scope.tree, inst.functionalLocationId ?? null),
               locationName: ov?.locationAttribute ?? '',
@@ -110,26 +137,29 @@ export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
               ...slotExtremes(fetched.summaries, humidKey),
             },
             rows: fetched.rows, intervalMs: interval, coverage: fetched.coverage, words: sensorWords,
-          };
+          } };
           done += 1;
           setProgress(`Read ${done} of ${targets.length} instruments…`);
         };
         await mapWithConcurrency(targets, READ_CONCURRENCY, readOne);
         setProgress('Building the report…');
-        const report = await renderDataReports({ formatDateTime, instruments: sections });
+        const built = await buildDataReport({
+          formatDateTime, sections,
+          values: { date: formatDateTime(new Date().toISOString()), user: user?.username ?? '' },
+        });
         // Direct or Request, as Configuration → Report Downloads says for the
         // Data Report (2026-10-01). The instrument IDS go with a request — they
         // decide who may see it; the codes are only what the list prints.
         const outcome = await deliverReport({
-          kind: 'data-report', req, report, reportType: 'Instrument Time Series', title: report.getSnapshot().title,
+          kind: 'data-report', req, report: built.report, reportType: 'Instrument Time Series', ...deliveredTitles(built),
           requestMeta: {
             period: reportPeriod, intervalMs: interval,
-            recordCount: sections.reduce((n, s) => n + s.rows.length, 0),
+            recordCount: sections.reduce((n, s) => n + s.input.rows.length, 0),
             instrumentCodes: targets.map((t) => t.code),
           },
           instrumentIds: targets.map((t) => t.id),
         });
-        setPendingDownload(false);
+        closeDialog();
         const notice = deliveryToast(outcome);
         toast[notice.tone](notice.title, notice.message);
       }
@@ -190,7 +220,20 @@ export function GenerateReportCard({ scope }: { scope: HistoryScope }) {
         initialPeriod={{ from: period.from, to: period.to, label: period.label }}
         initialIntervalMs={period.intervalMs}
         progress={progress}
-        onCancel={() => setPendingDownload(false)}
+        // What the report will be printed with: per profile of the selection,
+        // its template — the same lines every download dialog shows.
+        extra={(
+          <ReportTemplateLines
+            kind={KIND}
+            sections={plan.sections}
+            picks={picks}
+            onPick={(scopeKey, value) => setPicks((p) => ({ ...p, [scopeKey]: value }))}
+            loading={plan.loading}
+            failed={plan.error !== undefined && plan.error !== null}
+            superAdmin={user?.role === 'SUPER_ADMIN'}
+          />
+        )}
+        onCancel={closeDialog}
         onConfirm={runDownload}
       />
     </>

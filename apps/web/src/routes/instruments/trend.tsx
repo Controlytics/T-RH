@@ -11,7 +11,7 @@ import { DisplayKeysDialog } from './display-keys-dialog';
 import { useAuth } from '@/hooks/use-auth';
 import {
   INTERVALS, MAX_SERIES_POINTS, TELEMETRY_DECIMALS_FALLBACK,
-  PERIOD_PRESETS, DEFAULT_PERIOD, coerceReading,
+  PERIOD_PRESETS, DEFAULT_PERIOD, coerceReading, templateKindOf,
   type InactivityColumnTexts,
 } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
@@ -28,7 +28,6 @@ import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { isoToZonedInput, zonedInputToIso } from '@/lib/zoned-input';
 import { useTrendWidgets } from '@/hooks/use-trend-widgets';
 import { WidgetSettingsButton } from './widget-settings-button';
-import { formatSetPoint } from '@/routes/dashboard/set-point';
 import { TimeSeriesChart, SERIES_COLORS, CHART_HEIGHTS, seriesColor } from '@/routes/dashboard/time-series-chart';
 import {
   triggeredText, statusText, alarmTypeText, limitText, clearedText,
@@ -40,12 +39,14 @@ import { useTrendPeriod, useInstrumentTrend, TREND_PRESETS, TABLE_PAGE_SIZE, typ
 import { toChartSeries, toTableRowsWithErrors, rawCountForKey, type TableRow as PivotRow } from './trend-series';
 import type { ServerSlotSummary } from './data-report-fetch';
 import { intervalLabel } from './chart-interval-note';
+import type { DataReportInput, TrendChartSection } from './trend-report';
 import {
-  renderTrendReport, renderDataReport, renderAlarmsReport,
-  type ReportInstrument, type TrendChartSection,
-} from './trend-report';
+  buildDataReport, buildInstrumentAlarmsReport, buildTrendReport, deliveredTitles, templateForInstrument,
+} from './page-reports';
+import { ReportTemplateLines } from '@/components/report-template-lines';
+import { useReportTemplatePlan } from '@/lib/report-template-plan';
 import { resolveBlockArea, type LocationNode } from './data-report';
-import { fetchDataReportRows, slotExtremes } from './data-report-fetch';
+import { fetchDataReportRows, fetchReportAttributes, slotExtremes } from './data-report-fetch';
 import { renderChartToPng } from './chart-image';
 import { BandGauge } from './band-gauge';
 import { TrendChartCard } from './trend-chart-card';
@@ -486,22 +487,17 @@ export function InstrumentTrend() {
   // (Configuration → Report Downloads) and `deliverReport` downloads or
   // requests, as that type says.
   const [pendingReport, setPendingReport] = useState<PendingReport | null>(null);
-
-  const instrumentInfo = (): ReportInstrument => ({
-    code: inst?.code ?? id ?? '',
-    name: inst?.name ?? '',
-    locationText: trend.overview?.room
-      ? `Room ${trend.overview.room.code}${trend.overview.room.label ? ` (${trend.overview.room.label})` : ''}`
-      : 'Not placed on a floorplan',
-    limitsText: trend.overview
-      ? `Temp ${formatSetPoint(trend.overview.limits?.tempMin, trend.overview.limits?.tempMax, tempDecimals,
-          { min: trend.overview.limitText?.tempMin, max: trend.overview.limitText?.tempMax })} / `
-        + `RH ${formatSetPoint(trend.overview.limits?.rhMin, trend.overview.limits?.rhMax, humidDecimals,
-          { min: trend.overview.limitText?.rhMin, max: trend.overview.limitText?.rhMax })} `
-        + `(${trend.overview.limitSource === 'INSTRUMENT' ? 'from this instrument'
-          : trend.overview.limitSource === 'ROOM' ? `from room ${trend.overview.room?.code ?? '—'}` : 'no limits set'})`
-      : 'Unknown',
-  });
+  /**
+   * Which REPORT TEMPLATE the download prints with (2026-11-03, page reports on
+   * templates): the SERVER's answer for this instrument's profile and the
+   * report's kind, asked only while the dialog is open. The dialog shows it
+   * (`ReportTemplateLines`, a picker when the profile has several); a pick is
+   * kept until the dialog closes — another report's kind has other templates.
+   */
+  const reportTemplateKind = templateKindOf(reportKindOf(pendingReport));
+  const reportPlan = useReportTemplatePlan(reportTemplateKind, id ? [id] : NO_IDS, { enabled: pendingReport !== null });
+  const [templatePicks, setTemplatePicks] = useState<Record<string, string>>({});
+  const closeReport = () => { setPendingReport(null); setTemplatePicks({}); };
 
   // Fetch fresh rows for the DIALOG's chosen period — it may differ from the
   // page's, since the operator can change it in the dialog before confirming.
@@ -627,7 +623,19 @@ export function InstrumentTrend() {
     {
       let outcome: DeliveryOutcome;
       {
-      const instrument = instrumentInfo();
+      // The template is the SERVER's answer (or the dialog's pick) — never
+      // guessed: refused while the plan loads or after it failed, as the widget
+      // dialog refuses. Then this instrument's attributes, for a template's
+      // `attr:` rows, and the two values every report names: when it was
+      // printed and the USERNAME that printed it (the footer's identity).
+      if (reportPlan.error) throw new Error('The report templates could not be loaded. Close this and try again.');
+      if (reportPlan.loading) throw new Error('The report templates are still loading. Try again in a moment.');
+      const instrumentCode = inst?.code ?? id;
+      const template = {
+        ...templateForInstrument(reportTemplateKind, reportPlan.sections, templatePicks, { id, code: instrumentCode }),
+        attributes: await fetchReportAttributes(id),
+      };
+      const values = { date: formatDateTime(new Date().toISOString()), user: user?.username ?? '' };
 
       if (which.kind === 'trend') {
         const wantTemp = which.slot === 'temperature';
@@ -664,11 +672,12 @@ export function InstrumentTrend() {
         // The header's scope is the Data Report's: Block / Area from the
         // functional location, the Location ATTRIBUTE, the instrument's code.
         const trendPlacement = resolveBlockArea(locationTree?.data ?? [], inst?.functionalLocationId ?? null);
-        const report = await renderTrendReport({
-          slotLabel, charts, instrument,
+        const built = await buildTrendReport({
+          ...template, values,
+          slotLabel, charts,
           period: reportPeriod, formatDateTime,
           header: {
-            scope: { ...trendPlacement, locationName: trend.overview?.locationAttribute ?? '', instrumentLabel: instrument.code },
+            scope: { ...trendPlacement, locationName: trend.overview?.locationAttribute ?? '', instrumentLabel: instrumentCode },
             fmt: { formatDate, formatTime },
           },
           averagedLabel: intervalLabel(period.intervalMs),
@@ -685,10 +694,9 @@ export function InstrumentTrend() {
         // Direct or Request, as configured (2026-10-01). Names the SLOT: two
         // trend reports both logged as "Instrument Trend" would leave a record
         // that cannot say which one a row is.
-        const snapshot = report.getSnapshot();
         outcome = await deliverReport({
-          kind: reportKindOf(which), req, report, reportType: `Instrument Trend — ${slotLabel}`, title: snapshot.title, subtitle: snapshot.subtitle,
-          requestMeta: { period: reportPeriod, recordCount: plottedCount, instrumentCodes: [instrument.code] },
+          kind: reportKindOf(which), req, report: built.report, reportType: `Instrument Trend — ${slotLabel}`, ...deliveredTitles(built),
+          requestMeta: { period: reportPeriod, recordCount: plottedCount, instrumentCodes: [instrumentCode] },
           instrumentIds: [id],
         });
       } else if (which.kind === 'timeseries') {
@@ -709,14 +717,14 @@ export function InstrumentTrend() {
         });
         const extremes = (key: string | null) => slotExtremes(summaries, key);
         const placement = resolveBlockArea(locationTree?.data ?? [], inst?.functionalLocationId ?? null);
-        const report = await renderDataReport({
+        const dataInput: DataReportInput = {
           scope: {
             ...placement,
             // The Location ATTRIBUTE — the same fact the dashboard's Location
             // column and the alarm report print; never the superseded
             // `Instrument.location` column.
             locationName: trend.overview?.locationAttribute ?? '',
-            instrumentLabel: instrument.code,
+            instrumentLabel: instrumentCode,
           },
           period: reportPeriod,
           fmt: { formatDate, formatTime },
@@ -742,14 +750,15 @@ export function InstrumentTrend() {
           intervalMs: reportInterval,
           coverage,
           words: sensorWords,
-        });
+        };
+        // The same document the Data Report page prints, one instrument.
+        const built = await buildDataReport({ formatDateTime, values, sections: [{ ...template, input: dataInput }] });
         // The Data Report kind (2026-10-01) — the same document the Data
         // Report page prints. The audit type is UNCHANGED: rows already logged
         // under it are this same document.
-        const snapshot = report.getSnapshot();
         outcome = await deliverReport({
-          kind: reportKindOf(which), req, report, reportType: 'Instrument Time Series', title: snapshot.title, subtitle: snapshot.subtitle,
-          requestMeta: { period: reportPeriod, intervalMs: reportInterval, recordCount: rows.length, instrumentCodes: [instrument.code] },
+          kind: reportKindOf(which), req, report: built.report, reportType: 'Instrument Time Series', ...deliveredTitles(built),
+          requestMeta: { period: reportPeriod, intervalMs: reportInterval, recordCount: rows.length, instrumentCodes: [instrumentCode] },
           instrumentIds: [id],
         });
       } else {
@@ -757,19 +766,22 @@ export function InstrumentTrend() {
         // The header's scope is the Data Report's: Block / Area from the
         // functional location, the Location ATTRIBUTE, the instrument's code.
         const placement = resolveBlockArea(locationTree?.data ?? [], inst?.functionalLocationId ?? null);
-        const report = await renderAlarmsReport(rows, instrument, reportPeriod, formatDateTime, statusTexts, inactivityTexts, {
-          scope: { ...placement, locationName: trend.overview?.locationAttribute ?? '', instrumentLabel: instrument.code },
-          fmt: { formatDate, formatTime },
+        const built = await buildInstrumentAlarmsReport({
+          ...template, values,
+          rows, period: reportPeriod, formatDateTime, statusTexts, inactivityTexts,
+          header: {
+            scope: { ...placement, locationName: trend.overview?.locationAttribute ?? '', instrumentLabel: instrumentCode },
+            fmt: { formatDate, formatTime },
+          },
         });
-        const snapshot = report.getSnapshot();
         outcome = await deliverReport({
-          kind: 'instrument-alarms', req, report, reportType: 'Instrument Alarms', title: snapshot.title, subtitle: snapshot.subtitle,
-          requestMeta: { period: reportPeriod, recordCount: rows.length, instrumentCodes: [instrument.code] },
+          kind: 'instrument-alarms', req, report: built.report, reportType: 'Instrument Alarms', ...deliveredTitles(built),
+          requestMeta: { period: reportPeriod, recordCount: rows.length, instrumentCodes: [instrumentCode] },
           instrumentIds: [id],
         });
         }
       }
-      setPendingReport(null);
+      closeReport();
       const notice = deliveryToast(outcome);
       toast[notice.tone](notice.title, notice.message);
     }
@@ -1306,7 +1318,20 @@ export function InstrumentTrend() {
         // reports take the page's chart interval and the period alone.
         showInterval={pendingReport?.kind === 'timeseries'}
         initialIntervalMs={period.intervalMs}
-        onCancel={() => setPendingReport(null)}
+        // What the report will be printed with: this instrument's profile's
+        // template for the report's kind — the same lines every download dialog shows.
+        extra={(
+          <ReportTemplateLines
+            kind={reportTemplateKind}
+            sections={reportPlan.sections}
+            picks={templatePicks}
+            onPick={(scopeKey, value) => setTemplatePicks((p) => ({ ...p, [scopeKey]: value }))}
+            loading={reportPlan.loading}
+            failed={reportPlan.error !== undefined && reportPlan.error !== null}
+            superAdmin={user?.role === 'SUPER_ADMIN'}
+          />
+        )}
+        onCancel={closeReport}
         onConfirm={runDownload}
       />
 
