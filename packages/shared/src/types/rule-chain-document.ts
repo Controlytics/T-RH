@@ -24,7 +24,9 @@
  * 3.x `debugMode`, master's `debugAll` / `debugFailures`, 4.0-4.2's
  * `debugSettings`. Import MINTS NEW node ids (importing one file twice must not
  * collide) and never refuses a node: an unknown class, or a known one whose
- * configuration does not fit, becomes `tb:unsupported` with a warning.
+ * configuration does not fit, becomes `tb:unsupported` with a warning; a
+ * `later` / `none` class imports as itself, with a warning that it sends every
+ * message to Failure.
  * `ruleChainsEqual` therefore compares STRUCTURE (node order), not ids.
  */
 import { z, ZodError, type ZodIssue } from 'zod';
@@ -420,8 +422,11 @@ export function fromThingsboardExport(json: unknown, opts: { newId?: () => strin
       config = { tbClass, configuration: configuration === undefined ? null : cloneJson(configuration) };
       warnings.push(`Node "${nodeName}": ThingsBoard class ${tbClass || '(none)'} is not known here; it was imported as Unsupported and passes messages to Failure.`);
     } else if (spec.status !== 'built') {
+      // A later / none node imports as ITSELF (its configuration kept for the
+      // export back), but nothing runs it: the engine ends its messages on Failure.
       type = spec.id;
       config = configObject;
+      warnings.push(`Node "${nodeName}": ${spec.label} has no counterpart here and will send every message to Failure.`);
     } else {
       const r = spec.configSchema.safeParse(configObject);
       if (!r.success) {

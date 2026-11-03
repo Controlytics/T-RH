@@ -267,8 +267,9 @@ describe('ThingsBoard export / import', () => {
     expect(again.metadata.nodes[1]).toMatchObject({ type: 'org.thingsboard.rule.engine.custom.TbAcmeNode', configuration: { level: 3 } });
   });
 
-  it('imports ThingsBoard\'s own default root chain (master, 2026-11-03): six nodes mapped, 4.x debug flags read, no warnings', () => {
-    const script = "return '\\nIncoming message:\\n' + JSON.stringify(msg) + '\\nIncoming metadata:\\n' + JSON.stringify(metadata);";
+  /** ThingsBoard's CE default root chain as master ships it (2026-11-03) — five built nodes and RPC Call Request (later). */
+  function tbCeRootChain() {
+    const script ="return '\\nIncoming message:\\n' + JSON.stringify(msg) + '\\nIncoming metadata:\\n' + JSON.stringify(metadata);";
     const tb = {
       ruleChain: { additionalInfo: null, name: 'Root Rule Chain', firstRuleNodeId: null, root: true, debugMode: false, configuration: null },
       metadata: {
@@ -290,8 +291,15 @@ describe('ThingsBoard export / import', () => {
         ],
       },
     };
+    return tb;
+  }
+
+  const NO_COUNTERPART = 'has no counterpart here and will send every message to Failure';
+
+  it('imports ThingsBoard\'s own default root chain: six nodes mapped, 4.x debug flags read, ONE warning — the RPC Call Request (later)', () => {
+    const tb = tbCeRootChain();
     const r = fromThingsboardExport(tb);
-    expect(r.warnings).toEqual([]);
+    expect(r.warnings).toEqual([`Node "RPC Call Request": RPC call request ${NO_COUNTERPART}.`]);
     expect(r.document.nodes.map((n) => n.type)).toEqual([
       'tb:action:save-timeseries', 'tb:action:save-attributes', 'tb:filter:message-type-switch',
       'tb:action:log', 'tb:action:log', 'tb:action:rpc-call-request',
@@ -302,6 +310,32 @@ describe('ThingsBoard export / import', () => {
     // ThingsBoard keys we do not model survive the import, untouched.
     expect(r.document.nodes[1].config).toEqual(tb.metadata.nodes[1].configuration);
     expect(parseRuleChainDocument(r.document)).toEqual(r.document);
+  });
+
+  it('the same chain with only its built nodes imports with no warnings', () => {
+    const tb = tbCeRootChain();
+    tb.metadata.nodes = tb.metadata.nodes.filter((n) => n.name !== 'RPC Call Request');
+    tb.metadata.connections = tb.metadata.connections.filter((c) => c.toIndex !== 5);
+    const r = fromThingsboardExport(tb);
+    expect(r.warnings).toEqual([]);
+    expect(r.document.nodes).toHaveLength(5);
+  });
+
+  it('a node with no counterpart (status none) warns too — once per node, beside the unknown-class warning', () => {
+    const tb = toThingsboardExport('C', false, doc()) as any;
+    tb.metadata.nodes.push(
+      { type: 'org.thingsboard.rule.engine.edge.TbMsgPushToEdgeNode', name: 'To edge', configuration: {}, additionalInfo: { layoutX: 1, layoutY: 1 } },
+      { type: 'org.thingsboard.rule.engine.edge.TbMsgPushToEdgeNode', name: 'To edge again', configuration: {}, additionalInfo: { layoutX: 2, layoutY: 2 } },
+      { type: 'org.thingsboard.rule.engine.custom.TbAcmeNode', name: 'Acme', configuration: {}, additionalInfo: { layoutX: 3, layoutY: 3 } },
+    );
+    const r = fromThingsboardExport(tb);
+    expect(r.warnings).toEqual([
+      `Node "To edge": Push to edge ${NO_COUNTERPART}.`,
+      `Node "To edge again": Push to edge ${NO_COUNTERPART}.`,
+      expect.stringContaining('org.thingsboard.rule.engine.custom.TbAcmeNode'),
+    ]);
+    // It still imports as itself, not as Unsupported.
+    expect(r.document.nodes.slice(2, 4).map((n) => n.type)).toEqual(['tb:action:push-to-edge', 'tb:action:push-to-edge']);
   });
 
   it('reads ThingsBoard 3.x "debugMode: true" as debug all', () => {
