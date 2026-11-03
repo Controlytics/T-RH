@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma.js';
 import { invalidateReauthCache } from '../lib/reauth-check.js';
 import { invalidateRolePermsCache } from '../plugins/rbac.js';
 import { fixtureProfileId } from '../test-support/fixture-profile.js';
+import { REPORT_KINDS } from '@digilog/shared';
 
 /**
  * HTTP-level coverage of the report review workflow — as reshaped 2026-10-01:
@@ -398,10 +399,11 @@ describe('the config reads', () => {
     }
   });
 
-  it('report-downloads/current: every user reads all EIGHT kinds, coerced — the split ones inheriting', async () => {
+  it('report-downloads/current: every user reads EVERY kind, coerced — the split ones inheriting, each widget kind fail-closed', async () => {
     const res = await get('/api/config/report-downloads/current', tok.REQ);
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({
+    const body = res.json();
+    expect(body).toMatchObject({
       'data-report': { mode: 'REQUEST', remarksRequired: true, passwordRequired: true },
       'time-series': { mode: 'REQUEST', remarksRequired: true, passwordRequired: true },
       'trend-header': { mode: 'REQUEST', remarksRequired: true, passwordRequired: true },
@@ -412,6 +414,14 @@ describe('the config reads', () => {
       alarms: { mode: 'REQUEST', remarksRequired: false, passwordRequired: false },
       'audit-trail': { mode: 'REQUEST', remarksRequired: true, passwordRequired: true },
     });
+    // One key per REPORT_KINDS entry and no other (2026-11-02, widget reports): a kind the
+    // response schema does not declare is stripped by Fastify and the browser then fails CLOSED
+    // to Request — a Direct widget kind would be offered Request and refused.
+    expect(Object.keys(body).sort()).toEqual(REPORT_KINDS.map((k) => k.key).sort());
+    for (const k of REPORT_KINDS) {
+      if (!k.key.startsWith('widget:')) continue;
+      expect(body[k.key]).toEqual({ mode: 'REQUEST', remarksRequired: true, passwordRequired: true });
+    }
   });
 
   it('report-approvers/candidates lists enabled users as "username … (role)" for the config page, and needs CONFIG_READ', async () => {

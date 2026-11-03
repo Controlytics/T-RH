@@ -74,11 +74,20 @@ export default async function setup(): Promise<void> {
     // checklist-submission.test.ts (and any other test that needs a
     // non-admin actor) logs in as RB0001 / Test@1234 to verify operator
     // RBAC paths. Upsert idempotently with the OPERATOR role.
+    //
+    // `passwordChangedAt` is stamped NOW on every run (2026-11-02): the password
+    // is re-set here, so it is a fresh one. Without the stamp the expiry clock
+    // ran from the row's `createdAt` (2026-08-04) and the 90-day policy expired
+    // RB0001 on 2026-11-02 — every OPERATOR request then answered 403
+    // PASSWORD_EXPIRED, which read as 65 "operator is forbidden" failures across
+    // 12 suites. A non-SUPER_ADMIN fixture user must never age into expiry.
     const operatorPassword = await hashPassword('Test@1234');
+    const passwordChangedAt = new Date();
     await prisma.user.upsert({
       where: { username: 'RB0001' },
       update: {
         passwordHash: operatorPassword,
+        passwordChangedAt,
         role: 'OPERATOR',
         status: 'ENABLED',
         forcePasswordChange: false,
@@ -94,6 +103,7 @@ export default async function setup(): Promise<void> {
         role: 'OPERATOR',
         status: 'ENABLED',
         passwordHash: operatorPassword,
+        passwordChangedAt,
         forcePasswordChange: false,
         isTemporaryPassword: false,
       },
