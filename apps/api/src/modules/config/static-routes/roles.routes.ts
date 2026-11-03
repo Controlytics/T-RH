@@ -7,6 +7,7 @@ import { resolveLayoutFor, checkLayoutWrite, WIDGETS_JSON_SCHEMA } from '../dash
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../../lib/prisma.js';
 import { errorResponses } from '../../../lib/error-schemas.js';
+import { roleHasPermission } from '../../../plugins/rbac.js';
 
 export async function rolesConfigRoutes(app: FastifyInstance) {
   app.get('/roles', {
@@ -53,13 +54,21 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
             sidebarItems: { type: 'array', items: { type: 'string' } },
             homeWidgets: { type: 'array', items: { type: 'string' } },
             permissions: { type: 'object', additionalProperties: true },
+            // The role's raw permission array (2026-11-03), for the Permissions
+            // tab's live "Held by …". DECLARED, or Fastify strips it on the way
+            // out. Present only for a ROLE_MANAGE caller (see below).
+            permissionsHeld: { type: 'array', items: { type: 'string' } },
           },
         },
       },
     },
   }, async (req) => {
     const { role } = req.params as { role: string };
-    return configService.getRoleConfig(role);
+    // Raw role permission arrays are ROLE_MANAGE's (`GET /api/roles`); this
+    // GET needs only CONFIG_READ, so `permissionsHeld` goes only to a caller
+    // who may read them already. SUPER_ADMIN passes `roleHasPermission`.
+    const includeHeld = await roleHasPermission(req.user?.role ?? '', 'ROLE_MANAGE');
+    return configService.getRoleConfig(role, { includeHeld });
   });
 
   app.put('/roles/:role', {

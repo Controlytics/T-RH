@@ -17,14 +17,23 @@ import { PERMISSION_TREE, privilegeTogglesFromPermissions } from '@digilog/share
  * disabled, and a caption naming what holds it. The PUT is unchanged.
  */
 const mutate = vi.fn(async () => undefined);
-type RoleConfig = { permissions: Record<string, boolean>; sidebarItems: string[] };
-// What GET /api/config/roles/:role answers for a role holding these
-// permissions: the toggles the server DERIVES. Module constants on purpose —
-// a fresh object per SWR call re-runs every effect keyed on it, forever.
-const EDIT_USERS: RoleConfig = { permissions: privilegeTogglesFromPermissions(['USER_UPDATE', 'USER_READ']), sidebarItems: [] };
-const USERS_MENU: RoleConfig = { permissions: privilegeTogglesFromPermissions(['USER_READ']), sidebarItems: ['users'] };
-const EDIT_INSTRUMENTS: RoleConfig = { permissions: privilegeTogglesFromPermissions(['INSTRUMENT_UPDATE', 'INSTRUMENT_READ']), sidebarItems: [] };
-const NOTHING: RoleConfig = { permissions: privilegeTogglesFromPermissions([]), sidebarItems: [] };
+type RoleConfig = { permissions: Record<string, boolean>; sidebarItems: string[]; permissionsHeld: string[] };
+// What GET /api/config/roles/:role answers (to a ROLE_MANAGE caller) for a
+// role holding these permissions: the toggles the server DERIVES, and the raw
+// array. Module constants on purpose — a fresh object per SWR call re-runs
+// every effect keyed on it, forever.
+const answer = (held: string[], sidebarItems: string[] = []): RoleConfig =>
+  ({ permissions: privilegeTogglesFromPermissions(held), sidebarItems, permissionsHeld: held });
+const EDIT_USERS = answer(['USER_UPDATE', 'USER_READ']);
+const USERS_MENU = answer(['USER_READ'], ['users']);
+const EDIT_INSTRUMENTS = answer(['INSTRUMENT_UPDATE', 'INSTRUMENT_READ']);
+const NOTHING = answer([]);
+// DASHBOARD_MANAGE is on no toggle (Manage Dashboards left the tab
+// 2026-10-24) and X_MANAGE covers X_VIEW, so a save keeps it and View
+// Dashboards with it. AWS still owes the strip that removes it.
+const DASHBOARD_MANAGE = answer(['DASHBOARD_MANAGE']);
+// ALARM_RULE_MANAGE IS a toggle's grant (Alarm Webhooks Manage).
+const ALARM_RULE_MANAGE = answer(['ALARM_RULE_MANAGE']);
 const fixture = { current: EDIT_USERS };
 const notified = new Set<string>();
 vi.mock('swr', () => ({
@@ -152,6 +161,33 @@ describe('PermissionsTab — a toggle another toggle or a sidebar item holds', (
     expect(edit.checked).toBe(true);
     expect(edit.disabled).toBe(true);
     expect(within(row('settings.edit')).getByText(/^Held by/).textContent).toBe(`Held by ${LABEL('instruments.edit')}`);
+  });
+
+  it('a permission granted outside this tab holds its View toggle — named by the permission', async () => {
+    await renderTab(DASHBOARD_MANAGE, 'dashboard.view');
+    fireEvent.click(box('dashboard.view'));
+
+    const view = box('dashboard.view');
+    expect(view.checked).toBe(true);
+    expect(view.disabled).toBe(true);
+    expect(view.getAttribute('data-held')).toBe('true');
+    expect(within(row('dashboard.view')).getByText(/^Held by/).textContent)
+      .toBe('Held by a permission granted outside this tab: DASHBOARD_MANAGE');
+  });
+
+  it('a role holding ALARM_RULE_MANAGE: View Alarm Webhooks is held by the Manage TOGGLE, and freed with it — never by an outside grant', async () => {
+    await renderTab(ALARM_RULE_MANAGE, 'alarm_webhooks.manage');
+    fireEvent.click(box('alarm_webhooks.view'));
+    expect(box('alarm_webhooks.view').getAttribute('data-held')).toBe('true');
+    expect(within(row('alarm_webhooks.view')).getByText(/^Held by/).textContent)
+      .toBe(`Held by ${LABEL('alarm_webhooks.manage')}`);
+
+    // The save rebuilds ALARM_RULE_MANAGE from its toggle, so with that toggle
+    // off nothing holds View any more.
+    fireEvent.click(box('alarm_webhooks.manage'));
+    expect(box('alarm_webhooks.view').checked).toBe(false);
+    expect(box('alarm_webhooks.view').disabled).toBe(false);
+    expect(within(row('alarm_webhooks.view')).queryByText(/^Held by/)).toBeNull();
   });
 
   it('a toggle nothing else holds turns on and off as before', async () => {

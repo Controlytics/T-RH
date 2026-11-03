@@ -33,8 +33,8 @@ interface PermissionsTabProps {
 const DEFAULT_ROLE_ICON ='M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z';
 
 // One stable empty list, so the held computation is not redone every render
-// for a role with no stored sidebar selection.
-const NO_SIDEBAR_ITEMS: readonly string[] = [];
+// for a role with no stored sidebar selection or no `permissionsHeld`.
+const NONE: readonly string[] = [];
 
 // ─── One toggle ───────────────────────────────────────────────────────────────
 
@@ -182,13 +182,19 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
     };
 
     // ── What the save will decide (2026-11-03) ─────────────────────────────
-    // The server rebuilds the role from these toggles and the role's STORED
-    // sidebar items (this PUT sends none), then reads the toggles back. A
-    // toggle OFF here that comes back ON is HELD — by another ON toggle, an
-    // implication or a sidebar item — and is drawn checked, disabled and
-    // named. The PUT is unchanged: the user's own toggles; the server decides.
-    const sidebarItems: readonly string[] = (roleConfig?.sidebarItems as string[] | undefined) ?? NO_SIDEBAR_ITEMS;
-    const held = useMemo(() => heldToggles(permissions, sidebarItems), [permissions, sidebarItems]);
+    // The server rebuilds the role from these toggles, the role's STORED
+    // sidebar items (this PUT sends none) and its STORED permissions
+    // (`permissionsHeld` — it keeps every one no toggle maps), then reads the
+    // toggles back. A toggle OFF here that comes back ON is HELD — by another
+    // ON toggle, an implication, a sidebar item or a permission granted
+    // outside this tab — and is drawn checked, disabled and named. The PUT is
+    // unchanged: the user's own toggles; the server decides.
+    const sidebarItems: readonly string[] = (roleConfig?.sidebarItems as string[] | undefined) ?? NONE;
+    const currentPermissions: readonly string[] = (roleConfig?.permissionsHeld as string[] | undefined) ?? NONE;
+    const held = useMemo(
+      () => heldToggles(permissions, sidebarItems, currentPermissions),
+      [permissions, sidebarItems, currentPermissions],
+    );
     const isOn = (id: string) => !!permissions[id] || !!held.shown[id];
     const captionFor = (id: string) => (held.heldBy[id] ? heldCaption(held.heldBy[id]) : undefined);
 

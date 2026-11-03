@@ -12,8 +12,11 @@
  * Users under the Users menu) comes straight back. This runs THOSE TWO shared
  * functions — the server's own — and never a copy of either.
  *
- * `currentPermissions: []` is deliberate: a permission no toggle maps is not a
- * toggle, and the tab neither shows nor sends it.
+ * `currentPermissions` is the role's stored array (`permissionsHeld` on the
+ * GET, 2026-11-03), so the derivation equals the server's exactly: a save
+ * keeps every permission no toggle maps, and one of those (an X_MANAGE, say)
+ * can hold a View toggle too. Without it (a caller the GET does not send it
+ * to) it is `[]`, and such a holder goes unnamed.
  *
  * Plain .ts (no React), like `permission-tree-grouping.ts`, so it is tested on
  * its own.
@@ -26,6 +29,12 @@ export interface Holders {
   toggles: string[];
   /** Enabled sidebar items, by id, in the role's order. */
   sidebarItems: string[];
+  /**
+   * Permissions the role holds that NO toggle maps — a save keeps them
+   * whatever the toggles say — by name, in the role's order. A mapped one is
+   * never here: the save rebuilds it from its toggle.
+   */
+  outside: string[];
 }
 
 export interface HeldToggles {
@@ -35,8 +44,8 @@ export interface HeldToggles {
   heldBy: Record<string, Holders>;
 }
 
-const settle = (toggles: Record<string, boolean>, sidebarItems: readonly string[]) =>
-  privilegeTogglesFromPermissions(rebuildRolePermissions({ currentPermissions: [], toggles, sidebarItems }));
+const settle = (toggles: Record<string, boolean>, sidebarItems: readonly string[], currentPermissions: readonly string[] = []) =>
+  privilegeTogglesFromPermissions(rebuildRolePermissions({ currentPermissions, toggles, sidebarItems }));
 
 // What ONE source holds by itself. Every rule of `hasEffectivePermission` lets
 // a SINGLE permission satisfy a gate (a direct match, an implication, _READ for
@@ -47,6 +56,7 @@ const settle = (toggles: Record<string, boolean>, sidebarItems: readonly string[
 // name nobody. The tree is constant, so each answer is computed once.
 const byToggle = new Map<string, Record<string, boolean>>();
 const bySidebarItem = new Map<string, Record<string, boolean>>();
+const byPermission = new Map<string, Record<string, boolean>>();
 const holdsAlone = (cache: Map<string, Record<string, boolean>>, key: string, compute: () => Record<string, boolean>) => {
   let held = cache.get(key);
   if (!held) { held = compute(); cache.set(key, held); }
@@ -58,8 +68,15 @@ const TREE_ORDER = NODES.filter(n => n.configurable === true).map(n => n.id);
 const NODE_LABEL = new Map(NODES.map(n => [n.id, n.label]));
 const SIDEBAR_LABEL = new Map(SIDEBAR_ITEMS.map(i => [i.id, i.label]));
 
-export function heldToggles(toggles: Record<string, boolean>, sidebarItems: readonly string[]): HeldToggles {
-  const shown = settle(toggles, sidebarItems);
+export function heldToggles(
+  toggles: Record<string, boolean>,
+  sidebarItems: readonly string[],
+  currentPermissions: readonly string[] = [],
+): HeldToggles {
+  const shown = settle(toggles, sidebarItems, currentPermissions);
+  // What a Permissions save keeps whatever the toggles say — the rebuild with
+  // no toggle on and no menu: the role's grants no toggle maps.
+  const kept = rebuildRolePermissions({ currentPermissions, toggles: {}, sidebarItems: [] });
   const heldBy: Record<string, Holders> = {};
   for (const id of Object.keys(shown)) {
     if (!shown[id] || toggles[id]) continue;
@@ -67,18 +84,26 @@ export function heldToggles(toggles: Record<string, boolean>, sidebarItems: read
       toggles: TREE_ORDER.filter(t => t !== id && toggles[t]
         && holdsAlone(byToggle, t, () => settle({ [t]: true }, []))[id]),
       sidebarItems: sidebarItems.filter(s => holdsAlone(bySidebarItem, s, () => settle({}, [s]))[id]),
+      outside: kept.filter(p => holdsAlone(byPermission, p, () => privilegeTogglesFromPermissions([p]))[id]),
     };
   }
   return { shown, heldBy };
 }
 
-/** "Held by Edit Users", "Held by the Users sidebar item", "Held by Edit Users and the Users sidebar item". */
+/**
+ * "Held by Edit Users", "Held by the Users sidebar item", "Held by a permission
+ * granted outside this tab: DASHBOARD_MANAGE", or those joined by "and".
+ */
 export function heldCaption(holders: Holders): string {
   const parts: string[] = [];
   if (holders.toggles.length > 0) parts.push(holders.toggles.map(t => NODE_LABEL.get(t) ?? t).join(', '));
   if (holders.sidebarItems.length > 0) {
     const names = holders.sidebarItems.map(s => SIDEBAR_LABEL.get(s) ?? s).join(', ');
     parts.push(`the ${names} sidebar item${holders.sidebarItems.length > 1 ? 's' : ''}`);
+  }
+  if (holders.outside.length > 0) {
+    // The permission's own NAME: it is on no toggle, so there is no label to give.
+    parts.push(`${holders.outside.length > 1 ? 'permissions' : 'a permission'} granted outside this tab: ${holders.outside.join(', ')}`);
   }
   return `Held by ${parts.join(' and ')}`;
 }

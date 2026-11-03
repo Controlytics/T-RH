@@ -188,8 +188,12 @@ describe('Roles & Access → Permissions shows what the role holds, and a save r
   it('un-selecting View Users while Edit Users is on: it comes back ON, exactly as the tab predicts', async () => {
     const res = await app.inject({ method: 'GET', url: `/api/config/roles/${ROLE}`, headers: admin });
     const sidebarItems = res.json().sidebarItems as string[];
+    // The role's raw array rides on the GET (declared in the response schema,
+    // or Fastify strips it) — the tab passes it as currentPermissions.
+    const permissionsHeld = res.json().permissionsHeld as string[];
+    expect(permissionsHeld).toEqual(await held());
     const sent = { ...res.json().permissions as Record<string, boolean>, 'users.view': false, 'users.edit': true };
-    const predicted = privilegeTogglesFromPermissions(rebuildRolePermissions({ currentPermissions: [], toggles: sent, sidebarItems }));
+    const predicted = privilegeTogglesFromPermissions(rebuildRolePermissions({ currentPermissions: permissionsHeld, toggles: sent, sidebarItems }));
     expect(predicted['users.view']).toBe(true);
 
     const put = await app.inject({
@@ -244,5 +248,32 @@ describe('Export Audit Trail is enforced by the server, not only by the button',
       payload: { reportKind: 'alarms', reportType: 'Alarms', format: 'PDF', recordCount: 1, remarks: 'e2e' },
     });
     expect(res.statusCode, res.body).not.toBe(403);
+  });
+});
+
+// 2026-11-03: the GET carries `permissionsHeld`, the role's RAW array, so the
+// Permissions tab can name a toggle held by a permission no toggle maps.
+// `GET /api/roles` gives raw arrays only to ROLE_MANAGE; this GET needs only
+// CONFIG_READ, so the raw array goes only to a caller who may read it there.
+describe('GET /api/config/roles/:role — permissionsHeld', () => {
+  const setPerms = async (perms: string[]) => {
+    await prisma.role.update({ where: { name: ROLE }, data: { permissions: perms } });
+    invalidateRolePermsCache(ROLE);
+  };
+
+  it('a CONFIG_READ caller gets the toggles but not the raw array', async () => {
+    await setPerms(['CONFIG_READ', 'DASHBOARD_MANAGE']);
+    const res = await app.inject({ method: 'GET', url: `/api/config/roles/${ROLE}`, headers: member });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).not.toHaveProperty('permissionsHeld');
+    // DASHBOARD_MANAGE is on no toggle, and X_MANAGE covers X_VIEW: View Dashboards is ON.
+    expect(res.json().permissions['dashboard.view']).toBe(true);
+  });
+
+  it('a ROLE_MANAGE caller gets it, as stored', async () => {
+    await setPerms(['CONFIG_READ', 'ROLE_MANAGE', 'DASHBOARD_MANAGE']);
+    const res = await app.inject({ method: 'GET', url: `/api/config/roles/${ROLE}`, headers: member });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().permissionsHeld).toEqual(['CONFIG_READ', 'ROLE_MANAGE', 'DASHBOARD_MANAGE']);
   });
 });

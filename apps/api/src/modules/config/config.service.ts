@@ -123,17 +123,26 @@ export const configService = {
    * Sidebar tab's auto-grant, `PUT /api/roles/:name` and the seed all move
    * `roles.permissions` without touching it, so it can show a toggle ON that
    * the role does not hold. See `privilegeTogglesFromPermissions` for the rule.
+   *
+   * `includeHeld` (2026-11-03) adds `permissionsHeld`, the role's raw
+   * `roles.permissions` array. The Permissions tab passes it to the shared
+   * `rebuildRolePermissions` as `currentPermissions`, so its live view of
+   * what a save will keep equals this server's exactly — including a toggle
+   * held by a permission no toggle maps. The route sends it only to a caller
+   * who may read raw role arrays already (ROLE_MANAGE, as `GET /api/roles`).
    */
-  async getRoleConfig(role: string) {
+  async getRoleConfig(role: string, opts: { includeHeld?: boolean } = {}) {
     const [config, roleRecord] = await Promise.all([
       configRepository.findRoleConfig(role),
       prisma.role.findUnique({ where: { name: role }, select: { permissions: true } }),
     ]);
+    const held = (roleRecord?.permissions as string[]) ?? [];
     return {
       role,
       sidebarItems: (config?.sidebarItems as string[]) ?? [],
       homeWidgets: (config?.homeWidgets as string[]) ?? [],
-      permissions: privilegeTogglesFromPermissions((roleRecord?.permissions as string[]) ?? []),
+      permissions: privilegeTogglesFromPermissions(held),
+      ...(opts.includeHeld ? { permissionsHeld: [...held] } : {}),
     };
   },
 

@@ -1781,7 +1781,7 @@ Tokens live in `src/app.css` `@theme`; primitives in `src/components/ui/`.
   operator-ordered array (Config → Roles & Access → Sidebar), so adding section
   headings would silently override an arrangement someone chose.
 - SWR for data fetching with auto-revalidation
-- **Roles & Access → Permissions marks a HELD toggle (2026-11-03).** `roles-components/held-toggles.ts` runs the shared `rebuildRolePermissions` + `privilegeTogglesFromPermissions` (the server's own rule, never a copy) on the tab's toggles and the role's stored sidebar items. A toggle OFF but held renders checked and disabled with "Held by …". Rules: `docs/feature-notes.md`, under "Roles & Access → PERMISSIONS shows what the role HOLDS".
+- **Roles & Access → Permissions marks a HELD toggle (2026-11-03).** `roles-components/held-toggles.ts` runs the shared `rebuildRolePermissions` + `privilegeTogglesFromPermissions` (the server's own rule, never a copy) on the tab's toggles, the role's stored sidebar items and its stored permissions (`permissionsHeld`, sent by the GET to ROLE_MANAGE only). A toggle OFF but held renders checked and disabled with "Held by …", which also names a permission granted outside the tab. Rules: `docs/feature-notes.md`, under "Roles & Access → PERMISSIONS shows what the role HOLDS".
 ## A panel's controls sit in the CARD HEADER, beside the title (2026-09-01)
 
 Operator: *"give titles and filters in same line … dont give in seperate lines,

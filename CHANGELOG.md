@@ -29,6 +29,14 @@ Report, View Reports, View Settings, and Edit Settings (Edit Instruments' `INSTR
   (the server's toggles after the save equal the tab's prediction). `config.service.test.ts`'s
   sidebar case now reads the real tree (USER_READ); its USER_CREATE came from a stand-in map.
   Mutation-checked seven ways.
+- **Follow-up, same day: a holder granted outside the tab is named.** `GET /api/config/roles/:role`
+  returns `permissionsHeld` (the role's raw `roles.permissions`, declared in the response schema).
+  It goes only to a ROLE_MANAGE caller: raw role arrays are ROLE_MANAGE's on `GET /api/roles`, and
+  this GET needs only CONFIG_READ. The tab passes it to the shared rebuild as `currentPermissions`,
+  so its view equals the server's exactly. A toggle held by a permission no toggle maps is captioned
+  "Held by a permission granted outside this tab: DASHBOARD_MANAGE". A toggle's own grant is never
+  named so: ALARM_RULE_MANAGE holds View Alarm Webhooks only through its Manage toggle, because the
+  save rebuilds it. Mutation-checked four more ways, including the schema line.
 - No count moved. **Built, not pushed, not deployed.**
 
 ## [Unreleased] - Feature: TCP/IP register map — a key is tested before it is added (2026-11-03)

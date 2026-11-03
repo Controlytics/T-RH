@@ -147,6 +147,17 @@ describe('configService', () => {
 
       const result = await configService.getRoleConfig('ADMIN');
       expect(result).toMatchObject({ role: 'ADMIN', sidebarItems: ['users'], homeWidgets: ['w'] });
+      // The raw array only when asked for (the route asks for a ROLE_MANAGE caller).
+      expect(result).not.toHaveProperty('permissionsHeld');
+    });
+
+    it('includeHeld adds the role\'s raw permission array as permissionsHeld', async () => {
+      mockConfigRepo.findRoleConfig.mockResolvedValue(null);
+      mockPrisma.role.findUnique.mockResolvedValue({ permissions: ['DASHBOARD_MANAGE', 'USER_READ'] });
+
+      const result = await configService.getRoleConfig('QA', { includeHeld: true });
+      expect(result.permissionsHeld).toEqual(['DASHBOARD_MANAGE', 'USER_READ']);
+      expect(result.permissions['dashboard.view']).toBe(true);
     });
 
     it('a role holding only INSTRUMENT_READ shows View ON and Create / Edit / Delete OFF', async () => {
