@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
 
 /**
@@ -112,6 +112,20 @@ const importSix = async () => {
   });
   await waitFor(() => expect(screen.getAllByRole('textbox', { name: /^Key, row \d+$/ })).toHaveLength(6));
 };
+/**
+ * "+ Add key", the draft filled in (FLOAT32, ABCD), its own Test, and Add once
+ * the answer brought a value (2026-11-03) — the mock's test answer must name one.
+ */
+const addTestedKey = async (key: string, register: string) => {
+  const mapSection = within(screen.getByRole('region', { name: 'Register map' }));
+  fireEvent.click(mapSection.getByRole('button', { name: '+ Add key' }));
+  typeInto('Key, new key', key);
+  typeInto('Register, new key', register);
+  fireEvent.change(screen.getByRole('combobox', { name: 'Byte order, new key' }), { target: { value: 'ABCD' } });
+  fireEvent.click(mapSection.getByRole('button', { name: 'Test new key' }));
+  await waitFor(() => expect(mapSection.getByRole('button', { name: 'Add' })).toBeEnabled());
+  fireEvent.click(mapSection.getByRole('button', { name: 'Add' }));
+};
 const create = () => fireEvent.click(screen.getByRole('button', { name: /create instrument/i }));
 const createCalls = () => post.mock.calls.filter(([url]) => url === '/api/instruments');
 
@@ -169,15 +183,11 @@ describe('New Instrument — Judged as is the Test-connection response', () => {
       })
       : Promise.resolve(CREATED_TCPIP));
     renderAt('/instruments/new?profileId=t-1');
-    fireEvent.click(screen.getByRole('button', { name: '+ Add key' }));
-    typeInto('Key, row 1', 'Temperature');
-    typeInto('Register, row 1', '40001');
-    fireEvent.change(screen.getByRole('combobox', { name: 'Byte order, row 1' }), { target: { value: 'ABCD' } });
+    // A key is tested before it is added (2026-11-03), so the address comes first.
     typeInto(/ip address/i, '192.168.1.24');
-    fireEvent.click(screen.getByRole('button', { name: '+ Add key' }));
-    typeInto('Key, row 2', 'Pressure');
-    typeInto('Register, row 2', '40003');
-    fireEvent.change(screen.getByRole('combobox', { name: 'Byte order, row 2' }), { target: { value: 'ABCD' } });
+    await addTestedKey('Temperature', '40001');
+    await addTestedKey('Pressure', '40003');
+    expect(screen.getAllByRole('textbox', { name: /^Key, row \d+$/ }).map((i) => (i as HTMLInputElement).value)).toEqual(['Temperature', 'Pressure']);
     expect(screen.queryByTestId('map-judged-0')).not.toBeInTheDocument();
     expect(screen.queryByTestId('map-judged-1')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Test connection' }));
@@ -217,6 +227,26 @@ describe('New Instrument — Judged as is the Test-connection response', () => {
     fireEvent.change(slaveId(), { target: { value: '' } });
     expect(screen.getByRole('button', { name: 'Test key, row 1' })).toHaveAttribute('title', 'Set a Slave ID from 0 to 255 to test.');
     expect(screen.getByRole('button', { name: 'Test key, row 1' })).toBeDisabled();
+  });
+
+  it('a new key is tested before it is added: no address, no Test and no Add; a READING_OFF answer adds nothing', async () => {
+    const message = 'Reading devices from this server is off (Configuration → TCP/IP Reading).';
+    post.mockImplementation((url: string) => url === '/api/instruments/modbus/test'
+      ? Promise.resolve({ ok: false, code: 'READING_OFF', message })
+      : Promise.resolve(CREATED_TCPIP));
+    renderAt('/instruments/new?profileId=t-1');
+    const mapSection = within(screen.getByRole('region', { name: 'Register map' }));
+    fireEvent.click(mapSection.getByRole('button', { name: '+ Add key' }));
+    typeInto('Key, new key', 'Pressure');
+    typeInto('Register, new key', '40005');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Byte order, new key' }), { target: { value: 'ABCD' } });
+    expect(mapSection.getByRole('button', { name: 'Test new key' })).toHaveAttribute('title', 'Set the IP address to test.');
+    expect(mapSection.getByRole('button', { name: 'Add' })).toBeDisabled();
+    typeInto(/ip address/i, '192.168.1.24');
+    fireEvent.click(mapSection.getByRole('button', { name: 'Test new key' }));
+    expect(await screen.findByTestId('map-test-draft')).toHaveTextContent(message);
+    expect(mapSection.getByRole('button', { name: 'Add' })).toBeDisabled();
+    expect(screen.queryAllByRole('textbox', { name: /^Key, row \d+$/ })).toHaveLength(0);
   });
 
   it('a READING_OFF answer prints its sentence', async () => {
@@ -374,10 +404,14 @@ describe('New Instrument — Create for a TCP/IP profile', () => {
   });
 
   it('a register map the shared schema refuses is not posted', async () => {
+    // "+ Add key" no longer puts a blank row in the map (2026-11-03): a key
+    // emptied after it was added is the invalid map now.
     renderAt('/instruments/new?profileId=t-1');
     typeInto(/instrument id/i, 'P-5');
     typeInto(/ip address/i, '192.168.1.24');
-    fireEvent.click(screen.getByRole('button', { name: '+ Add key' }));
+    await importSix();
+    typeInto('Key, row 1', '');
+    expect(screen.getByTestId('map-errors-0')).toHaveTextContent('Key is required');
     create();
     expect(await screen.findByText(/The register map has errors/)).toBeInTheDocument();
     expect(createCalls()).toHaveLength(0);

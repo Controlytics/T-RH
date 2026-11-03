@@ -70,6 +70,23 @@ const STICKY = 'sticky right-0 shadow-[-8px_0_8px_-8px_rgba(15,23,42,0.18)]';
 const NO_TYPE = '' as ModbusDataType;
 const isDataType = (t: string): t is ModbusDataType => (MODBUS_DATA_TYPES as readonly string[]).includes(t);
 
+/** What "+ Add key" opens: FLOAT32 (Quantity 2), its byte order left for the operator to choose. */
+const NEW_ROW: ModbusRegister = { key: '', register: '', dataType: 'FLOAT32', scale: 1 };
+
+const TEST_TITLE = 'Read this key from the device now — nothing is stored.';
+const FIX_ROW = 'Fix this row first — see the message under it.';
+const ADD_UNTESTED = 'Test the key first — Add is enabled once a value comes back.';
+const ADD_READY = 'Add this key to the register map.';
+const NO_TEST_HERE = 'Test is not available here — the key is added untested.';
+const MAP_FULL = `The register map already holds ${MODBUS_MAX_KEYS} keys, the most it can.`;
+
+/**
+ * The key being added (2026-11-03): typed and tested in its own row under the
+ * map, and in NO map — not `value`, not saved, not sent by Test connection —
+ * until Add. `quantity` / `scaleText` are the rows' per-row UI state, for it.
+ */
+interface Draft { row: ModbusRegister; quantity?: 1 | 2; scaleText?: string }
+
 /**
  * The register map of a TCP/IP (Modbus) instrument (spec §6, §12, §18 CR-1):
  * one row per key this server reads from the device — Key, Register (and under
@@ -94,6 +111,18 @@ const isDataType = (t: string): t is ModbusDataType => (MODBUS_DATA_TYPES as rea
  * `POST /api/instruments/modbus/test` with a ONE-key map, its answer printed on
  * a line under the row (Ruling CR1-5 — it does not write Judged as). The answer
  * is dropped when the row or the target changes, the panel's signature rule.
+ *
+ * **A key is TESTED before it is ADDED (2026-11-03, operator: "when key was
+ * adding at that time give a test option before adding the key; once test is
+ * completed value was coming then user will add that key").** "+ Add key"
+ * opens ONE draft row under the map — the same six inputs, validated as the
+ * map's next row so a duplicate key is named — with Test, Add and Cancel. Add
+ * is enabled only once the draft's own Test brought a VALUE back (`ok` with a
+ * value; a refusal, a failure or "Not readable" is not one), for the draft and
+ * target as they stand; the answer follows the key onto its new row. With no
+ * `testTarget` there is no test to wait for: Add takes a valid draft and says
+ * the key goes in untested. The draft is local state: Cancel, leaving edit
+ * (`readOnly`) and unmounting all discard it.
  *
  * Shared by New Instrument and the instrument page (`readOnly` there until a
  * super admin edits), so nothing page-specific lives here.
@@ -125,64 +154,94 @@ export function RegisterMapEditor({
   const [copyOpen, setCopyOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const issues = readOnly ? { rows: new Map<number, string[]>(), map: [] as string[] } : mapIssues(value);
+  const [draft, setDraft] = useState<Draft | null>(null);
+  /** The draft's Test answer, with the request it was read with. */
+  const [draftAnswer, setDraftAnswer] = useState<{ signature: string; outcome: TestOutcome } | null>(null);
+  const [draftTesting, setDraftTesting] = useState(false);
+  /** Bumped whenever a draft opens or closes: an answer for a draft that has gone is dropped. */
+  const draftGen = useRef(0);
+  /**
+   * The draft's answer, handed to the row Add appended. That row's key exists
+   * only on the next render, so the signature effect below adopts it there —
+   * once, and only if the row at that index is still the request it answers.
+   */
+  const carry = useRef<{ index: number; signature: string; outcome: TestOutcome } | null>(null);
 
-  const quantityOf = (row: ModbusRegister, rk: string): 1 | 2 =>
-    isDataType(row.dataType) ? registersFor(row.dataType) : (quantity[rk] ?? 2);
+  const issues = readOnly ? { rows: new Map<number, string[]>(), map: [] as string[] } : mapIssues(value);
 
   /** What a per-key Test of this row would send, serialised — its answer's signature. */
   const signatureOf = (row: ModbusRegister): string => (testTarget ? JSON.stringify(testBody(testTarget, [row])) : '');
   const signatures = value.map((row, i) => [rowKeys.at(i), signatureOf(row)] as const);
   const live = useRef(new Map<string, string>());
   live.current = new Map(signatures);
+  const liveOrder = useRef<string[]>([]);
+  liveOrder.current = signatures.map(([k]) => k);
   const signaturesKey = JSON.stringify(signatures);
   // A row (or the target) changed under its answer, or the row went: drop it.
+  // And a key just added from the draft takes the draft's answer with it.
   useEffect(() => {
+    const handed = carry.current;
+    carry.current = null;
     setAnswers((prev) => {
-      let dropped = false;
+      let changed = false;
       const next: typeof prev = {};
       for (const [k, a] of Object.entries(prev)) {
         if (live.current.get(k) === a.signature) next[k] = a;
-        else dropped = true;
+        else changed = true;
       }
-      return dropped ? next : prev;
+      const rk = handed ? liveOrder.current[handed.index] : undefined;
+      if (handed && rk !== undefined && live.current.get(rk) === handed.signature) {
+        next[rk] = { signature: handed.signature, outcome: handed.outcome };
+        changed = true;
+      }
+      return changed ? next : prev;
     });
   }, [signaturesKey]);
+
+  /** What a Test of the draft would send, serialised; null with no draft or no target. */
+  const draftSig = draft && testTarget ? JSON.stringify(testBody(testTarget, [draft.row])) : null;
+  const draftLive = useRef<string | null>(null);
+  draftLive.current = draftSig;
+  // The rows' rule, for the draft: the draft (or the target) changed under its
+  // answer, or the draft went — DROP the answer, so putting the draft back as
+  // it was does not bring it (or Add) back.
+  useEffect(() => {
+    setDraftAnswer((a) => (a && a.signature !== draftSig ? null : a));
+  }, [draftSig]);
+
+  const closeDraft = () => {
+    draftGen.current += 1;
+    setDraft(null);
+    setDraftAnswer(null);
+    setDraftTesting(false);
+  };
+  // Leaving edit discards the draft: the instrument page keeps this editor
+  // mounted between its read and edit views, so it would come back otherwise.
+  useEffect(() => {
+    if (readOnly) closeDraft();
+  }, [readOnly]);
 
   const setRow = (i: number, next: ModbusRegister) => onChange(value.map((r, j) => (j === i ? next : r)));
 
   const setDataType = (i: number, dataType: ModbusDataType) => {
-    const { byteOrder, ...rest } = value[i]!;
     const rk = rowKeys.at(i);
     setQuantity(({ [rk]: _gone, ...others }) => others);
-    // A 16-bit type has no byte order (the schema refuses one). A 32-bit type
-    // keeps the order the row had and is otherwise left for the operator to
-    // CHOOSE: a wrong byte order reads a believable wrong number, never an
-    // error, so the form does not pick one for them.
-    setRow(i, registersFor(dataType) === 2 && byteOrder ? { ...rest, dataType, byteOrder } : { ...rest, dataType });
+    setRow(i, withDataType(value[i]!, dataType));
   };
 
   /** Quantity → the other value clears the type (Ruling CR1-1); one register drops the byte order. */
   const setRowQuantity = (i: number, q: 1 | 2) => {
     const row = value[i]!;
     const rk = rowKeys.at(i);
-    if (q === quantityOf(row, rk)) return;
+    if (q === quantityFor(row, quantity[rk])) return;
     setQuantity((m) => ({ ...m, [rk]: q }));
-    const { byteOrder, ...rest } = row;
-    setRow(i, q === 2 && byteOrder ? { ...rest, dataType: NO_TYPE, byteOrder } : { ...rest, dataType: NO_TYPE });
-  };
-
-  const setByteOrder = (i: number, raw: string) => {
-    const { byteOrder: _old, ...rest } = value[i]!;
-    setRow(i, raw ? { ...rest, byteOrder: raw as ModbusByteOrder } : rest);
+    setRow(i, withQuantity(row, q));
   };
 
   const setScale = (i: number, raw: string) => {
     setScaleText((t) => ({ ...t, [rowKeys.at(i)]: raw }));
     setRow(i, { ...value[i]!, scale: parseScale(raw) });
   };
-
-  const addRow = () => onChange([...value, { key: '', register: '', dataType: 'FLOAT32', scale: 1 }]);
 
   const removeRow = (i: number) => {
     const rk = rowKeys.at(i);
@@ -213,6 +272,29 @@ export function RegisterMapEditor({
     // Answered for a row (or target) that has since changed: it describes nothing on screen.
     if (live.current.get(rk) !== sent) return;
     setAnswers((a) => ({ ...a, [rk]: { signature: sent, outcome } }));
+  };
+
+  const openDraft = () => {
+    if (draft || value.length >= MODBUS_MAX_KEYS) return;
+    draftGen.current += 1;
+    setDraftAnswer(null);
+    setDraftTesting(false);
+    setDraft({ row: NEW_ROW });
+  };
+  const editDraft = (next: (d: Draft) => Draft) => setDraft((d) => (d ? next(d) : d));
+
+  const testDraft = async () => {
+    if (!testTarget || !draft || draftSig === null) return;
+    const gen = draftGen.current;
+    const sent = draftSig;
+    setDraftTesting(true);
+    const outcome = await runModbusTest(testBody(testTarget, [draft.row]));
+    // The draft was added, cancelled or left meanwhile: nothing on screen asked.
+    if (draftGen.current !== gen) return;
+    setDraftTesting(false);
+    // Answered for a draft (or target) that has since changed.
+    if (draftLive.current !== sent) return;
+    setDraftAnswer({ signature: sent, outcome });
   };
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -250,6 +332,28 @@ export function RegisterMapEditor({
   const headings = ['Key', 'Register', 'Quantity', 'Data type', 'Byte order', 'Scale', ...(readOnly ? ['Judged as'] : [])];
   const columns = headings.length + (actions ? 1 : 0);
 
+  // The draft, judged as the map's NEXT row: a key or register another row
+  // already has is named under it, in the schema's words.
+  const shownDraft = readOnly ? null : draft;
+  const draftIssues = shownDraft ? (mapIssues([...value, shownDraft.row]).rows.get(value.length) ?? []) : [];
+  const draftOutcome = draftAnswer && draftAnswer.signature === draftSig ? draftAnswer.outcome : null;
+  // A VALUE came back: an `ok` answer naming one. A refusal, a failure and a
+  // "Not readable" key are answers too, and none of them is a value.
+  const valueBack = draftOutcome !== null && isAnswered(draftOutcome) && draftOutcome.values.length > 0;
+  const draftTestBlocked = targetBlocked ?? (draftIssues.length > 0 ? FIX_ROW : null);
+  const addBlocked = value.length >= MODBUS_MAX_KEYS ? MAP_FULL
+    : draftIssues.length > 0 ? FIX_ROW
+      : testTarget && !valueBack ? ADD_UNTESTED
+        : null;
+
+  const addDraft = () => {
+    if (!shownDraft || addBlocked !== null) return;
+    if (draftSig !== null && draftOutcome) carry.current = { index: value.length, signature: draftSig, outcome: draftOutcome };
+    const row = shownDraft.row;
+    closeDraft();
+    onChange([...value, row]);
+  };
+
   return (
     <div className="space-y-3">
       {!readOnly && (
@@ -271,7 +375,7 @@ export function RegisterMapEditor({
             tabIndex={-1}
             onChange={onFile}
           />
-          <Button type="button" size="sm" onClick={addRow} disabled={value.length >= MODBUS_MAX_KEYS}>
+          <Button type="button" size="sm" onClick={openDraft} disabled={draft !== null || value.length >= MODBUS_MAX_KEYS}>
             + Add key
           </Button>
         </div>
@@ -298,107 +402,31 @@ export function RegisterMapEditor({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {value.length === 0 && <TableEmpty colSpan={columns} title="No keys" />}
+          {value.length === 0 && !shownDraft && <TableEmpty colSpan={columns} title="No keys" />}
           {value.map((row, i) => {
             const n = i + 1;
             const rk = rowKeys.at(i);
-            const q = quantityOf(row, rk);
-            const typed = isDataType(row.dataType);
+            const q = quantityFor(row, quantity[rk]);
             const rowIssues = issues.rows.get(i);
-            const scaleTyped = scaleText[rk];
-            const scaleShown = scaleTyped !== undefined && sameNumber(parseScale(scaleTyped), row.scale) ? scaleTyped : scaleToText(row.scale);
-            const reads = readsOf(row.register, typed ? row.dataType : MODBUS_QUANTITY_TYPES[q][0]!);
             const answer = answers[rk];
             const shown = answer && answer.signature === signatureOf(row) ? answer.outcome : null;
-            const judgedCaption = readOnly ? null : judgedWord(judgedOf(judged, row.key) ?? null);
             const testBlocked = targetBlocked
-              ?? (rowIssues && rowIssues.length > 0 ? 'Fix this row first — see the message under it.' : null);
+              ?? (rowIssues && rowIssues.length > 0 ? FIX_ROW : null);
             return (
-              <MapRow key={rk} errors={rowIssues} answer={shown} columns={columns} index={i}>
-                <TableCell className={PAD}>
-                  {/* A long key wraps after its underscores rather than widening the table. */}
-                  {readOnly ? <span className="font-medium text-slate-800 break-words">{softBreaks(row.key)}</span> : (
-                    <>
-                      <Input
-                        aria-label={`Key, row ${n}`}
-                        className={W.key}
-                        value={row.key}
-                        onChange={(e) => setRow(i, { ...row, key: e.target.value })}
-                      />
-                      {judgedCaption && (
-                        <span data-testid={`map-judged-${i}`} className={CAPTION}>Judged as {judgedCaption}</span>
-                      )}
-                    </>
-                  )}
-                </TableCell>
-                <TableCell className={PAD}>
-                  {readOnly ? <span className="tabular-nums">{row.register}</span> : (
-                    <Input
-                      aria-label={`Register, row ${n}`}
-                      className={W.register}
-                      inputMode="numeric"
-                      value={row.register}
-                      onChange={(e) => setRow(i, { ...row, register: e.target.value.trim() })}
-                    />
-                  )}
-                  {/* What it reads; may wrap after the "·" so it never widens the column. */}
-                  <span data-testid={`map-reads-${i}`} className={CAPTION}>
-                    {reads ? <>{reads.area} · <span className="whitespace-nowrap tabular-nums">{reads.range}</span></> : '—'}
-                  </span>
-                </TableCell>
-                <TableCell data-testid={`map-quantity-${i}`} className={PAD}>
-                  {readOnly ? <span className="tabular-nums">{q}</span> : (
-                    <Select
-                      aria-label={`Quantity, row ${n}`}
-                      className={W.quantity}
-                      value={String(q)}
-                      onChange={(e) => setRowQuantity(i, e.target.value === '1' ? 1 : 2)}
-                    >
-                      <option value="1">1</option>
-                      <option value="2">2</option>
-                    </Select>
-                  )}
-                </TableCell>
-                <TableCell className={PAD}>
-                  {readOnly ? row.dataType : (
-                    <Select
-                      aria-label={`Data type, row ${n}`}
-                      className={W.dataType}
-                      value={typed ? row.dataType : ''}
-                      onChange={(e) => { if (isDataType(e.target.value)) setDataType(i, e.target.value); }}
-                    >
-                      {!typed && <option value="">Choose…</option>}
-                      {MODBUS_QUANTITY_TYPES[q].map((t) => <option key={t} value={t}>{t}</option>)}
-                    </Select>
-                  )}
-                </TableCell>
-                <TableCell data-testid={`map-byte-order-${i}`} className={cn(PAD, 'whitespace-nowrap')}>
-                  {q === 1 ? <span className="text-slate-400">—</span> : readOnly ? (row.byteOrder ? MODBUS_BYTE_ORDER_LABELS[row.byteOrder] : '—') : (
-                    <Select
-                      aria-label={`Byte order, row ${n}`}
-                      className={W.byteOrder}
-                      value={row.byteOrder ?? ''}
-                      onChange={(e) => setByteOrder(i, e.target.value)}
-                    >
-                      <option value="">Choose…</option>
-                      {MODBUS_BYTE_ORDERS.map((o) => <option key={o} value={o}>{MODBUS_BYTE_ORDER_LABELS[o]}</option>)}
-                    </Select>
-                  )}
-                </TableCell>
-                <TableCell className={PAD}>
-                  {readOnly ? <span className="tabular-nums">× {scaleToText(row.scale)}</span> : (
-                    <Input
-                      aria-label={`Scale, row ${n}`}
-                      className={W.scale}
-                      type="number"
-                      step="any"
-                      value={scaleShown}
-                      onChange={(e) => setScale(i, e.target.value)}
-                    />
-                  )}
-                </TableCell>
-                {readOnly && (
-                  <TableCell data-testid={`map-judged-${i}`} className={cn(PAD, 'whitespace-nowrap')}>{judgedText(judged, row.key)}</TableCell>
+              <MapRow key={rk} errors={rowIssues} answer={shown} columns={columns} id={i}>
+                {readOnly ? <ReadCells index={i} row={row} quantity={q} judged={judged} /> : (
+                  <EditCells
+                    id={i}
+                    label={`row ${n}`}
+                    row={row}
+                    quantity={q}
+                    scaleShown={scaleShownFor(row, scaleText[rk])}
+                    judgedCaption={judgedWord(judgedOf(judged, row.key) ?? null)}
+                    onRow={(next) => setRow(i, next)}
+                    onQuantity={(next) => setRowQuantity(i, next)}
+                    onDataType={(t) => setDataType(i, t)}
+                    onScale={(raw) => setScale(i, raw)}
+                  />
                 )}
                 {actions && (
                   <TableCell className={cn(PAD, STICKY, 'whitespace-nowrap bg-inherit text-right')}>
@@ -409,7 +437,7 @@ export function RegisterMapEditor({
                         <Button
                           type="button" size="icon-sm" variant="ghost"
                           aria-label={`Test key, row ${n}`}
-                          title={testBlocked ?? 'Read this key from the device now — nothing is stored.'}
+                          title={testBlocked ?? TEST_TITLE}
                           disabled={testBlocked !== null}
                           loading={testing[rk] === true}
                           onClick={() => void testRow(i)}
@@ -432,6 +460,72 @@ export function RegisterMapEditor({
               </MapRow>
             );
           })}
+          {shownDraft && (
+            <MapRow
+              key="draft"
+              errors={draftIssues}
+              answer={draftOutcome}
+              columns={columns}
+              id="draft"
+              note={testTarget ? undefined : NO_TEST_HERE}
+            >
+              <EditCells
+                id="draft"
+                label="new key"
+                autoFocus
+                row={shownDraft.row}
+                quantity={quantityFor(shownDraft.row, shownDraft.quantity)}
+                scaleShown={scaleShownFor(shownDraft.row, shownDraft.scaleText)}
+                judgedCaption={null}
+                onRow={(next) => editDraft((d) => ({ ...d, row: next }))}
+                onQuantity={(q) => editDraft((d) => (q === quantityFor(d.row, d.quantity)
+                  ? d
+                  : { ...d, quantity: q, row: withQuantity(d.row, q) }))}
+                onDataType={(t) => editDraft((d) => ({ ...d, quantity: undefined, row: withDataType(d.row, t) }))}
+                onScale={(raw) => editDraft((d) => ({ ...d, scaleText: raw, row: { ...d.row, scale: parseScale(raw) } }))}
+              />
+              {/* Test and Cancel where a row has Test and Remove, Add under
+                  them: the actions column keeps the width the rows give it. */}
+              <TableCell className={cn(PAD, STICKY, 'whitespace-nowrap bg-inherit text-right')}>
+                <div className="inline-flex flex-col items-stretch gap-1">
+                  <div className="flex justify-end">
+                    {testTarget && (
+                      <span title={draftTestBlocked ?? undefined} className="inline-flex">
+                        <Button
+                          type="button" size="icon-sm" variant="ghost"
+                          aria-label="Test new key"
+                          title={draftTestBlocked ?? TEST_TITLE}
+                          disabled={draftTestBlocked !== null}
+                          loading={draftTesting}
+                          onClick={() => void testDraft()}
+                        >
+                          <PlugZap className="h-4 w-4" aria-hidden />
+                        </Button>
+                      </span>
+                    )}
+                    <Button
+                      type="button" size="icon-sm" variant="ghost"
+                      aria-label="Cancel new key"
+                      title="Discard this key — nothing is added."
+                      onClick={closeDraft}
+                    >
+                      <X className="h-4 w-4" aria-hidden />
+                    </Button>
+                  </div>
+                  <span title={addBlocked ?? undefined} className="flex">
+                    <Button
+                      type="button" size="sm" className="w-full"
+                      title={addBlocked ?? ADD_READY}
+                      disabled={addBlocked !== null}
+                      onClick={addDraft}
+                    >
+                      Add
+                    </Button>
+                  </span>
+                </div>
+              </TableCell>
+            </MapRow>
+          )}
         </TableBody>
       </Table>
 
@@ -451,32 +545,179 @@ export function RegisterMapEditor({
 }
 
 /**
- * A row; its per-key Test answer on the line beneath (Ruling CR1-5); and the
- * shared schema's messages for it under that.
+ * One row's six inputs — a map row's or the draft's, so the draft is typed
+ * exactly as a row is. `label` ends every control's name ("Key, row 2",
+ * "Key, new key"); `id` ends the captions' test ids.
+ */
+function EditCells({
+  id, label, row, quantity, scaleShown, judgedCaption, autoFocus, onRow, onQuantity, onDataType, onScale,
+}: {
+  id: number | 'draft';
+  label: string;
+  row: ModbusRegister;
+  quantity: 1 | 2;
+  scaleShown: string;
+  judgedCaption: string | null;
+  autoFocus?: boolean;
+  onRow: (next: ModbusRegister) => void;
+  onQuantity: (q: 1 | 2) => void;
+  onDataType: (t: ModbusDataType) => void;
+  onScale: (raw: string) => void;
+}) {
+  const typed = isDataType(row.dataType);
+  return (
+    <>
+      <TableCell className={PAD}>
+        <Input
+          aria-label={`Key, ${label}`}
+          className={W.key}
+          autoFocus={autoFocus}
+          value={row.key}
+          onChange={(e) => onRow({ ...row, key: e.target.value })}
+        />
+        {judgedCaption && (
+          <span data-testid={`map-judged-${id}`} className={CAPTION}>Judged as {judgedCaption}</span>
+        )}
+      </TableCell>
+      <TableCell className={PAD}>
+        <Input
+          aria-label={`Register, ${label}`}
+          className={W.register}
+          inputMode="numeric"
+          value={row.register}
+          onChange={(e) => onRow({ ...row, register: e.target.value.trim() })}
+        />
+        <ReadsCaption id={id} row={row} quantity={quantity} />
+      </TableCell>
+      <TableCell data-testid={`map-quantity-${id}`} className={PAD}>
+        <Select
+          aria-label={`Quantity, ${label}`}
+          className={W.quantity}
+          value={String(quantity)}
+          onChange={(e) => onQuantity(e.target.value === '1' ? 1 : 2)}
+        >
+          <option value="1">1</option>
+          <option value="2">2</option>
+        </Select>
+      </TableCell>
+      <TableCell className={PAD}>
+        <Select
+          aria-label={`Data type, ${label}`}
+          className={W.dataType}
+          value={typed ? row.dataType : ''}
+          onChange={(e) => { if (isDataType(e.target.value)) onDataType(e.target.value); }}
+        >
+          {!typed && <option value="">Choose…</option>}
+          {MODBUS_QUANTITY_TYPES[quantity].map((t) => <option key={t} value={t}>{t}</option>)}
+        </Select>
+      </TableCell>
+      <TableCell data-testid={`map-byte-order-${id}`} className={cn(PAD, 'whitespace-nowrap')}>
+        {quantity === 1 ? <span className="text-slate-400">—</span> : (
+          <Select
+            aria-label={`Byte order, ${label}`}
+            className={W.byteOrder}
+            value={row.byteOrder ?? ''}
+            onChange={(e) => onRow(withByteOrder(row, e.target.value))}
+          >
+            <option value="">Choose…</option>
+            {MODBUS_BYTE_ORDERS.map((o) => <option key={o} value={o}>{MODBUS_BYTE_ORDER_LABELS[o]}</option>)}
+          </Select>
+        )}
+      </TableCell>
+      <TableCell className={PAD}>
+        <Input
+          aria-label={`Scale, ${label}`}
+          className={W.scale}
+          type="number"
+          step="any"
+          value={scaleShown}
+          onChange={(e) => onScale(e.target.value)}
+        />
+      </TableCell>
+    </>
+  );
+}
+
+/** One row of the read view: the same columns as text, plus Judged as. */
+function ReadCells({
+  index, row, quantity, judged,
+}: {
+  index: number;
+  row: ModbusRegister;
+  quantity: 1 | 2;
+  judged: Record<string, JudgedAs> | undefined;
+}) {
+  return (
+    <>
+      <TableCell className={PAD}>
+        {/* A long key wraps after its underscores rather than widening the table. */}
+        <span className="font-medium text-slate-800 break-words">{softBreaks(row.key)}</span>
+      </TableCell>
+      <TableCell className={PAD}>
+        <span className="tabular-nums">{row.register}</span>
+        <ReadsCaption id={index} row={row} quantity={quantity} />
+      </TableCell>
+      <TableCell data-testid={`map-quantity-${index}`} className={PAD}>
+        <span className="tabular-nums">{quantity}</span>
+      </TableCell>
+      <TableCell className={PAD}>{row.dataType}</TableCell>
+      <TableCell data-testid={`map-byte-order-${index}`} className={cn(PAD, 'whitespace-nowrap')}>
+        {quantity === 1 ? <span className="text-slate-400">—</span> : (row.byteOrder ? MODBUS_BYTE_ORDER_LABELS[row.byteOrder] : '—')}
+      </TableCell>
+      <TableCell className={PAD}>
+        <span className="tabular-nums">× {scaleToText(row.scale)}</span>
+      </TableCell>
+      <TableCell data-testid={`map-judged-${index}`} className={cn(PAD, 'whitespace-nowrap')}>{judgedText(judged, row.key)}</TableCell>
+    </>
+  );
+}
+
+/** Under the Register: what it reads; may wrap after the "·" so it never widens the column. */
+function ReadsCaption({ id, row, quantity }: { id: number | 'draft'; row: ModbusRegister; quantity: 1 | 2 }) {
+  const reads = readsOf(row.register, isDataType(row.dataType) ? row.dataType : MODBUS_QUANTITY_TYPES[quantity][0]!);
+  return (
+    <span data-testid={`map-reads-${id}`} className={CAPTION}>
+      {reads ? <>{reads.area} · <span className="whitespace-nowrap tabular-nums">{reads.range}</span></> : '—'}
+    </span>
+  );
+}
+
+/**
+ * A row (or the draft); its per-key Test answer on the line beneath (Ruling
+ * CR1-5); the shared schema's messages for it under that; and, for the draft,
+ * a note on how it will be added.
  */
 function MapRow({
-  children, errors, answer, columns, index,
+  children, errors, answer, columns, id, note,
 }: {
   children: React.ReactNode;
   errors: string[] | undefined;
   answer: TestOutcome | null;
   columns: number;
-  index: number;
+  id: number | 'draft';
+  note?: string;
 }) {
   return (
     <>
       <TableRow>{children}</TableRow>
       {answer && (
         <tr>
-          <td colSpan={columns} data-testid={`map-test-${index}`} className="bg-slate-50/80 px-4 py-1.5 text-xs">
+          <td colSpan={columns} data-testid={`map-test-${id}`} className="bg-slate-50/80 px-4 py-1.5 text-xs">
             <RowAnswer outcome={answer} />
           </td>
         </tr>
       )}
       {errors && errors.length > 0 && (
         <tr>
-          <td colSpan={columns} data-testid={`map-errors-${index}`} className="bg-rose-50/60 px-4 py-1.5 text-xs text-rose-700">
+          <td colSpan={columns} data-testid={`map-errors-${id}`} className="bg-rose-50/60 px-4 py-1.5 text-xs text-rose-700">
             {errors.join(' · ')}
+          </td>
+        </tr>
+      )}
+      {note && (
+        <tr>
+          <td colSpan={columns} data-testid={`map-note-${id}`} className="px-4 py-1.5 text-right text-xs text-slate-500">
+            {note}
           </td>
         </tr>
       )}
@@ -512,6 +753,39 @@ function RowAnswer({ outcome }: { outcome: TestOutcome }) {
       <span className="text-slate-600"> — {rejected ? rejected.reason : 'the answer named no value for this key.'}</span>
     </span>
   );
+}
+
+/** A row's Quantity: its type's register count, else the Quantity chosen while the type is unset (else 2). */
+function quantityFor(row: ModbusRegister, chosen: 1 | 2 | undefined): 1 | 2 {
+  return isDataType(row.dataType) ? registersFor(row.dataType) : (chosen ?? 2);
+}
+
+/**
+ * Another data type. A 16-bit type has no byte order (the schema refuses one).
+ * A 32-bit type keeps the order the row had and is otherwise left for the
+ * operator to CHOOSE: a wrong byte order reads a believable wrong number, never
+ * an error, so the form does not pick one for them.
+ */
+function withDataType(row: ModbusRegister, dataType: ModbusDataType): ModbusRegister {
+  const { byteOrder, ...rest } = row;
+  return registersFor(dataType) === 2 && byteOrder ? { ...rest, dataType, byteOrder } : { ...rest, dataType };
+}
+
+/** Another Quantity: the type is CLEARED (Ruling CR1-1); one register drops the byte order. */
+function withQuantity(row: ModbusRegister, q: 1 | 2): ModbusRegister {
+  const { byteOrder, ...rest } = row;
+  return q === 2 && byteOrder ? { ...rest, dataType: NO_TYPE, byteOrder } : { ...rest, dataType: NO_TYPE };
+}
+
+/** The byte order chosen; "" (Choose…) leaves none. */
+function withByteOrder(row: ModbusRegister, raw: string): ModbusRegister {
+  const { byteOrder: _old, ...rest } = row;
+  return raw ? { ...rest, byteOrder: raw as ModbusByteOrder } : rest;
+}
+
+/** The Scale as typed while it still parses to the stored number, else the number. */
+function scaleShownFor(row: ModbusRegister, typed: string | undefined): string {
+  return typed !== undefined && sameNumber(parseScale(typed), row.scale) ? typed : scaleToText(row.scale);
 }
 
 /** The schema's issues, by row index; map-level issues (e.g. too many keys) apart. */

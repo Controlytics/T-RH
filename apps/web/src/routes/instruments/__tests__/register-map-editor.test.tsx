@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useState } from 'react';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
-import type { ModbusRegisterMap } from '@digilog/shared';
+import { MODBUS_MAX_KEYS, type ModbusRegisterMap } from '@digilog/shared';
 
 /**
  * The register map of a TCP/IP (Modbus) instrument (2026-10-31): the keys this
@@ -92,6 +92,17 @@ const keyInputs = () => screen.queryAllByRole('textbox', { name: /^Key, row \d+$
 const select = (name: string) => screen.getByRole('combobox', { name }) as HTMLSelectElement;
 const optionTexts = (name: string) => Array.from(select(name).options).map((o) => o.textContent);
 const shownText = (name: string) => select(name).selectedOptions[0]?.textContent;
+
+/** The draft row a "+ Add key" opens (2026-11-03): typed and tested, in no map until Add. */
+const openDraft = () => fireEvent.click(screen.getByRole('button', { name: '+ Add key' }));
+const addButton = () => screen.getByRole('button', { name: 'Add' }) as HTMLButtonElement;
+const draftTest = () => screen.getByRole('button', { name: 'Test new key' }) as HTMLButtonElement;
+/** A whole FLOAT32 key: key, register and the byte order a two-register type needs. */
+const fillDraft = (key: string, register: string) => {
+  fireEvent.change(screen.getByRole('textbox', { name: 'Key, new key' }), { target: { value: key } });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Register, new key' }), { target: { value: register } });
+  fireEvent.change(screen.getByRole('combobox', { name: 'Byte order, new key' }), { target: { value: 'ABCD' } });
+};
 
 beforeEach(() => {
   changes.length = 0;
@@ -202,11 +213,14 @@ describe('RegisterMapEditor — the rows', () => {
     expect(scale.value).toBe('0.25');
   });
 
-  it('+ Add key appends a row; Remove takes one out', () => {
+  it('a key added from the draft is a row like any other; Remove takes one out', () => {
+    // No test target here, so Add takes a valid draft untested (2026-11-03).
     render(<Harness initial={[ROW_T]} />);
-    fireEvent.click(screen.getByRole('button', { name: '+ Add key' }));
+    openDraft();
+    expect(keyInputs()).toHaveLength(1);
+    fillDraft('Pressure', '40005');
+    fireEvent.click(addButton());
     expect(keyInputs()).toHaveLength(2);
-    fireEvent.change(screen.getByRole('textbox', { name: 'Key, row 2' }), { target: { value: 'Pressure' } });
     fireEvent.click(screen.getByRole('button', { name: 'Remove row 1' }));
     expect(keyInputs().map((i) => i.value)).toEqual(['Pressure']);
   });
@@ -221,13 +235,25 @@ describe('RegisterMapEditor — Quantity (CR-1, Ruling CR1-1)', () => {
     expect(optionTexts('Data type, row 2')).toEqual(['UINT16', 'INT16']);
   });
 
-  it('a new row is FLOAT32 — Quantity 2 — with its byte order left to choose', () => {
+  it('a new key\'s draft is FLOAT32 — Quantity 2 — with its byte order left to choose', () => {
     render(<Harness />);
-    fireEvent.click(screen.getByRole('button', { name: '+ Add key' }));
-    expect(select('Quantity, row 1')).toHaveValue('2');
-    expect(select('Data type, row 1')).toHaveValue('FLOAT32');
-    expect(select('Byte order, row 1')).toHaveValue('');
-    expect(changes.at(-1)![0]).toEqual({ key: '', register: '', dataType: 'FLOAT32', scale: 1 });
+    openDraft();
+    expect(select('Quantity, new key')).toHaveValue('2');
+    expect(select('Data type, new key')).toHaveValue('FLOAT32');
+    expect(select('Byte order, new key')).toHaveValue('');
+    expect(changes).toHaveLength(0);
+  });
+
+  it('the draft\'s Quantity follows the rows\' rule: changing it clears the type, choosing one makes it whole', () => {
+    render(<Harness />);
+    openDraft();
+    fireEvent.change(select('Quantity, new key'), { target: { value: '1' } });
+    expect(select('Data type, new key')).toHaveValue('');
+    expect(optionTexts('Data type, new key')).toEqual(['Choose…', 'UINT16', 'INT16']);
+    expect(screen.queryByRole('combobox', { name: 'Byte order, new key' })).not.toBeInTheDocument();
+    fireEvent.change(select('Data type, new key'), { target: { value: 'INT16' } });
+    expect(select('Quantity, new key')).toHaveValue('1');
+    expect(changes).toHaveLength(0);
   });
 
   it('changing Quantity 2 → 1 CLEARS the data type and drops the byte order: "Choose…", the schema\'s message, nothing guessed', () => {
@@ -449,6 +475,275 @@ describe('RegisterMapEditor — per-key Test (CR-1, Rulings CR1-2 / CR1-5)', () 
     expect(screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Test key, row 1', 'Test key, row 2']);
     testKey(1);
     expect(await screen.findByTestId('map-test-0')).toHaveTextContent('Read now: 22.4');
+  });
+});
+
+describe('RegisterMapEditor — a key is tested before it is added (2026-11-03)', () => {
+  // Operator: "when key was adding at that time give a test option before
+  // adding the key; once test is completed value was coming then user will
+  // add that key". "+ Add key" opens a DRAFT row (in no map); Add is enabled
+  // once the draft's own Test brought a value back.
+  const PRESSURE: ModbusRegisterMap[number] = { key: 'Pressure', register: '40005', dataType: 'FLOAT32', byteOrder: 'ABCD', scale: 1 };
+  const VALUE = (value: unknown) => ({ ok: true, elapsedMs: 11, requests: 1, values: [{ key: 'Pressure', value, judgedAs: null }], rejected: [] });
+  const UNTESTED = 'Test the key first — Add is enabled once a value comes back.';
+  const draftKey = () => screen.queryByRole('textbox', { name: 'Key, new key' }) as HTMLInputElement | null;
+  /** N one-register keys, 40001 on, no two overlapping. */
+  const KEYS = (n: number): ModbusRegisterMap =>
+    Array.from({ length: n }, (_, i) => ({ key: `K${i + 1}`, register: String(40001 + i), dataType: 'UINT16', scale: 1 }));
+  const testDraftOk = async (value = 101.3) => {
+    post.mockResolvedValue(VALUE(value));
+    fireEvent.click(draftTest());
+    expect(await screen.findByTestId('map-test-draft')).toHaveTextContent(`Read now: ${value}`);
+  };
+
+  it('+ Add key opens ONE draft row under the map — the map is untouched (no onChange)', () => {
+    render(<Harness initial={[ROW_T]} testTarget={TARGET} />);
+    openDraft();
+    expect(changes).toHaveLength(0);
+    expect(keyInputs()).toHaveLength(1);
+    expect(draftKey()).toHaveValue('');
+    expect(draftKey()).toHaveFocus();
+    // One draft at a time.
+    expect(screen.getByRole('button', { name: '+ Add key' })).toBeDisabled();
+    // The draft's Test, Add and Cancel; the map's row keeps its Test and Remove.
+    expect(draftTest()).toBeInTheDocument();
+    expect(addButton()).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel new key' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Test key, row 1' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove row 1' })).toBeInTheDocument();
+  });
+
+  it('on an empty map the draft stands where "No keys" was', () => {
+    render(<Harness testTarget={TARGET} />);
+    expect(screen.getByText('No keys')).toBeInTheDocument();
+    openDraft();
+    expect(screen.queryByText('No keys')).not.toBeInTheDocument();
+  });
+
+  it('Add is disabled before any test; Test waits for a valid draft, the schema\'s message under it', () => {
+    render(<Harness initial={[ROW_T]} testTarget={TARGET} />);
+    openDraft();
+    expect(screen.getByTestId('map-errors-draft')).toHaveTextContent('Key is required');
+    expect(draftTest()).toBeDisabled();
+    expect(draftTest()).toHaveAttribute('title', 'Fix this row first — see the message under it.');
+    expect(addButton()).toBeDisabled();
+    fillDraft('Pressure', '40005');
+    expect(screen.queryByTestId('map-errors-draft')).not.toBeInTheDocument();
+    expect(draftTest()).toBeEnabled();
+    expect(draftTest()).toHaveAttribute('title', 'Read this key from the device now — nothing is stored.');
+    // Valid is not enough: nothing has been read yet.
+    expect(addButton()).toBeDisabled();
+    expect(addButton()).toHaveAttribute('title', UNTESTED);
+    expect(addButton().parentElement).toHaveAttribute('title', UNTESTED);
+    // A target to test against: no "added untested" note.
+    expect(screen.queryByTestId('map-note-draft')).not.toBeInTheDocument();
+  });
+
+  it('Test waits for the target too, saying what is missing', () => {
+    render(<Harness initial={[ROW_T]} testTarget={{ ...TARGET, host: '' }} />);
+    openDraft();
+    fillDraft('Pressure', '40005');
+    expect(draftTest()).toBeDisabled();
+    expect(draftTest()).toHaveAttribute('title', 'Set the IP address to test.');
+    expect(addButton()).toBeDisabled();
+  });
+
+  it('a value came back: Add appends the draft to the map, and the value stays under the new row', async () => {
+    render(<Harness initial={[ROW_T]} testTarget={{ ...TARGET, instrumentId: 'i-9' }} />);
+    openDraft();
+    fillDraft('Pressure', '40005');
+    await testDraftOk(101.3);
+    // The same route as a row's Test, with the DRAFT as the one-key map.
+    expect(post).toHaveBeenCalledWith('/api/instruments/modbus/test', {
+      profileId: 't-1', modbusHost: '192.168.1.24', modbusPort: 502, modbusUnitId: 7,
+      modbusRegisters: [PRESSURE], instrumentId: 'i-9',
+    });
+    expect(changes).toHaveLength(0);
+    expect(addButton()).toBeEnabled();
+    expect(addButton()).toHaveAttribute('title', 'Add this key to the register map.');
+    fireEvent.click(addButton());
+    expect(changes).toEqual([[ROW_T, PRESSURE]]);
+    expect(keyInputs().map((i) => i.value)).toEqual(['Temperature', 'Pressure']);
+    expect(screen.getByTestId('map-test-1')).toHaveTextContent('Read now: 101.3');
+    expect(screen.queryByTestId('map-test-0')).not.toBeInTheDocument();
+    // The draft is gone, and another can be opened.
+    expect(draftKey()).toBeNull();
+    expect(screen.queryByTestId('map-test-draft')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '+ Add key' })).toBeEnabled();
+    // Add read nothing again.
+    expect(post).toHaveBeenCalledTimes(1);
+    // From here it is a row like any other: change it and its answer goes.
+    fireEvent.change(select('Byte order, row 2'), { target: { value: 'DCBA' } });
+    expect(screen.queryByTestId('map-test-1')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['a refused request (400)', 'Not allowed', () => post.mockRejectedValue(Object.assign(
+      new Error('192.168.1.24 is outside the device networks this server may read.'), { status: 400, code: 'ADDRESS_NOT_ALLOWED' }))],
+    ['a device that did not answer', 'No answer', () => post.mockResolvedValue(
+      { ok: false, code: 'NO_ANSWER', message: '192.168.1.24 : 502 did not answer within 3 s.' })],
+    ['reading switched off on this server', 'Reading off', () => post.mockResolvedValue(
+      { ok: false, code: 'READING_OFF', message: 'Reading devices from this server is off.' })],
+    ['an answer with no value ("Not readable")', 'Not readable', () => post.mockResolvedValue(
+      { ok: true, elapsedMs: 9, requests: 1, values: [], rejected: [{ key: 'Pressure', reason: 'Pressure decoded to NaN from 7FC0 0000' }] })],
+  ])('%s: the answer is printed under the draft and Add stays disabled', async (_name, word, arrange) => {
+    arrange();
+    render(<Harness initial={[ROW_T]} testTarget={TARGET} />);
+    openDraft();
+    fillDraft('Pressure', '40005');
+    fireEvent.click(draftTest());
+    expect(await screen.findByTestId('map-test-draft')).toHaveTextContent(word);
+    expect(addButton()).toBeDisabled();
+    expect(addButton()).toHaveAttribute('title', UNTESTED);
+  });
+
+  it('editing the draft after a test drops the answer and disables Add — putting it back brings neither back', async () => {
+    render(<Harness testTarget={TARGET} />);
+    openDraft();
+    fillDraft('Pressure', '40005');
+    await testDraftOk();
+    expect(addButton()).toBeEnabled();
+    const scale = screen.getByRole('spinbutton', { name: 'Scale, new key' });
+    fireEvent.change(scale, { target: { value: '2' } });
+    expect(screen.queryByTestId('map-test-draft')).not.toBeInTheDocument();
+    expect(addButton()).toBeDisabled();
+    fireEvent.change(scale, { target: { value: '1' } });
+    expect(screen.queryByTestId('map-test-draft')).not.toBeInTheDocument();
+    expect(addButton()).toBeDisabled();
+  });
+
+  it('another target (Slave ID) drops the draft\'s answer and disables Add — the old target back brings neither back', async () => {
+    const { rerender } = render(<Harness testTarget={TARGET} />);
+    openDraft();
+    fillDraft('Pressure', '40005');
+    await testDraftOk();
+    rerender(<Harness testTarget={{ ...TARGET, unitId: 8 }} />);
+    expect(screen.queryByTestId('map-test-draft')).not.toBeInTheDocument();
+    expect(addButton()).toBeDisabled();
+    rerender(<Harness testTarget={TARGET} />);
+    expect(screen.queryByTestId('map-test-draft')).not.toBeInTheDocument();
+    expect(addButton()).toBeDisabled();
+  });
+
+  it('an answer that arrives after the draft changed is dropped — putting the draft back does not bring it (or Add) back', async () => {
+    let resolve!: (v: unknown) => void;
+    post.mockReturnValue(new Promise((r) => { resolve = r; }));
+    render(<Harness testTarget={TARGET} />);
+    openDraft();
+    fillDraft('Pressure', '40005');
+    fireEvent.click(draftTest());
+    fireEvent.change(draftKey()!, { target: { value: 'Pressure2' } });
+    resolve(VALUE(101.3));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByTestId('map-test-draft')).not.toBeInTheDocument();
+    expect(addButton()).toBeDisabled();
+    // The rows' rule: an answer for a request no longer on screen is gone.
+    fireEvent.change(draftKey()!, { target: { value: 'Pressure' } });
+    expect(screen.queryByTestId('map-test-draft')).not.toBeInTheDocument();
+    expect(addButton()).toBeDisabled();
+  });
+
+  it('with no test target, Add takes a valid draft untested — and says so', () => {
+    render(<Harness initial={[ROW_T]} />);
+    openDraft();
+    expect(screen.queryByRole('button', { name: 'Test new key' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('map-note-draft')).toHaveTextContent(/^Test is not available here — the key is added untested\.$/);
+    expect(addButton()).toBeDisabled();
+    fillDraft('Pressure', '40005');
+    expect(addButton()).toBeEnabled();
+    fireEvent.click(addButton());
+    expect(changes).toEqual([[ROW_T, PRESSURE]]);
+    expect(post).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('map-note-draft')).not.toBeInTheDocument();
+  });
+
+  it('Cancel discards the draft and its answer; the map is untouched and the next draft starts blank', async () => {
+    render(<Harness initial={[ROW_T]} testTarget={TARGET} />);
+    openDraft();
+    fillDraft('Pressure', '40005');
+    await testDraftOk();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel new key' }));
+    expect(draftKey()).toBeNull();
+    expect(screen.queryByTestId('map-test-draft')).not.toBeInTheDocument();
+    expect(changes).toHaveLength(0);
+    openDraft();
+    expect(draftKey()).toHaveValue('');
+    expect(screen.queryByTestId('map-test-draft')).not.toBeInTheDocument();
+    expect(addButton()).toBeDisabled();
+  });
+
+  it('an answer for a cancelled draft is dropped, even when the next draft is typed the same', async () => {
+    let resolve!: (v: unknown) => void;
+    post.mockReturnValue(new Promise((r) => { resolve = r; }));
+    render(<Harness testTarget={TARGET} />);
+    openDraft();
+    fillDraft('Pressure', '40005');
+    fireEvent.click(draftTest());
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel new key' }));
+    openDraft();
+    fillDraft('Pressure', '40005');
+    resolve(VALUE(101.3));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByTestId('map-test-draft')).not.toBeInTheDocument();
+    expect(addButton()).toBeDisabled();
+  });
+
+  it('leaving edit discards the draft — the instrument page keeps this editor mounted between its views', async () => {
+    const { rerender } = render(<Harness initial={[ROW_T]} testTarget={TARGET} />);
+    openDraft();
+    fillDraft('Pressure', '40005');
+    await testDraftOk();
+    rerender(<Harness initial={[ROW_T]} testTarget={TARGET} readOnly />);
+    expect(draftKey()).toBeNull();
+    rerender(<Harness initial={[ROW_T]} testTarget={TARGET} />);
+    expect(draftKey()).toBeNull();
+    expect(screen.queryByTestId('map-test-draft')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '+ Add key' })).toBeEnabled();
+    expect(changes).toHaveLength(0);
+  });
+
+  it('the draft is judged as the map\'s NEXT row: a key another row has is named, and nothing can be tested or added', () => {
+    render(<Harness initial={[ROW_T]} testTarget={TARGET} />);
+    openDraft();
+    fillDraft('temperature', '40005');
+    expect(screen.getByTestId('map-errors-draft')).toHaveTextContent('Key "temperature" is already used by row 1');
+    expect(draftTest()).toBeDisabled();
+    expect(addButton()).toBeDisabled();
+  });
+
+  it('a tested draft that a row edit turns into a duplicate cannot be added', async () => {
+    render(<Harness initial={[ROW_T]} testTarget={TARGET} />);
+    openDraft();
+    fillDraft('Pressure', '40005');
+    await testDraftOk();
+    expect(addButton()).toBeEnabled();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Key, row 1' }), { target: { value: 'Pressure' } });
+    expect(screen.getByTestId('map-errors-draft')).toHaveTextContent('Key "Pressure" is already used by row 1');
+    expect(addButton()).toBeDisabled();
+  });
+
+  it(`a map of ${MODBUS_MAX_KEYS} keys opens no draft`, () => {
+    render(<Harness initial={KEYS(MODBUS_MAX_KEYS)} />);
+    expect(screen.getByRole('button', { name: '+ Add key' })).toBeDisabled();
+  });
+
+  it('the cap applies to Add: a map that filled up while the draft was open refuses it', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<Harness initial={KEYS(MODBUS_MAX_KEYS - 1)} />);
+    openDraft();
+    fillDraft('Extra', '40201');
+    expect(addButton()).toBeEnabled();
+    importFile(JSON.stringify({
+      keys: KEYS(MODBUS_MAX_KEYS).map((k) => ({ key: k.key, register: k.register, data_type: 'UINT16', byte_order: 'ABCD' })),
+    }));
+    await waitFor(() => expect(keyInputs()).toHaveLength(MODBUS_MAX_KEYS));
+    expect(addButton()).toBeDisabled();
+    expect(addButton()).toHaveAttribute('title', `The register map already holds ${MODBUS_MAX_KEYS} keys, the most it can.`);
+    fireEvent.click(addButton());
+    expect(changes.at(-1)).toHaveLength(MODBUS_MAX_KEYS);
+    confirm.mockRestore();
   });
 });
 
