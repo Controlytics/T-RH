@@ -73,6 +73,10 @@ const KIND_REQUEST = { mode: 'REQUEST', remarksRequired: true, passwordRequired:
 const DOWNLOADS = { 'data-report': KIND_REQUEST, 'time-series': KIND_REQUEST, 'trend-header': KIND_REQUEST, 'temperature-trend': KIND_REQUEST, 'humidity-trend': KIND_REQUEST, 'instrument-alarms': KIND_REQUEST, alarms: KIND_REQUEST, 'audit-trail': KIND_REQUEST };
 const APPROVERS = { approverRoles: ['QA'], approverUserCount: 0 };
 
+/** The instrument's own row (`/api/instruments/:id`); `instrumentLoaded = false` = not arrived yet. Module constant. */
+const INSTRUMENT_ROW = { id: 'i-1', code: 'DEMO-TH-142', name: 'Demo', functionalLocationId: 'a1' };
+let instrumentLoaded = true;
+
 function dataFor(key: string | null): any {
   if (!key) return undefined;
   if (key.includes('/telemetry-overview')) return { data: [overviewRow] };
@@ -92,7 +96,7 @@ function dataFor(key: string | null): any {
   }
   // The instrument's attributes, which a report template's `attr:` rows print (2026-11-03).
   if (key === '/api/instruments/i-1/attributes') return ATTRIBUTES;
-  if (key.startsWith('/api/instruments/')) return { id: 'i-1', code: 'DEMO-TH-142', name: 'Demo', functionalLocationId: 'a1' };
+  if (key.startsWith('/api/instruments/')) return instrumentLoaded ? INSTRUMENT_ROW : undefined;
   return {};
 }
 
@@ -664,6 +668,19 @@ describe('trend page downloads on report templates', () => {
     expect(await screen.findByText(/name no instrument profile for DEMO-TH-142/)).toBeInTheDocument();
     expect(logged).toHaveLength(0);
     expect(saved).toHaveLength(0);
+  });
+
+  it('before the instrument has loaded, the left-out line says "this instrument" — never its id', () => {
+    plan = EMPTY_PLAN;
+    instrumentLoaded = false;
+    try {
+      renderPage();
+      fireEvent.click(exportButtons()[4]);
+      expect(screen.getByRole('alert')).toHaveTextContent('No instrument profile resolved for this instrument — the report will be refused');
+      expect(screen.queryByText(/i-1/)).toBeNull();
+    } finally {
+      instrumentLoaded = true;
+    }
   });
 
   it('refuses while the templates are still loading, and after they failed', async () => {

@@ -24,25 +24,54 @@ const COLORS = {
 
 let cachedLogoDataUrl: string | null = null;
 
-/** What a download says when Branding (the names or the logo) cannot be read for a report being made now (ruling F-1). */
+/** What a download says when Branding cannot be read for a report being made now (ruling F-1). */
 export const REPORT_BRANDING_UNREADABLE = 'The report\'s company name and logo (Configuration → Branding) could not be read, so the report was not made. Close this and try again.';
 
 /**
- * The Branding logo as a `data:` URL — fetched once per page load and cached
- * (as the drawn logo always was). Every report's chrome carries these BYTES
- * into its snapshot (v3), so a replay draws the logo it was signed with and
- * fetches nothing; the drawing measures them with jsPDF's synchronous
+ * How a download's refusal OPENS when the Branding LOGO cannot be used for a
+ * report being made now (ruling F-1); `logoUnusable` adds what failed and where
+ * to look. No retry advice: an unusable logo stays unusable until it is fixed.
+ */
+export const REPORT_LOGO_UNUSABLE = 'The Branding logo could not be used, so the report was not made';
+
+function logoUnusable(reason: string, cause?: unknown): Error {
+  return new Error(`${REPORT_LOGO_UNUSABLE}: ${reason}. Check the logo in Configuration → Branding.`, { cause });
+}
+
+/** A Blob's bytes as a `data:` URL. */
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = () => reject();
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * The Branding logo as a `data:` URL — read once per page load and cached (as
+ * the drawn logo always was). Every report's chrome carries these BYTES into
+ * its snapshot (v3), so a replay draws the logo it was signed with and fetches
+ * nothing; the drawing measures them with jsPDF's synchronous
  * `getImageProperties`, never an `Image()` load (2026-11-03: the `loadLogo`
  * that did that for page reports went when every report gained a chrome).
  *
- * Ruling F-1 (extended 2026-11-03): for a report being made NOW, any failure —
- * Branding unreadable, the logo answering an error, bytes that do not read —
- * THROWS (`REPORT_BRANDING_UNREADABLE`): a signed record freezes the configured
- * logo or nothing at all, never a silent "no logo". Only a v2 REPLAY
- * (`forgiving`) keeps the old fallback: no logo, `null`, exactly as before.
+ * An UPLOADED logo is stored as a `data:` URL (Configuration → Branding reads
+ * the file into one): its bytes are already here, so it is used AS IS — checked
+ * to be a PNG or JPEG by its bytes — and NEVER fetched. Fetching it is refused
+ * by the CSP's `connect-src 'self'` on every Fastify-served install, which
+ * under ruling F-1 would refuse every report wherever a logo was uploaded
+ * (re-review, 2026-11-03). A path (`/logo.jpg`, the bundled default) is fetched.
+ *
+ * Ruling F-1 (extended 2026-11-03): for a report being made NOW, any failure
+ * THROWS — Branding unreadable (`REPORT_BRANDING_UNREADABLE`), or a logo that
+ * cannot be used (`REPORT_LOGO_UNUSABLE` plus what failed): a signed record
+ * freezes the configured logo or nothing at all, never a silent "no logo".
+ * Only a v2 REPLAY (`forgiving`) keeps the old fallback: no logo, `null`.
  */
 async function loadBrandingLogoDataUrl(forgiving = false): Promise<string | null> {
   if (cachedLogoDataUrl) return cachedLogoDataUrl;
+  let logoUrl: string;
   try {
     const res = await fetch(`${getApiBase()}/api/config/branding`);
     if (!forgiving && !res.ok) throw new Error(`Branding answered HTTP ${res.status}`);
@@ -52,28 +81,42 @@ async function loadBrandingLogoDataUrl(forgiving = false): Promise<string | null
     // DB-stored '/uploads/...' logo would need the API base (getPhotoUrl
     // semantics), but that asset-base question spans sidebar.tsx +
     // report-page-wrapper.tsx too and wants one policy, not a local prefix here.
-    const logoUrl = branding?.logoUrl || '/logo.jpg';
-    const imgRes = await fetch(logoUrl);
-    if (!imgRes.ok) {
-      if (forgiving) return null;
-      throw new Error(`The logo ${logoUrl} answered HTTP ${imgRes.status}`);
-    }
-    const blob = await imgRes.blob();
-    const dataUrl: string = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror = () => reject();
-      reader.readAsDataURL(blob);
-    });
-    if (!forgiving && (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:'))) {
-      throw new Error(`The logo ${logoUrl} could not be read`);
-    }
-    cachedLogoDataUrl = dataUrl;
-    return dataUrl;
+    logoUrl = branding?.logoUrl || '/logo.jpg';
   } catch (e) {
     if (forgiving) return null;
     throw new Error(REPORT_BRANDING_UNREADABLE, { cause: e });
   }
+  if (logoUrl.startsWith('data:')) {
+    if (imageFormatByBytes(logoUrl) === null) {
+      if (forgiving) return null;
+      throw logoUnusable('the uploaded logo is not a PNG or JPEG image');
+    }
+    cachedLogoDataUrl = logoUrl;
+    return logoUrl;
+  }
+  let imgRes: Response;
+  try {
+    imgRes = await fetch(logoUrl);
+  } catch (e) {
+    if (forgiving) return null;
+    throw logoUnusable(`the logo at ${logoUrl} could not be requested`, e);
+  }
+  if (!imgRes.ok) {
+    if (forgiving) return null;
+    throw logoUnusable(`the logo at ${logoUrl} answered HTTP ${imgRes.status}`);
+  }
+  let dataUrl: string;
+  try {
+    dataUrl = await blobToDataUrl(await imgRes.blob());
+  } catch (e) {
+    if (forgiving) return null;
+    throw logoUnusable(`the logo at ${logoUrl} could not be read`, e);
+  }
+  if (!forgiving && (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:'))) {
+    throw logoUnusable(`the logo at ${logoUrl} could not be read`);
+  }
+  cachedLogoDataUrl = dataUrl;
+  return dataUrl;
 }
 
 /**
@@ -89,10 +132,19 @@ async function loadBrandingLogoDataUrl(forgiving = false): Promise<string | null
  * the call say what it draws instead of relying on that.
  */
 export function imageFormatOf(dataUrl: string): 'PNG' | 'JPEG' {
+  return imageFormatByBytes(dataUrl) ?? 'JPEG';
+}
+
+/**
+ * What a base64 image `data:` URL HOLDS — PNG or JPEG by its bytes, whatever
+ * its label says — or `null`: not base64, or neither format. `imageFormatOf`'s
+ * rule without the fallback, so a caller can REFUSE an image a PDF cannot draw.
+ */
+function imageFormatByBytes(dataUrl: string): 'PNG' | 'JPEG' | null {
   const named = reportLogoFormat(dataUrl);
   if (named) return named;
   const payload = /^data:[^,]*;base64,([\s\S]*)$/.exec(dataUrl)?.[1];
-  return (payload ? reportLogoFormat(`data:image/png;base64,${payload}`) : null) ?? 'JPEG';
+  return payload ? reportLogoFormat(`data:image/png;base64,${payload}`) : null;
 }
 
 /** `#rrggbb` → RGB, or null. */

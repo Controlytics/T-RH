@@ -147,6 +147,7 @@ describe('the trend report shows the trend', () => {
     const { images } = await capture(baseInput());
     // The chart, beside Branding's logo (the stub's own bytes) — two pictures, told apart by their bytes.
     expect(images.some((a) => a[0] === PNG && a[1] === 'PNG')).toBe(true);
+    expect(images.some((a) => a[0] === BRANDING_LOGO_PNG)).toBe(true);
     expect(images.filter((a) => a[0] !== PNG).every((a) => a[0] === BRANDING_LOGO_PNG)).toBe(true);
   });
 

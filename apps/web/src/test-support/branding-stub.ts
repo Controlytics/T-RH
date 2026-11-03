@@ -19,11 +19,17 @@ export const BRANDING_LOGO_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA
 
 const LOGO_BYTES = Uint8Array.from(atob(BRANDING_LOGO_PNG.split(',')[1]), (c) => c.charCodeAt(0));
 
-/** A `fetch` answering Branding (with `branding`) and its logo; any other URL rejects. */
+/**
+ * A `fetch` answering Branding (with `branding`) and its logo; any other URL
+ * rejects. A `data:` URL is REFUSED, as the CSP's `connect-src 'self'` refuses
+ * it on every Fastify-served install — an uploaded logo (a `data:` URL) must be
+ * used as is, never fetched.
+ */
 export function brandingFetch(branding: Record<string, unknown> = {}) {
   const logoUrl = typeof branding.logoUrl === 'string' && branding.logoUrl ? branding.logoUrl : '/logo.jpg';
   return vi.fn(async (url: unknown) => {
     const u = String(url);
+    if (u.startsWith('data:')) throw new TypeError("Refused to connect to a data: URL (CSP connect-src 'self')");
     if (u.endsWith('/api/config/branding')) return { ok: true, status: 200, json: async () => branding };
     if (u === logoUrl) return { ok: true, status: 200, blob: async () => new Blob([LOGO_BYTES], { type: 'image/png' }) };
     throw new TypeError(`fetch failed: ${u} (not answered by the Branding stub)`);

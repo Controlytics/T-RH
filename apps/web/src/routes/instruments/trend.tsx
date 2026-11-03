@@ -501,8 +501,10 @@ export function InstrumentTrend() {
   // The loaded plan names no profile for this instrument: the lines NAME it
   // before Confirm — not "no instruments", and not "could not be loaded" about
   // a plan that loaded fine.
+  // Named by its code once the instrument has loaded — never by its id, which
+  // nobody reading the dialog would recognise.
   const reportLeftOut = pendingReport !== null && id !== undefined
-    ? planLeavesOut(reportPlan, [{ id, code: inst?.code ?? id }])
+    ? planLeavesOut(reportPlan, [{ id, code: inst?.code ?? 'this instrument' }])
     : [];
 
   // Fetch fresh rows for the DIALOG's chosen period — it may differ from the

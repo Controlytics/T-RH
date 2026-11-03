@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { builtinReportTemplate } from '@digilog/shared';
 import {
   createReport, renderSnapshotToPdf, normaliseSnapshot, imageFormatOf, loadReportChrome, REPORT_TITLES_UNREADABLE,
-  REPORT_BRANDING_UNREADABLE, type ReportChrome,
+  REPORT_BRANDING_UNREADABLE, REPORT_LOGO_UNUSABLE, type ReportChrome,
 } from '../pdf-report';
 import { BRANDING_LOGO_PNG, brandingFetch, stubBrandingFetch } from '@/test-support/branding-stub';
 
@@ -649,13 +649,52 @@ describe('Ruling F-1 extended — Branding and its logo', () => {
     }
   });
 
-  it('(h) the Branding LOGO cannot be read — the request fails, or answers 404 — the report is REFUSED', async () => {
+  it('(h) the Branding LOGO cannot be used — the request fails, or answers 404 — the report is REFUSED, saying what failed and where to look', async () => {
+    const expected: Record<string, string> = {
+      reject: `${REPORT_LOGO_UNUSABLE}: the logo at /logo.png could not be requested. Check the logo in Configuration → Branding.`,
+      404: `${REPORT_LOGO_UNUSABLE}: the logo at /logo.png answered HTTP 404. Check the logo in Configuration → Branding.`,
+    };
     for (const fail of ['reject', 404] as const) {
       const { pdf } = await fresh();
       brandingExcept({ '/logo.png': fail });
-      await expect(pdf.createReport({ title: 'T', formatDateTime })).rejects.toThrow(REPORT_BRANDING_UNREADABLE);
-      await expect(pdf.loadReportChrome(builtinReportTemplate('page:alarms'))).rejects.toThrow(REPORT_BRANDING_UNREADABLE);
+      const refused = await pdf.createReport({ title: 'T', formatDateTime }).then(() => null, (e: Error) => e);
+      expect(refused?.message).toBe(expected[fail]);
+      // No retry advice: a logo that cannot be used stays so until Branding is fixed.
+      expect(refused?.message).not.toMatch(/try again/i);
+      await expect(pdf.loadReportChrome(builtinReportTemplate('page:alarms'))).rejects.toThrow(expected[fail]);
     }
+  });
+
+  /** A Branding answer whose logo is an UPLOADED one: a `data:` URL, as Configuration → Branding stores it. */
+  const UPLOADED_LOGO = PNG_1x1;
+
+  it('(j) an UPLOADED logo — a data: URL — is frozen AS IS and never fetched (the CSP refuses a data: fetch)', async () => {
+    const { pdf } = await fresh();
+    // The stub refuses any data: URL, as connect-src 'self' does on a Fastify-served install.
+    const spy = stubBrandingFetch({ companyName: 'Uploaded Co', appName: 'Uploaded App', logoUrl: UPLOADED_LOGO });
+    const r = await pdf.createReport({ title: 'T', formatDateTime });
+    expect(r.getSnapshot().chrome).toMatchObject({ companyName: 'Uploaded Co', logoDataUrl: UPLOADED_LOGO });
+    // Only Branding was asked — once for the names, once for the logo's URL — and the logo never.
+    const asked = spy.mock.calls.map((c) => String(c[0]));
+    expect(asked.length).toBeGreaterThan(0);
+    expect(asked.every((u) => u.endsWith('/api/config/branding'))).toBe(true);
+    expect(asked.some((u) => u.startsWith('data:'))).toBe(false);
+  });
+
+  it('(j) an uploaded logo that is not a PNG or JPEG is REFUSED, by its bytes, naming the upload — and still not fetched', async () => {
+    const { pdf } = await fresh();
+    const spy = stubBrandingFetch({ logoUrl: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=' });
+    await expect(pdf.createReport({ title: 'T', formatDateTime }))
+      .rejects.toThrow(`${REPORT_LOGO_UNUSABLE}: the uploaded logo is not a PNG or JPEG image. Check the logo in Configuration → Branding.`);
+    expect(spy.mock.calls.some((c) => String(c[0]).startsWith('data:'))).toBe(false);
+  });
+
+  it('(j) a v2 REPLAY with an uploaded logo uses it as is too — no fetch, the logo in its chrome', async () => {
+    const { pdf } = await fresh();
+    const spy = stubBrandingFetch({ logoUrl: UPLOADED_LOGO });
+    const replay = await pdf.renderSnapshotToPdf(pdf.normaliseSnapshot(V2), { formatDateTime });
+    expect(replay.getSnapshot().chrome?.logoDataUrl).toBe(UPLOADED_LOGO);
+    expect(spy.mock.calls.some((c) => String(c[0]).startsWith('data:'))).toBe(false);
   });
 
   it('(h) a `custom` or `none` logo with both names fetches NOTHING — nothing to fail', async () => {

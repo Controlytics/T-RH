@@ -343,7 +343,8 @@ left out gets its own line naming it (`planLeavesOut` → `ReportTemplateLines l
 (`templateNamesAttributes` — a built-in names none; the trend page reads it in PARALLEL with its own data); a
 failed Branding, Report Page Titles or Branding-logo read REFUSES a report being made and only a v2 replay is
 forgiving (ruling F-1, `lib/pdf-report.ts`) — so a test that builds a fresh report must answer Branding and its
-logo (`test-support/branding-stub.ts`); every request's title / subtitle go through the ONE clamp `deliveredTitles`
+logo (`test-support/branding-stub.ts`); an UPLOADED Branding logo is a `data:` URL, used as is and never fetched
+(the CSP's `connect-src 'self'` refuses a `data:` fetch); every request's title / subtitle go through the ONE clamp `deliveredTitles`
 (`lib/report-delivery.ts`); `alarms-report.ts` must not
 value-import `templated-report.ts`; a PAGE-kind cell that is exactly `''` prints empty, not `—`. The Report
 Templates page has a tab per kind (file icon on the five page tabs), no profile picker for an application kind,
