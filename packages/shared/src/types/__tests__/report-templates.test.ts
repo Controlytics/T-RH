@@ -304,8 +304,8 @@ describe('coerceReportTemplateDocument — the ONE forgiving reader', () => {
 describe('the create / update bodies', () => {
   const PROFILE = '0b7f3a52-4c1e-4a4e-9a63-2f1d1c9e8a10';
 
-  it('create: a profile, a widget type, a trimmed name, isDefault false by default, a document', () => {
-    const r = reportTemplateCreateSchema.safeParse({ profileId: PROFILE, widgetType: 'gauge', name: '  Shift report  ', document: doc() });
+  it('create: a profile, a kind, a trimmed name, isDefault false by default, a document', () => {
+    const r = reportTemplateCreateSchema.safeParse({ profileId: PROFILE, kind: 'gauge', name: '  Shift report  ', document: doc() });
     expect(r.success).toBe(true);
     if (r.success) {
       expect(r.data.name).toBe('Shift report');
@@ -313,9 +313,9 @@ describe('the create / update bodies', () => {
     }
   });
 
-  it('create refuses an unknown widget type, a blank or 81-character name, and a profile id that is not a uuid', () => {
-    const base = { profileId: PROFILE, widgetType: 'gauge', name: 'A', document: doc() };
-    expect(reportTemplateCreateSchema.safeParse({ ...base, widgetType: 'nope' }).success).toBe(false);
+  it('create refuses an unknown kind, a blank or 81-character name, and a profile id that is not a uuid', () => {
+    const base = { profileId: PROFILE, kind: 'gauge', name: 'A', document: doc() };
+    expect(reportTemplateCreateSchema.safeParse({ ...base, kind: 'nope' }).success).toBe(false);
     expect(reportTemplateCreateSchema.safeParse({ ...base, name: '  ' }).success).toBe(false);
     expect(reportTemplateCreateSchema.safeParse({ ...base, name: 'x'.repeat(81) }).success).toBe(false);
     expect(reportTemplateCreateSchema.safeParse({ ...base, name: 'x'.repeat(80) }).success).toBe(true);
@@ -324,14 +324,14 @@ describe('the create / update bodies', () => {
 
   it('a template may be made for every widget type, text card and floor plan included (chrome only)', () => {
     for (const t of WIDGET_TYPES) {
-      expect(reportTemplateCreateSchema.safeParse({ profileId: PROFILE, widgetType: t, name: t, document: doc(t) }).success, t).toBe(true);
+      expect(reportTemplateCreateSchema.safeParse({ profileId: PROFILE, kind: t, name: t, document: doc(t) }).success, t).toBe(true);
     }
   });
 
-  it('update: the name and the document, each optional; the profile and the widget type cannot be changed', () => {
+  it('update: the name and the document, each optional; the profile and the kind cannot be changed', () => {
     expect(reportTemplateUpdateSchema.safeParse({ name: 'Renamed' }).success).toBe(true);
     expect(reportTemplateUpdateSchema.safeParse({ document: doc() }).success).toBe(true);
-    const r = reportTemplateUpdateSchema.safeParse({ name: 'R', widgetType: 'pie_chart', profileId: PROFILE });
+    const r = reportTemplateUpdateSchema.safeParse({ name: 'R', kind: 'pie_chart', profileId: PROFILE });
     expect(r.success && Object.keys(r.data)).toEqual(['name']);
     expect(reportTemplateUpdateSchema.safeParse({ document: { version: 1 } }).success).toBe(false);
   });

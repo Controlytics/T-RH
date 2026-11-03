@@ -24,10 +24,21 @@
  *  - `WIDGET_REPORT_KIND` / `widgetReportType` — the download policy kind
  *    (`REPORT_KINDS` in report-downloads.ts) and the audit reportType.
  *
- * This file must not import report-downloads.ts: that one imports this.
+ * PAGE REPORTS ON TEMPLATES (2026-11-03, spec
+ * docs/superpowers/specs/2026-11-03-page-reports-on-templates-design.md §4, §6):
+ * a template is for a TEMPLATE KIND — a widget type, or one of the five page
+ * reports (`PAGE_TEMPLATE_KINDS`). `TEMPLATE_KIND_SPECS` is the ONE description
+ * of each kind (scope, profile fields, built-in fields, placeholders,
+ * orientation, typography); its widget half is BUILT from the widget records
+ * above it, never typed twice. `templateKindOf` maps a download kind onto the
+ * template it is drawn from.
+ *
+ * This file must not import report-downloads.ts at RUNTIME: that one imports
+ * this. It imports its TYPES only (`import type`, erased on build).
  */
 import { z } from 'zod';
 import { WIDGET_TYPES, WIDGET_TYPE_SPECS, type WidgetType } from './dashboard-widgets.js';
+import type { ReportKind } from './report-downloads.js';
 
 export const REPORT_TEMPLATE_DOCUMENT_VERSION = 1;
 
@@ -59,6 +70,76 @@ export const REPORT_FIELD_ID_MAX = 140;
 
 /** What an absent value prints as — in a title, an info row or a cell. */
 export const REPORT_VALUE_MISSING = '—';
+
+// ── Template kinds ──────────────────────────────────────────────────────────
+
+/**
+ * The page reports a template can drive (2026-11-03): the five built-in PDF
+ * layouts the pages draw — Data Report, Instrument Trend, Instrument Alarms,
+ * Alarm Report, Audit Trail. Stored in `report_templates.kind` beside the
+ * widget types: validated strings, no enum. APPENDED to, never renamed —
+ * stored rows name them.
+ */
+export const PAGE_TEMPLATE_KINDS = [
+  'page:data-report', 'page:trend', 'page:instrument-alarms', 'page:alarms', 'page:audit-trail',
+] as const;
+export type PageTemplateKind = (typeof PAGE_TEMPLATE_KINDS)[number];
+
+/** What a template is FOR: a widget type's Download report, or a page report. */
+export type TemplateKind = WidgetType | PageTemplateKind;
+
+/**
+ * Every template kind — the widget types, then the page kinds. A TUPLE (not a
+ * plain array), because `z.enum` takes one.
+ */
+export const TEMPLATE_KINDS = [...WIDGET_TYPES, ...PAGE_TEMPLATE_KINDS] as const;
+
+export function isTemplateKind(v: unknown): v is TemplateKind {
+  return typeof v === 'string' && (TEMPLATE_KINDS as readonly string[]).includes(v);
+}
+
+export function isPageTemplateKind(v: unknown): v is PageTemplateKind {
+  return typeof v === 'string' && (PAGE_TEMPLATE_KINDS as readonly string[]).includes(v);
+}
+
+/** The page download kinds — `REPORT_KINDS` without the `widget:<type>` ones. */
+type PageDownloadKind = Exclude<ReportKind, WidgetReportKind>;
+
+/**
+ * Which template each page download is drawn from (spec §4). Three download
+ * points print the ONE Data Report; the two trend charts print the ONE trend
+ * layout. Typed over every page download kind, so a new download kind does not
+ * compile until it is mapped here.
+ */
+const PAGE_DOWNLOAD_TEMPLATE_KIND: Readonly<Record<PageDownloadKind, PageTemplateKind>> = {
+  'data-report': 'page:data-report',
+  'time-series': 'page:data-report',
+  'trend-header': 'page:data-report',
+  'temperature-trend': 'page:trend',
+  'humidity-trend': 'page:trend',
+  'instrument-alarms': 'page:instrument-alarms',
+  alarms: 'page:alarms',
+  'audit-trail': 'page:audit-trail',
+};
+
+const WIDGET_KIND_PREFIX = 'widget:';
+
+/**
+ * The template kind a download kind is drawn from: a page download → its page
+ * kind, `widget:<type>` → `<type>`. The download kinds themselves (Report
+ * Settings, approvers, the audit `reportType`) are unchanged — only the
+ * template lookup maps them. A string that is no download kind THROWS: it is a
+ * caller's bug, and an `undefined` typed as a kind would travel on silently.
+ */
+export function templateKindOf(downloadKind: ReportKind): TemplateKind {
+  if (typeof downloadKind === 'string' && downloadKind.startsWith(WIDGET_KIND_PREFIX)) {
+    const t = downloadKind.slice(WIDGET_KIND_PREFIX.length);
+    if ((WIDGET_TYPES as readonly string[]).includes(t)) return t as WidgetType;
+  } else if (Object.prototype.hasOwnProperty.call(PAGE_DOWNLOAD_TEMPLATE_KIND, downloadKind)) {
+    return PAGE_DOWNLOAD_TEMPLATE_KIND[downloadKind as PageDownloadKind];
+  }
+  throw new Error(`"${String(downloadKind)}" is not a report kind`);
+}
 
 // ── Fields ──────────────────────────────────────────────────────────────────
 
@@ -207,15 +288,88 @@ export function widgetTypeTakesProfileFields(t: WidgetType): boolean {
 /** The types printed in landscape by default: the three wide tables. */
 const LANDSCAPE_TYPES: readonly WidgetType[] = ['latest_table', 'timeseries_table', 'alarm_table'];
 
+/**
+ * Each PAGE kind's built-in fields (spec §6), in the order today's PDF prints
+ * them, headed as today's PDF heads them. Fresh `field()` objects, never the
+ * widget ones: a shared id (`alarm.type`, `instrument.code` …) may carry another
+ * label here, and a column is checked against its OWN kind's list. A cell is
+ * the page's formatted STRING (decimals, `Error` / `OL`, `NA`, the redaction
+ * note) — `kind` describes the value for the editor's preview; a template's
+ * `decimals` never re-rounds a page's text (review C1). No page field is
+ * `perKey`, so `keyRowsCollapse` is false for every page kind.
+ *
+ * WHAT ONE ROW IS:
+ *  - `page:data-report`: one stored instant (or schedule slot) of ONE
+ *    instrument; the report is one section per instrument.
+ *  - `page:trend`: no rows — the chart image(s) with the chrome.
+ *  - `page:instrument-alarms`: one alarm of ONE instrument.
+ *  - `page:alarms`: one alarm, any instrument. `page:audit-trail`: one record.
+ */
+export const PAGE_REPORT_FIELDS: Record<PageTemplateKind, readonly ReportField[]> = {
+  'page:data-report': [
+    field('record.date', 'DATE', 'datetime'),
+    field('record.time', 'TIME', 'datetime'),
+    field('record.temperature', 'TEMPERATURE (°C)', 'number'),
+    field('record.humidity', 'RELATIVE HUMIDITY(%)', 'number'),
+  ],
+  'page:trend': [],
+  'page:instrument-alarms': [
+    field('alarm.type', 'Type', 'text'),
+    field('alarm.raisedAt', 'Raised', 'datetime'),
+    field('alarm.value', 'Value', 'text'),
+    field('alarm.limit', 'Limit', 'text'),
+    field('alarm.clearedAt', 'Cleared', 'datetime'),
+    field('alarm.status', 'Status', 'status'),
+  ],
+  'page:alarms': [
+    field('alarm.date', 'DATE', 'datetime'),
+    field('alarm.time', 'TIME', 'datetime'),
+    field('instrument.code', 'INSTRUMENT ID', 'text'),
+    field('instrument.area', 'AREA', 'text'),
+    field('instrument.location', 'LOCATION', 'text'),
+    field('alarm.description', 'DESCRIPTION', 'text'),
+    field('alarm.uom', 'UOM', 'text'),
+    field('alarm.pv', 'PV VALUE', 'number'),
+    field('alarm.high', 'HIGH LIMIT', 'number'),
+    field('alarm.low', 'LOW LIMIT', 'number'),
+  ],
+  'page:audit-trail': [
+    field('audit.timestamp', 'Timestamp', 'datetime'),
+    field('audit.action', 'Action', 'text'),
+    field('audit.user', 'User', 'text'),
+    field('audit.role', 'Role', 'text'),
+    field('audit.targetType', 'Target Type', 'text'),
+    field('audit.description', 'Description', 'text'),
+    field('audit.ip', 'IP Address', 'text'),
+  ],
+};
+
+/** A kind's built-in fields: a widget type's `WIDGET_REPORT_FIELDS`, a page kind's `PAGE_REPORT_FIELDS`. */
+export function REPORT_TEMPLATE_FIELDS(kind: TemplateKind): readonly ReportField[] {
+  return isPageTemplateKind(kind) ? PAGE_REPORT_FIELDS[kind] : WIDGET_REPORT_FIELDS[kind];
+}
+
 // ── Placeholders ────────────────────────────────────────────────────────────
+
+/** The ten a widget report supplies (2026-11-02) — the first ten of the vocabulary. */
+const WIDGET_PLACEHOLDERS = [
+  'dashboard', 'widget', 'profile', 'from', 'to', 'period', 'date', 'user', 'instrumentCount', 'selection',
+] as const;
 
 /**
  * The values a title, a subtitle, a footer line or an info row can name —
  * `{dashboard}` in text, `dashboard` as an info row's source. APPENDED to,
- * never renamed: stored documents name them.
+ * never renamed: stored documents name them. The page reports' names
+ * (2026-11-03): `instrument` (its code), `block`, `area`, `location`, the
+ * period's `fromDate` / `fromTime` / `toDate` / `toTime`, the Data Report's
+ * `interval`, `mkt`, `tempLimit`, `rhLimit`, `extremes`, the Audit Trail's
+ * `recordCount` and `search`, the trend's `series` (its slot label) and the
+ * Alarm Report's `level`. Which kind supplies which: `TEMPLATE_KIND_SPECS`.
  */
 export const REPORT_PLACEHOLDERS = [
-  'dashboard', 'widget', 'profile', 'from', 'to', 'period', 'date', 'user', 'instrumentCount', 'selection',
+  ...WIDGET_PLACEHOLDERS,
+  'instrument', 'block', 'area', 'location', 'fromDate', 'fromTime', 'toDate', 'toTime', 'interval', 'mkt',
+  'tempLimit', 'rhLimit', 'extremes', 'recordCount', 'search', 'series', 'level',
 ] as const;
 export type Placeholder = (typeof REPORT_PLACEHOLDERS)[number];
 
@@ -238,6 +392,105 @@ export function substitutePlaceholders(text: string, values: Partial<Record<Plac
     const v = values[name];
     return typeof v === 'string' && v.trim() !== '' ? v : REPORT_VALUE_MISSING;
   });
+}
+
+// ── The kinds, described ────────────────────────────────────────────────────
+
+/**
+ * Who a kind's templates belong to: `'profile'` — one instrument profile (every
+ * widget type, and the three page reports about one instrument); `'application'`
+ * — the whole application, `profile_id` NULL (the Alarm Report and the Audit
+ * Trail, whose rows carry no profile).
+ */
+export type TemplateKindScope = 'profile' | 'application';
+
+/**
+ * Which of the profile's catalogue fields a kind's template may print: `'all'`
+ * (`key:` and `attr:`), `'attributes'` (`attr:` only), `'none'`.
+ */
+export type TemplateProfileFields = 'all' | 'attributes' | 'none';
+
+export interface TemplateKindSpec {
+  /** What the kind is called (a widget type's label; a page report's name). */
+  label: string;
+  scope: TemplateKindScope;
+  profileFields: TemplateProfileFields;
+  /** The built-in fields — `REPORT_TEMPLATE_FIELDS(kind)`. */
+  fields: readonly ReportField[];
+  /** The placeholders the kind SUPPLIES; the editor offers only these. Another prints `—`. */
+  placeholders: readonly Placeholder[];
+  /** The built-in prints landscape. */
+  landscape: boolean;
+  typography: 'default' | 'data-report';
+}
+
+/** What every instrument page report supplies: the instrument's placement, the period, the reader. */
+const INSTRUMENT_PAGE_PLACEHOLDERS: readonly Placeholder[] = [
+  'instrument', 'block', 'area', 'location', 'fromDate', 'fromTime', 'toDate', 'toTime',
+  'from', 'to', 'period', 'date', 'user', 'profile',
+];
+
+/** A page kind's spec (spec §6). */
+const PAGE_TEMPLATE_KIND_SPECS: Record<PageTemplateKind, Omit<TemplateKindSpec, 'fields'>> = {
+  'page:data-report': {
+    label: 'Data Report', scope: 'profile', profileFields: 'attributes',
+    placeholders: [...INSTRUMENT_PAGE_PLACEHOLDERS, 'tempLimit', 'rhLimit', 'extremes', 'interval', 'mkt'],
+    landscape: false, typography: 'data-report',
+  },
+  'page:trend': {
+    label: 'Instrument Trend', scope: 'profile', profileFields: 'attributes',
+    placeholders: [...INSTRUMENT_PAGE_PLACEHOLDERS, 'series'],
+    landscape: false, typography: 'default',
+  },
+  'page:instrument-alarms': {
+    label: 'Instrument Alarms', scope: 'profile', profileFields: 'attributes',
+    placeholders: INSTRUMENT_PAGE_PLACEHOLDERS,
+    landscape: false, typography: 'default',
+  },
+  'page:alarms': {
+    label: 'Alarm Report', scope: 'application', profileFields: 'none',
+    placeholders: ['fromDate', 'fromTime', 'toDate', 'toTime', 'from', 'to', 'period', 'recordCount', 'search', 'level', 'date', 'user'],
+    landscape: false, typography: 'default',
+  },
+  'page:audit-trail': {
+    label: 'Audit Trail', scope: 'application', profileFields: 'none',
+    placeholders: ['period', 'search', 'recordCount', 'from', 'to', 'date', 'user'],
+    landscape: true, typography: 'default',
+  },
+};
+
+/**
+ * The ONE description of every template kind. The widget half is BUILT from
+ * `WIDGET_TYPE_SPECS` (label), `WIDGET_REPORT_FIELDS`, `widgetTypeTakesProfileFields`
+ * and `LANDSCAPE_TYPES` — those stay the source and are not typed again; the
+ * page half is `PAGE_TEMPLATE_KIND_SPECS` with `PAGE_REPORT_FIELDS`.
+ */
+export const TEMPLATE_KIND_SPECS: Readonly<Record<TemplateKind, TemplateKindSpec>> = Object.fromEntries([
+  ...WIDGET_TYPES.map((t): [TemplateKind, TemplateKindSpec] => [t, {
+    label: WIDGET_TYPE_SPECS[t].label,
+    scope: 'profile',
+    profileFields: widgetTypeTakesProfileFields(t) ? 'all' : 'none',
+    fields: WIDGET_REPORT_FIELDS[t],
+    placeholders: WIDGET_PLACEHOLDERS,
+    landscape: LANDSCAPE_TYPES.includes(t),
+    typography: 'default',
+  }]),
+  ...PAGE_TEMPLATE_KINDS.map((k): [TemplateKind, TemplateKindSpec] => [k, { ...PAGE_TEMPLATE_KIND_SPECS[k], fields: PAGE_REPORT_FIELDS[k] }]),
+]) as Record<TemplateKind, TemplateKindSpec>;
+
+/** Which profile catalogue fields a kind's template may print (`widgetTypeTakesProfileFields` agrees for a widget type). */
+export function templateKindTakesProfileFields(kind: TemplateKind): TemplateProfileFields {
+  return TEMPLATE_KIND_SPECS[kind].profileFields;
+}
+
+/** Whether a kind's templates belong to a profile or to the whole application. */
+export function templateKindScope(kind: TemplateKind): TemplateKindScope {
+  return TEMPLATE_KIND_SPECS[kind].scope;
+}
+
+/** What a kind is called. */
+export function templateKindLabel(kind: TemplateKind): string {
+  return TEMPLATE_KIND_SPECS[kind].label;
 }
 
 // ── Logo ────────────────────────────────────────────────────────────────────
@@ -267,7 +520,7 @@ export type ReportLogoMode = 'branding' | 'custom' | 'none';
 export const REPORT_LOGO_MODES = ['branding', 'custom', 'none'] as const;
 
 export interface ReportTemplateColumn {
-  /** A catalogue field id (`WIDGET_REPORT_FIELDS`, `key:<name>`, `attr:<name>`). */
+  /** A catalogue field id (`REPORT_TEMPLATE_FIELDS(kind)`, `key:<name>`, `attr:<name>`). */
   id: string;
   /** What the column is called on the report. */
   heading: string;
@@ -401,14 +654,94 @@ export const reportTemplateDocumentSchema: z.ZodType<ReportTemplateDocument> = z
 // ── The built-in template ───────────────────────────────────────────────────
 
 /**
- * The shipped document of a widget type: every built-in field shown, headed by
- * its label; title `{widget}`, subtitle `{dashboard} · {period}`; the branding
- * logo; page numbers, printed by and printed at in the footer; landscape for the
- * three wide tables. A FRESH object on every call — the editor starts new
- * templates from it and edits it in place.
+ * The page reports' instrument header, in today's order — Block / Area /
+ * Location / Inst ID against Start Date / Start Time / End Date / End Time, two
+ * per line (`instrumentAlarmsHeaderPairs` in the web app). The Data Report's
+ * parameter block opens with the same eight.
  */
-export function builtinReportTemplate(widgetType: WidgetType): ReportTemplateDocument {
-  const infoBlock: ReportTemplateInfoRow[] = widgetType === 'text_card'
+const INSTRUMENT_HEADER_ROWS: readonly ReportTemplateInfoRow[] = [
+  { label: 'Block', source: 'block' }, { label: 'Start Date', source: 'fromDate' },
+  { label: 'Area', source: 'area' }, { label: 'Start Time', source: 'fromTime' },
+  { label: 'Location', source: 'location' }, { label: 'End Date', source: 'toDate' },
+  { label: 'Inst ID', source: 'instrument' }, { label: 'End Time', source: 'toTime' },
+];
+
+/**
+ * Each page kind's header and information rows — TODAY's layout (spec §6), so
+ * a page report drawn from its built-in prints what the page printed before
+ * templates. No `notes.legend` on any of them (ruling P-1): the Data Report and
+ * the Alarm Report pass today's STRUCTURED legend themselves, and only a saved
+ * template's own legend text replaces it. The Audit Trail's subtitle prints
+ * `Search: —` with no search (ruling P-2 — the ONE accepted difference from
+ * today, which left the segment out).
+ */
+const PAGE_BUILTIN_CHROME: Record<PageTemplateKind, { header: Pick<ReportTemplateDocument['header'], 'title' | 'subtitle' | 'showAppName'>; infoBlock: readonly ReportTemplateInfoRow[] }> = {
+  'page:data-report': {
+    header: { title: 'Temperature and RH Data Report', showAppName: false },
+    infoBlock: [
+      ...INSTRUMENT_HEADER_ROWS,
+      { label: 'Temp. Limit', source: 'tempLimit' }, { label: 'RH Limit', source: 'rhLimit' },
+      { label: 'Extremes', source: 'extremes' }, { label: 'Interval', source: 'interval' },
+      { label: 'MKT', source: 'mkt' },
+    ],
+  },
+  'page:trend': {
+    header: {
+      title: 'Instrument Trend — {series}',
+      subtitle: '{instrument} — {series}. The chart as seen on screen. The Instrument Time Series report covers the same readings unaveraged.',
+      showAppName: true,
+    },
+    infoBlock: INSTRUMENT_HEADER_ROWS,
+  },
+  'page:instrument-alarms': {
+    header: { title: 'Instrument Alarms', subtitle: '{instrument}', showAppName: true },
+    infoBlock: INSTRUMENT_HEADER_ROWS,
+  },
+  'page:alarms': {
+    header: { title: 'ALARM REPORT', showAppName: true },
+    infoBlock: [
+      { label: 'Start Date', source: 'fromDate' }, { label: 'Start Time', source: 'fromTime' },
+      { label: 'End Date', source: 'toDate' }, { label: 'End Time', source: 'toTime' },
+    ],
+  },
+  'page:audit-trail': {
+    header: {
+      title: 'Audit Trail',
+      subtitle: 'Period: {period}  |  Search: {search}  |  Total: {recordCount} record(s)  |  21 CFR Part 11 Compliant',
+      showAppName: true,
+    },
+    infoBlock: [],
+  },
+};
+
+/**
+ * The shipped document of a kind. Every built-in field shown, headed by its
+ * label; the branding logo; page numbers, printed by and printed at in the
+ * footer; the kind's orientation and typography (`TEMPLATE_KIND_SPECS`).
+ *  - A widget type: title `{widget}`, subtitle `{dashboard} · {period}`, the
+ *    Selection / Instruments rows (none on a text card).
+ *  - A page kind: today's page layout (`PAGE_BUILTIN_CHROME`).
+ * A FRESH object on every call — the editor starts new templates from it and
+ * edits it in place.
+ */
+export function builtinReportTemplate(kind: TemplateKind): ReportTemplateDocument {
+  const spec = TEMPLATE_KIND_SPECS[kind];
+  const page: ReportTemplateDocument['page'] = { orientation: spec.landscape ? 'landscape' : 'portrait', typography: spec.typography };
+  const columns = spec.fields.map((f) => ({ id: f.id, heading: f.label, show: true }));
+  const footer = { showPageNumbers: true, showPrintedBy: true, showPrintedAt: true, signatureLine: false };
+  if (isPageTemplateKind(kind)) {
+    const chrome = PAGE_BUILTIN_CHROME[kind];
+    return {
+      version: REPORT_TEMPLATE_DOCUMENT_VERSION,
+      header: { ...chrome.header, logo: { mode: 'branding' } },
+      infoBlock: chrome.infoBlock.map((r) => ({ ...r })),
+      columns,
+      footer,
+      page,
+      notes: {},
+    };
+  }
+  const infoBlock: ReportTemplateInfoRow[] = kind === 'text_card'
     ? []
     : [{ label: 'Selection', source: 'selection' }, { label: 'Instruments', source: 'instrumentCount' }];
   return {
@@ -420,9 +753,9 @@ export function builtinReportTemplate(widgetType: WidgetType): ReportTemplateDoc
       logo: { mode: 'branding' },
     },
     infoBlock,
-    columns: WIDGET_REPORT_FIELDS[widgetType].map((f) => ({ id: f.id, heading: f.label, show: true })),
-    footer: { showPageNumbers: true, showPrintedBy: true, showPrintedAt: true, signatureLine: false },
-    page: { orientation: LANDSCAPE_TYPES.includes(widgetType) ? 'landscape' : 'portrait', typography: 'default' },
+    columns,
+    footer,
+    page,
     notes: {},
   };
 }
@@ -430,12 +763,12 @@ export function builtinReportTemplate(widgetType: WidgetType): ReportTemplateDoc
 /**
  * The ONE forgiving reader of a stored document: one that passes the schema is
  * returned as parsed; anything else — absent, corrupt, another version — is the
- * widget type's built-in. Never throws; never mixes a broken document with the
+ * kind's built-in. Never throws; never mixes a broken document with the
  * built-in field by field.
  */
-export function coerceReportTemplateDocument(value: unknown, widgetType: WidgetType): ReportTemplateDocument {
+export function coerceReportTemplateDocument(value: unknown, kind: TemplateKind): ReportTemplateDocument {
   const r = reportTemplateDocumentSchema.safeParse(value);
-  return r.success ? r.data : builtinReportTemplate(widgetType);
+  return r.success ? r.data : builtinReportTemplate(kind);
 }
 
 /**
@@ -443,19 +776,27 @@ export function coerceReportTemplateDocument(value: unknown, widgetType: WidgetT
  * series) instead of its type's row per KEY? True only for the per-key types
  * (`WIDGET_REPORT_FIELDS` entries marked `perKey`) when the document shows none
  * of those fields — the keys then sit side by side as `key:<name>` columns.
- * Every other type keeps its own row (a series, a bar, an alarm …): false.
+ * Every other kind keeps its own row (a series, a bar, an alarm, a page
+ * report's record …): false. No page field is `perKey`, so false for every page
+ * kind by construction.
  */
-export function keyRowsCollapse(widgetType: WidgetType, document: ReportTemplateDocument): boolean {
-  const perKey = new Set(WIDGET_REPORT_FIELDS[widgetType].filter((f) => f.perKey).map((f) => f.id));
+export function keyRowsCollapse(kind: TemplateKind, document: ReportTemplateDocument): boolean {
+  const perKey = new Set(REPORT_TEMPLATE_FIELDS(kind).filter((f) => f.perKey).map((f) => f.id));
   if (perKey.size === 0) return false;
   return !document.columns.some((c) => c.show && perKey.has(c.id));
 }
 
 // ── Create / update bodies ──────────────────────────────────────────────────
 
+/**
+ * A new template. `profileId` is required for a `'profile'` kind and must be
+ * absent for an `'application'` one — the API enforces that (400
+ * `SCOPE_MISMATCH`) and re-checks on every write; the schema leaves it optional
+ * so the API's own answer is the one a caller sees.
+ */
 export const reportTemplateCreateSchema = z.object({
-  profileId: z.string().uuid('Not a profile id'),
-  widgetType: z.enum(WIDGET_TYPES),
+  profileId: z.string().uuid('Not a profile id').optional(),
+  kind: z.enum(TEMPLATE_KINDS),
   name: z.string().trim()
     .min(1, 'A template needs a name')
     .max(REPORT_TEMPLATE_NAME_MAX, `A name must be ${REPORT_TEMPLATE_NAME_MAX} characters or fewer`),
@@ -464,7 +805,7 @@ export const reportTemplateCreateSchema = z.object({
 });
 export type ReportTemplateCreate = z.infer<typeof reportTemplateCreateSchema>;
 
-/** A rename and / or a new document. The profile and the widget type never change. */
+/** A rename and / or a new document. The profile and the kind never change. */
 export const reportTemplateUpdateSchema = reportTemplateCreateSchema.pick({ name: true, document: true }).partial();
 export type ReportTemplateUpdate = z.infer<typeof reportTemplateUpdateSchema>;
 
@@ -474,12 +815,13 @@ export type ReportTemplateUpdate = z.infer<typeof reportTemplateUpdateSchema>;
  * A template as every `/api/report-templates` route returns it (the list,
  * `GET /:id`, the writes, `resolve`'s `template`). `document` always passes the
  * schema: the server reads a stored one through `coerceReportTemplateDocument`.
- * `updatedBy` is the USERNAME of the last writer.
+ * `updatedBy` is the USERNAME of the last writer. `profileId` is `null` for an
+ * application-wide kind (`templateKindScope(kind) === 'application'`).
  */
 export interface ReportTemplateRow {
   id: string;
-  profileId: string;
-  widgetType: WidgetType;
+  profileId: string | null;
+  kind: TemplateKind;
   name: string;
   isDefault: boolean;
   document: ReportTemplateDocument;
