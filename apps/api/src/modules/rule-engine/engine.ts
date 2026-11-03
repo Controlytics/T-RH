@@ -191,6 +191,7 @@ class RuleEngineImpl implements RuleEngine {
   private configTimer: NodeJS.Timeout | null = null;
   private lifecycleTimer: NodeJS.Timeout | null = null;
   private lastDropLogAt = 0;
+  private lastConfigErrorLogAt = 0;
   private readonly servicesHandle: RuleServicesHandle;
 
   constructor(private readonly deps: RuleEngineDeps) {
@@ -249,7 +250,11 @@ class RuleEngineImpl implements RuleEngine {
     this.configTimer = setInterval(() => {
       this.refreshConfig().catch((err) => {
         this.inc('config_errors');
-        logger.warn({ err: errorText(err) }, '[rule-engine] could not re-read Configuration → Rule Engine');
+        // Once a minute: the timer fires every second, and a database outage would otherwise flood the log.
+        const now = Date.now();
+        if (now - this.lastConfigErrorLogAt < 60_000) return;
+        this.lastConfigErrorLogAt = now;
+        logger.warn({ err: errorText(err) }, '[rule-engine] could not re-read Configuration → Rule Engine — keeping the last settings (logged once a minute)');
       });
     }, this.deps.configRefreshMs);
     this.configTimer.unref();

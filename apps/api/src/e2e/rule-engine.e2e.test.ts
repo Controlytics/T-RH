@@ -77,6 +77,7 @@ let engineCfgBefore: { configValue: unknown; configType: string; requiresReauth:
 const startedAt = new Date();
 const restores: (() => void)[] = [];
 const createdInstruments: string[] = [];
+const createdAlarms: string[] = [];
 const otherChains: string[] = [];
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -214,6 +215,8 @@ afterAll(async () => {
     await prisma.$executeRaw`DELETE FROM graphile_worker._private_jobs j USING graphile_worker._private_job_queues q
       WHERE j.job_queue_id = q.id AND q.queue_name = ${`rule-engine:${inst?.id ?? 'none'}`}`;
   } catch (e) { console.error('job cleanup', e); }
+  // Alarms restrict an instrument's delete: this run's RULE alarms go first.
+  try { await prisma.alarm.deleteMany({ where: { OR: [{ id: { in: createdAlarms } }, { instrumentId: { in: createdInstruments }, source: 'RULE' }] } }); } catch (e) { console.error('alarm cleanup', e); }
   try { await prisma.deadLetter.deleteMany({ where: { instrumentId: { in: createdInstruments } } }); } catch (e) { console.error(e); }
   for (const id of createdInstruments) {
     try { await app.inject({ method: 'DELETE', url: `/api/instruments/${id}`, headers: sa }); } catch (e) { console.error(e); }
@@ -460,5 +463,75 @@ describe('debug rows', () => {
     } finally {
       await setEngineConfig({});
     }
+  });
+});
+
+describe('services (what Tasks 4-6 call)', () => {
+  const origin = () => ruleNodeOrigin(ROOT, SAVE_TS);
+
+  it('attributes.save writes and audits only what CHANGED, as SYSTEM, naming the chain and node; delete likewise', async () => {
+    const svc = ruleEngine.services;
+    expect((await svc.attributes.save(inst.id, { Mode: 'auto', Site: 'QC' }, origin(), false)).sort()).toEqual(['Mode', 'Site']);
+    expect(await svc.attributes.save(inst.id, { Mode: 'auto', Site: 'QC2' }, origin(), false)).toEqual(['Site']);
+    expect(await svc.attributes.get(inst.id, ['Mode', 'Site'])).toEqual({ Mode: 'auto', Site: 'QC2' });
+    const set = await prisma.auditTrail.findMany({ where: { action: 'INSTRUMENT_ATTRIBUTE_SET', targetId: inst.id }, orderBy: { chainPosition: 'asc' } });
+    expect(set).toHaveLength(3);
+    for (const row of set) {
+      expect(row.userId).toBe('SYSTEM');
+      expect(row.userRole).toBe('SYSTEM');
+      expect(row.reason).toBe(`Written by rule chain "${ROOT_NAME_PREFIX}${STAMP}" node "Save Timeseries"`);
+    }
+    expect(await svc.attributes.delete(inst.id, ['Mode', 'Nope'], origin())).toEqual(['Mode']);
+    expect(await svc.attributes.delete(inst.id, ['Mode'], origin())).toEqual([]);
+    const removed = await prisma.auditTrail.findMany({ where: { action: 'INSTRUMENT_ATTRIBUTE_REMOVED', targetId: inst.id } });
+    expect(removed.map((r) => [r.userId, (r.beforeValue as { value: string }).value])).toEqual([['SYSTEM', 'auto']]);
+  });
+
+  it('attributes.save refuses a sensor-offset key', async () => {
+    const profileId = await fixtureProfileId('fixture:rule-engine-offsets');
+    await setFixtureMeasurements(profileId, (ms) => ms.map((m) => (m.code === 'TEMPERATURE' ? { ...m, deviceKeys: ['t'], offsetKeys: ['Temp Off set'] } : m)));
+    await expect(ruleEngine.services.attributes.save(inst.id, { 'Temp Off set': '+9' }, origin(), false)).rejects.toThrow(/^OFFSET_KEY_REFUSED/);
+    expect(await ruleEngine.services.attributes.get(inst.id, ['Temp Off set'])).toEqual({});
+  });
+
+  it('alarms: create = a RULE / CUSTOM alarm; the same type again UPDATES it; clear claims it once', async () => {
+    const svc = ruleEngine.services;
+    const first = await svc.alarms.createOrUpdate({ instrumentId: inst.id, alarmType: `Door ${STAMP}`, severity: 'MAJOR', details: { n: 1 }, nodeId: SAVE_TS, chainId: ROOT });
+    createdAlarms.push(first.alarm.id);
+    expect(first.created).toBe(true);
+    expect(first.alarm).toMatchObject({ source: 'RULE', metric: 'CUSTOM', severity: 'MAJOR', state: 'ACTIVE', triggeredValue: null });
+    expect(first.alarm.ruleSnapshot).toEqual({ alarmType: `Door ${STAMP}`, nodeId: SAVE_TS, chainId: ROOT, details: { n: 1 } });
+    const second = await svc.alarms.createOrUpdate({ instrumentId: inst.id, alarmType: `Door ${STAMP}`, severity: 'WARNING', details: { n: 2 }, nodeId: SAVE_TS, chainId: ROOT });
+    expect(second.created).toBe(false);
+    expect(second.alarm.id).toBe(first.alarm.id);
+    expect(second.alarm.severity).toBe('MINOR'); // ThingsBoard's WARNING has no counterpart here
+    expect((second.alarm.ruleSnapshot as { details: unknown }).details).toEqual({ n: 2 });
+    expect(await prisma.alarm.count({ where: { instrumentId: inst.id, source: 'RULE', state: 'ACTIVE' } })).toBe(1);
+    const cleared = await svc.alarms.clear(inst.id, `Door ${STAMP}`, { why: 'closed' });
+    expect(cleared?.id).toBe(first.alarm.id);
+    expect(cleared?.state).toBe('CLEARED');
+    expect(await svc.alarms.clear(inst.id, `Door ${STAMP}`)).toBeNull();
+    // A new excursion of the same type is a NEW alarm once the old one is cleared.
+    const third = await svc.alarms.createOrUpdate({ instrumentId: inst.id, alarmType: `Door ${STAMP}`, severity: 'CRITICAL', details: {}, nodeId: SAVE_TS, chainId: ROOT });
+    createdAlarms.push(third.alarm.id);
+    expect(third.created).toBe(true);
+    expect(third.alarm.id).not.toBe(first.alarm.id);
+  });
+
+  it('telemetry.latest / history, instruments.byCode / fields, appDetails', async () => {
+    const svc = ruleEngine.services;
+    const latest = await svc.telemetry.latest(inst.id, ['temp']);
+    expect(Object.keys(latest)).toEqual(['temp']);
+    const now = new Date();
+    const from = new Date(now.getTime() - 3_600_000);
+    const rowsNone = await svc.telemetry.history(inst.id, ['temp'], from, now, 'NONE', 'ASC', 10);
+    expect(rowsNone.temp.length).toBeGreaterThan(0);
+    expect(rowsNone.temp.every((r, i, a) => i === 0 || a[i - 1].ts <= r.ts)).toBe(true);
+    const count = await svc.telemetry.history(inst.id, ['temp'], from, now, 'COUNT', 'ASC', 10);
+    expect(count.temp).toEqual([{ ts: now.getTime(), value: rowsNone.temp.length }]);
+    expect((await svc.instruments.byCode(inst.code.toLowerCase()))?.id).toBe(inst.id);
+    expect(await svc.instruments.gatewayOf(inst.id)).toBeNull();
+    expect(await svc.instruments.fields(inst.id)).toMatchObject({ id: inst.id, code: inst.code, name: `RE ${STAMP}`, isGateway: 'false' });
+    expect(Object.keys(await svc.appDetails()).sort()).toEqual(['APP_NAME', 'SERVER_NAME', 'SERVER_VERSION', 'TITLE']);
   });
 });

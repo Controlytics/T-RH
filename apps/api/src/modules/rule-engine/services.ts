@@ -540,30 +540,37 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
         const severity = ruleAlarmSeverity(input.severity);
         const snapshot = { alarmType, nodeId: input.nodeId, chainId: input.chainId, details: input.details ?? {} };
         const origin = ruleNodeOrigin(input.chainId, input.nodeId);
-        let created: Alarm | null = null;
-        try {
-          created = await prisma.alarm.create({
-            data: {
-              source: 'RULE', metric: 'CUSTOM', severity, state: 'ACTIVE', limitKind: null, triggeredValue: null,
-              ruleSnapshot: snapshot as unknown as Prisma.InputJsonObject,
-              instrumentId: input.instrumentId,
-            },
-          });
-        } catch (e) {
-          // The ONE partial unique index on RULE alarms is (instrument, alarmType)
-          // WHERE ACTIVE: a P2002 means this type is already open → update it.
-          if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) throw e;
-        }
-        if (created) {
-          await announceAlarm('raised', created, alarmType, snapshot.details);
-          await emitAlarm('ALARM', created, { isNewAlarm: true, origin });
-          return { alarm: created, created: true };
-        }
-        const open = await prisma.$queryRaw<{ id: string }[]>`
+        const openId = async () => (await prisma.$queryRaw<{ id: string }[]>`
           SELECT id FROM alarms WHERE instrument_id = ${input.instrumentId} AND source = 'RULE' AND state = 'ACTIVE'
-            AND rule_snapshot ->> 'alarmType' = ${alarmType} LIMIT 1`;
-        if (open.length === 0) throw new Error(`ALARM_CONFLICT: an alarm "${alarmType}" was open and is not any more; try again`);
-        const existing = await prisma.alarm.findUniqueOrThrow({ where: { id: open[0].id } });
+            AND rule_snapshot ->> 'alarmType' = ${alarmType} LIMIT 1`)[0]?.id;
+        // The open one first: a Create alarm node fires on EVERY message while its
+        // condition holds, and going straight to the INSERT would make each of
+        // those a unique violation Prisma logs at error level.
+        let id = await openId();
+        if (!id) {
+          let created: Alarm | null = null;
+          try {
+            created = await prisma.alarm.create({
+              data: {
+                source: 'RULE', metric: 'CUSTOM', severity, state: 'ACTIVE', limitKind: null, triggeredValue: null,
+                ruleSnapshot: snapshot as unknown as Prisma.InputJsonObject,
+                instrumentId: input.instrumentId,
+              },
+            });
+          } catch (e) {
+            // The ONE partial unique index on RULE alarms is (instrument, alarmType)
+            // WHERE ACTIVE: a P2002 means another message opened it just now → update that one.
+            if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) throw e;
+          }
+          if (created) {
+            await announceAlarm('raised', created, alarmType, snapshot.details);
+            await emitAlarm('ALARM', created, { isNewAlarm: true, origin });
+            return { alarm: created, created: true };
+          }
+          id = await openId();
+          if (!id) throw new Error(`ALARM_CONFLICT: an alarm "${alarmType}" was open and is not any more; try again`);
+        }
+        const existing = await prisma.alarm.findUniqueOrThrow({ where: { id } });
         const prior = existing.ruleSnapshot && typeof existing.ruleSnapshot === 'object' && !Array.isArray(existing.ruleSnapshot)
           ? existing.ruleSnapshot as Record<string, unknown> : {};
         const alarm = await prisma.alarm.update({

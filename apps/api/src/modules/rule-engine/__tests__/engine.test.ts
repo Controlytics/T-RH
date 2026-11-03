@@ -270,14 +270,22 @@ describe('late emissions, tellSelf and the budget', () => {
     const b = nodeOf(sink, 'B');
     const mem = memoryDeps([chainOf('c', docOf([a, b], [[a, 'Success', b]]), { root: true })]);
     const engine = createRuleEngine({ ...mem.deps, budgetMs: 50, services: () => Object.assign(fakeServices(), { dispose: async () => undefined }) });
-    await engine.processNow(testMessage({}));
-    expect(mem.events.map((e) => `${e.direction} ${e.relation} ${e.error ?? ''}`.trim())).toEqual([
-      'IN null', 'OUT Failure (unhandled) MESSAGE_TIMEOUT',
-    ]);
-    release();
-    await new Promise((r) => setTimeout(r, 20));
-    expect(log).toEqual([]);
-    expect(engine.stats().counters.late_dropped).toBe(1);
+    // STARTED, so the engine is accepting: only the abandoned message can be why the late call is dropped.
+    await engine.start();
+    try {
+      expect(engine.enqueue(testMessage({}))).toBe(true);
+      await waitFor(() => mem.events.length === 2);
+      expect(mem.events.map((e) => `${e.direction} ${e.relation} ${e.error ?? ''}`.trim())).toEqual([
+        'IN null', 'OUT Failure (unhandled) MESSAGE_TIMEOUT',
+      ]);
+      release();
+      await new Promise((r) => setTimeout(r, 30));
+      await engine.drain();
+      expect(log).toEqual([]);
+      expect(engine.stats().counters.late_dropped).toBe(1);
+    } finally {
+      await engine.stop();
+    }
   });
 });
 
