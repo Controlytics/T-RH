@@ -16,7 +16,6 @@ import {
 import { exportChain, exportFileName, importChain } from './import-export.js';
 import { maskDocumentSecrets, maskSecrets } from './secrets.js';
 import { auditLog } from '../../lib/audit.js';
-import { roleHasPermission } from '../../plugins/rbac.js';
 import { ruleEngine } from './engine.js';
 import { RuleScriptError, type RuleScriptKind } from './script-vm.js';
 import { GENERATOR_PREV_PREFIX } from './nodes/action/generator.js';
@@ -40,11 +39,13 @@ import { newMessage, toMetadata, RULE_ENGINE_ORIGIN_KEY, REST_API_ORIGIN, type R
  * - Exactly one root: `POST /:id/root` moves it (`setRoot`); the root cannot
  *   be deleted (409 ROOT_CHAIN), nor can a chain another chain calls (409
  *   CHAIN_IN_USE).
- * - Credentials (secrets.ts, ONE rule): the export always masks them as
- *   "***" (ruling S-5); `GET /:id` masks them unless the caller holds
- *   RULE_CHAIN_MANAGE (ruling T2-B); a save or an import that sends "***"
- *   KEEPS the value stored for that node id, and an import reports each node
- *   whose credential must be entered again; audit rows record them masked.
+ * - Credentials (secrets.ts, ONE rule): EVERY response masks them as "***",
+ *   for EVERY caller, RULE_CHAIN_MANAGE included — `GET /:id`, the chain a
+ *   create / save / make-root returns, and the export (spec S-5: masked in the
+ *   editor too; ruling T2-D). A save or an import that sends "***" KEEPS the
+ *   value stored for that node id and type, so the editor never needs the real
+ *   value; an import reports each node whose credential must be entered again;
+ *   audit rows record them masked.
  * - `/stats`, `/test-script` and `POST /api/rule-engine/v1/messages` call the
  *   engine (engine.ts, Task 3): its live numbers, its script VM, its queue.
  */
@@ -60,11 +61,11 @@ type DetailRow = Pick<RuleChain, 'id' | 'name' | 'root' | 'debugMode' | 'reEnter
 
 /**
  * One chain on the wire. The stored document is read FORGIVINGLY: one bad node
- * never blanks a chain. `masked`: every credential leaf as "***" (secrets.ts) —
- * for a caller WITHOUT RULE_CHAIN_MANAGE (ruling T2-B). Every route that only a
- * MANAGE holder reaches answers unmasked: the editor needs the values.
+ * never blanks a chain. Every credential leaf reads as "***" (secrets.ts) for
+ * EVERY caller (ruling T2-D): no response carries a stored secret, and a save
+ * that sends "***" back keeps the stored value.
  */
-export function presentDetail(row: DetailRow, opts: { masked?: boolean } = {}) {
+export function presentDetail(row: DetailRow) {
   const document = readRuleChainDocument(row.document);
   return {
     id: row.id,
@@ -72,7 +73,7 @@ export function presentDetail(row: DetailRow, opts: { masked?: boolean } = {}) {
     root: row.root,
     debugMode: row.debugMode,
     reEnterOnRuleNodeWrites: row.reEnterOnRuleNodeWrites,
-    document: opts.masked ? maskDocumentSecrets(document) : document,
+    document: maskDocumentSecrets(document),
     updatedAt: row.updatedAt.toISOString(),
     updatedBy: row.updatedBy,
   };
@@ -213,7 +214,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Rule Chains'],
       summary: 'One rule chain with its document',
-      description: 'The stored document read forgivingly: a node that no longer passes its type reads as Unsupported, a dangling connection is dropped. Credentials (passwords, tokens, private keys, an Authorization header) read as "***" unless the caller holds RULE_CHAIN_MANAGE.',
+      description: 'The stored document read forgivingly: a node that no longer passes its type reads as Unsupported, a dangling connection is dropped. Credentials (passwords, tokens, private keys, an Authorization header) read as "***" for every caller; a save that sends "***" back keeps the stored value.',
       params: idParams,
       response: detailResponse,
     },
@@ -221,8 +222,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const row = await prisma.ruleChain.findUnique({ where: { id } });
     if (!row) return notFound(reply);
-    // The ONE resolver requirePermission uses, so "may see the secrets" and "may save the chain" cannot differ.
-    return presentDetail(row, { masked: !(await roleHasPermission(req.user.role, MANAGE)) });
+    return presentDetail(row);
   });
 
   // ─── EXPORT ────────────────────────────────────────────

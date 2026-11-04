@@ -1,11 +1,11 @@
 /**
  * Credentials in a rule chain's node configurations (rule chains, 2026-11-03;
- * spec §12 ruling S-5; Task 2 rulings T2-3 and T2-B).
+ * spec §12 ruling S-5; Task 2 rulings T2-3, T2-B and T2-D).
  *
- * ONE rule decides what a secret is, and every path uses it — the export, the
- * read for a caller without RULE_CHAIN_MANAGE, the audit values, and the merge
- * on a save or an import. The four cannot disagree about which value is
- * hidden and which one is put back.
+ * ONE rule decides what a secret is, and every path uses it — the export,
+ * every response that carries a chain (masked for EVERY caller, ruling T2-D),
+ * the audit values, and the merge on a save or an import. The four cannot
+ * disagree about which value is hidden and which one is put back.
  *
  * A SECRET LEAF is a STRING:
  *   - outside a `credentials` object: whose key matches `SECRET_KEY`
@@ -56,7 +56,7 @@ export function maskSecrets<T>(config: T): T {
   return maskValue(config, false) as T;
 }
 
-/** The document with every node's configuration masked — what a caller without RULE_CHAIN_MANAGE reads. */
+/** The document with every node's configuration masked — what every response carries (ruling T2-D). */
 export function maskDocumentSecrets(doc: RuleChainDocument): RuleChainDocument {
   return { ...doc, nodes: doc.nodes.map((n) => ({ ...n, config: maskSecrets(n.config) })) };
 }
