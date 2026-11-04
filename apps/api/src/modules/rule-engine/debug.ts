@@ -248,6 +248,8 @@ export class RuleDebugWriter {
    * flush. The count restarts at each trim; a node over the cap but inside its
    * 10 s is trimmed by a later flush or timer tick. The hourly sweep still
    * removes rows by AGE (and anything written before this process started).
+   * BETWEEN trims a node holds up to about TWICE the cap (N kept + N new before
+   * the next trim fires), plus whatever it writes during the 10 s wait.
    * Never throws.
    */
   trimDue(): Promise<void> {

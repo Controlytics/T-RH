@@ -1,6 +1,7 @@
 import type { RuleDebugMode } from '@digilog/shared';
 import type { RuleMessage } from './message.js';
 import type { RuleServices } from './services.js';
+import type { RuleScriptKind, RuleScriptResult } from './script-vm.js';
 
 /**
  * What a node HANDLER is given (rule chains, 2026-11-03; spec §6): the node,
@@ -58,6 +59,15 @@ export interface RuleContext<C = Record<string, unknown>> {
   callChain(chainId: string, msg: RuleMessage): Promise<void>;
   output(msg: RuleMessage, label: string): void;
   log(level: RuleLogLevel, text: string): void;
+  /**
+   * Run a node script on `msg` (its data, metadata and type) with the
+   * configured time budget. USE THIS, not script-vm's `runScript` directly:
+   * it is keyed to this node and chain version, so a script that times out 3
+   * times in a row is disabled (`SCRIPT_DISABLED`) until the chain is saved.
+   * Throws `RuleScriptError` (a handler that lets it propagate sends the
+   * message to Failure with `metadata.error`).
+   */
+  runScript<K extends RuleScriptKind>(kind: K, script: string, msg: RuleMessage): RuleScriptResult<K>;
 }
 
 export type RuleNodeHandler<C = Record<string, unknown>> = (ctx: RuleContext<C>, msg: RuleMessage) => Promise<void> | void;

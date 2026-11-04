@@ -189,11 +189,16 @@ export function failureMessage(msg: RuleMessage, err: unknown): RuleMessage {
   return out;
 }
 
-/** The message as JSON for a durable job / the debug table: no engine-internal hop count. */
+/**
+ * The message as JSON for a durable job, its call stack AND hop count kept
+ * (ruled 2026-11-04): a cycle through Delay / Checkpoint must still reach the
+ * hop limit, and an Output after a Checkpoint must still find its caller.
+ */
 export function serialisableMessage(msg: RuleMessage): RuleMessage {
   return {
     id: msg.id, type: msg.type, originator: { ...msg.originator }, metadata: { ...msg.metadata },
     data: cloneData(msg.data),
     ...(msg._stack && msg._stack.length > 0 ? { _stack: msg._stack.map((f) => ({ ...f })) } : {}),
+    ...(msg._hops !== undefined ? { _hops: msg._hops } : {}),
   };
 }

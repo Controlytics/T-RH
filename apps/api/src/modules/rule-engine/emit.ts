@@ -108,13 +108,16 @@ const sameJson = (a: unknown, b: unknown) => {
 };
 
 /**
- * `POST_TELEMETRY_REQUEST` (spec §5): ONE message per instrument per instant —
- * a batch is one instant, so normally one per instrument per batch — with the
- * ThingsBoard data shape `{ ts, values: { key: value } }` (ts in ms). Values
- * are the STORED ones, after sensor offsets; a device value an offset
- * corrected is in `metadata.raw_<key>`. `instrumentCode` / `instrumentName` /
- * `profileName` are filled in by the engine before the first node (no lookup
- * here, on the ingest path).
+ * `POST_TELEMETRY_REQUEST` (spec §5; ruling M-1, 2026-11-04): ThingsBoard's
+ * rule-engine shape — the data is FLAT, `{ temperature: 25, humidity: 40 }`,
+ * and the instant is `metadata.ts` (epoch ms as a string), ONE message per
+ * distinct instant (ThingsBoard's DefaultTransportService). So a ThingsBoard
+ * script — `return msg.temperature > 20;` — reads it as written. A batch is
+ * one instant, so normally one message per instrument per batch. Values are
+ * the STORED ones, after sensor offsets; a device value an offset corrected is
+ * in `metadata.raw_<key>`. `instrumentCode` / `instrumentName` / `profileName`
+ * are filled in by the engine before the first node (no lookup here, on the
+ * ingest path).
  */
 export function emitTelemetry(
   instrumentId: string,
@@ -138,7 +141,7 @@ export function emitTelemetry(
         values[r.key] = r.value;
         if (r.rawValue !== undefined && !sameJson(r.rawValue, r.value)) metadata[`raw_${r.key}`] = metadataValue(r.rawValue);
       }
-      return newMessage('POST_TELEMETRY_REQUEST', { type: 'INSTRUMENT', id: instrumentId, ...(code ? { code } : {}) }, { ts, values }, metadata);
+      return newMessage('POST_TELEMETRY_REQUEST', { type: 'INSTRUMENT', id: instrumentId, ...(code ? { code } : {}) }, values, metadata);
     });
   });
 }

@@ -104,10 +104,14 @@ export interface RuleEngine {
   enqueue(msg: RuleMessage): boolean;
   /**
    * Re-inject a message AFTER `nodeId` of `chainId`, out on `relations`
-   * (default `Success`) — the durable task's path. Resolves when the message
-   * has been processed; rejects when it was not admitted or was dropped.
+   * (default `Success`) — the durable task's path. True once the Main queue
+   * ADMITTED it (the job then completes); false when it was refused (engine
+   * stopping or not accepting). A restart between admission and processing
+   * loses it, as it loses any Main-queue message (ruled 2026-11-04, review I5:
+   * a job holding its graphile slot for the whole flow blocked the per-
+   * originator queue behind a slow chain).
    */
-  resumeAfter(msg: RuleMessage, chainId: string, nodeId: string, relations?: string[]): Promise<void>;
+  resumeAfter(msg: RuleMessage, chainId: string, nodeId: string, relations?: string[]): boolean;
   /** Run one message to completion now, bypassing the queue (tests). Into the root chain, or `chainId`'s first node. */
   processNow(msg: RuleMessage, opts?: { chainId?: string }): Promise<void>;
   stats(): RuleEngineStats;
@@ -147,7 +151,6 @@ type Entry =
 interface QueueItem {
   msg: RuleMessage;
   entry: Entry;
-  deferred?: { resolve(): void; reject(err: Error): void };
 }
 
 interface Step {
@@ -276,7 +279,7 @@ class RuleEngineImpl implements RuleEngine {
     for (const t of this.selfTimers) clearTimeout(t);
     this.selfTimers.clear();
     this.queue.pause();
-    for (const item of this.queue.clear()) item.deferred?.reject(new Error('ENGINE_STOPPED'));
+    this.queue.clear();
     await Promise.race([this.queue.onIdle(), new Promise((r) => setTimeout(r, 5_000).unref())]);
     if (this.lifecycleBusy) await this.lifecycleBusy;
     for (const key of [...this.instances.keys()]) await this.destroyInstance(key);
@@ -300,7 +303,6 @@ class RuleEngineImpl implements RuleEngine {
     this.deps.debug.configure?.({ maxPerNode: next.debugMaxEventsPerNode });
     if (wasEnabled && !next.enabled) {
       const cleared = this.queue.clear();
-      for (const item of cleared) item.deferred?.reject(new Error('ENGINE_DISABLED'));
       if (cleared.length > 0) this.inc('cleared_on_disable', cleared.length);
     }
     return next;
@@ -317,12 +319,9 @@ class RuleEngineImpl implements RuleEngine {
     return this.queue.push({ msg, entry: { kind: 'root' } });
   }
 
-  resumeAfter(msg: RuleMessage, chainId: string, nodeId: string, relations: string[] = ['Success']): Promise<void> {
-    if (!this.accepting()) return Promise.reject(new Error(this.isStarted ? 'ENGINE_DISABLED' : 'ENGINE_NOT_STARTED'));
-    return new Promise<void>((resolve, reject) => {
-      const ok = this.queue.push({ msg, entry: { kind: 'replay', chainId, nodeId, replay: { kind: 'next', relations } }, deferred: { resolve, reject } });
-      if (!ok) reject(new Error('QUEUE_REFUSED'));
-    });
+  resumeAfter(msg: RuleMessage, chainId: string, nodeId: string, relations: string[] = ['Success']): boolean {
+    if (!this.accepting()) return false;
+    return this.queue.push({ msg, entry: { kind: 'replay', chainId, nodeId, replay: { kind: 'next', relations } } });
   }
 
   async processNow(msg: RuleMessage, opts: { chainId?: string } = {}): Promise<void> {
@@ -330,8 +329,7 @@ class RuleEngineImpl implements RuleEngine {
     await this.runFlow({ msg, entry: opts.chainId ? { kind: 'chain', chainId: opts.chainId } : { kind: 'root' } });
   }
 
-  private onDrop(item: QueueItem): void {
-    item.deferred?.reject(new Error('QUEUE_FULL'));
+  private onDrop(_item: QueueItem): void {
     const now = Date.now();
     if (now - this.lastDropLogAt >= 60_000) {
       this.lastDropLogAt = now;
@@ -341,13 +339,7 @@ class RuleEngineImpl implements RuleEngine {
   }
 
   private async processItem(item: QueueItem): Promise<void> {
-    try {
-      await this.runFlow(item);
-      item.deferred?.resolve();
-    } catch (err) {
-      item.deferred?.reject(err instanceof Error ? err : new Error(errorText(err)));
-      throw err;
-    }
+    await this.runFlow(item);
   }
 
   // ── one message ───────────────────────────────────────────────────────────
@@ -620,6 +612,9 @@ class RuleEngineImpl implements RuleEngine {
       log: (level: RuleLogLevel, text: string) => {
         logger[level]({ chainId: chain.id, nodeId: node.id }, `[rule-chain ${chain.name}/${node.name}] ${text}`);
       },
+      // Keyed to this node AND the chain's version: a save (a new updatedAt) re-enables a disabled script.
+      runScript: (kind, script, msg) => runVmScript(kind, script, msg.data, msg.metadata, msg.type, this.cfg.scriptTimeoutMs,
+        { key: `${ruleNodeKey(chain.id, node.id)}:${chain.updatedAt.getTime()}` }) as never,
     };
     return { ctx, close: () => { open = false; } };
   }

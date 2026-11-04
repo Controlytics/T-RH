@@ -6,6 +6,7 @@ import { loadChainFromRow, type LoadedRuleChain } from '../modules/rule-engine/s
 import { failureMessage, newMessage, ruleNodeOrigin, ruleNodeKey, type RuleMessage, type RuleOriginator } from '../modules/rule-engine/message.js';
 import type { RuleContext, RuleLogLevel } from '../modules/rule-engine/context.js';
 import type { RuleServices } from '../modules/rule-engine/services.js';
+import { runScript as runVmScript } from '../modules/rule-engine/script-vm.js';
 import type { RuleDebugEventInput } from '../modules/rule-engine/debug.js';
 
 /**
@@ -125,6 +126,9 @@ export function fakeContext<C = Record<string, unknown>>(opts: FakeContextOption
     log(level, text) {
       calls.logs.push({ level, text });
     },
+    // As the engine's: keyed to this node (version 0), so three consecutive time-outs disable the script.
+    runScript: (kind, script, msg) => runVmScript(kind, script, msg.data, msg.metadata, msg.type, services.config().scriptTimeoutMs,
+      { key: `${ruleNodeKey(chainId, nodeId)}:0` }) as never,
   };
   return { ctx, calls };
 }

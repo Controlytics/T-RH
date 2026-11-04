@@ -2,6 +2,9 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { createRuleEngine, type RuleEngine } from '../engine.js';
 import { registerNode, getHandler } from '../registry.js';
 import { registerAllNodes } from '../nodes/index.js';
+import { runRuleEngineMessage } from '../../../workers/rule-engine-message.worker.js';
+import { serialisableMessage } from '../message.js';
+import { clearScriptStrikes } from '../script-vm.js';
 import { newMessage, type RuleMessage } from '../message.js';
 import { chainOf, docOf, nodeOf, memoryDeps, fakeServices, fakeContext, testMessage } from '../../../test-support/rule-engine.js';
 import type { LoadedRuleChain } from '../service.js';
@@ -415,6 +418,98 @@ describe('node lifecycles (onInit / onDestroy)', () => {
     const chain = chainOf('c', docOf([a], []), { root: true });
     await engineFor([chain]).engine.processNow(testMessage({}));
     expect(keys).toEqual([`${chain.id}:${a.id}`]);
+  });
+});
+
+describe('the durable path (rule_engine_message)', () => {
+  it('the job completes once the Main queue ADMITS the message, before a slow downstream node finishes', async () => {
+    let release!: () => void;
+    let finished = false;
+    const from = type('test:delay-like', () => undefined);
+    const slow = type('test:slow-next', async () => { await new Promise<void>((r) => { release = r; }); finished = true; });
+    const a = nodeOf(from, 'Delay');
+    const b = nodeOf(slow, 'Next');
+    const chain = chainOf('c', docOf([a, b], [[a, 'Success', b]]), { root: true });
+    const mem = memoryDeps([chain]);
+    const engine = createRuleEngine({ ...mem.deps, services: () => Object.assign(fakeServices(), { dispose: async () => undefined }) });
+    await engine.start();
+    try {
+      const msg = testMessage({ t: 1 });
+      expect(await runRuleEngineMessage({ message: serialisableMessage(msg), chainId: chain.id, resumeAfterNodeId: a.id }, engine)).toBe('admitted');
+      await waitFor(() => release !== undefined);
+      expect(finished).toBe(false);
+      release();
+      await engine.drain();
+      expect(finished).toBe(true);
+    } finally {
+      await engine.stop();
+    }
+  });
+
+  it('a refused admission THROWS (graphile retries); not started THROWS; switched off drops', async () => {
+    const mem = memoryDeps([], { enabled: false });
+    const engine = createRuleEngine({ ...mem.deps, services: () => Object.assign(fakeServices(), { dispose: async () => undefined }) });
+    const payload = { message: serialisableMessage(testMessage({})), chainId: '0f000000-0000-4000-8000-0000000000c1', resumeAfterNodeId: '0f000000-0000-4000-8000-0000000000c2' };
+    await expect(runRuleEngineMessage(payload, engine)).rejects.toThrow(/^ENGINE_NOT_STARTED/);
+    await engine.start();
+    try {
+      expect(await runRuleEngineMessage(payload, engine)).toBe('dropped_disabled');
+    } finally {
+      await engine.stop();
+    }
+    const stopping = createRuleEngine({ ...memoryDeps([]).deps, services: () => Object.assign(fakeServices(), { dispose: async () => undefined }) });
+    await stopping.start();
+    const stopped = stopping.stop();
+    await expect(runRuleEngineMessage(payload, stopping)).rejects.toThrow(/^QUEUE_REFUSED|^ENGINE_NOT_STARTED/);
+    await stopped;
+  });
+
+  it('the hop count travels through the durable path: a cycle through Delay still reaches the hop limit', async () => {
+    const from = type('test:delay-like2', () => undefined);
+    const next = type('test:next2', (ctx, msg) => ctx.tellNext(msg, 'Success'));
+    const a = nodeOf(from, 'Delay');
+    const b = nodeOf(next, 'Next', { debugMode: 'all' });
+    const chain = chainOf('c', docOf([a, b], [[a, 'Success', b]]), { root: true });
+    const mem = memoryDeps([chain], { hopLimit: 200 });
+    const engine = createRuleEngine({ ...mem.deps, services: () => Object.assign(fakeServices(), { dispose: async () => undefined }) });
+    await engine.start();
+    try {
+      const msg = { ...testMessage({}), _hops: 200 };
+      const payload = JSON.parse(JSON.stringify({ message: serialisableMessage(msg), chainId: chain.id, resumeAfterNodeId: a.id }));
+      expect(payload.message._hops).toBe(200);
+      expect(await runRuleEngineMessage(payload, engine)).toBe('admitted');
+      await engine.drain();
+      expect(mem.events.filter((e) => e.nodeId === b.id).map((e) => `${e.direction} ${e.relation} ${e.error ?? ''}`.trim()))
+        .toEqual(['IN Success', 'OUT Failure (unhandled) HOP_LIMIT']);
+    } finally {
+      await engine.stop();
+    }
+  });
+});
+
+describe('ctx.runScript', () => {
+  it('runs on the message; three time-outs disable it until the chain is saved (a new version)', async () => {
+    clearScriptStrikes();
+    const results: string[] = [];
+    const scripted = type('test:scripted', (ctx, msg) => {
+      try {
+        results.push(String(ctx.runScript('filter', 'if (msg.spin) { while (true) {} } return msg.t > 20;', msg)));
+      } catch (e) {
+        results.push((e as { code?: string }).code ?? 'error');
+      }
+    });
+    const a = nodeOf(scripted, 'A');
+    const chain = chainOf('c', docOf([a], []), { root: true });
+    const mem = memoryDeps([chain], { scriptTimeoutMs: 100 });
+    const engine = createRuleEngine({ ...mem.deps, services: () => Object.assign(fakeServices(), { dispose: async () => undefined }) });
+    await engine.processNow(testMessage({ t: 25 }));
+    for (let i = 0; i < 3; i++) await engine.processNow(testMessage({ spin: true }));
+    await engine.processNow(testMessage({ t: 25 }));
+    expect(results).toEqual(['true', 'SCRIPT_TIMEOUT', 'SCRIPT_TIMEOUT', 'SCRIPT_TIMEOUT', 'SCRIPT_DISABLED']);
+    // Saved: a new version of the same chain.
+    mem.chains.set(chain.id, { ...chain, updatedAt: new Date(chain.updatedAt.getTime() + 1_000) });
+    await engine.processNow(testMessage({ t: 25 }));
+    expect(results.at(-1)).toBe('true');
   });
 });
 

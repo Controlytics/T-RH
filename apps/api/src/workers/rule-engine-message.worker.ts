@@ -14,15 +14,20 @@ import { logger } from '../lib/logger.js';
  * originator at a time, in order.
  *
  * The message is re-injected at the connections AFTER `resumeAfterNodeId`
- * under `relation` (Success), through the Main queue, and the job completes
- * only when that message has been processed — a crash in between re-runs it.
+ * under `relation` (Success), through the Main queue, with its call stack and
+ * hop count restored (a cycle through Delay / Checkpoint still reaches the hop
+ * limit). The job COMPLETES as soon as the Main queue ADMITS the message
+ * (ruled 2026-11-04, review I5) — awaiting the whole flow held the
+ * originator's graphile queue behind a slow chain. A restart between
+ * admission and processing loses it, as it loses any Main-queue message.
  *  - Engine not started yet (boot) → the job THROWS, so graphile retries it.
+ *  - The Main queue refuses it (the engine stopping) → THROWS, retried.
  *  - Engine switched OFF → the message is dropped and the job completes, as
  *    the Main queue drops its messages when switched off.
  *  - A malformed payload → logged and completed: retrying cannot fix it.
  *  - The chain or node since deleted → the message simply ends.
  */
-export type RuleEngineMessageOutcome = 'processed' | 'dropped_disabled' | 'dropped_invalid';
+export type RuleEngineMessageOutcome = 'admitted' | 'dropped_disabled' | 'dropped_invalid';
 
 export async function runRuleEngineMessage(payload: unknown, engine: RuleEngine = ruleEngine): Promise<RuleEngineMessageOutcome> {
   const parsed = ruleEngineMessageJobSchema.safeParse(payload);
@@ -44,17 +49,16 @@ export async function runRuleEngineMessage(payload: unknown, engine: RuleEngine 
     metadata: { ...message.metadata },
     data: message.data,
     ...(message._stack && message._stack.length > 0 ? { _stack: message._stack.map((f) => ({ ...f })) } : {}),
+    ...(message._hops !== undefined ? { _hops: message._hops } : {}),
   };
-  try {
-    await engine.resumeAfter(msg, chainId, resumeAfterNodeId, [relation]);
-    return 'processed';
-  } catch (err) {
-    if ((err as Error).message === 'ENGINE_DISABLED') {
-      logger.info({ msgId: msg.id, chainId }, '[rule-engine] switched off — a durable message was dropped');
-      return 'dropped_disabled';
-    }
-    throw err;
+  if (!engine.config().enabled) {
+    logger.info({ msgId: msg.id, chainId }, '[rule-engine] switched off — a durable message was dropped');
+    return 'dropped_disabled';
   }
+  if (!engine.resumeAfter(msg, chainId, resumeAfterNodeId, [relation])) {
+    throw new Error('QUEUE_REFUSED: the rule engine did not admit the message; graphile will retry this job');
+  }
+  return 'admitted';
 }
 
 export const ruleEngineMessageTask: Task = async (payload) => {

@@ -407,6 +407,12 @@ export async function ruleEngineIngressRoutes(app: FastifyInstance) {
     const msg = newMessage(body.type?.trim() || 'REST_API_REQUEST', originator, body.data ?? null, { ...(body.metadata ?? {}) });
     msg.metadata.requestId = msg.id;
     msg.metadata[RULE_ENGINE_ORIGIN_KEY] = REST_API_ORIGIN;
+    // A POST_TELEMETRY_REQUEST is ThingsBoard's FLAT shape (ruling M-1): `data` is
+    // the values, the instant is `metadata.ts` (epoch ms) — now when not given.
+    // NOTE (recorded for the feature note): through the shipped chain's Save
+    // Timeseries this STORES a reading with whatever `ts` the caller sends; the
+    // audit row below is the record of who did it.
+    if (msg.type === 'POST_TELEMETRY_REQUEST' && !msg.metadata.ts) msg.metadata.ts = String(Date.now());
     // ONE audit row per call, BEFORE the message can act (it may raise alarms, write
     // attributes, send email): who injected what, credential-like keys masked
     // (secrets.ts, the export's rule). A machine endpoint: no re-auth, no reason.

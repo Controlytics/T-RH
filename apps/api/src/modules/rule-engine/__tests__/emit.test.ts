@@ -59,7 +59,7 @@ describe('accepting', () => {
 });
 
 describe('POST_TELEMETRY_REQUEST', () => {
-  it('is { ts, values } per instant, origin ingest, raw_<key> only where an offset changed the value', async () => {
+  it('is FLAT ({ key: value }, ThingsBoard\'s shape) with metadata.ts, one per instant; raw_<key> only where an offset changed the value', async () => {
     const ts = new Date('2026-11-03T10:00:00.000Z');
     const n = await emitTelemetry('i1', [
       { key: 'temp', value: 21.5, ts, rawValue: 20.5 },
@@ -70,7 +70,7 @@ describe('POST_TELEMETRY_REQUEST', () => {
     const [m] = queued;
     expect(m.type).toBe('POST_TELEMETRY_REQUEST');
     expect(m.originator).toEqual({ type: 'INSTRUMENT', id: 'i1', code: 'CWH/1' });
-    expect(m.data).toEqual({ ts: ts.getTime(), values: { temp: 21.5, hum: 40, bat: 3.3 } });
+    expect(m.data).toEqual({ temp: 21.5, hum: 40, bat: 3.3 });
     expect(m.metadata).toEqual({
       ts: String(ts.getTime()), transport: 'mqtt', instrumentCode: 'CWH/1', raw_temp: '20.5', rule_engine_origin: 'ingest',
     });
@@ -85,10 +85,10 @@ describe('POST_TELEMETRY_REQUEST', () => {
       { instrumentId: 'b', key: 't', value: 3, ts: t1 },
       { instrumentId: 'b', key: 't', value: 4, ts: t2 },
     ], 'http');
-    expect(queued.map((m) => [m.originator.id, m.data])).toEqual([
-      ['a', { ts: 1000, values: { t: 1, h: 2 } }],
-      ['b', { ts: 1000, values: { t: 3 } }],
-      ['b', { ts: 2000, values: { t: 4 } }],
+    expect(queued.map((m) => [m.originator.id, m.metadata.ts, m.data])).toEqual([
+      ['a', '1000', { t: 1, h: 2 }],
+      ['b', '1000', { t: 3 }],
+      ['b', '2000', { t: 4 }],
     ]);
   });
 });

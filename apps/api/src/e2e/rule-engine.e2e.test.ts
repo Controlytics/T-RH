@@ -191,9 +191,9 @@ beforeAll(async () => {
   restores.push(registerNode('tb:filter:message-type-switch', (ctx, msg) => ctx.tellNext(msg, messageTypeSwitchLabel(msg.type))));
   restores.push(registerNode('tb:action:save-timeseries', async (ctx, msg) => {
     if (ctx.services.config().skipSaveNodesForIngestOrigin && msg.metadata.rule_engine_origin === 'ingest') return;
-    const data = msg.data as { ts: number; values: Record<string, unknown> };
+    const ts = new Date(Number(msg.metadata.ts) || Date.now());
     await ctx.services.telemetry.write(msg.originator.id,
-      Object.entries(data.values).map(([key, value]) => ({ key, value, ts: new Date(data.ts) })), ctx.origin);
+      Object.entries(msg.data as Record<string, unknown>).map(([key, value]) => ({ key, value, ts })), ctx.origin);
     ctx.tellNext(msg, 'Success');
   }));
   restores.push(registerNode('tb:action:save-attributes', () => undefined));
@@ -252,8 +252,9 @@ describe('telemetry enters the root chain', () => {
     expect(Date.now() - posted).toBeLessThan(2_000);
     expect(found).toHaveLength(1);
     const [inRow] = found;
-    expect(inRow.data.values.temp).toBe(21.5);
-    expect(inRow.data.ts).toBe(ts);
+    // ThingsBoard's FLAT shape (ruling M-1): the values are the data, the instant is metadata.ts.
+    expect(inRow.data).toEqual({ temp: 21.5, hum: 40 });
+    expect(inRow.metadata.ts).toBe(String(ts));
     expect(inRow.metadata.instrumentCode).toBe(inst.code);
     expect(inRow.metadata.instrumentName).toBe(`RE ${STAMP}`);
     expect(inRow.metadata.transport).toBe('http');
@@ -313,17 +314,18 @@ describe('telemetry enters the root chain', () => {
   async function settledInsAt(ts: number, atLeast: number): Promise<DebugRow[]> {
     const where = { nodeId: SWITCH, msgType: 'POST_TELEMETRY_REQUEST', originatorId: inst.id, direction: 'IN' as const };
     const until = Date.now() + 2_000;
-    while ((await rows(where)).filter((r) => r.data?.ts === ts).length < atLeast && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+    const at = (r: DebugRow) => r.metadata?.ts === String(ts);
+    while ((await rows(where)).filter(at).length < atLeast && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
     await settle();
     await new Promise((r) => setTimeout(r, 600));
     await settle();
-    return (await rows(where)).filter((r) => r.data?.ts === ts);
+    return (await rows(where)).filter(at);
   }
 
   /** A NEW reading entered through the inject route (origin rest_api), so Save Timeseries' write is a real change. */
   async function injectReading(ts: number, temp: number) {
     const res = await app.inject({ method: 'POST', url: '/api/rule-engine/v1/messages', headers: sa,
-      payload: { type: 'POST_TELEMETRY_REQUEST', originatorCode: inst.code, data: { ts, values: { temp } } } });
+      payload: { type: 'POST_TELEMETRY_REQUEST', originatorCode: inst.code, data: { temp }, metadata: { ts: String(ts) } } });
     expect(res.json(), res.body).toMatchObject({ accepted: true });
   }
 
@@ -448,7 +450,7 @@ describe('Configuration → Rule Engine', () => {
       expect((await ingest({ ts, temp: 30 })).statusCode).toBe(200);
       await new Promise((r) => setTimeout(r, 1_000));
       await settle();
-      const found = (await rows({ nodeId: SWITCH, msgType: 'POST_TELEMETRY_REQUEST', originatorId: inst.id })).filter((r) => r.data?.ts === ts);
+      const found = (await rows({ nodeId: SWITCH, msgType: 'POST_TELEMETRY_REQUEST', originatorId: inst.id })).filter((r) => r.metadata?.ts === String(ts));
       expect(found).toEqual([]);
       const before = new Date();
       const res = await app.inject({ method: 'POST', url: '/api/rule-engine/v1/messages', headers: sa, payload: { data: {} } });
@@ -463,9 +465,9 @@ describe('Configuration → Rule Engine', () => {
 
 describe('the durable path', () => {
   it('the task re-injects AFTER the given node: a debug row at the next node', async () => {
-    const msg = newMessage('POST_TELEMETRY_REQUEST', { type: 'INSTRUMENT', id: inst.id }, { ts: Date.now() - 2_000, values: { temp: 23 } }, { from: 'durable' });
+    const msg = newMessage('POST_TELEMETRY_REQUEST', { type: 'INSTRUMENT', id: inst.id }, { temp: 23 }, { ts: Date.now() - 2_000, from: 'durable' });
     const outcome = await runRuleEngineMessage({ message: msg, chainId: ROOT, resumeAfterNodeId: SWITCH, relation: 'Post telemetry' });
-    expect(outcome).toBe('processed');
+    expect(outcome).toBe('admitted');
     const found = await waitForRows({ msgId: msg.id }, 2);
     expect(found.map((r) => [r.node_id, r.direction, r.relation])).toEqual([
       [SWITCH, 'OUT', 'Post telemetry'],
@@ -479,7 +481,7 @@ describe('the durable path', () => {
   });
 
   it('services.durable.enqueue writes a rule_engine_message job on rule-engine:<originatorId> with its runAt', async () => {
-    const msg = newMessage('POST_TELEMETRY_REQUEST', { type: 'INSTRUMENT', id: inst.id }, { ts: 1, values: {} });
+    const msg = { ...newMessage('POST_TELEMETRY_REQUEST', { type: 'INSTRUMENT', id: inst.id }, {}, { ts: 1 }), _hops: 7 };
     const runAt = new Date(Date.now() + 3_600_000);
     await ruleEngine.services.durable.enqueue(msg, ROOT, SAVE_TS, runAt);
     const jobs = await prisma.$queryRaw<{ task_identifier: string; run_at: Date; payload: any }[]>`
@@ -492,7 +494,8 @@ describe('the durable path', () => {
     expect(jobs[0].task_identifier).toBe('rule_engine_message');
     expect(Math.abs(new Date(jobs[0].run_at).getTime() - runAt.getTime())).toBeLessThan(1_000);
     expect(jobs[0].payload).toMatchObject({ chainId: ROOT, resumeAfterNodeId: SAVE_TS, message: { id: msg.id, type: 'POST_TELEMETRY_REQUEST' } });
-    expect(jobs[0].payload.message._hops).toBeUndefined();
+    // The hop count travels with it (a cycle through Delay still reaches the hop limit).
+    expect(jobs[0].payload.message._hops).toBe(7);
   });
 });
 

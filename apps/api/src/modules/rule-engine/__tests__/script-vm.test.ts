@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { runScript, runRaw, RuleScriptError, clearScriptCache, stackFrames } from '../script-vm.js';
+import { runScript, runRaw, RuleScriptError, clearScriptCache, clearScriptStrikes, stackFrames, SCRIPT_DISABLED_MESSAGE } from '../script-vm.js';
 
 /**
  * The node-script time-box (spec §6, script-vm.ts). Pins ThingsBoard's script
@@ -18,7 +18,7 @@ function codeOf(fn: () => unknown): string {
   throw new Error('expected a RuleScriptError');
 }
 
-beforeEach(() => clearScriptCache());
+beforeEach(() => { clearScriptCache(); clearScriptStrikes(); });
 
 describe('filter', () => {
   it('returns the script\'s boolean', () => {
@@ -116,6 +116,41 @@ describe('what a script can name', () => {
   it('a hostile error getter runs inside the budget, not outside it', () => {
     const script = 'throw { get message() { while (true) {} } };';
     expect(codeOf(() => runRaw(script, {}, MD, T, 200))).toBe('SCRIPT_TIMEOUT');
+  });
+});
+
+describe('a script that keeps timing out is disabled (review I6)', () => {
+  const loop = 'if (msg.spin) { while (true) {} } return true;';
+  const key = 'chain-1:node-1:1000';
+
+  it('three CONSECUTIVE time-outs → SCRIPT_DISABLED at once, without entering the VM', () => {
+    for (let i = 0; i < 3; i++) expect(codeOf(() => runScript('filter', loop, { spin: true }, MD, T, 50, { key }))).toBe('SCRIPT_TIMEOUT');
+    const started = Date.now();
+    try {
+      runScript('filter', loop, { spin: false }, MD, T, 50, { key });
+      throw new Error('expected SCRIPT_DISABLED');
+    } catch (e) {
+      expect((e as RuleScriptError).code).toBe('SCRIPT_DISABLED');
+      expect((e as RuleScriptError).message).toBe(SCRIPT_DISABLED_MESSAGE);
+    }
+    // Did not run: a disabled script cannot even return true for a message that would not loop.
+    expect(Date.now() - started).toBeLessThan(40);
+  });
+
+  it('a run that ends any other way resets the count', () => {
+    for (let i = 0; i < 2; i++) codeOf(() => runScript('filter', loop, { spin: true }, MD, T, 50, { key }));
+    expect(runScript('filter', loop, { spin: false }, MD, T, 2000, { key })).toBe(true);
+    for (let i = 0; i < 2; i++) codeOf(() => runScript('filter', loop, { spin: true }, MD, T, 50, { key }));
+    expect(runScript('filter', loop, { spin: false }, MD, T, 2000, { key })).toBe(true);
+  });
+
+  it('another node, another chain version (a save) or another script text is not disabled; no key = never disabled', () => {
+    for (let i = 0; i < 3; i++) codeOf(() => runScript('filter', loop, { spin: true }, MD, T, 50, { key }));
+    expect(codeOf(() => runScript('filter', loop, { spin: false }, MD, T, 2000, { key }))).toBe('SCRIPT_DISABLED');
+    expect(runScript('filter', loop, { spin: false }, MD, T, 2000, { key: 'chain-1:node-2:1000' })).toBe(true);
+    expect(runScript('filter', loop, { spin: false }, MD, T, 2000, { key: 'chain-1:node-1:2000' })).toBe(true);
+    expect(runScript('filter', `${loop} `, { spin: false }, MD, T, 2000, { key })).toBe(true);
+    for (let i = 0; i < 4; i++) expect(codeOf(() => runScript('filter', loop, { spin: true }, MD, T, 50))).toBe('SCRIPT_TIMEOUT');
   });
 });
 

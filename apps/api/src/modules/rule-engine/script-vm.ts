@@ -1,4 +1,6 @@
 import vm from 'node:vm';
+import { createHash } from 'node:crypto';
+import { logger } from '../../lib/logger.js';
 
 /**
  * RULE NODE SCRIPTS (rule chains, 2026-11-03; spec §6) — ThingsBoard's
@@ -40,7 +42,7 @@ import vm from 'node:vm';
 export const RULE_SCRIPT_KINDS = ['filter', 'switch', 'transform', 'generator', 'log', 'details'] as const;
 export type RuleScriptKind = (typeof RULE_SCRIPT_KINDS)[number];
 
-export type RuleScriptErrorCode = 'SCRIPT_TIMEOUT' | 'SCRIPT_SYNTAX' | 'SCRIPT_ERROR' | 'SCRIPT_RESULT';
+export type RuleScriptErrorCode = 'SCRIPT_TIMEOUT' | 'SCRIPT_SYNTAX' | 'SCRIPT_ERROR' | 'SCRIPT_RESULT' | 'SCRIPT_DISABLED';
 
 export class RuleScriptError extends Error {
   constructor(public readonly code: RuleScriptErrorCode, message: string, public readonly scriptStack?: string) {
@@ -48,6 +50,10 @@ export class RuleScriptError extends Error {
     this.name = 'RuleScriptError';
   }
 }
+
+/** What `runScript` returns for a kind. */
+export type RuleScriptResult<K extends RuleScriptKind> =
+  K extends 'filter' ? boolean : K extends 'switch' ? string[] : K extends 'transform' ? RuleScriptOutput[] : unknown;
 
 /** One outgoing message of a transform script: the original fills any part the script left out. */
 export interface RuleScriptOutput {
@@ -309,6 +315,31 @@ function toOutput(value: unknown, msg: unknown, metadata: Record<string, string>
 }
 
 /**
+ * A SCRIPT THAT KEEPS TIMING OUT IS SWITCHED OFF (ruled 2026-11-04, review I6).
+ * Each time-out holds the event loop for the whole budget (2 s by default),
+ * and a script that loops on every message would hold it for every message.
+ * With a `key` (the engine's `ctx.runScript` passes
+ * `<chainId>:<nodeId>:<chain version>`), three CONSECUTIVE SCRIPT_TIMEOUTs of
+ * the same script text disable it: it then fails at once with
+ * `SCRIPT_DISABLED` without entering the VM, until the chain is SAVED (a save
+ * changes the chain version, which is part of the key) or the text changes.
+ * Any run that ends some other way resets the count. Logged once when it trips.
+ */
+export const SCRIPT_DISABLE_AFTER_TIMEOUTS = 3;
+export const SCRIPT_DISABLED_MESSAGE = `SCRIPT_DISABLED: timed out ${SCRIPT_DISABLE_AFTER_TIMEOUTS} times — fix and save the chain`;
+const STRIKES_MAX_KEYS = 10_000;
+const strikes = new Map<string, number>();
+
+/** Test seam. */
+export function clearScriptStrikes(): void {
+  strikes.clear();
+}
+
+function strikeKey(key: string, script: string): string {
+  return `${key}\u0000${createHash('sha1').update(script).digest('hex')}`;
+}
+
+/**
  * Run a node script and shape its result by KIND (ThingsBoard's contracts):
  *  - filter → `true` / `false` (anything else is SCRIPT_RESULT);
  *  - switch → the relation names, ALWAYS an array (a single string is wrapped);
@@ -318,21 +349,39 @@ function toOutput(value: unknown, msg: unknown, metadata: Record<string, string>
  *  - generator / log / details → the script's own return value, as JSON.
  */
 export function runScript(
-  kind: 'filter', script: string, msg: unknown, metadata: Record<string, string>, msgType: string, timeoutMs: number,
+  kind: 'filter', script: string, msg: unknown, metadata: Record<string, string>, msgType: string, timeoutMs: number, opts?: { key?: string },
 ): boolean;
 export function runScript(
-  kind: 'switch', script: string, msg: unknown, metadata: Record<string, string>, msgType: string, timeoutMs: number,
+  kind: 'switch', script: string, msg: unknown, metadata: Record<string, string>, msgType: string, timeoutMs: number, opts?: { key?: string },
 ): string[];
 export function runScript(
-  kind: 'transform', script: string, msg: unknown, metadata: Record<string, string>, msgType: string, timeoutMs: number,
+  kind: 'transform', script: string, msg: unknown, metadata: Record<string, string>, msgType: string, timeoutMs: number, opts?: { key?: string },
 ): RuleScriptOutput[];
 export function runScript(
-  kind: RuleScriptKind, script: string, msg: unknown, metadata: Record<string, string>, msgType: string, timeoutMs: number,
+  kind: RuleScriptKind, script: string, msg: unknown, metadata: Record<string, string>, msgType: string, timeoutMs: number, opts?: { key?: string },
 ): unknown;
 export function runScript(
-  kind: RuleScriptKind, script: string, msg: unknown, metadata: Record<string, string>, msgType: string, timeoutMs: number,
+  kind: RuleScriptKind, script: string, msg: unknown, metadata: Record<string, string>, msgType: string, timeoutMs: number, opts: { key?: string } = {},
 ): unknown {
-  const result = runRaw(script, msg, metadata, msgType, timeoutMs);
+  const k = opts.key ? strikeKey(opts.key, script) : null;
+  if (k && (strikes.get(k) ?? 0) >= SCRIPT_DISABLE_AFTER_TIMEOUTS) throw new RuleScriptError('SCRIPT_DISABLED', SCRIPT_DISABLED_MESSAGE);
+  let result: unknown;
+  try {
+    result = runRaw(script, msg, metadata, msgType, timeoutMs);
+  } catch (e) {
+    if (k && e instanceof RuleScriptError && e.code === 'SCRIPT_TIMEOUT') {
+      const n = (strikes.get(k) ?? 0) + 1;
+      if (strikes.size >= STRIKES_MAX_KEYS && !strikes.has(k)) strikes.delete(strikes.keys().next().value as string);
+      strikes.set(k, n);
+      if (n === SCRIPT_DISABLE_AFTER_TIMEOUTS) {
+        logger.warn({ node: opts.key }, `[rule-engine] a node script timed out ${n} times in a row — disabled until its chain is saved`);
+      }
+    } else if (k) {
+      strikes.delete(k);
+    }
+    throw e;
+  }
+  if (k) strikes.delete(k);
   switch (kind) {
     case 'filter':
       if (typeof result !== 'boolean') throw new RuleScriptError('SCRIPT_RESULT', 'A filter script must return true or false');

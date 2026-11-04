@@ -158,7 +158,11 @@ export interface RuleServices {
     /** Case-insensitive, as the code is unique ignoring case. */
     byCode(code: string): Promise<RuleInstrument | null>;
     gatewayOf(id: string): Promise<RuleInstrument | null>;
-    /** The Originator fields node's vocabulary (`RULE_ORIGINATOR_FIELDS`) as strings; null for an unknown instrument. */
+    /**
+     * The Originator fields node's vocabulary (`RULE_ORIGINATOR_FIELDS`) as strings; null for an unknown
+     * instrument. `type` is the instrument's PROFILE name — ThingsBoard's device `type` is its device
+     * profile (ruling recorded 2026-11-04).
+     */
     fields(id: string): Promise<Record<string, string> | null>;
   };
   alarms: {
@@ -169,6 +173,12 @@ export interface RuleServices {
     byId(id: string): Promise<Alarm | null>;
   };
   notifications: {
+    /**
+     * ONE message per recipient — To, Cc and Bcc alike — through `sendNotification` (a
+     * `notification_logs` row and durable retries each). The email channel sends to ONE
+     * address and has no Cc / Bcc (`channels/email-channel.ts`), so Cc and Bcc are delivered
+     * as separate single-recipient messages: nobody sees another recipient's address.
+     */
     email(payload: RuleEmailPayload): Promise<RuleSendResult>;
     sms(payload: RuleSmsPayload): Promise<RuleSendResult>;
     byTemplate(templateId: string, targets: { roles: string[]; userIds: string[] }, variables: Record<string, string>): Promise<RuleSendResult>;
