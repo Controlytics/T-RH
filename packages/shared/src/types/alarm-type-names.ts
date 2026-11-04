@@ -71,7 +71,10 @@ export const ALARM_TYPE_NAME_MAX = 40;
  *
  * Returns null for a RULE alarm: those are named by their own rule, and falling
  * back to a generic word would replace an operator's chosen rule name with
- * "Rule alarms" on every row.
+ * "Rule alarms" on every row. A RULE alarm's name is `ruleAlarmTypeName` —
+ * since rule chains (2026-11-03) the Create alarm node's `alarmType`, frozen on
+ * the row. It is deliberately NOT an `AlarmTypeKey`: those are administered
+ * names of the evaluator's sources, listed on the config page.
  */
 export function alarmTypeKeyFor(
   source: string | undefined,
@@ -91,6 +94,25 @@ export function alarmTypeKeyFor(
     return high ? 'limitHumidityHigh' : 'limitHumidityLow';
   }
   return null;
+}
+
+/**
+ * What a RULE alarm is CALLED: the `alarmType` its rule chain's Create alarm
+ * node raised it under, frozen on the row as `ruleSnapshot.alarmType` (rule
+ * chains, 2026-11-03). The ONE reader of it — the API's `alarmDisplayName`
+ * (notifications, webhooks) and the web's `alarmTypeText` (the Alarms page, the
+ * widgets, the PDFs) both call this, so a rule alarm cannot be called one thing
+ * in the table and another in the email about it.
+ *
+ * Null for any other source, and for a RULE row without a usable name — the
+ * legacy authored-rule rows (removed 2026-08-31) carry `name` instead, and each
+ * caller keeps its own fallback for those.
+ */
+export function ruleAlarmTypeName(source: string | undefined, ruleSnapshot: unknown): string | null {
+  if (source !== 'RULE') return null;
+  if (!ruleSnapshot || typeof ruleSnapshot !== 'object' || Array.isArray(ruleSnapshot)) return null;
+  const v = (ruleSnapshot as Record<string, unknown>).alarmType;
+  return typeof v === 'string' && v.trim() ? v.trim() : null;
 }
 
 /**

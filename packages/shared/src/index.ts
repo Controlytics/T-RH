@@ -210,7 +210,7 @@ export { ALARM_SEVERITY_FALLBACK } from './types/alarm-severity.js';
 
 export {
   ALARM_TYPE_KEYS, ALARM_TYPE_NAME_DEFAULT, ALARM_TYPE_NAME_MAX,
-  alarmTypeKeyFor, alarmTypeName,
+  alarmTypeKeyFor, alarmTypeName, ruleAlarmTypeName,
 } from './types/alarm-type-names.js';
 export type { AlarmTypeKey, AlarmTypeNames } from './types/alarm-type-names.js';
 
