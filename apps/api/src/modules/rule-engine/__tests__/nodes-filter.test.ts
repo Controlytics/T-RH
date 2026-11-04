@@ -73,6 +73,20 @@ describe('Alarm status filter (TbCheckAlarmStatusNode)', () => {
     expect(calls.relations()).toEqual(['True']);
   });
 
+  it('also takes ThingsBoard\'s alarm id shape { entityType, id } (entityType not consulted, as ThingsBoard\'s reader)', async () => {
+    const asked: string[] = [];
+    const byId = async (id: string) => { asked.push(id); return alarmRow('CLEARED', true); };
+    const tb = await run(T, alarmMsg({ id: { entityType: 'ALARM', id: 'tb-shaped' } }), { config: { alarmStatusList: ['CLEARED_ACK'] }, services: { alarms: { byId } } });
+    expect(tb.relations()).toEqual(['True']);
+    const noType = await run(T, alarmMsg({ id: { id: 'no-type' } }), { config: { alarmStatusList: ['CLEARED_ACK'] }, services: { alarms: { byId } } });
+    expect(noType.relations()).toEqual(['True']);
+    expect(asked).toEqual(['tb-shaped', 'no-type']);
+    for (const bad of [{ id: { entityType: 'ALARM' } }, { id: { id: '' } }, { id: '' }, { id: 42 }]) {
+      const calls = await run(T, alarmMsg(bad), { services: { alarms: { byId } } });
+      expect(calls.relations(), JSON.stringify(bad)).toEqual(['Failure']);
+    }
+  });
+
   it('an alarm that no longer exists goes to Failure ("No such alarm found.")', async () => {
     const calls = await run(T, alarmMsg(), { services: { alarms: { byId: async () => null } } });
     expect(calls.failures.map((f) => f.error)).toEqual(['No such alarm found.']);

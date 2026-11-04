@@ -390,6 +390,26 @@ describe('To email (TbMsgToEmailNode)', () => {
     expect((utc.calls.next[0].msg.data as { subject: string }).subject).toBe('2026-11-04 23:30 +0000');
   });
 
+  it('%d{w W F}: week in year, week in month, day-of-week in month (Java\'s default locale: weeks start Sunday, week 1 holds the 1st)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const at = async (iso: string, pattern: string) => {
+      vi.setSystemTime(new Date(iso));
+      const { calls } = await run(T, testMessage({}, { metadata: { emailTimezone: 'UTC' } }), { config: { subjectTemplate: `%d{${pattern}}` } });
+      return (calls.next[0].msg.data as { subject: string }).subject;
+    };
+    // Thu 2026-11-05: week 45 of 2026 (week 1 = Sun 28 Dec 2025 – Sat 3 Jan 2026); November starts on a Sunday.
+    expect(await at('2026-11-05T12:00:00Z', 'w W F')).toBe('45 1 1');
+    // Wed 31 Dec 2025 lies in the week holding 1 Jan 2026: week 1 — with yyyy still 2025, exactly as Java prints it.
+    expect(await at('2025-12-31T12:00:00Z', 'yyyy-ww')).toBe('2025-01');
+    expect(await at('2026-01-03T12:00:00Z', 'w')).toBe('1');
+    expect(await at('2026-01-04T12:00:00Z', 'w')).toBe('2');
+    // August 2026 starts on a SATURDAY: the 1st is week 1, Sunday the 2nd starts week 2.
+    expect(await at('2026-08-01T12:00:00Z', 'W F')).toBe('1 1');
+    expect(await at('2026-08-02T12:00:00Z', 'W F')).toBe('2 1');
+    expect(await at('2026-08-07T12:00:00Z', 'F')).toBe('1');
+    expect(await at('2026-08-08T12:00:00Z', 'FF')).toBe('02');
+  });
+
   it('a %d pattern letter SimpleDateFormat does not know → Failure', async () => {
     const { calls } = await run(T, testMessage({}), { config: { subjectTemplate: '%d{yyyy-qq}' } });
     expect(calls.relations()).toEqual(['Failure']);

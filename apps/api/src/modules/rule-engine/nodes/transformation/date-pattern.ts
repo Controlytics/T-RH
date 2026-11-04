@@ -4,9 +4,13 @@
  * instant for the whole email) in `java.text.SimpleDateFormat` syntax, in the
  * time zone the message metadata names in `emailTimezone` (else the server's).
  *
- * The letters supported are SimpleDateFormat's common ones: G y M L d D E u a
- * H k K h m s S z Z X, and quoted text ('T', '' for a quote). Any other letter
- * is an error, as SimpleDateFormat raises one ("Illegal pattern character").
+ * The letters supported are SimpleDateFormat's: G y M L d D E u a H k K h m s
+ * S z Z X w W F, and quoted text ('T', '' for a quote). Any other letter is an
+ * error, as SimpleDateFormat raises one ("Illegal pattern character").
+ * The week fields follow Java's default locale (en_US): a week runs Sunday to
+ * Saturday and week 1 is the one holding the 1st (minimal days 1) — so
+ * 31 Dec 2025 is week 1 (of 2026) while `yyyy` still prints 2025, exactly as
+ * Java prints it. `F` is the n-th such weekday of the month (days 1-7 = 1).
  * An `emailTimezone` that is not an IANA zone reads as UTC — Java's
  * `TimeZone.getTimeZone` falls back to GMT the same way. `z` prints the
  * zone's short name as the platform knows it (`UTC`, `GMT+5:30`), which can
@@ -64,6 +68,23 @@ function fieldsOf(date: Date, timeZone: string | undefined): Fields {
 
 const pad = (n: number, width: number) => String(n).padStart(width, '0');
 
+const DAY_MS = 86_400_000;
+/** 0 = Sunday … 6 = Saturday, for a calendar date. */
+const dowOf = (y: number, m: number, d: number) => new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+const dayOfYear = (f: Fields) => Math.round((Date.UTC(f.year, f.month - 1, f.day) - Date.UTC(f.year, 0, 1)) / DAY_MS) + 1;
+const daysInYear = (y: number) => Math.round((Date.UTC(y + 1, 0, 1) - Date.UTC(y, 0, 1)) / DAY_MS);
+
+/** Java `WEEK_OF_YEAR`, en_US (Sunday first, minimal days 1). */
+function weekOfYear(f: Fields): number {
+  const day = dayOfYear(f);
+  // The Sunday-to-Saturday week holding this date also holds 1 January of the next year: week 1 of THAT year.
+  if (day + (6 - dowOf(f.year, f.month, f.day)) > daysInYear(f.year)) return 1;
+  return Math.floor((day - 1 + dowOf(f.year, 1, 1)) / 7) + 1;
+}
+
+/** Java `WEEK_OF_MONTH`, en_US: week 1 holds the 1st. */
+const weekOfMonth = (f: Fields) => Math.floor((f.day - 1 + dowOf(f.year, f.month, 1)) / 7) + 1;
+
 function offsetText(minutes: number, style: 'rfc' | 'X' | 'XX' | 'XXX'): string {
   if (minutes === 0 && style !== 'rfc') return 'Z';
   const sign = minutes < 0 ? '-' : '+';
@@ -85,7 +106,10 @@ function field(letter: string, count: number, f: Fields): string {
       if (count === 3) return MONTHS[f.month - 1].slice(0, 3);
       return pad(f.month, count);
     case 'd': return pad(f.day, count);
-    case 'D': return pad(Math.round((Date.UTC(f.year, f.month - 1, f.day) - Date.UTC(f.year, 0, 1)) / 86_400_000) + 1, count);
+    case 'D': return pad(dayOfYear(f), count);
+    case 'w': return pad(weekOfYear(f), count);
+    case 'W': return pad(weekOfMonth(f), count);
+    case 'F': return pad(Math.floor((f.day - 1) / 7) + 1, count);
     case 'E': return count >= 4 ? DAYS[f.weekday - 1] : DAYS[f.weekday - 1].slice(0, 3);
     case 'u': return pad(f.weekday, count);
     case 'a': return f.hour < 12 ? 'AM' : 'PM';
