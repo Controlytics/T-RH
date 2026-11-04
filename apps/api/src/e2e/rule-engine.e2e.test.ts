@@ -10,10 +10,11 @@
  *     ON on its switch and Save Timeseries: within 2 s the Message Type Switch
  *     has an IN row POST_TELEMETRY_REQUEST carrying `data.values.temp` and
  *     `metadata.instrumentCode`;
- *   - THE LOOP GUARD: with Save Timeseries writing (skip OFF), its write does
- *     NOT come back as a second POST_TELEMETRY_REQUEST — until the chain's
- *     "Re-enter on rule-node writes" is ON (mutation: drop the guard → the
- *     first case sees two);
+ *   - THE LOOP GUARD: Save Timeseries' write of a NEW reading does NOT come
+ *     back as a second POST_TELEMETRY_REQUEST — until the chain's "Re-enter on
+ *     rule-node writes" is ON, when it comes back exactly ONCE and the loop
+ *     ENDS (the services emit only what changed); an ingest reading written
+ *     back unchanged emits nothing either way;
  *   - the rule write is the ingest write path: no offset pass, an identical
  *     reading is an upsert no-op (no TELEMETRY_READING_REWRITTEN row);
  *   - a device attribute report enters as POST_ATTRIBUTES_REQUEST, an
@@ -27,10 +28,11 @@
  *   - the debug writer skips a chain that no longer exists; the hourly sweep
  *     applies the age and the per-node cap.
  *
- * The seeded chain's four node types have no handlers until Tasks 4 / 5:
- * stand-ins are registered under the REAL type ids (and restored after). The
- * Save Timeseries stand-in writes through `services.telemetry.write` for an
- * INGEST-origin message only, so a re-entered message cannot loop.
+ * The shipped chain's four node types get STAND-INS under the REAL type ids,
+ * registered AFTER `ruleEngine.start()` (which registers every group's real
+ * handlers) and restored after the engine stops. The Save Timeseries stand-in
+ * writes whatever reaches it through `services.telemetry.write`, as the real
+ * node does.
  *
  * The run's root chain is its OWN copy of the shipped document, made root for
  * the run (raw SQL, as `setRoot` does) — the seeded chain is never edited, so
@@ -168,19 +170,6 @@ beforeAll(async () => {
   userId = u.id;
   sa = { authorization: `Bearer ${await loginAs(app, SA, PW)}` };
 
-  // The stand-ins (see the header), under the real type ids.
-  restores.push(registerNode('tb:filter:message-type-switch', (ctx, msg) => ctx.tellNext(msg, messageTypeSwitchLabel(msg.type))));
-  restores.push(registerNode('tb:action:save-timeseries', async (ctx, msg) => {
-    const skip = ctx.services.config().skipSaveNodesForIngestOrigin;
-    if (msg.metadata.rule_engine_origin !== 'ingest' || skip) return;
-    const data = msg.data as { ts: number; values: Record<string, unknown> };
-    await ctx.services.telemetry.write(msg.originator.id,
-      Object.entries(data.values).map(([key, value]) => ({ key, value, ts: new Date(data.ts) })), ctx.origin);
-    ctx.tellNext(msg, 'Success');
-  }));
-  restores.push(registerNode('tb:action:save-attributes', () => undefined));
-  restores.push(registerNode('tb:action:log', () => undefined));
-
   // This run's root: the shipped document with debug ON, made root as setRoot does (old root unset first).
   await prisma.ruleChain.create({
     data: { id: ROOT, name: `${ROOT_NAME_PREFIX}${STAMP}`, firstNodeId: SWITCH, document: rootDocument() as never },
@@ -192,6 +181,23 @@ beforeAll(async () => {
   invalidateChainCache();
   await setEngineConfig({});
   await ruleEngine.start();
+
+  // The stand-ins (see the header), under the real type ids — AFTER start(), which
+  // registers every group's handlers; afterAll stops the engine, then each restore
+  // puts back the handler that was registered when the stand-in replaced it.
+  // Save Timeseries writes whatever reaches it (the skip applies to ingest-origin
+  // messages only, and is OFF here): the services emit only what CHANGED, so a
+  // re-entered message's write of the same values ends the loop.
+  restores.push(registerNode('tb:filter:message-type-switch', (ctx, msg) => ctx.tellNext(msg, messageTypeSwitchLabel(msg.type))));
+  restores.push(registerNode('tb:action:save-timeseries', async (ctx, msg) => {
+    if (ctx.services.config().skipSaveNodesForIngestOrigin && msg.metadata.rule_engine_origin === 'ingest') return;
+    const data = msg.data as { ts: number; values: Record<string, unknown> };
+    await ctx.services.telemetry.write(msg.originator.id,
+      Object.entries(data.values).map(([key, value]) => ({ key, value, ts: new Date(data.ts) })), ctx.origin);
+    ctx.tellNext(msg, 'Success');
+  }));
+  restores.push(registerNode('tb:action:save-attributes', () => undefined));
+  restores.push(registerNode('tb:action:log', () => undefined));
 
   const res = await app.inject({ method: 'POST', url: '/api/instruments', headers: sa,
     payload: { profileId: await fixtureProfileId('fixture:rule-engine'), name: `RE ${STAMP}`, code: `RE-${STAMP}` } });
@@ -238,7 +244,7 @@ afterAll(async () => {
 // ─── cases ───────────────────────────────────────────────────────────────────
 
 describe('telemetry enters the root chain', () => {
-  it('an IN row on the switch within 2 s: POST_TELEMETRY_REQUEST, data.values.temp, metadata.instrumentCode — ONCE (the loop guard)', async () => {
+  it('an IN row on the switch within 2 s: POST_TELEMETRY_REQUEST, data.values.temp, metadata.instrumentCode — ONCE (written back unchanged, it emits nothing)', async () => {
     const ts = Date.now() - 5_000;
     const posted = Date.now();
     expect((await ingest({ ts, temp: 21.5, hum: 40 })).statusCode).toBe(200);
@@ -303,16 +309,46 @@ describe('telemetry enters the root chain', () => {
     }
   });
 
-  it('with "Re-enter on rule-node writes" ON, the write comes back once as a rule-node message', async () => {
+  /** The switch's POST_TELEMETRY_REQUEST IN rows for one instant, after the engine has gone quiet. */
+  async function settledInsAt(ts: number, atLeast: number): Promise<DebugRow[]> {
+    const where = { nodeId: SWITCH, msgType: 'POST_TELEMETRY_REQUEST', originatorId: inst.id, direction: 'IN' as const };
+    const until = Date.now() + 2_000;
+    while ((await rows(where)).filter((r) => r.data?.ts === ts).length < atLeast && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+    await settle();
+    await new Promise((r) => setTimeout(r, 600));
+    await settle();
+    return (await rows(where)).filter((r) => r.data?.ts === ts);
+  }
+
+  /** A NEW reading entered through the inject route (origin rest_api), so Save Timeseries' write is a real change. */
+  async function injectReading(ts: number, temp: number) {
+    const res = await app.inject({ method: 'POST', url: '/api/rule-engine/v1/messages', headers: sa,
+      payload: { type: 'POST_TELEMETRY_REQUEST', originatorCode: inst.code, data: { ts, values: { temp } } } });
+    expect(res.json(), res.body).toMatchObject({ accepted: true });
+  }
+
+  it('THE LOOP GUARD: re-entry OFF, a rule write of a NEW reading does not come back', async () => {
+    const ts = Date.now() - 3_500;
+    await injectReading(ts, 31.5);
+    const found = await settledInsAt(ts, 1);
+    expect(found.map((r) => r.metadata.rule_engine_origin)).toEqual(['rest_api']);
+    // ...although Save Timeseries did store it.
+    const stored = await prisma.$queryRaw<{ value: unknown }[]>`
+      SELECT value FROM instrument_telemetry_history WHERE instrument_id = ${inst.id} AND key = 'temp' AND ts = ${new Date(ts)}`;
+    expect(stored).toEqual([{ value: 31.5 }]);
+  });
+
+  it('re-entry ON: a NEW reading comes back exactly once, and the loop ENDS (the same value written again emits nothing)', async () => {
     await setReEnter(true);
     try {
-      const where = { nodeId: SWITCH, msgType: 'POST_TELEMETRY_REQUEST', originatorId: inst.id, direction: 'IN' as const };
-      const before = (await rows(where)).length;
-      expect((await ingest({ ts: Date.now() - 4_000, temp: 22 })).statusCode).toBe(200);
-      await waitForRows(where, before + 2);
-      await settle();
-      const found = (await rows(where)).slice(before);
-      expect(found.map((r) => r.metadata.rule_engine_origin)).toEqual(['ingest', ruleNodeOrigin(ROOT, SAVE_TS)]);
+      const ts = Date.now() - 3_000;
+      await injectReading(ts, 32.5);
+      const found = await settledInsAt(ts, 2);
+      expect(found.map((r) => r.metadata.rule_engine_origin)).toEqual(['rest_api', ruleNodeOrigin(ROOT, SAVE_TS)]);
+      // An ingest reading is already stored when Save Timeseries writes it: nothing comes back at all.
+      const ingestTs = Date.now() - 2_500;
+      expect((await ingest({ ts: ingestTs, temp: 22 })).statusCode).toBe(200);
+      expect((await settledInsAt(ingestTs, 1)).map((r) => r.metadata.rule_engine_origin)).toEqual(['ingest']);
     } finally {
       await setReEnter(false);
       await settle();
@@ -534,15 +570,27 @@ describe('services (what Tasks 4-6 call)', () => {
     expect(second.alarm.severity).toBe('MINOR'); // ThingsBoard's WARNING has no counterpart here
     expect((second.alarm.ruleSnapshot as { details: unknown }).details).toEqual({ n: 2 });
     expect(await prisma.alarm.count({ where: { instrumentId: inst.id, source: 'RULE', state: 'ACTIVE' } })).toBe(1);
-    const cleared = await svc.alarms.clear(inst.id, `Door ${STAMP}`, { why: 'closed' });
+    const cleared = await svc.alarms.clear(inst.id, `Door ${STAMP}`, { why: 'closed' }, origin());
     expect(cleared?.id).toBe(first.alarm.id);
     expect(cleared?.state).toBe('CLEARED');
-    expect(await svc.alarms.clear(inst.id, `Door ${STAMP}`)).toBeNull();
+    expect(await svc.alarms.clear(inst.id, `Door ${STAMP}`, undefined, origin())).toBeNull();
     // A new excursion of the same type is a NEW alarm once the old one is cleared.
     const third = await svc.alarms.createOrUpdate({ instrumentId: inst.id, alarmType: `Door ${STAMP}`, severity: 'CRITICAL', details: {}, nodeId: SAVE_TS, chainId: ROOT });
     createdAlarms.push(third.alarm.id);
     expect(third.created).toBe(true);
     expect(third.alarm.id).not.toBe(first.alarm.id);
+  });
+
+  it('telemetry.write with skipLatest writes history only', async () => {
+    const ts = new Date(Date.now() - 2_000);
+    await ruleEngine.services.telemetry.write(inst.id, [{ key: `sl_${STAMP}`, value: 5, ts }], origin(), { skipLatest: true });
+    const history = await prisma.$queryRaw<{ value: unknown }[]>`
+      SELECT value FROM instrument_telemetry_history WHERE instrument_id = ${inst.id} AND key = ${`sl_${STAMP}`}`;
+    expect(history).toEqual([{ value: 5 }]);
+    expect(await ruleEngine.services.telemetry.latest(inst.id, [`sl_${STAMP}`])).toEqual({});
+    // Without it, latest follows.
+    await ruleEngine.services.telemetry.write(inst.id, [{ key: `sl_${STAMP}`, value: 6, ts: new Date(ts.getTime() + 1) }], origin());
+    expect(Object.keys(await ruleEngine.services.telemetry.latest(inst.id, [`sl_${STAMP}`]))).toEqual([`sl_${STAMP}`]);
   });
 
   it('telemetry.latest / history, instruments.byCode / fields, appDetails', async () => {

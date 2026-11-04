@@ -1,4 +1,5 @@
 import os from 'node:os';
+import { createHash } from 'node:crypto';
 import { Prisma, type Alarm, type PrismaClient } from '@prisma/client';
 import mqtt, { type MqttClient, type IClientOptions } from 'mqtt';
 import { getProducer } from '@digilog/queue';
@@ -131,7 +132,12 @@ export interface RuleLogger {
 export interface RuleServices {
   prisma: PrismaClient;
   telemetry: {
-    write(instrumentId: string, readings: RuleTelemetryReading[], origin: string): Promise<void>;
+    /**
+     * Only readings that are NEW, or whose stored value at that instant DIFFERS, are judged
+     * and emitted; the same value written back is a no-op that emits nothing.
+     * `skipLatest`: history only, `instrument_telemetry_latest` untouched (TB's skipLatestPersistence).
+     */
+    write(instrumentId: string, readings: RuleTelemetryReading[], origin: string, opts?: { skipLatest?: boolean }): Promise<void>;
     latest(instrumentId: string, keys: string[]): Promise<Record<string, { value: unknown; ts: Date }>>;
     /** Per key: NONE → the rows (ts ms + value), at most `limit` per key; an aggregation → one row `{ ts: to, value }`. */
     history(
@@ -158,7 +164,8 @@ export interface RuleServices {
   alarms: {
     createOrUpdate(input: RuleAlarmInput): Promise<{ alarm: Alarm; created: boolean }>;
     /** Clears the ACTIVE RULE alarm of that type; null when there is none. */
-    clear(instrumentId: string, alarmType: string, details?: unknown, origin?: string): Promise<Alarm | null>;
+    /** `origin` REQUIRED (`ctx.origin`): the ALARM_CLEAR it emits goes through the loop guard. */
+    clear(instrumentId: string, alarmType: string, details: unknown | undefined, origin: string): Promise<Alarm | null>;
     byId(id: string): Promise<Alarm | null>;
   };
   notifications: {
@@ -170,8 +177,9 @@ export interface RuleServices {
     fetch(url: string, init: RequestInit, timeoutMs?: number): Promise<Response>;
   };
   mqtt: {
-    publish(nodeId: string, config: RuleMqttConfig, topic: string, payload: string, qos: 0 | 1 | 2, retain: boolean): Promise<void>;
-    close(nodeId: string): Promise<void>;
+    /** One client per `nodeKey` (`ctx.nodeKey` = `<chainId>:<nodeId>`): two chains sharing node ids never share a client. */
+    publish(nodeKey: string, config: RuleMqttConfig, topic: string, payload: string, qos: 0 | 1 | 2, retain: boolean): Promise<void>;
+    close(nodeKey: string): Promise<void>;
   };
   /** Configuration → Application Attributes (the Tenant attributes node). */
   appAttributes(): Promise<Record<string, string>>;
@@ -262,6 +270,19 @@ async function storedAt(instrumentId: string, readings: RuleTelemetryReading[]):
     SELECT key, ts, value, raw_value FROM instrument_telemetry_history
     WHERE instrument_id = ${instrumentId} AND key IN (${Prisma.join(keys)}) AND ts IN (${Prisma.join(instants)})`;
   return new Map(rows.map((r) => [`${r.key}\u0000${r.ts.getTime()}`, { value: r.value, raw_value: r.raw_value }]));
+}
+
+/**
+ * The MQTT client id of a node: the configured one (with `_<suffix>` when
+ * `appendClientIdSuffix`), else `digilog-rule-<suffix>`. The suffix is 10 hex
+ * of sha1(nodeKey), so it is stable for the node, differs between two chains
+ * that share node ids, and stays within MQTT 3.1's 23 characters.
+ */
+export function mqttClientIdFor(nodeKey: string, config: Pick<RuleMqttConfig, 'clientId' | 'appendClientIdSuffix'>): string {
+  const suffix = createHash('sha1').update(nodeKey).digest('hex').slice(0, 10);
+  const set = config.clientId?.trim();
+  if (!set) return `digilog-rule-${suffix}`;
+  return config.appendClientIdSuffix ? `${set}_${suffix}` : set;
 }
 
 const SEVERITIES = new Set(['CRITICAL', 'MAJOR', 'MINOR']);
@@ -374,7 +395,7 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
     prisma: prisma as unknown as PrismaClient,
 
     telemetry: {
-      async write(instrumentId, readings, origin) {
+      async write(instrumentId, readings, origin, opts = {}) {
         if (readings.length === 0) return;
         const instrument = await instrumentOrThrow(instrumentId);
         // THE SAME READING WRITTEN BACK IS A NO-OP (found by the e2e, 2026-11-03).
@@ -387,24 +408,33 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
         // a real rewrite: it lands without a raw value, and `writeBatch` audits
         // TELEMETRY_READING_REWRITTEN with the old value and raw value.
         const prior = await storedAt(instrumentId, readings);
+        const instantOf = (key: string, ts: Date) => `${key}\u0000${ts.getTime()}`;
+        /** Instants whose stored value already EQUALS the incoming one: written as a no-op, and NOT emitted. */
+        const unchanged = new Set<string>();
         const rows = readings.map((r) => {
-          const p = prior.get(`${r.key}\u0000${r.ts.getTime()}`);
-          const same = p !== undefined && p.raw_value !== null && canonical(p.value) === canonical(r.value);
+          const p = prior.get(instantOf(r.key, r.ts));
+          const same = p !== undefined && canonical(p.value) === canonical(r.value);
+          if (same) unchanged.add(instantOf(r.key, r.ts));
           return {
             instrumentId, key: r.key, value: r.value, valueType: classifyValue(r.value), ts: r.ts,
-            ...(same ? { rawValue: p.raw_value } : {}),
+            ...(same && p.raw_value !== null ? { rawValue: p.raw_value } : {}),
           };
         });
         const writer = await writerOf(origin);
         const raw = Buffer.from(JSON.stringify({ source: writer.label, readings: rows.map((r) => ({ key: r.key, value: r.value, ts: r.ts.toISOString() })) }));
-        const result = await writeBatchOrDeadLetter(rows, { id: instrument.id, code: `rule-engine: ${writer.label}` }, 'rule-engine', raw, { applyOffsets: false });
+        const result = await writeBatchOrDeadLetter(rows, { id: instrument.id, code: `rule-engine: ${writer.label}` }, 'rule-engine', raw,
+          { applyOffsets: false, skipLatest: opts.skipLatest === true });
         if (result.failure !== null) throw new Error(`TELEMETRY_WRITE_FAILED: ${result.failure}`);
         if (result.unplaceable.length > 0 && result.stored.length === 0) {
           throw new Error('TIMESTAMP_OUT_OF_RANGE: every reading is older than the oldest telemetry partition');
         }
-        if (result.stored.length === 0) return;
+        // ONLY what is new or changed is judged and emitted (ruled 2026-11-04): a chain
+        // that writes back what is already stored (Save Timeseries after Save
+        // Timeseries) would otherwise re-enter forever with re-entry ON.
+        const changed = result.stored.filter((r) => !unchanged.has(instantOf(r.key, r.ts)));
+        if (changed.length === 0) return;
         await enqueueAlarmEvaluation();
-        await emitTelemetry(instrumentId, result.stored, 'rule-engine', origin, instrument.code);
+        await emitTelemetry(instrumentId, changed, 'rule-engine', origin, instrument.code);
       },
 
       async latest(instrumentId, keys) {
@@ -613,7 +643,7 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
         });
         if (!closed) return null;
         await announceAlarm('cleared', closed, type, prior.details);
-        await emitAlarm('ALARM_CLEAR', closed, { isClearedAlarm: true, ...(origin ? { origin } : {}) });
+        await emitAlarm('ALARM_CLEAR', closed, { isClearedAlarm: true, origin });
         return closed;
       },
 
@@ -684,16 +714,16 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
     },
 
     mqtt: {
-      async publish(nodeId, config, topic, payload, qos, retain) {
+      async publish(nodeKey, config, topic, payload, qos, retain) {
         const host = (config.host ?? '').trim();
         if (!host) throw new Error('MQTT_HOST_REQUIRED: the node has no broker host');
         const creds = config.credentials ?? {};
         const masked = Object.entries(creds).find(([k, v]) => k !== 'type' && v === '***');
         if (masked) throw new Error(`CREDENTIAL_NOT_SET: the ${masked[0]} was masked on export — re-enter it`);
         const fingerprint = JSON.stringify(config);
-        let entry = mqttClients.get(nodeId);
+        let entry = mqttClients.get(nodeKey);
         if (entry && entry.fingerprint !== fingerprint) {
-          await services.mqtt.close(nodeId);
+          await services.mqtt.close(nodeKey);
           entry = undefined;
         }
         if (!entry) {
@@ -701,9 +731,7 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
           const options: IClientOptions = {
             host, port: config.port ?? (ssl ? 8883 : 1883), protocol: ssl ? 'mqtts' : 'mqtt',
             // ThingsBoard: a blank client id is generated; `appendClientIdSuffix` makes a set one unique per node.
-            clientId: config.clientId?.trim()
-              ? `${config.clientId.trim()}${config.appendClientIdSuffix ? `_${nodeId.slice(0, 8)}` : ''}`
-              : `digilog-rule-${nodeId.slice(0, 8)}`,
+            clientId: mqttClientIdFor(nodeKey, config),
             clean: config.cleanSession !== false,
             connectTimeout: Math.max(1, config.connectTimeoutSec ?? 10) * 1000,
             reconnectPeriod: 5_000,
@@ -715,7 +743,7 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
             } : {}),
           };
           const client = mqtt.connect(options);
-          client.on('error', (err) => log.warn('MQTT node connection error', { nodeId, err: err.message }));
+          client.on('error', (err) => log.warn('MQTT node connection error', { nodeKey, err: err.message }));
           const ready = new Promise<void>((resolve, reject) => {
             const timer = setTimeout(() => reject(new Error(`MQTT_CONNECT_TIMEOUT: ${host} did not answer`)), (options.connectTimeout as number) + 1_000);
             timer.unref();
@@ -723,15 +751,15 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
           });
           ready.catch(() => undefined);
           entry = { client, fingerprint, ready };
-          mqttClients.set(nodeId, entry);
+          mqttClients.set(nodeKey, entry);
         }
         if (!entry.client.connected) await entry.ready;
         await entry.client.publishAsync(topic, payload, { qos, retain });
       },
-      async close(nodeId) {
-        const entry = mqttClients.get(nodeId);
+      async close(nodeKey) {
+        const entry = mqttClients.get(nodeKey);
         if (!entry) return;
-        mqttClients.delete(nodeId);
+        mqttClients.delete(nodeKey);
         await entry.client.endAsync(true).catch(() => undefined);
       },
     },

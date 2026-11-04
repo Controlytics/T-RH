@@ -3,7 +3,7 @@ import type { RuleChain } from '@prisma/client';
 import { ruleNodeConfigWithDefaults, type RuleChainDocument, type RuleChainNode, type RuleDebugMode } from '@digilog/shared';
 import { RULE_ENGINE_CONFIG_DEFAULTS, type RuleEngineConfig } from '../modules/rule-engine/config.js';
 import { loadChainFromRow, type LoadedRuleChain } from '../modules/rule-engine/service.js';
-import { failureMessage, newMessage, ruleNodeOrigin, type RuleMessage, type RuleOriginator } from '../modules/rule-engine/message.js';
+import { failureMessage, newMessage, ruleNodeOrigin, ruleNodeKey, type RuleMessage, type RuleOriginator } from '../modules/rule-engine/message.js';
 import type { RuleContext, RuleLogLevel } from '../modules/rule-engine/context.js';
 import type { RuleServices } from '../modules/rule-engine/services.js';
 import type { RuleDebugEventInput } from '../modules/rule-engine/debug.js';
@@ -102,6 +102,7 @@ export function fakeContext<C = Record<string, unknown>>(opts: FakeContextOption
     config,
     services,
     origin: ruleNodeOrigin(chainId, nodeId),
+    nodeKey: ruleNodeKey(chainId, nodeId),
     tellNext(msg, relations) {
       const list = Array.isArray(relations) ? [...relations] : [relations];
       calls.next.push({ msg, relations: list });

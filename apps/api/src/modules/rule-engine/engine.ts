@@ -12,7 +12,7 @@ import {
 import { setRuleEngineSink, emitCounters, type RuleEngineSink } from './emit.js';
 import { createRuleServices, type RuleServices, type RuleServicesHandle, type RuleServicesHooks } from './services.js';
 import { runScript as runVmScript, type RuleScriptKind } from './script-vm.js';
-import { copyMessage, failureMessage, errorText, ruleNodeOrigin, type RuleMessage } from './message.js';
+import { copyMessage, failureMessage, errorText, ruleNodeOrigin, ruleNodeKey, type RuleMessage } from './message.js';
 import type { RuleContext, RuleLogLevel } from './context.js';
 import { registerAllNodes } from './nodes/index.js';
 import { unsupportedNodeMessage } from './nodes/unsupported.js';
@@ -193,6 +193,7 @@ class RuleEngineImpl implements RuleEngine {
   private lifecycleTimer: NodeJS.Timeout | null = null;
   private lastDropLogAt = 0;
   private lastConfigErrorLogAt = 0;
+  private readonly lastInitErrorLogAt = new Map<string, number>();
   private readonly servicesHandle: RuleServicesHandle;
 
   constructor(private readonly deps: RuleEngineDeps) {
@@ -580,6 +581,7 @@ class RuleEngineImpl implements RuleEngine {
       config,
       services: this.servicesHandle,
       origin: ruleNodeOrigin(chain.id, node.id),
+      nodeKey: ruleNodeKey(chain.id, node.id),
       tellNext: (msg, relations) => {
         const list = Array.isArray(relations) ? [...relations] : [relations];
         if (open) emissions!.push({ kind: 'next', msg, relations: list });
@@ -659,9 +661,9 @@ class RuleEngineImpl implements RuleEngine {
       for (const row of rows) {
         const version = row.updatedAt.getTime();
         if (!force && this.chainVersions.get(row.id) === version) continue;
-        this.chainVersions.set(row.id, version);
         this.deps.invalidateChain(row.id);
         const chain = await this.deps.getChain(row.id);
+        // Not recorded: a chain that could not be read is tried again at the next sync.
         if (!chain) continue;
         const wanted = new Map<string, RuleChainNode>();
         for (const node of chain.document.nodes) {
@@ -673,7 +675,13 @@ class RuleEngineImpl implements RuleEngine {
           const node = wanted.get(key);
           if (!node || fingerprintOf(node) !== inst.fingerprint) await this.destroyInstance(key);
         }
-        for (const [key, node] of wanted) if (!this.instances.has(key)) await this.initInstance(key, chain, node);
+        let initialised = true;
+        for (const [key, node] of wanted) {
+          if (!this.instances.has(key) && !(await this.initInstance(key, chain, node))) initialised = false;
+        }
+        // The version is recorded only once EVERY lifecycle node of the chain started:
+        // a failed onInit is retried at the next sync (5 s), not forgotten.
+        if (initialised) this.chainVersions.set(row.id, version);
       }
       for (const id of [...this.chainVersions.keys()]) if (!live.has(id)) this.chainVersions.delete(id);
     } catch (err) {
@@ -682,15 +690,24 @@ class RuleEngineImpl implements RuleEngine {
     }
   }
 
-  private async initInstance(key: string, chain: LoadedRuleChain, node: RuleChainNode): Promise<void> {
+  /** True when the node started (or has no onInit). A failed start is NOT kept, so the next sync retries it. */
+  private async initInstance(key: string, chain: LoadedRuleChain, node: RuleChainNode): Promise<boolean> {
     const reg = getHandler(node.type) as RegisteredRuleNode | undefined;
     this.instances.set(key, { key, fingerprint: fingerprintOf(node), chain, node });
-    if (!reg?.onInit) return;
+    if (!reg?.onInit) return true;
     try {
       await reg.onInit(this.contextFor(chain, node, null, null).ctx);
+      return true;
     } catch (err) {
+      this.instances.delete(key);
       this.inc('init_errors');
-      logger.error({ err: errorText(err), chain: chain.name, node: node.name }, '[rule-engine] a node failed to start');
+      // Once a minute per node: a node that cannot start is retried every sync.
+      const now = Date.now();
+      if (now - (this.lastInitErrorLogAt.get(key) ?? 0) >= 60_000) {
+        this.lastInitErrorLogAt.set(key, now);
+        logger.error({ err: errorText(err), chain: chain.name, node: node.name }, '[rule-engine] a node failed to start — retried at every sync (logged once a minute)');
+      }
+      return false;
     }
   }
 

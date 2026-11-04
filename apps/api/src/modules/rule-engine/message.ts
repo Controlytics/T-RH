@@ -55,6 +55,15 @@ export function ruleNodeOrigin(chainId: string, nodeId: string): string {
   return `${RULE_NODE_ORIGIN_PREFIX}${chainId}:${nodeId}`;
 }
 
+/**
+ * A node's identity across chains: `<chainId>:<nodeId>` (two chains may carry
+ * the same node ids). `ctx.nodeKey` — key per-node state (an MQTT client, a
+ * deduplication window, a counter) by THIS, never by the node id alone.
+ */
+export function ruleNodeKey(chainId: string, nodeId: string): string {
+  return `${chainId}:${nodeId}`;
+}
+
 export function isRuleNodeOrigin(origin: string | null | undefined): boolean {
   return typeof origin === 'string' && origin.startsWith(RULE_NODE_ORIGIN_PREFIX);
 }

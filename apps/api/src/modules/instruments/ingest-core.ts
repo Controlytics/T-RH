@@ -122,7 +122,7 @@ export async function writeBatchOrDeadLetter(
   sender: { id: string; code: string },
   transport: string,
   raw: Buffer,
-  opts: { applyOffsets?: boolean } = {},
+  opts: { applyOffsets?: boolean; skipLatest?: boolean } = {},
 ): Promise<WriteResult> {
   const source = { code: sender.code, transport };
   const recordLoss = async (e: unknown, lost: number): Promise<string> => {
@@ -140,7 +140,7 @@ export async function writeBatchOrDeadLetter(
   let corrected = readings;
   try {
     if (opts.applyOffsets !== false) corrected = await applySensorOffsets(readings);
-    await writeBatch(corrected, source);
+    await writeBatch(corrected, source, { skipLatest: opts.skipLatest === true });
     return { stored: corrected, unplaceable: [], failure: null };
   } catch (e) {
     if (!isNoPartitionError(e)) return { stored: [], unplaceable: [], failure: await recordLoss(e, readings.length) };
@@ -161,7 +161,7 @@ export async function writeBatchOrDeadLetter(
     let failure: string | null = null;
     if (placeable.length > 0) {
       try {
-        await writeBatch(placeable, source);
+        await writeBatch(placeable, source, { skipLatest: opts.skipLatest === true });
         stored = placeable;
       } catch (e2) {
         failure = await recordLoss(e2, placeable.length);

@@ -50,6 +50,8 @@ export interface RuleContext<C = Record<string, unknown>> {
   services: RuleServices;
   /** `rule_node:<chainId>:<nodeId>` — the origin a write made by this node passes to the services (spec §5's loop guard). */
   origin: string;
+  /** `<chainId>:<nodeId>` — the key for ANY per-node state (an MQTT client, a window, a counter). Two chains may share node ids. */
+  nodeKey: string;
   tellNext(msg: RuleMessage, relations: string | string[]): void;
   tellFailure(msg: RuleMessage, err: unknown): void;
   tellSelf(msg: RuleMessage, delayMs: number): Promise<void>;

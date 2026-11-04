@@ -101,6 +101,12 @@ export interface WriteSource { code: string; transport: string }
 export async function writeBatch(
   rows: (Reading & { instrumentId: string })[],
   source?: WriteSource,
+  /**
+   * `skipLatest` (rule chains, 2026-11-04 — ThingsBoard's Save time series
+   * "skip latest persistence"): history only; `instrument_telemetry_latest`
+   * is not touched. Every other caller leaves it off.
+   */
+  opts: { skipLatest?: boolean } = {},
 ): Promise<void> {
   if (rows.length === 0) return;
 
@@ -175,7 +181,7 @@ export async function writeBatch(
       JOIN prior p ON p.instrument_id = up.instrument_id AND p.key = up.key AND p.ts = up.ts
       LEFT JOIN instruments ins ON ins.id = up.instrument_id`;
 
-    await tx.$executeRaw`
+    if (!opts.skipLatest) await tx.$executeRaw`
       INSERT INTO instrument_telemetry_latest
         (instrument_id, key, value, value_type, ts)
       VALUES ${latestValues}

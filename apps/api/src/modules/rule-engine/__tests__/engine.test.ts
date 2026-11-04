@@ -301,6 +301,123 @@ describe('late emissions, tellSelf and the budget', () => {
   });
 });
 
+describe('node lifecycles (onInit / onDestroy)', () => {
+  type Seen = { event: 'init' | 'destroy'; nodeKey: string; config: unknown };
+
+  function lifecycleType(id: string, seen: Seen[], opts: { failFirst?: boolean; keep?: (ctx: import('../context.js').RuleContext) => void } = {}) {
+    let failures = opts.failFirst ? 1 : 0;
+    return type(id, () => undefined, {
+      onInit: (ctx) => {
+        if (failures > 0) { failures--; throw new Error('not yet'); }
+        seen.push({ event: 'init', nodeKey: ctx.nodeKey, config: ctx.config });
+        opts.keep?.(ctx);
+      },
+      onDestroy: (ctx) => { seen.push({ event: 'destroy', nodeKey: ctx.nodeKey, config: ctx.config }); },
+    });
+  }
+
+  function lifecycleEngine(chains: LoadedRuleChain[]) {
+    const mem = memoryDeps(chains);
+    const engine = createRuleEngine({ ...mem.deps, lifecyclePollMs: 3_600_000, services: () => Object.assign(fakeServices(), { dispose: async () => undefined }) });
+    return { engine, mem };
+  }
+
+  const later = (c: LoadedRuleChain, ms: number): LoadedRuleChain => ({ ...c, updatedAt: new Date(c.updatedAt.getTime() + ms) });
+
+  it('onInit at start, re-init on a config change, onDestroy on node removal, chain delete and stop', async () => {
+    const seen: Seen[] = [];
+    const life = lifecycleType('test:life', seen);
+    const a = nodeOf(life, 'A', { config: { n: 1 } });
+    const chain = chainOf('c', docOf([a], []), { root: true });
+    const other = nodeOf(life, 'B');
+    const chain2 = chainOf('c2', docOf([other], []));
+    const { engine, mem } = lifecycleEngine([chain, chain2]);
+    await engine.start();
+    try {
+      expect(seen.map((s) => `${s.event} ${s.nodeKey}`).sort()).toEqual([`init ${chain.id}:${a.id}`, `init ${chain2.id}:${other.id}`].sort());
+
+      // The same version again: nothing.
+      seen.length = 0;
+      await engine.syncLifecycles();
+      expect(seen).toEqual([]);
+
+      // A config change: the old instance stops, the new one starts with the new config.
+      const changed = { ...a, config: { n: 2 } };
+      mem.chains.set(chain.id, later(chainOf('c', docOf([changed], []), { id: chain.id, root: true }), 1_000));
+      await engine.syncLifecycles();
+      expect(seen.map((s) => [s.event, (s.config as { n?: number }).n])).toEqual([['destroy', 1], ['init', 2]]);
+
+      // The node removed from the chain: destroyed.
+      seen.length = 0;
+      mem.chains.set(chain.id, later(chainOf('c', docOf([], [], null), { id: chain.id, root: true }), 2_000));
+      await engine.syncLifecycles();
+      expect(seen.map((s) => `${s.event} ${s.nodeKey}`)).toEqual([`destroy ${chain.id}:${a.id}`]);
+
+      // The chain deleted: its nodes destroyed.
+      seen.length = 0;
+      mem.chains.delete(chain2.id);
+      await engine.syncLifecycles();
+      expect(seen.map((s) => `${s.event} ${s.nodeKey}`)).toEqual([`destroy ${chain2.id}:${other.id}`]);
+
+      // Restore one and stop: destroyed on stop.
+      mem.chains.set(chain2.id, later(chain2, 3_000));
+      await engine.syncLifecycles();
+      seen.length = 0;
+    } finally {
+      await engine.stop();
+    }
+    expect(seen.map((s) => `${s.event} ${s.nodeKey}`)).toEqual([`destroy ${chain2.id}:${other.id}`]);
+  });
+
+  it('a failed onInit is retried at the next sync (the version is not recorded)', async () => {
+    const seen: Seen[] = [];
+    const life = lifecycleType('test:life-fail', seen, { failFirst: true });
+    const a = nodeOf(life, 'A');
+    const chain = chainOf('c', docOf([a], []), { root: true });
+    const { engine } = lifecycleEngine([chain]);
+    await engine.start();
+    try {
+      expect(seen).toEqual([]);
+      expect(engine.stats().counters.init_errors).toBe(1);
+      await engine.syncLifecycles();
+      expect(seen.map((s) => `${s.event} ${s.nodeKey}`)).toEqual([`init ${chain.id}:${a.id}`]);
+      await engine.syncLifecycles();
+      expect(seen).toHaveLength(1);
+    } finally {
+      await engine.stop();
+    }
+  });
+
+  it('a tellNext from the init context starts a message at the node\'s connections', async () => {
+    const log: string[] = [];
+    let initCtx: import('../context.js').RuleContext | undefined;
+    const life = lifecycleType('test:life-gen', [], { keep: (ctx) => { initCtx = ctx; } });
+    const sink = type('test:life-sink', (ctx, msg) => { log.push(`${ctx.node.name} ${(msg.data as { n: number }).n}`); });
+    const gen = nodeOf(life, 'Gen');
+    const b = nodeOf(sink, 'B');
+    const chain = chainOf('c', docOf([gen, b], [[gen, 'Success', b]]), { root: true });
+    const { engine } = lifecycleEngine([chain]);
+    await engine.start();
+    try {
+      expect(initCtx).toBeDefined();
+      initCtx!.tellNext(testMessage({ n: 7 }), 'Success');
+      await waitFor(() => log.length === 1);
+      expect(log).toEqual(['B 7']);
+    } finally {
+      await engine.stop();
+    }
+  });
+
+  it('ctx.nodeKey is <chainId>:<nodeId> in a handler too', async () => {
+    const keys: string[] = [];
+    const rec = type('test:key', (ctx) => { keys.push(ctx.nodeKey); });
+    const a = nodeOf(rec, 'A');
+    const chain = chainOf('c', docOf([a], []), { root: true });
+    await engineFor([chain]).engine.processNow(testMessage({}));
+    expect(keys).toEqual([`${chain.id}:${a.id}`]);
+  });
+});
+
 describe('enqueue and stats', () => {
   it('enqueue is refused before start and when switched off', async () => {
     const mem = memoryDeps([], { enabled: false });
