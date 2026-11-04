@@ -37,8 +37,8 @@ import { configError } from '../filter/support.js';
  * in-memory queue does not fail a push the way ThingsBoard's producer can (a
  * refused push is counted `late_dropped`).
  *
- * State is per (chain, node): the same node id can sit in two chains (a copy
- * of a chain keeps its node ids). `onDestroy` (node changed or removed, chain
+ * State is per `ctx.nodeKey` (chain id + node id): the same node id can sit
+ * in two chains (a copy of a chain keeps its node ids). `onDestroy` (node changed or removed, chain
  * deleted, engine stopped) drops what is held and its timers, as ThingsBoard's
  * `destroy` clears its map.
  */
@@ -76,7 +76,8 @@ interface NodeState {
 
 const nodes = new Map<string, NodeState>();
 
-const nodeKey = (ctx: RuleContext<DeduplicationConfig>) => `${ctx.chain.id}:${ctx.node.id}`;
+/** `<chainId>:<nodeId>` — the engine's key for per-node state (`ctx.nodeKey`). */
+const nodeKey = (ctx: RuleContext<DeduplicationConfig>) => ctx.nodeKey;
 
 function stateOf(key: string): NodeState {
   let state = nodes.get(key);

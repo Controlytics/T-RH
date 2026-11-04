@@ -1,6 +1,6 @@
 import type { RuleContext } from '../../context.js';
 import type { RuleMessage } from '../../message.js';
-import { runScript, type RuleScriptOutput } from '../../script-vm.js';
+import type { RuleScriptResult } from '../../script-vm.js';
 
 /**
  * Helpers shared by Task 4's filter, flow and transformation handlers (rule
@@ -29,10 +29,15 @@ function jsScriptOf(ctx: RuleContext<{ jsScript?: unknown }>): string {
   return script;
 }
 
-/** Run the node's script against the message, within Configuration → Rule Engine's script time-out. */
-export function runNodeScript(ctx: RuleContext<{ jsScript?: unknown }>, kind: 'filter', msg: RuleMessage): boolean;
-export function runNodeScript(ctx: RuleContext<{ jsScript?: unknown }>, kind: 'switch', msg: RuleMessage): string[];
-export function runNodeScript(ctx: RuleContext<{ jsScript?: unknown }>, kind: 'transform', msg: RuleMessage): RuleScriptOutput[];
-export function runNodeScript(ctx: RuleContext<{ jsScript?: unknown }>, kind: 'filter' | 'switch' | 'transform', msg: RuleMessage): unknown {
-  return runScript(kind, jsScriptOf(ctx), msg.data, msg.metadata, msg.type, ctx.services.config().scriptTimeoutMs);
+/**
+ * Run the node's script against the message through `ctx.runScript` — never
+ * script-vm's `runScript` directly: the context's run is keyed to this node
+ * and chain version, so a script that times out three times in a row is
+ * switched off (`SCRIPT_DISABLED`) until the chain is saved, and it uses
+ * Configuration → Rule Engine's script time-out.
+ */
+export function runNodeScript<K extends 'filter' | 'switch' | 'transform'>(
+  ctx: RuleContext<{ jsScript?: unknown }>, kind: K, msg: RuleMessage,
+): RuleScriptResult<K> {
+  return ctx.runScript(kind, jsScriptOf(ctx), msg);
 }

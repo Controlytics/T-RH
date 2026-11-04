@@ -3,7 +3,7 @@ import type { Alarm } from '@prisma/client';
 import { BUILT_RULE_NODE_TYPES, RULE_MESSAGE_TYPES, messageTypeSwitchLabel } from '@digilog/shared';
 import { getHandler } from '../registry.js';
 import { registerFilterNodes } from '../nodes/filter/index.js';
-import { fakeContext, testMessage, type FakeContextOptions } from '../../../test-support/rule-engine.js';
+import { fakeContext, fakeServices, testMessage, type FakeContextOptions } from '../../../test-support/rule-engine.js';
 import type { RuleMessage } from '../message.js';
 import type { RuleInstrument } from '../services.js';
 
@@ -311,6 +311,19 @@ describe('Script — filter (TbJsFilterNode)', () => {
   it('runs the JavaScript even when an import says scriptLang TBEL', async () => {
     const calls = await run(T, testMessage({ t: 30 }), { config: { scriptLang: 'TBEL', tbelScript: 'return false;', jsScript: 'return msg.t > 20;' } });
     expect(calls.relations()).toEqual(['True']);
+  });
+
+  it('runs through ctx.runScript: three time-outs in a row and the node\'s script is switched off (SCRIPT_DISABLED)', async () => {
+    const services = fakeServices({}, { scriptTimeoutMs: 50 });
+    const ids = { nodeId: '0f000000-0000-4000-8000-0000000f0001', chainId: '0f000000-0000-4000-8000-0000000f0002' };
+    const errors: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const calls = await run(T, testMessage({}), { ...ids, services, config: { jsScript: 'while (true) {}' } });
+      expect(calls.relations()).toEqual(['Failure']);
+      errors.push(calls.failures[0].error);
+    }
+    expect(errors.slice(0, 3).every((e) => e.startsWith('SCRIPT_TIMEOUT'))).toBe(true);
+    expect(errors[3]).toMatch(/^SCRIPT_DISABLED/);
   });
 });
 
