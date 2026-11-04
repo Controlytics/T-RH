@@ -181,6 +181,18 @@ describe('alarmTypeText', () => {
     expect(alarmTypeText({ ...base, source: 'RULE', limitKind: null, ruleSnapshot: { name: 'Cold room' } }))
       .toBe('Cold room');
   });
+
+  it('names a rule-chain alarm by its snapshot alarmType (the Create alarm node\'s type), over any legacy name', () => {
+    // Rule chains (2026-11-03): source RULE, metric CUSTOM, ruleSnapshot { alarmType, nodeId, chainId, details }.
+    const ruleChainAlarm = {
+      ...base, source: 'RULE', metric: 'CUSTOM', limitKind: null, triggeredValue: null,
+      ruleSnapshot: { alarmType: 'Door open', nodeId: 'n1', chainId: 'c1', details: { door: 'A' } } as AlarmRowT['ruleSnapshot'],
+    };
+    expect(alarmTypeText(ruleChainAlarm)).toBe('Door open');
+    expect(alarmTypeText({ ...ruleChainAlarm, ruleSnapshot: { ...ruleChainAlarm.ruleSnapshot, name: 'Legacy' } })).toBe('Door open');
+    // An administered rename never reaches a rule alarm: it is not an administered type.
+    expect(alarmTypeText(ruleChainAlarm, { typeNames: { limitTemperatureHigh: 'Temp Too Hot' } })).toBe('Door open');
+  });
 });
 
 describe('limitText', () => {

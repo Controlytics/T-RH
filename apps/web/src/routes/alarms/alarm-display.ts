@@ -13,7 +13,7 @@ import {
   INACTIVITY_TYPE_LABEL, inactivityLimitText, INACTIVITY_TEXT_DEFAULT,
   RS485_TYPE_LABEL, RS485_LIMIT_TEXT, RS485_FAILURE_TEXT_DEFAULT,
   SENSOR_RANGE_TEXT_DEFAULT, rangeLimitText,
-  ALARM_TYPE_KEYS, alarmTypeKeyFor, alarmTypeName,
+  ALARM_TYPE_KEYS, alarmTypeKeyFor, alarmTypeName, ruleAlarmTypeName,
   type InactivityColumnTexts, type AlarmTypeNames,
 } from '@digilog/shared';
 
@@ -308,8 +308,12 @@ export function statusText(
 const METRIC_WORD: Record<string, string> = { TEMPERATURE: 'Temperature', HUMIDITY: 'Humidity' };
 
 /** `Inactivity` for an inactivity alarm; `High Temperature` for a limit alarm;
- *  the rule's name for a rule alarm. */
+ *  for a rule alarm, the type its rule chain's Create alarm node raised it
+ *  under (`ruleSnapshot.alarmType`, read by the shared `ruleAlarmTypeName` the
+ *  API announces it with), else a legacy row's rule name. */
 export function alarmTypeText(a: AlarmRow, texts?: AlarmDisplayTexts): string {
+  const ruleName = ruleAlarmTypeName(a.source, a.ruleSnapshot);
+  if (ruleName) return ruleName;
   // `alarmTypeKeyFor` in @digilog/shared is the ONE place source + metric +
   // limitKind become a type. It checks INACTIVITY, RS485 and SENSOR_RANGE BEFORE
   // the limit branch, because all three carry metric TEMPERATURE or HUMIDITY —
