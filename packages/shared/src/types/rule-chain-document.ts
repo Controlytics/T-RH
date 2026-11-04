@@ -28,12 +28,17 @@
  * `later` / `none` class imports as itself, with a warning that it sends every
  * message to Failure.
  * `ruleChainsEqual` therefore compares STRUCTURE (node order), not ids.
+ * Each node's `configurationVersion` (absent = 0) is brought up to the version
+ * the catalogue models with ThingsBoard's own upgrade (`upgradeThingsboardConfig`)
+ * BEFORE the string-scalar coercion and the validation; an older version with
+ * no mirrored upgrade imports with a warning to review it. The export writes
+ * the version each node's configuration is at (ruling CV-1).
  */
 import { z, ZodError, type ZodIssue } from 'zod';
 import {
   RULE_NODE_TYPE_BY_ID, RULE_NODE_TYPE_BY_TB_CLASS, UNSUPPORTED_NODE_TYPE, RULE_DEBUG_MODES,
   RULE_NODE_NAME_MAX, RULE_CHAIN_NAME_MAX, RULE_CHAIN_NODES_MAX, RULE_RELATION_MAX,
-  RULE_RELATION_OTHER, newRuleNodeConfig, coerceThingsboardScalars,
+  RULE_RELATION_OTHER, newRuleNodeConfig, coerceThingsboardScalars, upgradeThingsboardConfig,
   type RuleDebugMode,
 } from './rule-nodes.js';
 
@@ -91,6 +96,8 @@ export interface UnsupportedNodeConfig {
   type?: string;
   /** The original configuration, untouched. */
   configuration?: unknown;
+  /** The ThingsBoard configurationVersion it came with (when the export carried one). */
+  configurationVersion?: number;
   /** Why it could not be read as its own type. */
   reason?: string;
 }
@@ -302,6 +309,8 @@ export interface ThingsboardNodeExport {
   /** ThingsBoard master. */
   debugAll: boolean;
   debugFailures: boolean;
+  /** The ThingsBoard configuration version `configuration` is at; absent for a later / none node (unknown). */
+  configurationVersion?: number;
   configuration: unknown;
   additionalInfo: { layoutX: number; layoutY: number; description?: string };
 }
@@ -344,12 +353,19 @@ export function toThingsboardExport(name: string, root: boolean, doc: RuleChainD
       ? (typeof n.config.tbClass === 'string' ? n.config.tbClass : spec?.tbClass ?? UNSUPPORTED_NODE_TYPE)
       : spec.tbClass;
     const configuration = unsupported ? (n.config.configuration ?? {}) : n.config;
+    // The version the configuration is AT: a built node's is the one its entry models (it was
+    // upgraded on import); an Unsupported node's is the one it came with. A later / none node's
+    // configuration is kept as it came and its version was not recorded — none is written.
+    const configurationVersion = !unsupported
+      ? spec.tbConfigurationVersion
+      : Number.isInteger(n.config.configurationVersion) ? n.config.configurationVersion as number : null;
     return {
       type: tbClass,
       name: n.name,
       debugMode: n.debugMode !== 'off',
       debugAll: n.debugMode === 'all',
       debugFailures: n.debugMode === 'failures',
+      ...(configurationVersion === null ? {} : { configurationVersion }),
       configuration: cloneJson(configuration),
       additionalInfo: { layoutX: n.x, layoutY: n.y },
     };
@@ -415,11 +431,22 @@ export function fromThingsboardExport(json: unknown, opts: { newId?: () => strin
     const nodeName = cleanName(raw.name, spec?.label ?? 'Unsupported node');
     const configuration = raw.configuration;
     const configObject = isPlainObject(configuration) ? cloneJson(configuration) : {};
+    // ThingsBoard's configurationVersion; absent = 0, as ThingsBoard reads it.
+    const sourceVersion = Number.isInteger(raw.configurationVersion) && (raw.configurationVersion as number) >= 0
+      ? raw.configurationVersion as number
+      : null;
+    const fromVersion = sourceVersion ?? 0;
+    // An Unsupported node remembers what it came as, version included, for the export back.
+    const unsupportedConfig = (): Record<string, unknown> => ({
+      tbClass,
+      configuration: configuration === undefined ? null : cloneJson(configuration),
+      ...(sourceVersion === null ? {} : { configurationVersion: sourceVersion }),
+    });
     let type: string;
     let config: Record<string, unknown>;
     if (!spec) {
       type = UNSUPPORTED_NODE_TYPE;
-      config = { tbClass, configuration: configuration === undefined ? null : cloneJson(configuration) };
+      config = unsupportedConfig();
       warnings.push(`Node "${nodeName}": ThingsBoard class ${tbClass || '(none)'} is not known here; it was imported as Unsupported and passes messages to Failure.`);
     } else if (spec.status !== 'built') {
       // A later / none node imports as ITSELF (its configuration kept for the
@@ -428,13 +455,21 @@ export function fromThingsboardExport(json: unknown, opts: { newId?: () => strin
       config = configObject;
       warnings.push(`Node "${nodeName}": ${spec.label} has no counterpart here and will send every message to Failure.`);
     } else {
-      // ThingsBoard 3.6.0–3.6.3 exported some booleans / numbers as strings — read them first.
-      const coerced = coerceThingsboardScalars(spec.id, configObject);
+      // 1. ThingsBoard's own upgrade from the exported configurationVersion (ruling CV-1):
+      //    an older version read as the current one can mean the OPPOSITE (Check relation
+      //    presence's direction). No upgrade mirrored for this node's version → flag it.
+      const upgrade = upgradeThingsboardConfig(spec.id, fromVersion, configObject);
+      if (upgrade.outcome === 'not-upgraded') {
+        warnings.push(`Node "${nodeName}": configuration version ${fromVersion} is older than ${spec.tbConfigurationVersion} — review its settings.`);
+      }
+      // 2. ThingsBoard 3.6.0–3.6.3 exported some booleans / numbers as strings — read them.
+      const coerced = coerceThingsboardScalars(spec.id, upgrade.config);
+      // 3. Validate.
       const r = spec.configSchema.safeParse(coerced);
       if (!r.success) {
         const e = r.error.issues[0];
         type = UNSUPPORTED_NODE_TYPE;
-        config = { tbClass, configuration: configuration === undefined ? null : cloneJson(configuration) };
+        config = unsupportedConfig();
         warnings.push(`Node "${nodeName}" (${spec.label}): its configuration does not fit here (${e.path.join('.') || 'configuration'} — ${e.message}); it was imported as Unsupported.`);
       } else {
         type = spec.id;

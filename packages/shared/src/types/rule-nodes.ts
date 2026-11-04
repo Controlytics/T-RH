@@ -237,6 +237,14 @@ export interface RuleNodeTypeSpec {
   /** ThingsBoard's `defaultConfiguration()`. Never mutate it — copy with `newRuleNodeConfig`. */
   defaultConfig: Record<string, unknown>;
   configSchema: z.ZodTypeAny;
+  /**
+   * The ThingsBoard `configurationVersion` this entry's fields, defaults and
+   * schema model — ThingsBoard master's `@RuleNode(version = …)` (2026-11-04).
+   * An export writes it; an import of an older version is upgraded
+   * (`upgradeThingsboardConfig`) or warned about. `null` for a later / none node:
+   * nothing is modelled, its configuration is kept as it came.
+   */
+  tbConfigurationVersion: number | null;
 }
 
 /** A spec without its zod schema — what `GET /api/rule-chains/node-types` serves. */
@@ -355,14 +363,43 @@ const ATTRIBUTE_FETCH_DEFAULT = {
 const FS = [RULE_RELATION_SUCCESS, RULE_RELATION_FAILURE] as const;
 const TFF = [RULE_RELATION_TRUE, RULE_RELATION_FALSE, RULE_RELATION_FAILURE] as const;
 
-function built(s: Omit<RuleNodeTypeSpec, 'status'>): RuleNodeTypeSpec {
-  return { ...s, status: 'built' };
+/**
+ * The configuration version each built node models: ThingsBoard master's
+ * `@RuleNode(version = …)` for its class (read 2026-11-04). A built node not
+ * listed is version 0.
+ */
+const TB_CONFIG_VERSIONS: Readonly<Record<string, number>> = {
+  'tb:filter:check-relation-presence': 1,
+  'tb:enrichment:calculate-delta': 1,
+  'tb:enrichment:originator-attributes': 1,
+  'tb:enrichment:originator-fields': 1,
+  'tb:enrichment:originator-telemetry': 2,
+  'tb:enrichment:related-device-attributes': 1,
+  'tb:enrichment:tenant-attributes': 1,
+  'tb:enrichment:tenant-details': 1,
+  'tb:transformation:change-originator': 1,
+  'tb:transformation:copy-key-value-pairs': 2,
+  'tb:transformation:deduplication': 1,
+  'tb:transformation:delete-key-value-pairs': 2,
+  'tb:transformation:rename-keys': 2,
+  'tb:action:device-profile': 1,
+  'tb:action:generator': 2,
+  'tb:action:save-attributes': 3,
+  'tb:action:save-timeseries': 1,
+  'tb:external:mqtt': 2,
+  'tb:external:rest-api-call': 4,
+  'tb:flow:checkpoint': 1,
+  'tb:flow:rule-chain': 1,
+};
+
+function built(s: Omit<RuleNodeTypeSpec, 'status' | 'tbConfigurationVersion'>): RuleNodeTypeSpec {
+  return { ...s, status: 'built', tbConfigurationVersion: TB_CONFIG_VERSIONS[s.id] ?? 0 };
 }
 
 function notBuilt(group: RuleNodeGroup, slug: string, label: string, tbClass: string, status: 'later' | 'none', description: string): RuleNodeTypeSpec {
   return {
     id: `tb:${group}:${slug}`, tbClass: TB + tbClass, group, label, description, status,
-    relations: [RULE_RELATION_FAILURE], fields: [], defaultConfig: {}, configSchema: anyObject,
+    relations: [RULE_RELATION_FAILURE], fields: [], defaultConfig: {}, configSchema: anyObject, tbConfigurationVersion: null,
   };
 }
 
@@ -617,7 +654,9 @@ const TRANSFORMATION: RuleNodeTypeSpec[] = [
     ],
     defaultConfig: {
       originatorSource: 'ALARM_ORIGINATOR',
-      relationsQuery: { direction: 'FROM', maxLevel: 1, filters: [{ relationType: 'Contains', entityTypes: [] }], fetchLastLevelOnly: false },
+      // RELATED = the gateway: the link runs gateway → instrument, so from the
+      // instrument it is reached TO the originator (ThingsBoard's default is FROM).
+      relationsQuery: { direction: 'TO', maxLevel: 1, filters: [{ relationType: 'Contains', entityTypes: [] }], fetchLastLevelOnly: false },
       preserveOriginatorIfCustomer: false,
     },
     configSchema: cfg({
@@ -1224,4 +1263,102 @@ export function coerceThingsboardScalars(type: string, config: Record<string, un
     else if (kind === 'number' && PLAIN_DECIMAL.test(v)) out[key] = Number(v);
   }
   return out;
+}
+
+// ─── ThingsBoard configuration upgrades (ruling CV-1, 2026-11-04) ────────────
+
+/** Jackson's `asText()` for the values a config holds: a string as is, a boolean / number spelled out. */
+function asText(v: unknown): string {
+  if (typeof v === 'string') return v;
+  if (typeof v === 'boolean' || typeof v === 'number') return String(v);
+  return '';
+}
+
+/**
+ * One ThingsBoard `upgrade(fromVersion, oldConfiguration)`, mirrored: the
+ * configuration at the node's CURRENT version, or `null` where ThingsBoard
+ * throws (a key it needs is missing or holds a value it does not know) — it
+ * then keeps the configuration as it was, and so do we. Called ONCE with the
+ * stored version, as `TbNodeUpgradeUtils` calls it.
+ */
+type TbUpgrade = (fromVersion: number, config: Record<string, unknown>) => Record<string, unknown> | null;
+
+/** `TbCheckRelationNode.upgrade`: v0 → v1 flips the direction (the meaning of FROM / TO was inverted in v1). */
+const checkRelationUpgrade: TbUpgrade = (from, c) => {
+  if (from !== 0) return c;
+  const d = asText(c.direction);
+  if (d === 'TO') return { ...c, direction: 'FROM' };
+  if (d === 'FROM') return { ...c, direction: 'TO' };
+  return null;
+};
+
+/**
+ * `TbAbstractTransformNodeWithTbMsgSource.upgrade` (Copy / Delete / Rename
+ * keys → v2): v0 `fromMetadata` "true" / "false" → `<newKey>` METADATA / DATA;
+ * v1 `<v1Key>` "METADATA" / "DATA" → `<newKey>`, unless `<newKey>` is already there.
+ */
+const msgSourceUpgrade = (newKey: string, v1Key: string): TbUpgrade => (from, c) => {
+  const move = (oldKey: string, toValue: Record<string, string>) => {
+    if (!(oldKey in c)) return null;
+    const text = asText(c[oldKey]);
+    const value = Object.prototype.hasOwnProperty.call(toValue, text) ? toValue[text] : null;
+    if (!value) return null;
+    const { [oldKey]: _gone, ...rest } = c;
+    return { ...rest, [newKey]: value };
+  };
+  if (from === 0) return move('fromMetadata', { true: 'METADATA', false: 'DATA' });
+  if (from === 1) return newKey in c ? c : move(v1Key, { METADATA: 'METADATA', DATA: 'DATA' });
+  return c;
+};
+
+/** Jackson's `asBoolean()`: true only for `true`, the text "true" (trimmed) or a non-zero number. */
+function asBoolean(v: unknown): boolean {
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'string') return v.trim() === 'true';
+  if (typeof v === 'number') return v !== 0;
+  return false;
+}
+
+/** `TbDeviceProfileNode.upgrade`: v0 → v1 — not persisting the alarm-rule state means not fetching it on start. */
+const deviceProfileUpgrade: TbUpgrade = (from, c) => {
+  if (from !== 0 || !('persistAlarmRulesState' in c)) return c;
+  return asBoolean(c.persistAlarmRulesState) ? c : { ...c, fetchAlarmRulesStateOnStart: false };
+};
+
+/**
+ * The upgrades mirrored here. Every OTHER built node with a configuration
+ * version above 0 has a ThingsBoard upgrade that is NOT mirrored; an import of
+ * an older version of it is flagged for review (see `fromThingsboardExport`).
+ */
+const TB_UPGRADES: Readonly<Record<string, TbUpgrade>> = {
+  'tb:filter:check-relation-presence': checkRelationUpgrade,
+  'tb:transformation:copy-key-value-pairs': msgSourceUpgrade('copyFrom', 'fromMetadata'),
+  'tb:transformation:delete-key-value-pairs': msgSourceUpgrade('deleteFrom', 'dataToFetch'),
+  'tb:transformation:rename-keys': msgSourceUpgrade('renameIn', 'fromMetadata'),
+  'tb:action:device-profile': deviceProfileUpgrade,
+};
+
+export interface ThingsboardConfigUpgrade {
+  /** A copy of the configuration — upgraded when `outcome` is `upgraded`, else as given. */
+  config: Record<string, unknown>;
+  /**
+   * `current` — nothing to do (the version is the one modelled, or newer; or the node models nothing);
+   * `upgraded` — ThingsBoard's upgrade applied; `not-upgraded` — the version is older than the one
+   * modelled and no upgrade applies (none mirrored, or ThingsBoard's own would have thrown).
+   */
+  outcome: 'current' | 'upgraded' | 'not-upgraded';
+}
+
+/**
+ * Brings a ThingsBoard node configuration exported at `fromVersion` (absent in
+ * the export = 0, as ThingsBoard reads it) up to the version this catalogue
+ * models, with ThingsBoard's own upgrade. Never touches its input.
+ */
+export function upgradeThingsboardConfig(type: string, fromVersion: number, config: Record<string, unknown>): ThingsboardConfigUpgrade {
+  const copy = cloneJson(config);
+  const spec = RULE_NODE_TYPE_BY_ID.get(type);
+  if (!spec || spec.tbConfigurationVersion === null || fromVersion >= spec.tbConfigurationVersion) return { config: copy, outcome: 'current' };
+  const upgrade = TB_UPGRADES[type];
+  const upgraded = upgrade ? upgrade(fromVersion, copy) : null;
+  return upgraded ? { config: upgraded, outcome: 'upgraded' } : { config: copy, outcome: 'not-upgraded' };
 }

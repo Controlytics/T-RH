@@ -6,7 +6,7 @@ import {
   toThingsboardExport, fromThingsboardExport, ruleChainsEqual,
   type RuleChainDocument,
 } from '../rule-chain-document.js';
-import { RULE_NODE_TYPE_BY_ID, UNSUPPORTED_NODE_TYPE, RULE_CHAIN_NODES_MAX } from '../rule-nodes.js';
+import { RULE_NODE_TYPES, RULE_NODE_TYPE_BY_ID, UNSUPPORTED_NODE_TYPE, RULE_CHAIN_NODES_MAX } from '../rule-nodes.js';
 
 /**
  * The rule chain DOCUMENT (rule chains, 2026-11-03; spec §4, §5, §8).
@@ -345,9 +345,10 @@ describe('ThingsBoard export / import', () => {
   it('ThingsBoard 3.6.0–3.6.3\'s string-encoded booleans and numbers are read as such, so the node imports BUILT', () => {
     const tb = toThingsboardExport('C', false, doc()) as any;
     tb.metadata.nodes.push(
-      { type: 'org.thingsboard.rule.engine.telemetry.TbMsgAttributesNode', name: 'Save Attributes', additionalInfo: { layoutX: 1, layoutY: 1 },
+      // Versions as modelled, so this case is about the strings alone (versions: the CV-1 cases below).
+      { type: 'org.thingsboard.rule.engine.telemetry.TbMsgAttributesNode', name: 'Save Attributes', additionalInfo: { layoutX: 1, layoutY: 1 }, configurationVersion: 3,
         configuration: { scope: 'CLIENT_SCOPE', notifyDevice: 'false', sendAttributesUpdatedNotification: 'false', updateAttributesOnlyOnValueChange: 'true' } },
-      { type: 'org.thingsboard.rule.engine.telemetry.TbMsgTimeseriesNode', name: 'Save Timeseries', additionalInfo: { layoutX: 2, layoutY: 2 },
+      { type: 'org.thingsboard.rule.engine.telemetry.TbMsgTimeseriesNode', name: 'Save Timeseries', additionalInfo: { layoutX: 2, layoutY: 2 }, configurationVersion: 1,
         configuration: { defaultTTL: '0', useServerTs: 'false' } },
     );
     const r = fromThingsboardExport(tb);
@@ -362,6 +363,74 @@ describe('ThingsBoard export / import', () => {
     const bad = fromThingsboardExport(tb);
     expect(bad.document.nodes[2].type).toBe(UNSUPPORTED_NODE_TYPE);
     expect(bad.warnings).toHaveLength(1);
+  });
+
+  // ─── configurationVersion (ruling CV-1, 2026-11-04) ───────────────────────
+  const tbNode = (cls: string, name: string, configuration: Record<string, unknown>, configurationVersion?: number) => ({
+    type: `org.thingsboard.rule.engine.${cls}`, name, configuration, additionalInfo: { layoutX: 1, layoutY: 1 },
+    ...(configurationVersion === undefined ? {} : { configurationVersion }),
+  });
+  const importNodes = (...nodes: unknown[]) =>
+    fromThingsboardExport({ ruleChain: { name: 'V' }, metadata: { firstNodeIndex: null, nodes, connections: [] } });
+
+  it('export writes each built node\'s configurationVersion — the version its catalogue entry models', () => {
+    const d = doc({ nodes: [node(A, 'tb:action:save-attributes'), node(B, 'tb:filter:check-relation-presence'), node(C, 'tb:filter:script')], connections: [], firstNodeId: null });
+    const tb = toThingsboardExport('C', false, d);
+    expect(tb.metadata.nodes.map((n) => n.configurationVersion)).toEqual([3, 1, 0]);
+  });
+
+  it('Check relation presence: a v0 export (no configurationVersion) imports with its direction FLIPPED; v1 keeps it', () => {
+    const r = importNodes(
+      tbNode('filter.TbCheckRelationNode', 'Old', { direction: 'FROM', relationType: 'Contains', checkForSingleEntity: false }),
+      tbNode('filter.TbCheckRelationNode', 'New', { direction: 'FROM', relationType: 'Contains', checkForSingleEntity: false }, 1),
+    );
+    expect(r.warnings).toEqual([]);
+    expect(r.document.nodes.map((n) => [n.name, n.config.direction])).toEqual([['Old', 'TO'], ['New', 'FROM']]);
+  });
+
+  it('Copy / Delete / Rename keys: v0 and v1 exports import as the v2 configuration, no warning', () => {
+    const r = importNodes(
+      tbNode('transform.TbCopyKeysNode', 'Copy v0', { fromMetadata: 'true', keys: ['a'] }),
+      tbNode('transform.TbCopyKeysNode', 'Copy v1', { fromMetadata: 'DATA', keys: ['a'] }, 1),
+      tbNode('transform.TbDeleteKeysNode', 'Delete v1', { dataToFetch: 'METADATA', keys: ['b'] }, 1),
+      tbNode('transform.TbRenameKeysNode', 'Rename v0', { fromMetadata: false, renameKeysMapping: { a: 'b' } }),
+    );
+    expect(r.warnings).toEqual([]);
+    expect(r.document.nodes.map((n) => [n.type, n.config])).toEqual([
+      ['tb:transformation:copy-key-value-pairs', { keys: ['a'], copyFrom: 'METADATA' }],
+      ['tb:transformation:copy-key-value-pairs', { keys: ['a'], copyFrom: 'DATA' }],
+      ['tb:transformation:delete-key-value-pairs', { keys: ['b'], deleteFrom: 'METADATA' }],
+      ['tb:transformation:rename-keys', { renameKeysMapping: { a: 'b' }, renameIn: 'DATA' }],
+    ]);
+  });
+
+  it('an older built node whose upgrade is not mirrored imports as itself, with ONE warning to review it', () => {
+    const r = importNodes(
+      tbNode('telemetry.TbMsgTimeseriesNode', 'Save Timeseries', { defaultTTL: 0 }),           // v0, as ThingsBoard 3.6–3.9 ship it
+      tbNode('telemetry.TbMsgAttributesNode', 'Save Attributes', { scope: 'CLIENT_SCOPE' }, 2),
+      tbNode('filter.TbCheckRelationNode', 'No direction', { relationType: 'Contains' }),       // the upgrade cannot apply
+    );
+    expect(r.warnings).toEqual([
+      'Node "Save Timeseries": configuration version 0 is older than 1 — review its settings.',
+      'Node "Save Attributes": configuration version 2 is older than 3 — review its settings.',
+      'Node "No direction": configuration version 0 is older than 1 — review its settings.',
+    ]);
+    expect(r.document.nodes.map((n) => n.type)).toEqual(['tb:action:save-timeseries', 'tb:action:save-attributes', 'tb:filter:check-relation-presence']);
+  });
+
+  it('EVERY built node round-trips export → import unchanged, with no warning (no upgrade re-applied)', () => {
+    const ids = RULE_NODE_TYPES.filter((s) => s.status === 'built').map((s) => s.id);
+    const nodes = ids.map((t, i) => node(`00000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`, t, { x: i, y: i }));
+    const d: RuleChainDocument = { version: 1, firstNodeId: null, nodes, connections: [] };
+    const back = fromThingsboardExport(toThingsboardExport('All', false, d));
+    expect(back.warnings).toEqual([]);
+    expect(ruleChainsEqual(back.document, d)).toBe(true);
+  });
+
+  it('an Unsupported node keeps its source configurationVersion and exports it back', () => {
+    const r = importNodes(tbNode('custom.TbAcmeNode', 'Acme', { level: 3 }, 2));
+    expect(r.document.nodes[0].config).toEqual({ tbClass: 'org.thingsboard.rule.engine.custom.TbAcmeNode', configuration: { level: 3 }, configurationVersion: 2 });
+    expect(toThingsboardExport('C', false, r.document).metadata.nodes[0]).toMatchObject({ type: 'org.thingsboard.rule.engine.custom.TbAcmeNode', configurationVersion: 2 });
   });
 
   it('a node with no counterpart (status none) warns too — once per node, beside the unknown-class warning', () => {

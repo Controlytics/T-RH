@@ -5,7 +5,7 @@ import {
   RULE_RELATION_SUCCESS, RULE_RELATION_FAILURE, RULE_RELATION_TRUE, RULE_RELATION_FALSE, RULE_RELATION_OTHER,
   RULE_ORIGINATOR_TYPES, RULE_ORIGINATOR_TYPE_LABELS, TB_ENTITY_TYPE_ALIASES, RULE_DEBUG_MODES,
   RULE_NODE_NAME_MAX, RULE_CHAIN_NAME_MAX, RULE_CHAIN_NODES_MAX, RULE_MATH_OPERATIONS, toRuleNodeTypeDescriptor,
-  visibleRuleNodeFields, coerceThingsboardScalars,
+  visibleRuleNodeFields, coerceThingsboardScalars, upgradeThingsboardConfig,
 } from '../rule-nodes.js';
 
 /**
@@ -335,6 +335,30 @@ describe('built nodes — descriptors, defaults and config schemas', () => {
     expect(coerceThingsboardScalars('tb:action:nope', unknown)).not.toBe(unknown);
   });
 
+  it('tbConfigurationVersion: each built node records the ThingsBoard configuration version it models; later / none model none', () => {
+    // ThingsBoard master's @RuleNode(version = …), 2026-11-04; every built node not listed is 0.
+    const modelled: Record<string, number> = {
+      'tb:filter:check-relation-presence': 1,
+      'tb:enrichment:calculate-delta': 1, 'tb:enrichment:originator-attributes': 1, 'tb:enrichment:originator-fields': 1,
+      'tb:enrichment:originator-telemetry': 2, 'tb:enrichment:related-device-attributes': 1,
+      'tb:enrichment:tenant-attributes': 1, 'tb:enrichment:tenant-details': 1,
+      'tb:transformation:change-originator': 1, 'tb:transformation:copy-key-value-pairs': 2, 'tb:transformation:deduplication': 1,
+      'tb:transformation:delete-key-value-pairs': 2, 'tb:transformation:rename-keys': 2,
+      'tb:action:device-profile': 1, 'tb:action:generator': 2, 'tb:action:save-attributes': 3, 'tb:action:save-timeseries': 1,
+      'tb:external:mqtt': 2, 'tb:external:rest-api-call': 4,
+      'tb:flow:checkpoint': 1, 'tb:flow:rule-chain': 1,
+    };
+    for (const s of RULE_NODE_TYPES) {
+      if (s.status === 'built') expect(s.tbConfigurationVersion, s.id).toBe(modelled[s.id] ?? 0);
+      else expect(s.tbConfigurationVersion, s.id).toBeNull();
+    }
+  });
+
+  it('Change originator: RELATED reaches the gateway, so its default relation query runs TO the originator', () => {
+    const s = RULE_NODE_TYPE_BY_ID.get('tb:transformation:change-originator')!;
+    expect((s.defaultConfig.relationsQuery as { direction: string }).direction).toBe('TO');
+  });
+
   it('the math operations and their argument counts are ThingsBoard\'s', () => {
     const op = (v: string) => RULE_MATH_OPERATIONS.find((o) => o.value === v);
     expect(RULE_MATH_OPERATIONS).toHaveLength(35);
@@ -349,6 +373,80 @@ describe('built nodes — descriptors, defaults and config schemas', () => {
     expect('configSchema' in d).toBe(false);
     expect(JSON.parse(JSON.stringify(d))).toEqual(d);
     expect(d).toMatchObject({ id: s.id, tbClass: s.tbClass, status: 'built', relations: ['True', 'False', 'Failure'] });
+  });
+});
+
+describe('upgradeThingsboardConfig — ThingsBoard\'s own configuration upgrades, mirrored (ruling CV-1)', () => {
+  const up = upgradeThingsboardConfig;
+
+  it('Check relation presence v0 → v1 FLIPS the direction (TbCheckRelationNode.upgrade)', () => {
+    const T = 'tb:filter:check-relation-presence';
+    expect(up(T, 0, { direction: 'FROM', relationType: 'Contains' })).toEqual({ outcome: 'upgraded', config: { direction: 'TO', relationType: 'Contains' } });
+    expect(up(T, 0, { direction: 'TO' })).toEqual({ outcome: 'upgraded', config: { direction: 'FROM' } });
+    // Already v1: untouched.
+    expect(up(T, 1, { direction: 'FROM' })).toEqual({ outcome: 'current', config: { direction: 'FROM' } });
+    // ThingsBoard throws on a missing / bad direction and keeps the config as it is: so do we, and say so.
+    expect(up(T, 0, { relationType: 'Contains' })).toEqual({ outcome: 'not-upgraded', config: { relationType: 'Contains' } });
+    expect(up(T, 0, { direction: 'SIDEWAYS' })).toEqual({ outcome: 'not-upgraded', config: { direction: 'SIDEWAYS' } });
+  });
+
+  it('Copy / Rename keys v0: fromMetadata "true" / "false" (or a boolean) → copyFrom / renameIn METADATA / DATA', () => {
+    expect(up('tb:transformation:copy-key-value-pairs', 0, { fromMetadata: 'true', keys: ['a'] }))
+      .toEqual({ outcome: 'upgraded', config: { keys: ['a'], copyFrom: 'METADATA' } });
+    expect(up('tb:transformation:copy-key-value-pairs', 0, { fromMetadata: false, keys: [] }))
+      .toEqual({ outcome: 'upgraded', config: { keys: [], copyFrom: 'DATA' } });
+    expect(up('tb:transformation:rename-keys', 0, { fromMetadata: true, renameKeysMapping: { a: 'b' } }))
+      .toEqual({ outcome: 'upgraded', config: { renameKeysMapping: { a: 'b' }, renameIn: 'METADATA' } });
+    // Delete keys v0 ALSO reads fromMetadata.
+    expect(up('tb:transformation:delete-key-value-pairs', 0, { fromMetadata: 'false', keys: ['x'] }))
+      .toEqual({ outcome: 'upgraded', config: { keys: ['x'], deleteFrom: 'DATA' } });
+    expect(up('tb:transformation:copy-key-value-pairs', 0, { keys: [] }).outcome).toBe('not-upgraded');
+    expect(up('tb:transformation:copy-key-value-pairs', 0, { fromMetadata: 'maybe' }).outcome).toBe('not-upgraded');
+  });
+
+  it('Copy / Rename keys v1: fromMetadata "METADATA" / "DATA"; Delete keys v1: dataToFetch', () => {
+    expect(up('tb:transformation:copy-key-value-pairs', 1, { fromMetadata: 'METADATA', keys: [] }))
+      .toEqual({ outcome: 'upgraded', config: { keys: [], copyFrom: 'METADATA' } });
+    expect(up('tb:transformation:rename-keys', 1, { fromMetadata: 'DATA', renameKeysMapping: {} }))
+      .toEqual({ outcome: 'upgraded', config: { renameKeysMapping: {}, renameIn: 'DATA' } });
+    expect(up('tb:transformation:delete-key-value-pairs', 1, { dataToFetch: 'METADATA', keys: [] }))
+      .toEqual({ outcome: 'upgraded', config: { keys: [], deleteFrom: 'METADATA' } });
+    // v1 that already carries the v2 key: nothing to do (ThingsBoard returns it unchanged).
+    expect(up('tb:transformation:delete-key-value-pairs', 1, { deleteFrom: 'DATA', dataToFetch: 'METADATA' }))
+      .toEqual({ outcome: 'upgraded', config: { deleteFrom: 'DATA', dataToFetch: 'METADATA' } });
+    expect(up('tb:transformation:delete-key-value-pairs', 1, { fromMetadata: 'METADATA' }).outcome).toBe('not-upgraded');
+    expect(up('tb:transformation:copy-key-value-pairs', 2, { copyFrom: 'DATA' })).toEqual({ outcome: 'current', config: { copyFrom: 'DATA' } });
+  });
+
+  it('Device profile v0 → v1 (TbDeviceProfileNode.upgrade): not persisting the state means not fetching it', () => {
+    expect(up('tb:action:device-profile', 0, { persistAlarmRulesState: false, fetchAlarmRulesStateOnStart: true }))
+      .toEqual({ outcome: 'upgraded', config: { persistAlarmRulesState: false, fetchAlarmRulesStateOnStart: false } });
+    expect(up('tb:action:device-profile', 0, { persistAlarmRulesState: true, fetchAlarmRulesStateOnStart: true }))
+      .toEqual({ outcome: 'upgraded', config: { persistAlarmRulesState: true, fetchAlarmRulesStateOnStart: true } });
+    expect(up('tb:action:device-profile', 0, {}).outcome).toBe('upgraded');
+  });
+
+  it('an older version of a node whose upgrade is NOT mirrored is "not-upgraded", the config untouched', () => {
+    expect(up('tb:action:save-timeseries', 0, { defaultTTL: 0 })).toEqual({ outcome: 'not-upgraded', config: { defaultTTL: 0 } });
+    expect(up('tb:action:save-attributes', 2, { scope: 'CLIENT_SCOPE' }).outcome).toBe('not-upgraded');
+    expect(up('tb:action:save-attributes', 3, { scope: 'CLIENT_SCOPE' }).outcome).toBe('current');
+  });
+
+  it('a node that models version 0, a later / none node or an unknown type is always "current"; the input is never touched', () => {
+    expect(up('tb:filter:script', 0, { jsScript: 'return true;' }).outcome).toBe('current');
+    expect(up('tb:action:create-relation', 0, { direction: 'FROM' })).toEqual({ outcome: 'current', config: { direction: 'FROM' } });
+    expect(up('tb:filter:nope', 0, {}).outcome).toBe('current');
+    const input = { direction: 'FROM' };
+    up('tb:filter:check-relation-presence', 0, input);
+    expect(input).toEqual({ direction: 'FROM' });
+    // Whatever the outcome, the config handed back is the caller's own copy, nested values too.
+    for (const [type, version] of [['tb:filter:script', 0], ['tb:action:save-timeseries', 0]] as const) {
+      const given = { jsScript: 'return true;', processingSettings: { type: 'ON_EVERY_MESSAGE' } };
+      const back = up(type, version, given).config;
+      expect(back).not.toBe(given);
+      (back.processingSettings as { type: string }).type = 'CHANGED';
+      expect(given.processingSettings.type).toBe('ON_EVERY_MESSAGE');
+    }
   });
 });
 
