@@ -321,6 +321,49 @@ describe('ThingsBoard export / import', () => {
     expect(r.document.nodes).toHaveLength(5);
   });
 
+  it('a ThingsBoard root chain ENTERED by the Device Profile node imports live: the entry is built, no warning (2026-11-04)', () => {
+    // Every ThingsBoard release v3.6–v4.2 ships its root chain this way.
+    const tb = tbCeRootChain() as any;
+    tb.metadata.nodes = tb.metadata.nodes.filter((n: { name: string }) => n.name !== 'RPC Call Request');
+    tb.metadata.connections = tb.metadata.connections.filter((c: { toIndex: number }) => c.toIndex !== 5);
+    tb.metadata.nodes.push({
+      additionalInfo: { layoutX: 204, layoutY: 240 }, type: 'org.thingsboard.rule.engine.profile.TbDeviceProfileNode',
+      name: 'Device Profile Node', debugFailures: false, debugAll: false,
+      configuration: { persistAlarmRulesState: false, fetchAlarmRulesStateOnStart: false },
+    });
+    tb.metadata.connections.push({ fromIndex: 5, toIndex: 2, type: 'Success' });
+    tb.metadata.firstNodeIndex = 5;
+    const r = fromThingsboardExport(tb);
+    expect(r.warnings).toEqual([]);
+    const entry = r.document.nodes.find((n) => n.id === r.document.firstNodeId)!;
+    expect(entry).toMatchObject({ type: 'tb:action:device-profile', name: 'Device Profile Node' });
+    expect(entry.config).toEqual({ persistAlarmRulesState: false, fetchAlarmRulesStateOnStart: false });
+    const sw = r.document.nodes.find((n) => n.type === 'tb:filter:message-type-switch')!;
+    expect(r.document.connections).toContainEqual({ from: entry.id, to: sw.id, relation: 'Success' });
+  });
+
+  it('ThingsBoard 3.6.0–3.6.3\'s string-encoded booleans and numbers are read as such, so the node imports BUILT', () => {
+    const tb = toThingsboardExport('C', false, doc()) as any;
+    tb.metadata.nodes.push(
+      { type: 'org.thingsboard.rule.engine.telemetry.TbMsgAttributesNode', name: 'Save Attributes', additionalInfo: { layoutX: 1, layoutY: 1 },
+        configuration: { scope: 'CLIENT_SCOPE', notifyDevice: 'false', sendAttributesUpdatedNotification: 'false', updateAttributesOnlyOnValueChange: 'true' } },
+      { type: 'org.thingsboard.rule.engine.telemetry.TbMsgTimeseriesNode', name: 'Save Timeseries', additionalInfo: { layoutX: 2, layoutY: 2 },
+        configuration: { defaultTTL: '0', useServerTs: 'false' } },
+    );
+    const r = fromThingsboardExport(tb);
+    expect(r.warnings).toEqual([]);
+    const [attrs, ts] = r.document.nodes.slice(2);
+    expect(attrs.type).toBe('tb:action:save-attributes');
+    expect(attrs.config).toEqual({ scope: 'CLIENT_SCOPE', notifyDevice: false, sendAttributesUpdatedNotification: false, updateAttributesOnlyOnValueChange: true });
+    expect(ts.type).toBe('tb:action:save-timeseries');
+    expect(ts.config).toEqual({ defaultTTL: 0, useServerTs: false });
+    // A string that is not a boolean still does not fit — Unsupported, with the warning.
+    tb.metadata.nodes[2].configuration.notifyDevice = 'no';
+    const bad = fromThingsboardExport(tb);
+    expect(bad.document.nodes[2].type).toBe(UNSUPPORTED_NODE_TYPE);
+    expect(bad.warnings).toHaveLength(1);
+  });
+
   it('a node with no counterpart (status none) warns too — once per node, beside the unknown-class warning', () => {
     const tb = toThingsboardExport('C', false, doc()) as any;
     tb.metadata.nodes.push(

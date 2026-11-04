@@ -33,7 +33,7 @@ import { z, ZodError, type ZodIssue } from 'zod';
 import {
   RULE_NODE_TYPE_BY_ID, RULE_NODE_TYPE_BY_TB_CLASS, UNSUPPORTED_NODE_TYPE, RULE_DEBUG_MODES,
   RULE_NODE_NAME_MAX, RULE_CHAIN_NAME_MAX, RULE_CHAIN_NODES_MAX, RULE_RELATION_MAX,
-  RULE_RELATION_OTHER, newRuleNodeConfig,
+  RULE_RELATION_OTHER, newRuleNodeConfig, coerceThingsboardScalars,
   type RuleDebugMode,
 } from './rule-nodes.js';
 
@@ -428,7 +428,9 @@ export function fromThingsboardExport(json: unknown, opts: { newId?: () => strin
       config = configObject;
       warnings.push(`Node "${nodeName}": ${spec.label} has no counterpart here and will send every message to Failure.`);
     } else {
-      const r = spec.configSchema.safeParse(configObject);
+      // ThingsBoard 3.6.0–3.6.3 exported some booleans / numbers as strings — read them first.
+      const coerced = coerceThingsboardScalars(spec.id, configObject);
+      const r = spec.configSchema.safeParse(coerced);
       if (!r.success) {
         const e = r.error.issues[0];
         type = UNSUPPORTED_NODE_TYPE;
@@ -436,7 +438,7 @@ export function fromThingsboardExport(json: unknown, opts: { newId?: () => strin
         warnings.push(`Node "${nodeName}" (${spec.label}): its configuration does not fit here (${e.path.join('.') || 'configuration'} — ${e.message}); it was imported as Unsupported.`);
       } else {
         type = spec.id;
-        config = configObject;
+        config = coerced;
         const keys = SCRIPT_KEYS[spec.id];
         if (keys && config.scriptLang === 'TBEL' && typeof config[keys[1]] === 'string' && config[keys[1]] !== config[keys[0]]) {
           warnings.push(`Node "${nodeName}" (${spec.label}): its TBEL script differs from its JavaScript one; only JavaScript runs here, so the JavaScript script will run.`);

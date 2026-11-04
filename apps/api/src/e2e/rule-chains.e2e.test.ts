@@ -616,7 +616,8 @@ describe('catalogue, stats, stubs', () => {
     expect(data).toHaveLength(86);
     expect(data).toHaveLength(RULE_NODE_TYPES.length);
     const by = (st: string) => data.filter((d) => d.status === st).length;
-    expect([by('built'), by('later'), by('none')]).toEqual([46, 10, 30]);
+    // 46 / 10 / 30 until 2026-11-04: Device profile (deprecated) became a built pass-through.
+    expect([by('built'), by('later'), by('none')]).toEqual([47, 10, 29]);
     for (const d of data) expect(d).not.toHaveProperty('configSchema');
     const sw = data.find((d) => d.id === 'tb:filter:message-type-switch');
     expect(sw).toMatchObject({ tbClass: 'org.thingsboard.rule.engine.filter.TbMsgTypeSwitchNode', group: 'filter', label: expect.any(String), status: 'built' });

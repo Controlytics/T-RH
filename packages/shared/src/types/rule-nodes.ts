@@ -21,11 +21,13 @@
  * THE COUNT IS 86, not the spec's 87: ThingsBoard lists 12 filter nodes, and the
  * spec's 13th filter row is its own note that "Originator type filter/switch" are
  * older names of Entity type filter/switch — the same two classes. Status:
- *   built (46) — a handler exists (Tasks 4-6). Three are narrowed here: Check
+ *   built (47) — a handler exists (Tasks 4-6). Three are narrowed here: Check
  *                relation presence and Related device attributes know only the
  *                gateway link; Tenant attributes / details read the APPLICATION.
+ *                Device profile (deprecated) is a pass-through (2026-11-04): it is
+ *                the ENTRY of every ThingsBoard v3.6–v4.2 root chain.
  *   later (10) — a counterpart exists but needs a feature this system lacks.
- *   none  (30) — ThingsBoard-specific (customers, assets, entity views, edge,
+ *   none  (29) — ThingsBoard-specific (customers, assets, entity views, edge,
  *                entity groups, Cassandra, cloud vendors, PE reports, Twilio).
  * A `later` / `none` node imports and saves (it passes the message to Failure);
  * it has no fields, no handler, and accepts any configuration object, so a
@@ -817,7 +819,16 @@ const ACTION: RuleNodeTypeSpec[] = [
     }),
   }),
   notBuilt('action', 'delete-relation', 'Delete relation', 'action.TbDeleteRelationNode', 'later', `${LATER}needs relations between instruments beyond the gateway link.`),
-  notBuilt('action', 'device-profile', 'Device profile (deprecated)', 'profile.TbDeviceProfileNode', 'none', `${NONE}profile alarm rules are this system's instrument-limit alarms.`),
+  // BUILT as a pass-through (2026-11-04, ruling): every ThingsBoard release v3.6–v4.2 ships
+  // its root chain with this node as the ENTRY, so an imported root chain was dead here.
+  // ThingsBoard's two settings are accepted and ignored.
+  built({
+    id: 'tb:action:device-profile', tbClass: `${TB}profile.TbDeviceProfileNode`, group: 'action', label: 'Device profile (deprecated)',
+    description: 'Passes the message on unchanged — profile alarm rules are this system\'s instrument-limit alarms (Configuration → Instrument Limit Alarms).',
+    relations: FS, fields: [],
+    defaultConfig: { persistAlarmRulesState: false, fetchAlarmRulesStateOnStart: false },
+    configSchema: cfg({ persistAlarmRulesState: z.boolean().optional(), fetchAlarmRulesStateOnStart: z.boolean().optional() }),
+  }),
   notBuilt('action', 'device-state', 'Device state', 'action.TbDeviceStateNode', 'later', `${LATER}needs the activity tracker to accept an event; only ingest marks an instrument active today.`),
   built({
     id: 'tb:action:generator', tbClass: `${TB}debug.TbMsgGeneratorNode`, group: 'action', label: 'Generator',
@@ -1158,4 +1169,59 @@ export function visibleRuleNodeFields(type: string, config: Record<string, unkno
   if (!spec) return [];
   const resolved = ruleNodeConfigWithDefaults(type, config);
   return spec.fields.filter((f) => !f.showWhen || resolved[f.showWhen.key] === f.showWhen.equals);
+}
+
+/** A zod type with optional / nullable / default / refinement wrappers taken off. */
+function baseZodType(t: z.ZodTypeAny): z.ZodTypeAny {
+  let cur = t;
+  for (let i = 0; i < 8; i++) {
+    if (cur instanceof z.ZodOptional || cur instanceof z.ZodNullable) cur = cur.unwrap();
+    else if (cur instanceof z.ZodDefault) cur = cur.removeDefault();
+    else if (cur instanceof z.ZodEffects) cur = cur.innerType();
+    else break;
+  }
+  return cur;
+}
+
+const scalarKindsCache = new Map<string, ReadonlyMap<string, 'boolean' | 'number'>>();
+
+/** The top-level keys of a node's config that hold a boolean or a number: its boolean / number FIELDS, and every key its schema models as one. */
+function scalarKindsOf(spec: RuleNodeTypeSpec): ReadonlyMap<string, 'boolean' | 'number'> {
+  const hit = scalarKindsCache.get(spec.id);
+  if (hit) return hit;
+  const kinds = new Map<string, 'boolean' | 'number'>();
+  for (const f of spec.fields) if (f.type === 'boolean' || f.type === 'number') kinds.set(f.key, f.type);
+  const shape = baseZodType(spec.configSchema);
+  if (shape instanceof z.ZodObject) {
+    for (const [key, t] of Object.entries(shape.shape as z.ZodRawShape)) {
+      const b = baseZodType(t);
+      if (b instanceof z.ZodBoolean) kinds.set(key, 'boolean');
+      else if (b instanceof z.ZodNumber) kinds.set(key, 'number');
+    }
+  }
+  scalarKindsCache.set(spec.id, kinds);
+  return kinds;
+}
+
+const PLAIN_DECIMAL = /^-?\d+(\.\d+)?$/;
+
+/**
+ * ThingsBoard 3.6.0–3.6.3 exported some booleans and numbers as STRINGS
+ * (`"notifyDevice": "false"`, `"defaultTTL": "0"`). Read them as what they are,
+ * before validation, so such a node imports as itself rather than Unsupported:
+ * at the TOP level of the config only, for a key the node's fields or schema
+ * hold as a boolean / number, and only an exact `"true"` / `"false"` or a plain
+ * decimal. Anything else is left for the schema to refuse. Returns a copy.
+ */
+export function coerceThingsboardScalars(type: string, config: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...config };
+  const spec = RULE_NODE_TYPE_BY_ID.get(type);
+  if (!spec) return out;
+  for (const [key, kind] of scalarKindsOf(spec)) {
+    const v = out[key];
+    if (typeof v !== 'string') continue;
+    if (kind === 'boolean' && (v === 'true' || v === 'false')) out[key] = v === 'true';
+    else if (kind === 'number' && PLAIN_DECIMAL.test(v)) out[key] = Number(v);
+  }
+  return out;
 }

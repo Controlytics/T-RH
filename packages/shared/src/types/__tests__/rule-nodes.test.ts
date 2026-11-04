@@ -5,7 +5,7 @@ import {
   RULE_RELATION_SUCCESS, RULE_RELATION_FAILURE, RULE_RELATION_TRUE, RULE_RELATION_FALSE, RULE_RELATION_OTHER,
   RULE_ORIGINATOR_TYPES, RULE_ORIGINATOR_TYPE_LABELS, TB_ENTITY_TYPE_ALIASES, RULE_DEBUG_MODES,
   RULE_NODE_NAME_MAX, RULE_CHAIN_NAME_MAX, RULE_CHAIN_NODES_MAX, RULE_MATH_OPERATIONS, toRuleNodeTypeDescriptor,
-  visibleRuleNodeFields,
+  visibleRuleNodeFields, coerceThingsboardScalars,
 } from '../rule-nodes.js';
 
 /**
@@ -24,6 +24,11 @@ import {
  * presence and related device attributes on the gateway link, tenant
  * attributes as "Application attributes"), which is why the spec's L count
  * (12) and B count (46) overlap by two. Ruling T1-2.
+ *
+ * 2026-11-04 (ruling, found by Task 6): Device profile (deprecated) is BUILT
+ * as a pass-through — every ThingsBoard release v3.6–v4.2 ships its root chain
+ * with it as the ENTRY, so an imported root chain was dead here. 46 → 47
+ * built, 30 → 29 none.
  */
 
 const BUILT_IDS = [
@@ -39,8 +44,8 @@ const BUILT_IDS = [
   'tb:transformation:change-originator', 'tb:transformation:copy-key-value-pairs', 'tb:transformation:deduplication',
   'tb:transformation:delete-key-value-pairs', 'tb:transformation:json-path', 'tb:transformation:rename-keys',
   'tb:transformation:script', 'tb:transformation:split-array-msg', 'tb:transformation:to-email',
-  // action (10)
-  'tb:action:clear-alarm', 'tb:action:create-alarm', 'tb:action:delay', 'tb:action:delete-attributes',
+  // action (11) — device-profile is a pass-through (2026-11-04)
+  'tb:action:clear-alarm', 'tb:action:create-alarm', 'tb:action:delay', 'tb:action:delete-attributes', 'tb:action:device-profile',
   'tb:action:generator', 'tb:action:log', 'tb:action:math-function', 'tb:action:message-count',
   'tb:action:save-attributes', 'tb:action:save-timeseries',
   // external (6)
@@ -68,13 +73,13 @@ describe('RULE_NODE_TYPES — the whole ThingsBoard catalogue', () => {
     });
   });
 
-  it('marks 46 built, 10 later and 30 with no counterpart here', () => {
-    expect(countBy(RULE_NODE_TYPES, (s) => s.status)).toEqual({ built: 46, later: 10, none: 30 });
+  it('marks 47 built, 10 later and 29 with no counterpart here', () => {
+    expect(countBy(RULE_NODE_TYPES, (s) => s.status)).toEqual({ built: 47, later: 10, none: 29 });
   });
 
-  it('built is EXACTLY the 46 nodes Tasks 4-6 write handlers for', () => {
+  it('built is EXACTLY the 47 nodes Tasks 4-6 write handlers for', () => {
     expect(BUILT_RULE_NODE_TYPES.map((s) => s.id).sort()).toEqual([...BUILT_IDS].sort());
-    expect(BUILT_IDS).toHaveLength(46);
+    expect(BUILT_IDS).toHaveLength(47);
     expect(BUILT_RULE_NODE_TYPES.every((s) => s.status === 'built')).toBe(true);
   });
 
@@ -274,6 +279,60 @@ describe('built nodes — descriptors, defaults and config schemas', () => {
     expect(tele({ useMetadataIntervalPatterns: true })).toContain('startIntervalPattern');
     expect(tele({ fetchMode: 'ALL' })).toContain('aggregation');
     expect(visibleRuleNodeFields('tb:filter:nope', {})).toEqual([]);
+  });
+
+  it('Device profile (deprecated) is a BUILT pass-through: Success / Failure, no fields, ThingsBoard\'s config accepted', () => {
+    const s = RULE_NODE_TYPE_BY_ID.get('tb:action:device-profile')!;
+    expect(s.tbClass).toBe('org.thingsboard.rule.engine.profile.TbDeviceProfileNode');
+    expect(s.status).toBe('built');
+    expect(s.relations).toEqual(['Success', 'Failure']);
+    expect(s.fields).toEqual([]);
+    expect(s.defaultConfig).toEqual({ persistAlarmRulesState: false, fetchAlarmRulesStateOnStart: false });
+    expect(s.description).toContain('instrument-limit alarms');
+    expect(s.configSchema.safeParse({ persistAlarmRulesState: true, fetchAlarmRulesStateOnStart: true }).success).toBe(true);
+    expect(s.configSchema.safeParse({}).success).toBe(true);
+    expect(s.configSchema.safeParse({ persistAlarmRulesState: 'yes' }).success).toBe(false);
+  });
+
+  it('coerceThingsboardScalars: every boolean / number FIELD reads ThingsBoard 3.6.0–3.6.3\'s string form', () => {
+    let booleans = 0;
+    let numbers = 0;
+    for (const s of BUILT_RULE_NODE_TYPES) {
+      for (const f of s.fields) {
+        if (f.type === 'boolean') {
+          booleans++;
+          expect(coerceThingsboardScalars(s.id, { [f.key]: 'true' })[f.key], `${s.id}.${f.key}`).toBe(true);
+          expect(coerceThingsboardScalars(s.id, { [f.key]: 'false' })[f.key], `${s.id}.${f.key}`).toBe(false);
+        }
+        if (f.type === 'number') {
+          numbers++;
+          expect(coerceThingsboardScalars(s.id, { [f.key]: '12' })[f.key], `${s.id}.${f.key}`).toBe(12);
+        }
+      }
+    }
+    expect(booleans).toBeGreaterThan(30);
+    expect(numbers).toBeGreaterThan(15);
+  });
+
+  it('coerceThingsboardScalars: only a recognisable scalar, only where the schema wants one, never in place', () => {
+    const save = 'tb:action:save-attributes';
+    const input = { notifyDevice: 'false', scope: 'SERVER_SCOPE', updateAttributesOnlyOnValueChange: 'TRUE ', extra: 'false' };
+    const out = coerceThingsboardScalars(save, input);
+    expect(out).toEqual({ notifyDevice: false, scope: 'SERVER_SCOPE', updateAttributesOnlyOnValueChange: 'TRUE ', extra: 'false' });
+    expect(input.notifyDevice).toBe('false');                                   // the input is not touched
+    // A boolean the schema models without a form field (create alarm's propagateToOwner) is read too.
+    expect(coerceThingsboardScalars('tb:action:create-alarm', { propagateToOwner: 'false' }).propagateToOwner).toBe(false);
+    // A number: only a plain decimal string; anything else is left for the schema to refuse.
+    const ts = 'tb:action:save-timeseries';
+    expect(coerceThingsboardScalars(ts, { defaultTTL: '0' }).defaultTTL).toBe(0);
+    expect(coerceThingsboardScalars(ts, { defaultTTL: '-1.5' }).defaultTTL).toBe(-1.5);
+    for (const raw of ['', ' ', 'abc', '1e3', '0x10', '12px']) expect(coerceThingsboardScalars(ts, { defaultTTL: raw }).defaultTTL, raw).toBe(raw);
+    // Nested values are not touched; an unknown type comes back as a copy.
+    const math = coerceThingsboardScalars('tb:action:math-function', { result: { resultValuePrecision: '2' } });
+    expect(math.result).toEqual({ resultValuePrecision: '2' });
+    const unknown = { a: 'true' };
+    expect(coerceThingsboardScalars('tb:action:nope', unknown)).toEqual({ a: 'true' });
+    expect(coerceThingsboardScalars('tb:action:nope', unknown)).not.toBe(unknown);
   });
 
   it('the math operations and their argument counts are ThingsBoard\'s', () => {
