@@ -431,6 +431,18 @@ describe('routes', () => {
     expect(bad.json().error).toBe('SCRIPT_TIMEOUT');
   });
 
+  it('test-script runs a GENERATOR script as the Generator node does: prevMsg / prevMetadata / prevMsgType', async () => {
+    const script = "return { msg: { n: (prevMsg.n || 0) + 1 }, metadata: { last: prevMsgType || 'none' }, msgType: 'TICK' };";
+    // Before the first output ThingsBoard passes {}, {}, '' — so does the route when the body gives none.
+    const first = await app.inject({ method: 'POST', url: '/api/rule-chains/test-script', headers: sa, payload: { scriptType: 'generator', script } });
+    expect(first.statusCode, first.body).toBe(200);
+    expect(first.json()).toEqual({ result: { msg: { n: 1 }, metadata: { last: 'none' }, msgType: 'TICK' } });
+    // A previous output given in the body is what the script sees as prev*.
+    const next = await app.inject({ method: 'POST', url: '/api/rule-chains/test-script', headers: sa,
+      payload: { scriptType: 'generator', script, msg: { n: 4 }, metadata: {}, msgType: 'TICK' } });
+    expect(next.json()).toEqual({ result: { msg: { n: 5 }, metadata: { last: 'TICK' }, msgType: 'TICK' } });
+  });
+
   it('/stats: switched on, real counts', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/rule-chains/stats', headers: sa });
     expect(res.statusCode).toBe(200);
@@ -468,11 +480,12 @@ describe('the durable path', () => {
     const msg = newMessage('POST_TELEMETRY_REQUEST', { type: 'INSTRUMENT', id: inst.id }, { temp: 23 }, { ts: Date.now() - 2_000, from: 'durable' });
     const outcome = await runRuleEngineMessage({ message: msg, chainId: ROOT, resumeAfterNodeId: SWITCH, relation: 'Post telemetry' });
     expect(outcome).toBe('admitted');
-    const found = await waitForRows({ msgId: msg.id }, 2);
+    const found = await waitForRows({ msgId: msg.id }, 3);
     expect(found.map((r) => [r.node_id, r.direction, r.relation])).toEqual([
       [SWITCH, 'OUT', 'Post telemetry'],
       [SAVE_TS, 'IN', 'Post telemetry'],
-      // The stand-in writes only ingest-origin messages: this one ends there.
+      // Save Timeseries stores it and goes on, as the real node does; nothing is connected after it.
+      [SAVE_TS, 'OUT', 'Success (unconnected)'],
     ]);
   });
 

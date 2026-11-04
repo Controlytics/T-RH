@@ -19,6 +19,7 @@ import { auditLog } from '../../lib/audit.js';
 import { roleHasPermission } from '../../plugins/rbac.js';
 import { ruleEngine } from './engine.js';
 import { RuleScriptError, type RuleScriptKind } from './script-vm.js';
+import { GENERATOR_PREV_PREFIX } from './nodes/action/generator.js';
 import { newMessage, toMetadata, RULE_ENGINE_ORIGIN_KEY, REST_API_ORIGIN, type RuleOriginator } from './message.js';
 
 /**
@@ -164,14 +165,18 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Rule Chains'],
       summary: 'Run a node script against a sample message',
-      description: 'The editor\'s Test script button: the script runs in the engine\'s script VM, with the configured time budget, against `msg` / `metadata` / `msgType` (defaults `{}`, `{}`, POST_TELEMETRY_REQUEST). 200 `{ result }` — a filter\'s boolean, a switch\'s relation list, a transform\'s message list, else the return value. 400 `{ error: SCRIPT_SYNTAX | SCRIPT_TIMEOUT | SCRIPT_ERROR | SCRIPT_RESULT, message }`. Runs whether or not the engine is switched on.',
+      description: 'The editor\'s Test script button: the script runs in the engine\'s script VM, with the configured time budget, against `msg` / `metadata` / `msgType` (defaults `{}`, `{}`, POST_TELEMETRY_REQUEST; a `generator` script sees them as ThingsBoard\'s `prevMsg` / `prevMetadata` / `prevMsgType`, as the Generator node runs it, msgType defaulting to empty). 200 `{ result }` — a filter\'s boolean, a switch\'s relation list, a transform\'s message list, else the return value. 400 `{ error: SCRIPT_SYNTAX | SCRIPT_TIMEOUT | SCRIPT_ERROR | SCRIPT_RESULT, message }`. Runs whether or not the engine is switched on.',
       body: testScriptBody,
     },
   }, async (req, reply) => {
     const body = req.body as { scriptType: RuleScriptKind; script: string; msg?: unknown; metadata?: Record<string, unknown>; msgType?: string };
+    // A GENERATOR script runs as the Generator node runs it (nodes/action/generator.ts): ThingsBoard's
+    // `prevMsg` / `prevMetadata` / `prevMsgType` declared from msg / metadata / msgType, which
+    // default to {}, {} and '' (no previous output yet). Every other kind sees msg / metadata / msgType.
+    const generator = body.scriptType === 'generator';
     try {
-      const result = await ruleEngine.runScript(body.scriptType, body.script, body.msg ?? {}, toMetadata(body.metadata ?? {}),
-        body.msgType?.trim() || 'POST_TELEMETRY_REQUEST');
+      const result = await ruleEngine.runScript(body.scriptType, generator ? `${GENERATOR_PREV_PREFIX}${body.script}` : body.script,
+        body.msg ?? {}, toMetadata(body.metadata ?? {}), body.msgType?.trim() || (generator ? '' : 'POST_TELEMETRY_REQUEST'));
       return { result: result === undefined ? null : result };
     } catch (err) {
       if (err instanceof RuleScriptError) return reply.code(400).send({ error: err.code, message: err.message });
