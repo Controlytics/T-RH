@@ -105,6 +105,53 @@ describe('RuleDebugWriter', () => {
     expect(w.buffered).toBe(0);
   });
 
+  it('the per-node cap: a node past maxPerNode since its last trim is trimmed to its newest N, at most once per 10 s', async () => {
+    const r = recordingInsert();
+    const trims: [string, string, number][] = [];
+    let clock = 1_000_000;
+    const w = new RuleDebugWriter({
+      insert: r.insert, flushMs: 60_000, maxPerNode: 3, now: () => clock,
+      trim: async (chainId, nodeId, keep) => { trims.push([chainId, nodeId, keep]); return 1; },
+    });
+    const OTHER = '0f000000-0000-4000-8000-0000000000cc';
+    const at = (nodeId: string, i: number) => ({ ...event(i), nodeId });
+    // 4 rows on NODE passes the cap of 3; 2 on OTHER do not.
+    for (let i = 0; i < 4; i++) w.record(at(NODE, i));
+    for (let i = 0; i < 2; i++) w.record(at(OTHER, i));
+    await w.flush();
+    expect(trims).toEqual([[CHAIN, NODE, 3]]);
+    expect(w.trimmed).toBe(1);
+    // 10 s on, the count restarted at the trim: 3 more is NOT past the cap.
+    clock += 10_000;
+    for (let i = 0; i < 3; i++) w.record(at(NODE, i));
+    await w.flush();
+    expect(trims).toHaveLength(1);
+    // One more is: trimmed again.
+    w.record(at(NODE, 3));
+    await w.flush();
+    expect(trims).toHaveLength(2);
+    // Past it again, but inside 10 s of that trim: not yet.
+    for (let i = 0; i < 4; i++) w.record(at(NODE, i));
+    await w.flush();
+    expect(trims).toHaveLength(2);
+    // 10 s later the next tick trims it, with nothing new to write.
+    clock += 10_000;
+    await w.trimDue();
+    expect(trims).toEqual([[CHAIN, NODE, 3], [CHAIN, NODE, 3], [CHAIN, NODE, 3]]);
+  });
+
+  it('the cap follows configure(); a failing trim is logged, never thrown', async () => {
+    const trims: number[] = [];
+    const w = new RuleDebugWriter({
+      insert: async (rows) => rows.length, flushMs: 60_000, maxPerNode: 100,
+      trim: async (_c, _n, keep) => { trims.push(keep); throw new Error('db down'); },
+    });
+    w.configure({ maxPerNode: 2 });
+    for (let i = 0; i < 3; i++) w.record(event(i));
+    await expect(w.flush()).resolves.toBeUndefined();
+    expect(trims).toEqual([2]);
+  });
+
   it('stop() writes what is left', async () => {
     const r = recordingInsert();
     const w = new RuleDebugWriter({ insert: r.insert, flushMs: 60_000 });

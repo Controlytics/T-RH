@@ -182,6 +182,10 @@ export const AUDIT_ACTIONS = {
   RULE_CHAIN_IMPORTED: 'RULE_CHAIN_IMPORTED',
   RULE_CHAIN_ROOT_CHANGED: 'RULE_CHAIN_ROOT_CHANGED',
   RULE_CHAIN_DEBUG_CLEARED: 'RULE_CHAIN_DEBUG_CLEARED',
+  // A message injected into the root rule chain through POST /api/rule-engine/v1/messages
+  // (2026-11-04): one row per call, by the caller, with the message (credential-like keys masked).
+  // A machine endpoint — no re-auth, no reason.
+  RULE_ENGINE_MESSAGE_INJECTED: 'RULE_ENGINE_MESSAGE_INJECTED',
 
   // Instruments — the device registry (2026-08-05). Bulk creation emits one
   // INSTRUMENT_CREATED per instrument rather than one row per batch, so the

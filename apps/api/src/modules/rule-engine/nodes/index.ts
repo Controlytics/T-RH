@@ -1,15 +1,28 @@
+import { registerUnsupportedNode } from './unsupported.js';
+import { registerFilterNodes } from './filter/index.js';
+import { registerEnrichmentNodes } from './enrichment/index.js';
+import { registerTransformationNodes } from './transformation/index.js';
+import { registerActionNodes } from './action/index.js';
+import { registerExternalNodes } from './external/index.js';
+import { registerFlowNodes } from './flow/index.js';
+
 /**
- * Registers every built rule node's handler (rule chains, 2026-11-03).
- * `engine.start()` calls `registerAllNodes()` once per start.
+ * Registers every rule node handler (rule chains, 2026-11-03). `engine.start()`
+ * calls `registerAllNodes()` once per start; registering is idempotent.
  *
- * Task 3 created this file EMPTY so the engine has its one registration
- * point; Task 4 owns it from here (filter / flow / transformation and the
- * `tb:unsupported` handler), and Tasks 5 and 6 add their imports.
+ * ONE FILE PER GROUP: each task registers its handlers in its own group's
+ * `nodes/<group>/index.ts` (filter, transformation, flow — Task 4; enrichment,
+ * action — Task 5; external — Task 6). Nobody edits THIS file.
  *
- * Until a type is registered, the engine sends its messages to `Failure` with
- * `metadata.error = "UNSUPPORTED_NODE: …"` (engine.ts) — so the shipped root
- * chain's four nodes do exactly that until Tasks 4 and 5 land.
+ * A type with no registered handler sends every message to `Failure` with
+ * `metadata.error = "UNSUPPORTED_NODE: …"` (engine.ts, unsupported.ts).
  */
 export function registerAllNodes(): void {
-  // Tasks 4-6 register their handlers here.
+  registerUnsupportedNode();
+  registerFilterNodes();
+  registerEnrichmentNodes();
+  registerTransformationNodes();
+  registerActionNodes();
+  registerExternalNodes();
+  registerFlowNodes();
 }

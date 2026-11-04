@@ -1,8 +1,9 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { createRuleEngine, type RuleEngine } from '../engine.js';
-import { registerNode } from '../registry.js';
+import { registerNode, getHandler } from '../registry.js';
+import { registerAllNodes } from '../nodes/index.js';
 import { newMessage, type RuleMessage } from '../message.js';
-import { chainOf, docOf, nodeOf, memoryDeps, fakeServices, testMessage } from '../../../test-support/rule-engine.js';
+import { chainOf, docOf, nodeOf, memoryDeps, fakeServices, fakeContext, testMessage } from '../../../test-support/rule-engine.js';
 import type { LoadedRuleChain } from '../service.js';
 
 /**
@@ -84,6 +85,17 @@ describe('routing', () => {
     const chain = chainOf('c', docOf([a, f], [[a, 'Failure', f]]), { root: true });
     await engineFor([chain]).engine.processNow(testMessage({}));
     expect(log[0].metadata.error).toMatch(/^UNSUPPORTED_NODE/);
+  });
+});
+
+describe('the Unsupported node (nodes/unsupported.ts)', () => {
+  it('registerAllNodes registers tb:unsupported: Failure naming the ThingsBoard class', async () => {
+    registerAllNodes();
+    const handler = getHandler('tb:unsupported');
+    expect(handler).toBeDefined();
+    const { ctx, calls } = fakeContext({ type: 'tb:unsupported', config: { tbClass: 'org.thingsboard.rule.engine.pe.Foo' } });
+    await handler!.handler(ctx, testMessage({}));
+    expect(calls.failures.map((f) => f.error)).toEqual(['UNSUPPORTED_NODE: "org.thingsboard.rule.engine.pe.Foo" has no handler in this system']);
   });
 });
 

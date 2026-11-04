@@ -53,7 +53,7 @@ import { ruleEngine } from '../modules/rule-engine/engine.js';
 import { registerNode } from '../modules/rule-engine/registry.js';
 import { invalidateChainCache } from '../modules/rule-engine/service.js';
 import { invalidateRuleEngineConfigCache } from '../modules/rule-engine/config.js';
-import { insertDebugRows, toDebugRow } from '../modules/rule-engine/debug.js';
+import { insertDebugRows, toDebugRow, trimDebugNode } from '../modules/rule-engine/debug.js';
 import { newMessage, ruleNodeOrigin, type RuleMessage } from '../modules/rule-engine/message.js';
 import { runRuleEngineMessage } from '../workers/rule-engine-message.worker.js';
 import { runRuleEngineDebugSweep } from '../workers/rule-engine-debug-sweep.worker.js';
@@ -343,20 +343,33 @@ describe('other sources', () => {
 
   it('the inject route → REST_API_REQUEST from the instrument named by code; an unknown code is refused', async () => {
     const res = await app.inject({ method: 'POST', url: '/api/rule-engine/v1/messages', headers: sa,
-      payload: { originatorCode: inst.code.toLowerCase(), data: { hello: 'world' }, metadata: { source: 'e2e' } } });
+      payload: { originatorCode: inst.code.toLowerCase(), data: { hello: 'world', password: 'p4ss' }, metadata: { source: 'e2e', apiToken: 'tok-123' } } });
     expect(res.statusCode, res.body).toBe(202);
     const body = res.json() as { accepted: boolean; msgId: string };
     expect(body.accepted).toBe(true);
     const [row] = await waitForRows({ nodeId: SWITCH, msgId: body.msgId }, 1);
     expect(row.msg_type).toBe('REST_API_REQUEST');
     expect(row.originator_id).toBe(inst.id);
-    expect(row.data).toEqual({ hello: 'world' });
+    expect(row.data).toEqual({ hello: 'world', password: 'p4ss' });
     expect(row.metadata).toMatchObject({ source: 'e2e', requestId: body.msgId, rule_engine_origin: 'rest_api', instrumentCode: inst.code });
+
+    // ONE audit row per call, by the caller, the message with credential-like keys masked.
+    const audits = await prisma.auditTrail.findMany({ where: { action: 'RULE_ENGINE_MESSAGE_INJECTED', targetId: body.msgId } });
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({ userId: SA, userRole: 'SUPER_ADMIN', targetType: 'rule_engine_message', reason: null });
+    expect(audits[0].afterValue).toMatchObject({
+      name: `REST_API_REQUEST from ${inst.code}`, msgId: body.msgId, type: 'REST_API_REQUEST',
+      originator: { type: 'INSTRUMENT', id: inst.id, code: inst.code },
+      data: { hello: 'world', password: '***' },
+      metadata: { source: 'e2e', apiToken: '***', requestId: body.msgId, rule_engine_origin: 'rest_api' },
+    });
 
     const unknown = await app.inject({ method: 'POST', url: '/api/rule-engine/v1/messages', headers: sa,
       payload: { originatorCode: `NOPE-${STAMP}`, data: {} } });
     expect(unknown.statusCode).toBe(404);
     expect(unknown.json().error).toBe('ORIGINATOR_NOT_FOUND');
+    // A refused call injected nothing and is not audited.
+    expect(await prisma.auditTrail.count({ where: { action: 'RULE_ENGINE_MESSAGE_INJECTED', afterValue: { path: ['originator', 'code'], equals: `NOPE-${STAMP}` } } })).toBe(0);
   });
 
   it('a SYSTEM message when no code is given', async () => {
@@ -401,8 +414,11 @@ describe('Configuration → Rule Engine', () => {
       await settle();
       const found = (await rows({ nodeId: SWITCH, msgType: 'POST_TELEMETRY_REQUEST', originatorId: inst.id })).filter((r) => r.data?.ts === ts);
       expect(found).toEqual([]);
+      const before = new Date();
       const res = await app.inject({ method: 'POST', url: '/api/rule-engine/v1/messages', headers: sa, payload: { data: {} } });
-      expect(res.json()).toMatchObject({ accepted: false, reason: 'ENGINE_DISABLED' });
+      expect(res.json()).toEqual({ accepted: false, reason: 'ENGINE_DISABLED' });
+      // Audited all the same: the call was made.
+      expect(await prisma.auditTrail.count({ where: { action: 'RULE_ENGINE_MESSAGE_INJECTED', userId: SA, timestamp: { gte: before } } })).toBe(1);
     } finally {
       await setEngineConfig({});
     }
@@ -467,6 +483,10 @@ describe('debug rows', () => {
       await runRuleEngineDebugSweep();
       const left = await prisma.ruleNodeDebugEvent.findMany({ where: { chainId: chain.id }, orderBy: { ts: 'desc' }, select: { data: true } });
       expect(left.map((r) => (r.data as { i: number }).i)).toEqual([100, 101, 102, 103, 104, 105, 106, 107, 108, 109]);
+      // The writer's per-node trim (one statement): the newest N of THAT node stay.
+      expect(await trimDebugNode(chain.id, node, 4)).toBe(6);
+      const kept = await prisma.ruleNodeDebugEvent.findMany({ where: { chainId: chain.id }, orderBy: { ts: 'desc' }, select: { data: true } });
+      expect(kept.map((r) => (r.data as { i: number }).i)).toEqual([100, 101, 102, 103]);
     } finally {
       await setEngineConfig({});
     }

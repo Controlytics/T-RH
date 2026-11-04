@@ -87,6 +87,12 @@ describe('AUDIT_ACTIONS ↔ AUDIT_TEMPLATE_DEFAULTS', () => {
     expect(Object.keys(AUDIT_ACTIONS).filter((k) => k.startsWith('RULE_CHAIN_')).sort()).toEqual([...six].sort());
   });
 
+  it('a message injected into the root chain is registered, with a Configuration template (2026-11-04)', () => {
+    expect(AUDIT_ACTIONS.RULE_ENGINE_MESSAGE_INJECTED).toBe('RULE_ENGINE_MESSAGE_INJECTED');
+    expect(AUDIT_TEMPLATE_DEFAULTS.RULE_ENGINE_MESSAGE_INJECTED?.category).toBe('Configuration');
+    expect(AUDIT_TEMPLATE_DEFAULTS.RULE_ENGINE_MESSAGE_INJECTED?.template).toContain('{targetName}');
+  });
+
   it('the eleven actions the API wrote without registering are registered now', () => {
     for (const name of [
       'AUDIT_RECORD_REDACTED', 'AUDIT_RECORDS_BULK_REDACTED', 'ROLE_CREATED', 'ROLE_UPDATED', 'ROLE_DELETED',

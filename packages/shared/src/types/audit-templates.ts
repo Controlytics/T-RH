@@ -278,6 +278,12 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Debug events of rule chain "{targetName}" cleared by {actor}',
     placeholders: ['actor', 'targetName'],
   },
+  RULE_ENGINE_MESSAGE_INJECTED: {
+    label: 'Rule Engine Message Injected',
+    category: 'Configuration',
+    template: 'Message "{targetName}" injected into the root rule chain by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
 
   // Alarm Management
   ALARM_ACKNOWLEDGED: {

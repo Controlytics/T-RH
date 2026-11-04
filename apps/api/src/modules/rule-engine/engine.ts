@@ -15,6 +15,7 @@ import { runScript as runVmScript, type RuleScriptKind } from './script-vm.js';
 import { copyMessage, failureMessage, errorText, ruleNodeOrigin, type RuleMessage } from './message.js';
 import type { RuleContext, RuleLogLevel } from './context.js';
 import { registerAllNodes } from './nodes/index.js';
+import { unsupportedNodeMessage } from './nodes/unsupported.js';
 
 /**
  * THE RULE ENGINE (rule chains, 2026-11-03; spec §6) — ThingsBoard's rule
@@ -74,7 +75,7 @@ export interface RuleEngineDeps {
   invalidateChain(id: string): void;
   listChains(): Promise<{ id: string; updatedAt: Date }[]>;
   instrumentInfo(id: string): Promise<InstrumentInfo | null>;
-  debug: { record(e: RuleDebugEventInput): void; start?(): void; stop?(): Promise<void>; flush?(): Promise<void> };
+  debug: { record(e: RuleDebugEventInput): void; start?(): void; stop?(): Promise<void>; flush?(): Promise<void>; configure?(opts: { maxPerNode?: number }): void };
   services: (hooks: RuleServicesHooks) => RuleServicesHandle;
   registerNodes: () => void;
   /** Install the engine as the emit helpers' sink on start (the singleton does; most unit tests do not). */
@@ -295,6 +296,7 @@ class RuleEngineImpl implements RuleEngine {
     this.cfg = next;
     this.configLoaded = true;
     this.queue.configure({ capacity: next.queueCapacity, concurrency: next.concurrency });
+    this.deps.debug.configure?.({ maxPerNode: next.debugMaxEventsPerNode });
     if (wasEnabled && !next.enabled) {
       const cleared = this.queue.clear();
       for (const item of cleared) item.deferred?.reject(new Error('ENGINE_DISABLED'));
@@ -456,8 +458,7 @@ class RuleEngineImpl implements RuleEngine {
     let timedOut = false;
     try {
       if (!registered) {
-        const label = RULE_NODE_TYPE_BY_ID.get(node.type)?.label ?? node.type;
-        throw new Error(`UNSUPPORTED_NODE: "${label}" has no handler in this system`);
+        throw new Error(unsupportedNodeMessage(RULE_NODE_TYPE_BY_ID.get(node.type)?.label ?? node.type));
       }
       await this.withBudget(() => registered.handler(ctx, msg), flow.deadline);
     } catch (err) {

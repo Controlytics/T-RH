@@ -14,7 +14,8 @@ import {
   RULE_CHAIN_WRITE_TX,
 } from './service.js';
 import { exportChain, exportFileName, importChain } from './import-export.js';
-import { maskDocumentSecrets } from './secrets.js';
+import { maskDocumentSecrets, maskSecrets } from './secrets.js';
+import { auditLog } from '../../lib/audit.js';
 import { roleHasPermission } from '../../plugins/rbac.js';
 import { ruleEngine } from './engine.js';
 import { RuleScriptError, type RuleScriptKind } from './script-vm.js';
@@ -381,13 +382,16 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
  * into the root chain (spec §5). RULE_CHAIN_MANAGE. Fire and forget: 202 with
  * the message id as soon as the queue admits it.
  */
+/** `audit_trail.signature_meaning` is VARCHAR(255) and the insert is raw SQL: a longer one is a 500. */
+const clampInjectMeaning = (s: string) => (s.length <= 255 ? s : `${s.slice(0, 254)}…`);
+
 export async function ruleEngineIngressRoutes(app: FastifyInstance) {
   app.post('/messages', {
     preValidation: [app.requirePermission(MANAGE)],
     schema: {
       tags: ['Rule Chains'],
       summary: 'Inject a message into the root rule chain',
-      description: 'Body `{ type?, originatorCode?, data, metadata? }` — a message (type REST_API_REQUEST unless given) from the instrument with that code (ignoring case; 404 ORIGINATOR_NOT_FOUND) or, with no code, from SYSTEM. `metadata.requestId` is the message id; `metadata.rule_engine_origin` is `rest_api`. 202 `{ accepted: true, msgId }`, or `{ accepted: false, reason: ENGINE_NOT_STARTED | ENGINE_DISABLED | QUEUE_REFUSED }`.',
+      description: 'Body `{ type?, originatorCode?, data, metadata? }` — a message (type REST_API_REQUEST unless given) from the instrument with that code (ignoring case; 404 ORIGINATOR_NOT_FOUND) or, with no code, from SYSTEM. `metadata.requestId` is the message id; `metadata.rule_engine_origin` is `rest_api`. 202 `{ accepted: true, msgId }`, or `{ accepted: false, reason: ENGINE_NOT_STARTED | ENGINE_DISABLED | QUEUE_REFUSED }` (the audit row still names the message id). Every call that names a valid originator writes ONE `RULE_ENGINE_MESSAGE_INJECTED` audit row first (credential-like keys masked); no re-auth, no reason.',
       body: injectBody,
       response: injectResponse,
     },
@@ -400,10 +404,22 @@ export async function ruleEngineIngressRoutes(app: FastifyInstance) {
       if (!instrument) return reply.code(404).send({ error: 'ORIGINATOR_NOT_FOUND', message: `No instrument has the code "${code}".` });
       originator = { type: 'INSTRUMENT', id: instrument.id, code: instrument.code };
     }
-    if (!ruleEngine.started) return reply.code(202).send({ accepted: false, reason: ENGINE_NOT_STARTED });
     const msg = newMessage(body.type?.trim() || 'REST_API_REQUEST', originator, body.data ?? null, { ...(body.metadata ?? {}) });
     msg.metadata.requestId = msg.id;
     msg.metadata[RULE_ENGINE_ORIGIN_KEY] = REST_API_ORIGIN;
+    // ONE audit row per call, BEFORE the message can act (it may raise alarms, write
+    // attributes, send email): who injected what, credential-like keys masked
+    // (secrets.ts, the export's rule). A machine endpoint: no re-auth, no reason.
+    const actor = actorOf(req);
+    const masked = maskSecrets({ metadata: msg.metadata, data: msg.data });
+    const from = originator.code ?? originator.id;
+    await auditLog({
+      action: 'RULE_ENGINE_MESSAGE_INJECTED', targetType: 'rule_engine_message', targetId: msg.id,
+      afterValue: { name: `${msg.type} from ${from}`, msgId: msg.id, type: msg.type, originator, metadata: masked.metadata, data: masked.data },
+      signatureMeaning: clampInjectMeaning(`Message ${msg.type} from ${from} injected into the root rule chain`),
+      userId: actor.userId, userRole: actor.userRole, ipAddress: actor.ipAddress, userAgent: actor.userAgent, sessionId: actor.sessionId,
+    });
+    if (!ruleEngine.started) return reply.code(202).send({ accepted: false, reason: ENGINE_NOT_STARTED });
     if (ruleEngine.enqueue(msg)) return reply.code(202).send({ accepted: true, msgId: msg.id });
     return reply.code(202).send({ accepted: false, reason: ruleEngine.config().enabled ? 'QUEUE_REFUSED' : 'ENGINE_DISABLED' });
   });

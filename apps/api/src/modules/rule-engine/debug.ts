@@ -117,11 +117,29 @@ export async function insertDebugRows(rows: readonly RuleDebugRow[]): Promise<nu
     WHERE EXISTS (SELECT 1 FROM rule_chains c WHERE c.id = v.chain_id)`;
 }
 
+/** Delete one node's rows beyond its newest `keep`, in one statement. Returns how many went. */
+export async function trimDebugNode(chainId: string, nodeId: string, keep: number): Promise<number> {
+  return prisma.$executeRaw`
+    DELETE FROM rule_node_debug_events
+    WHERE chain_id = ${chainId}::uuid AND node_id = ${nodeId}::uuid AND id IN (
+      SELECT id FROM rule_node_debug_events
+      WHERE chain_id = ${chainId}::uuid AND node_id = ${nodeId}::uuid
+      ORDER BY ts DESC, id DESC OFFSET ${Math.max(0, Math.floor(keep))}::int)`;
+}
+
+/** A node is trimmed at most this often (ruled 2026-11-04). */
+export const DEBUG_TRIM_INTERVAL_MS = 10_000;
+
 export interface RuleDebugWriterOptions {
   insert?: (rows: readonly RuleDebugRow[]) => Promise<number>;
+  trim?: (chainId: string, nodeId: string, keep: number) => Promise<number>;
   flushMs?: number;
   batchRows?: number;
   bufferMax?: number;
+  /** Rows kept per node (Configuration → Rule Engine → debugMaxEventsPerNode); the engine sets it on every config read. */
+  maxPerNode?: number;
+  trimIntervalMs?: number;
+  now?: () => number;
 }
 
 export class RuleDebugWriter {
@@ -132,16 +150,37 @@ export class RuleDebugWriter {
   private droppedCount = 0;
   private lastErrorLogAt = 0;
   private readonly insert: (rows: readonly RuleDebugRow[]) => Promise<number>;
+  private readonly trim: (chainId: string, nodeId: string, keep: number) => Promise<number>;
   private readonly flushMs: number;
   private readonly batchRows: number;
   private readonly bufferMax: number;
+  private readonly trimIntervalMs: number;
+  private readonly now: () => number;
+  private maxPerNode: number;
+  /** Per (chain, node): rows written since its last trim, and when that trim was. */
+  private readonly sinceTrim = new Map<string, number>();
+  private readonly lastTrimAt = new Map<string, number>();
+  private trimming: Promise<void> | null = null;
+  private trimmedCount = 0;
 
   constructor(opts: RuleDebugWriterOptions = {}) {
     this.insert = opts.insert ?? insertDebugRows;
+    this.trim = opts.trim ?? trimDebugNode;
     this.flushMs = opts.flushMs ?? DEBUG_FLUSH_MS;
     this.batchRows = opts.batchRows ?? DEBUG_BATCH_ROWS;
     this.bufferMax = opts.bufferMax ?? DEBUG_BUFFER_MAX;
+    this.trimIntervalMs = opts.trimIntervalMs ?? DEBUG_TRIM_INTERVAL_MS;
+    this.now = opts.now ?? Date.now;
+    this.maxPerNode = opts.maxPerNode ?? 1_000;
   }
+
+  /** The per-node cap, from Configuration → Rule Engine (the engine calls this on every config read). */
+  configure(opts: { maxPerNode?: number }): void {
+    if (opts.maxPerNode !== undefined && Number.isFinite(opts.maxPerNode)) this.maxPerNode = Math.max(1, Math.floor(opts.maxPerNode));
+  }
+
+  /** Rows deleted by the per-node cap since construction. */
+  get trimmed(): number { return this.trimmedCount; }
 
   get buffered(): number { return this.buffer.length; }
   get written(): number { return this.writtenCount; }
@@ -188,16 +227,61 @@ export class RuleDebugWriter {
       const batch = this.buffer.splice(0, this.batchRows);
       try {
         this.writtenCount += await this.insert(batch);
+        for (const row of batch) {
+          const key = `${row.chainId}:${row.nodeId}`;
+          this.sinceTrim.set(key, (this.sinceTrim.get(key) ?? 0) + 1);
+        }
       } catch (err) {
         this.droppedCount += batch.length;
         this.logError(err);
       }
     }
+    await this.trimDue();
+  }
+
+  /**
+   * THE PER-NODE CAP, as the writer goes (ruled 2026-11-04 — the hourly sweep
+   * alone let one busy node write a million rows between sweeps). A node that
+   * has had more than `maxPerNode` rows written since its last trim has its
+   * rows beyond the newest `maxPerNode` deleted in ONE statement — at most once
+   * per node per 10 s, so a busy node costs one DELETE per 10 s, not one per
+   * flush. The count restarts at each trim; a node over the cap but inside its
+   * 10 s is trimmed by a later flush or timer tick. The hourly sweep still
+   * removes rows by AGE (and anything written before this process started).
+   * Never throws.
+   */
+  trimDue(): Promise<void> {
+    if (this.trimming) return this.trimming;
+    const run: Promise<void> = (async () => {
+      const now = this.now();
+      for (const [key, count] of [...this.sinceTrim]) {
+        if (count <= this.maxPerNode) continue;
+        if (now - (this.lastTrimAt.get(key) ?? -Infinity) < this.trimIntervalMs) continue;
+        const [chainId, nodeId] = key.split(':');
+        this.lastTrimAt.set(key, now);
+        this.sinceTrim.set(key, 0);
+        try {
+          this.trimmedCount += await this.trim(chainId, nodeId, this.maxPerNode);
+        } catch (err) {
+          this.logError(err);
+        }
+      }
+      for (const [key, at] of [...this.lastTrimAt]) {
+        if (now - at > this.trimIntervalMs && (this.sinceTrim.get(key) ?? 0) === 0) {
+          this.lastTrimAt.delete(key);
+          this.sinceTrim.delete(key);
+        }
+      }
+    })().finally(() => {
+      if (this.trimming === run) this.trimming = null;
+    });
+    this.trimming = run;
+    return run;
   }
 
   start(): void {
     if (this.timer) return;
-    this.timer = setInterval(() => { void this.flush(); }, this.flushMs);
+    this.timer = setInterval(() => { void this.flush().then(() => this.trimDue()); }, this.flushMs);
     this.timer.unref();
   }
 
@@ -205,6 +289,7 @@ export class RuleDebugWriter {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     await this.flush();
+    if (this.trimming) await this.trimming;
   }
 
   private logError(err: unknown): void {
