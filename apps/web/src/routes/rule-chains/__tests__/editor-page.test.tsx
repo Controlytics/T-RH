@@ -1,0 +1,323 @@
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { render, screen, fireEvent, within, waitFor, act } from '@testing-library/react';
+import { MemoryRouter, Routes, Route, Link } from 'react-router-dom';
+import { installXyflowStubs } from '@/test-support/xyflow-stubs';
+
+/**
+ * The rule chain editor (rule chains, 2026-11-04), on the REAL React Flow:
+ * jsdom lays nothing out, so `test-support/xyflow-stubs.ts` answers React
+ * Flow's measurements. What is pinned: a palette drop and a click add a node
+ * to the draft; a link drawn from the Message type switch opens the relation
+ * picker with the switch's labels and two picked labels are two connections;
+ * a double-click opens the node's settings; an Unsupported node is grey with
+ * its ThingsBoard class; Save sends the WHOLE draft with `expectedUpdatedAt`
+ * and a reason, signed UPDATE_RULE_CHAIN; a 409 keeps the draft; a dirty
+ * leave asks first; a viewer gets no editing.
+ * NOT VERIFIED HERE: how it looks — built-editor.png.
+ */
+
+const restoreStubs = installXyflowStubs();
+afterAll(() => restoreStubs());
+
+const S = '11111111-1111-4111-8111-111111111111';
+const T = '22222222-2222-4222-8222-222222222222';
+const L = '44444444-4444-4444-8444-444444444444';
+const U = '33333333-3333-4333-8333-333333333333';
+const CHAIN = {
+  id: 'c-1',
+  name: 'Root Rule Chain',
+  root: true,
+  debugMode: false,
+  reEnterOnRuleNodeWrites: false,
+  updatedAt: '2026-11-04T10:00:00.000Z',
+  updatedBy: null,
+  document: {
+    version: 1,
+    firstNodeId: S,
+    nodes: [
+      { id: S, type: 'tb:filter:message-type-switch', name: 'Message Type Switch', debugMode: 'off', config: { version: 0 }, x: 300, y: 200 },
+      { id: T, type: 'tb:action:save-timeseries', name: 'Save Timeseries', debugMode: 'off', config: { defaultTTL: 0 }, x: 700, y: 150 },
+      { id: L, type: 'tb:action:log', name: 'Log Other', debugMode: 'off', config: { scriptLang: 'JS', jsScript: 'return "x";' }, x: 700, y: 350 },
+      { id: U, type: 'tb:unsupported', name: 'Send to SQS', debugMode: 'off', config: { tbClass: 'org.thingsboard.rule.engine.aws.sqs.TbSqsNode', configuration: { queueUrl: 'q' } }, x: 700, y: 550 },
+    ],
+    connections: [{ from: S, to: T, relation: 'Post telemetry' }],
+  },
+};
+
+const state: { role: string; permissions: string[] } = { role: 'SUPER_ADMIN', permissions: [] };
+const chainMutate = vi.fn(async (data?: unknown) => data ?? CHAIN);
+vi.mock('swr', () => ({
+  default: (key: string | null) => {
+    if (key === '/api/rule-chains/c-1') return { data: CHAIN, error: undefined, isLoading: false, mutate: chainMutate };
+    return { data: undefined, error: undefined, isLoading: false, mutate: vi.fn() };
+  },
+}));
+vi.mock('@/hooks/use-auth', () => ({ useAuth: () => ({ user: { role: state.role, permissions: state.permissions } }) }));
+const toast = { success: vi.fn(), error: vi.fn() };
+vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast }) }));
+vi.mock('@/hooks/use-datetime-format', () => ({
+  useDatetimeFormat: () => ({ formatDate: (d: string) => d, formatTime: (d: string) => d, formatDateTime: (d: string) => d }),
+}));
+const put = vi.fn();
+vi.mock('@/lib/api-client', () => ({
+  apiClient: {
+    put: (...a: unknown[]) => put(...a),
+    post: vi.fn(), delete: vi.fn(), getRaw: vi.fn(),
+    putWithReauth: vi.fn(), postWithReauth: vi.fn(), deleteWithReauth: vi.fn(),
+  },
+}));
+const reauthActions: string[] = [];
+vi.mock('@/hooks/use-reauth', () => ({
+  reauthActionLabel: () => 'Update Rule Chain',
+  useReauth: () => ({
+    execute: async (action: string, cb: (p?: string) => Promise<void>, opts?: { onSuccess?: () => void; onError?: (e: unknown) => void; onCancel?: () => void }) => {
+      reauthActions.push(action);
+      try { await cb(); opts?.onSuccess?.(); } catch (e) { opts?.onError?.(e); }
+    },
+    isOpen: false, password: '', error: '', isVerifying: false,
+    setPassword: vi.fn(), confirm: vi.fn(), cancel: vi.fn(), needsReauth: () => false,
+  }),
+}));
+
+const { RuleChainEditorPage } = await import('../editor-page');
+const { DRAG_MIME } = await import('../palette');
+const { UNSUPPORTED_TOOLTIP } = await import('../node-card');
+const { DEBUG_CAP_CAPTION } = await import('../settings-dialog');
+
+function mount() {
+  return render(
+    <MemoryRouter initialEntries={['/rule-chains/c-1']}>
+      <Routes>
+        <Route path="/rule-chains/:id" element={<><Link to="/somewhere-else">elsewhere</Link><RuleChainEditorPage /></>} />
+        <Route path="/somewhere-else" element={<span data-testid="left">left the editor</span>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+const cards = () => screen.getAllByTestId('rule-node');
+const card = (id: string) => cards().find((c) => c.getAttribute('data-node-id') === id)!;
+const handle = (container: HTMLElement, nodeId: string, kind: 'source' | 'target') =>
+  container.querySelector(`.react-flow__node[data-id="${nodeId}"] .react-flow__handle.${kind}`) as HTMLElement;
+
+function drop(type: string) {
+  fireEvent.drop(screen.getByTestId('rule-chain-canvas'), {
+    dataTransfer: { getData: (m: string) => (m === DRAG_MIME ? type : ''), types: [DRAG_MIME] },
+    clientX: 400, clientY: 300,
+  });
+}
+
+async function saveWith(reason: string) {
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  fireEvent.change(screen.getByLabelText('Reason'), { target: { value: reason } });
+  // The write resolves after the click: let it settle inside act.
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save chain' })); });
+}
+
+beforeEach(() => {
+  state.role = 'SUPER_ADMIN';
+  state.permissions = [];
+  put.mockReset();
+  chainMutate.mockClear();
+  reauthActions.length = 0;
+});
+
+describe('the canvas', () => {
+  it('draws every node, and an Unsupported one grey with its ThingsBoard class', () => {
+    mount();
+    expect(cards()).toHaveLength(4);
+    const u = card(U);
+    expect(u).toHaveAttribute('data-unsupported', 'true');
+    expect(u).toHaveAttribute('title', UNSUPPORTED_TOOLTIP);
+    expect(within(u).getByTestId('node-tb-class')).toHaveTextContent('org.thingsboard.rule.engine.aws.sqs.TbSqsNode');
+    expect(card(S)).not.toHaveAttribute('data-unsupported');
+    expect(screen.getByTestId('input-node')).toBeInTheDocument();
+  });
+
+  it('the palette offers built nodes only; the rest sit, disabled, under "Not available here"', () => {
+    mount();
+    const palette = screen.getByRole('complementary', { name: 'Node palette' });
+    expect(within(palette).getAllByTestId('palette-item').every((i) => !/aws|kafka|customer/i.test(i.textContent ?? ''))).toBe(true);
+    expect(within(palette).queryByText('AWS SQS')).toBeNull();
+    fireEvent.click(within(palette).getByRole('button', { name: /Not available here/ }));
+    const sqs = within(palette).getAllByTestId('palette-unavailable').find((i) => i.getAttribute('data-type') === 'tb:external:aws-sqs')!;
+    expect(sqs).toHaveAttribute('aria-disabled', 'true');
+    expect(sqs).not.toHaveAttribute('draggable');
+  });
+
+  it('dropping a palette item adds that node to the draft (and Undo takes it back)', () => {
+    mount();
+    expect(screen.queryByTestId('unsaved')).toBeNull();
+    drop('tb:transformation:script');
+    expect(cards()).toHaveLength(5);
+    expect(cards().filter((c) => c.getAttribute('data-node-type') === 'tb:transformation:script')).toHaveLength(1);
+    expect(screen.getByTestId('unsaved')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(cards()).toHaveLength(4);
+    expect(screen.queryByTestId('unsaved')).toBeNull();
+  });
+
+  it('a later / none type dropped on the canvas is not added', () => {
+    mount();
+    drop('tb:external:aws-sqs');
+    expect(cards()).toHaveLength(4);
+  });
+
+  it('clicking a palette item adds it too', () => {
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Add Log' }));
+    expect(cards()).toHaveLength(5);
+  });
+
+  it('a link from the Message type switch opens the picker with its labels; two labels are two connections in the save', async () => {
+    put.mockResolvedValue({ ...CHAIN, updatedAt: '2026-11-04T10:05:00.000Z' });
+    const { container } = mount();
+    fireEvent.click(handle(container, S, 'source'));
+    fireEvent.click(handle(container, L, 'target'));
+    const picker = await screen.findByRole('dialog');
+    expect(within(picker).getByText('Link labels')).toBeInTheDocument();
+    expect(within(picker).getByRole('checkbox', { name: 'Post attributes' })).toBeInTheDocument();
+    expect(within(picker).getByRole('checkbox', { name: 'Other' })).toBeInTheDocument();
+    fireEvent.click(within(picker).getByRole('checkbox', { name: 'Other' }));
+    fireEvent.click(within(picker).getByRole('checkbox', { name: 'Alarm' }));
+    fireEvent.click(within(picker).getByRole('button', { name: 'Add' }));
+    await saveWith('route the rest to the log');
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    const [, body] = put.mock.calls[0] as [string, { document: { connections: unknown[] } }];
+    expect(body.document.connections).toEqual([
+      { from: S, to: T, relation: 'Post telemetry' },
+      { from: S, to: L, relation: 'Alarm' },
+      { from: S, to: L, relation: 'Other' },
+    ]);
+  });
+
+  it('a link from the Input makes that node the chain\'s first node (no labels)', async () => {
+    put.mockResolvedValue(CHAIN);
+    const { container } = mount();
+    fireEvent.click(container.querySelector('.react-flow__node[data-id="__rule-chain-input"] .react-flow__handle.source') as HTMLElement);
+    fireEvent.click(handle(container, L, 'target'));
+    expect(screen.queryByText('Link labels')).toBeNull();
+    await saveWith('log first');
+    await waitFor(() => expect(put).toHaveBeenCalled());
+    expect((put.mock.calls[0][1] as { document: { firstNodeId: string } }).document.firstNodeId).toBe(L);
+  });
+
+  it('a double-click opens the node\'s settings: name, debug mode (with the cap caption) and its configuration', () => {
+    mount();
+    fireEvent.doubleClick(card(T));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByLabelText('Name')).toHaveValue('Save Timeseries');
+    expect(within(dialog).getByText(DEBUG_CAP_CAPTION)).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText('Debug mode'), { target: { value: 'all' } });
+    fireEvent.click(within(dialog).getByRole('switch', { name: /server time/i }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Apply' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(within(card(T)).getByTestId('node-debug')).toBeInTheDocument();
+    expect(screen.getByTestId('unsaved')).toBeInTheDocument();
+  });
+
+  it('an Unsupported node\'s settings show its class and configuration, read only', () => {
+    mount();
+    fireEvent.doubleClick(card(U));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByTestId('unsupported-note')).toHaveTextContent('TbSqsNode');
+    expect(within(dialog).getByText(/"queueUrl": "q"/)).toBeInTheDocument();
+  });
+});
+
+describe('saving', () => {
+  it('sends the whole draft with expectedUpdatedAt and a reason, signed UPDATE_RULE_CHAIN, then adopts the answer', async () => {
+    put.mockResolvedValue({ ...CHAIN, updatedAt: '2026-11-04T10:05:00.000Z' });
+    mount();
+    drop('tb:action:log');
+    await saveWith('add a second log');
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    const [url, body] = put.mock.calls[0] as [string, Record<string, unknown> & { document: { nodes: unknown[] } }];
+    expect(url).toBe('/api/rule-chains/c-1');
+    expect(body).toMatchObject({
+      name: 'Root Rule Chain',
+      reEnterOnRuleNodeWrites: false,
+      expectedUpdatedAt: '2026-11-04T10:00:00.000Z',
+      reason: 'add a second log',
+    });
+    expect(body.document.nodes).toHaveLength(5);
+    // jsdom's drop carries no pointer position: the node lands mid-view, never at NaN.
+    expect((body.document.nodes as { x: number; y: number }[]).every((n) => Number.isFinite(n.x) && Number.isFinite(n.y))).toBe(true);
+    expect(reauthActions).toEqual(['UPDATE_RULE_CHAIN']);
+    await waitFor(() => expect(chainMutate).toHaveBeenCalledWith(expect.objectContaining({ updatedAt: '2026-11-04T10:05:00.000Z' }), { revalidate: false }));
+  });
+
+  it('Save is offered only with unsaved changes', () => {
+    mount();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  it('a 409 (changed by someone else) keeps the draft until Reload', async () => {
+    put.mockRejectedValue(Object.assign(new Error('This rule chain was changed by someone else.'), { code: 'STALE', status: 409 }));
+    mount();
+    drop('tb:action:log');
+    await saveWith('mine');
+    expect(await screen.findByText('This rule chain was changed by someone else.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+    expect(cards()).toHaveLength(5);
+    expect(screen.getByTestId('unsaved')).toBeInTheDocument();
+  });
+
+  it('a 400 naming the node is shown and the draft kept', async () => {
+    put.mockRejectedValue(Object.assign(new Error('Node "Log": jsScript — Required'), { code: 'VALIDATION_ERROR', status: 400 }));
+    mount();
+    drop('tb:action:log');
+    await saveWith('x');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Node "Log": jsScript');
+    expect(cards()).toHaveLength(5);
+  });
+});
+
+describe('leaving', () => {
+  it('with unsaved changes, a link asks first; Stay stays, Leave leaves', async () => {
+    mount();
+    drop('tb:action:log');
+    fireEvent.click(screen.getByRole('link', { name: 'elsewhere' }));
+    expect(screen.getByText('Leave without saving?')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Stay' }));
+    expect(screen.queryByTestId('left')).toBeNull();
+    expect(cards()).toHaveLength(5);
+    fireEvent.click(screen.getByRole('link', { name: 'elsewhere' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Leave' }));
+    expect(await screen.findByTestId('left')).toBeInTheDocument();
+  });
+
+  it('a reload / close with unsaved changes gets the browser\'s prompt', () => {
+    mount();
+    const clean = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(clean);
+    expect(clean.defaultPrevented).toBe(false);
+    drop('tb:action:log');
+    const dirty = new Event('beforeunload', { cancelable: true });
+    act(() => { window.dispatchEvent(dirty); });
+    expect(dirty.defaultPrevented).toBe(true);
+  });
+
+  it('with nothing unsaved, a link just goes', async () => {
+    mount();
+    fireEvent.click(screen.getByRole('link', { name: 'elsewhere' }));
+    expect(await screen.findByTestId('left')).toBeInTheDocument();
+  });
+});
+
+describe('a RULE_CHAIN_READ holder', () => {
+  it('sees the chain with no palette, no Save and no Delete; the settings are read only', () => {
+    state.role = 'QA_VIEWER';
+    state.permissions = ['RULE_CHAIN_READ'];
+    mount();
+    expect(cards()).toHaveLength(4);
+    expect(screen.queryByRole('complementary', { name: 'Node palette' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Delete/ })).toBeNull();
+    expect(screen.getByText('Read only')).toBeInTheDocument();
+    fireEvent.doubleClick(card(T));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByLabelText('Name')).toBeDisabled();
+    expect(within(dialog).queryByRole('button', { name: 'Apply' })).toBeNull();
+  });
+});

@@ -1,0 +1,52 @@
+/*
+ * The rule chain canvas (2026-11-04). React Flow's own stylesheet is imported
+ * just before this file and, like this one, is NOT in a cascade layer, so it
+ * beats every Tailwind utility on the elements it styles (the Tailwind v4 trap
+ * in apps/web/CLAUDE.md). Everything React Flow draws itself — handles, edge
+ * labels, the selection — is therefore styled HERE, scoped under `.rc-canvas`
+ * so the higher specificity wins over React Flow's defaults and nothing leaks
+ * to another page. The node cards are our own markup and use Tailwind.
+ */
+.rc-canvas .react-flow__handle.rc-handle {
+  width: 11px;
+  height: 11px;
+  border: 2px solid #ffffff;
+  background: #475569;
+}
+.rc-canvas .react-flow__handle.rc-handle.connectingto,
+.rc-canvas .react-flow__handle.rc-handle.valid {
+  background: var(--theme-primary, #2a78d6);
+}
+.rc-canvas .react-flow__edge-path {
+  stroke: #64748b;
+  stroke-width: 1.75;
+}
+.rc-canvas .react-flow__edge.rc-edge-failure .react-flow__edge-path {
+  stroke: #e11d48;
+  stroke-dasharray: 5 4;
+}
+.rc-canvas .react-flow__edge.selected .react-flow__edge-path,
+.rc-canvas .react-flow__edge:focus .react-flow__edge-path {
+  stroke: var(--theme-primary, #2a78d6);
+  stroke-width: 2.5;
+}
+.rc-canvas .react-flow__edge-textbg {
+  fill: #ffffff;
+  stroke: #cbd5e1;
+}
+.rc-canvas .react-flow__edge-text {
+  fill: #1e293b;
+  font-size: 11px;
+  font-weight: 600;
+}
+.rc-canvas .react-flow__edge.rc-edge-failure .react-flow__edge-text {
+  fill: #9f1239;
+}
+.rc-canvas .react-flow__node.selected,
+.rc-canvas .react-flow__node:focus-visible {
+  outline: none;
+}
+.rc-canvas .react-flow__minimap {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}

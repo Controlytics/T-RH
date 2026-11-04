@@ -73,6 +73,8 @@ const ReportsPage = lazy(() => import('./routes/reports').then(m => ({ default: 
 const SettingsPage = lazy(() => import('./routes/settings').then(m => ({ default: m.SettingsPage })));
 const DashboardsPage = lazy(() => import('./routes/dashboards').then(m => ({ default: m.DashboardsPage })));
 const DashboardPage = lazy(() => import('./routes/dashboards/dashboard-page').then(m => ({ default: m.DashboardPage })));
+const RuleChainsPage = lazy(() => import('./routes/rule-chains').then(m => ({ default: m.RuleChainsPage })));
+const RuleChainEditorPage = lazy(() => import('./routes/rule-chains/editor-page').then(m => ({ default: m.RuleChainEditorPage })));
 const InstrumentProfileListPage = lazy(() => import('./routes/instruments/profile-list').then(m => ({ default: m.InstrumentProfileListPage })));
 const InstrumentListPage = lazy(() => import('./routes/instruments/list').then(m => ({ default: m.InstrumentListPage })));
 const InstrumentCreatePage = lazy(() => import('./routes/instruments/create').then(m => ({ default: m.InstrumentCreatePage })));
@@ -199,6 +201,9 @@ createRoot(document.getElementById('root')!).render(
             {/* 2026-10-29: the dashboard builder. The list and one dashboard; the server decides who sees which. */}
             <Route path="/dashboards" element={<RequireRole permissions={[PERMISSIONS.DASHBOARD_VIEW]}><Suspense fallback={<LazyFallback />}><DashboardsPage /></Suspense></RequireRole>} />
             <Route path="/dashboards/:id" element={<RequireRole permissions={[PERMISSIONS.DASHBOARD_VIEW]}><Suspense fallback={<LazyFallback />}><DashboardPage /></Suspense></RequireRole>} />
+            {/* 2026-11-04: rule chains — the list and the editor. Writes need RULE_CHAIN_MANAGE (the routes' 403); the pages offer them by `useCan('rule_chains.manage')`. */}
+            <Route path="/rule-chains" element={<RequireRole permissions={[PERMISSIONS.RULE_CHAIN_READ]}><Suspense fallback={<LazyFallback />}><RuleChainsPage /></Suspense></RequireRole>} />
+            <Route path="/rule-chains/:id" element={<RequireRole permissions={[PERMISSIONS.RULE_CHAIN_READ]}><Suspense fallback={<LazyFallback />}><RuleChainEditorPage /></Suspense></RequireRole>} />
             <Route path="/instruments" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_READ]}><Suspense fallback={<LazyFallback />}><InstrumentProfileListPage /></Suspense></RequireRole>} />
             <Route path="/instruments/profiles/:profileId" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_READ]}><Suspense fallback={<LazyFallback />}><InstrumentListPage /></Suspense></RequireRole>} />
             <Route path="/instruments/new" element={<RequireRole permissions={[PERMISSIONS.INSTRUMENT_CREATE]}><Suspense fallback={<LazyFallback />}><InstrumentCreatePage /></Suspense></RequireRole>} />
