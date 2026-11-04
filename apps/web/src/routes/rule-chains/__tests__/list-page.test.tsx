@@ -19,8 +19,10 @@ const STATS_OFF = { enabled: false, queueDepth: 0, dropped: 0, processedLastMinu
 
 const state: { stats: unknown; role: string; permissions: string[] } = { stats: STATS_OK, role: 'SUPER_ADMIN', permissions: [] };
 const mutate = vi.fn(async () => undefined);
+const swrOptions = new Map<string, Record<string, unknown> | undefined>();
 vi.mock('swr', () => ({
-  default: (key: string | null) => {
+  default: (key: string | null, options?: Record<string, unknown>) => {
+    if (key) swrOptions.set(key, options);
     if (key === '/api/rule-chains') return { data: LIST, error: undefined, isLoading: false, mutate };
     if (key === '/api/rule-chains/stats') return { data: state.stats, error: undefined, isLoading: false, mutate };
     return { data: undefined, error: undefined, isLoading: false, mutate };
@@ -221,6 +223,13 @@ describe('the engine stats', () => {
     state.stats = STATS_DROPPED;
     mount();
     expect(screen.getByTestId('stat-dropped')).toHaveTextContent('42 dropped');
+  });
+
+  it('are polled every 10 s through the app polling policy (a failure is retried, not frozen)', () => {
+    mount();
+    const opts = swrOptions.get('/api/rule-chains/stats');
+    expect(opts?.refreshInterval).toBe(10_000);
+    expect(typeof opts?.onErrorRetry).toBe('function');
   });
 
   it('a banner says the engine is off', () => {

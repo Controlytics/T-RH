@@ -1,6 +1,7 @@
 import useSWR from 'swr';
 import type { RuleChainDocument } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
+import { widgetPolling } from '@/lib/polling';
 import type { TestScriptBody } from './script-field';
 import type {
   RuleChainDetail, RuleChainImportResult, RuleChainSummary, RuleDebugEvent, RuleEngineStats,
@@ -35,8 +36,16 @@ export function useRuleChain(id: string | undefined) {
   return { chain: data, notFound, error: notFound ? undefined : (error as Error | undefined), loading: isLoading, mutate };
 }
 
+/**
+ * Both polling readers go through the app's ONE polling policy
+ * (`lib/polling.ts`), spread FIRST: SWR 2.4 stops polling a key whose cache
+ * holds an error and the app's `errorRetryCount: 2` then gives up, so one
+ * failed request (an API restart) would freeze the panel on its error until it
+ * was reopened. The policy retries a failure at the poll's own cadence and
+ * never retries a refusal (a 4xx).
+ */
 export function useRuleEngineStats() {
-  const { data, error } = useSWR<RuleEngineStats>(RULE_STATS_KEY, { refreshInterval: STATS_POLL_MS });
+  const { data, error } = useSWR<RuleEngineStats>(RULE_STATS_KEY, { ...widgetPolling(STATS_POLL_MS) });
   return { stats: data, error: error as Error | undefined };
 }
 
@@ -51,7 +60,7 @@ export function debugKey(chainId: string, nodeId: string | null, open: boolean):
 export function useRuleDebug(chainId: string, nodeId: string | null, open: boolean) {
   const { data, error, isLoading, mutate } = useSWR<{ data: RuleDebugEvent[] }>(
     debugKey(chainId, nodeId, open),
-    { refreshInterval: DEBUG_POLL_MS, revalidateOnFocus: false, keepPreviousData: true },
+    { ...widgetPolling(DEBUG_POLL_MS), revalidateOnFocus: false },
   );
   return { events: data?.data ?? [], error: error as Error | undefined, loading: isLoading, mutate };
 }

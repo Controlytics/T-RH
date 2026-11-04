@@ -99,6 +99,11 @@ describe('DebugPanel', () => {
     const call = swrCalls.find((c) => c.key?.includes('/debug'));
     expect(call?.key).toBe(`/api/rule-chains/${CHAIN}/debug?limit=100&nodeId=n-switch`);
     expect(call?.options?.refreshInterval).toBe(2000);
+    // Through lib/polling.ts: SWR 2.4 stops polling a key that holds an error; the policy retries it.
+    expect(typeof call?.options?.onErrorRetry).toBe('function');
+    const retry = call?.options?.shouldRetryOnError as (e: unknown) => boolean;
+    expect(retry({ status: 503 })).toBe(true);
+    expect(retry({ status: 403 })).toBe(false);
   });
 
   it('"All nodes" asks for the whole chain and names each event\'s node', () => {
