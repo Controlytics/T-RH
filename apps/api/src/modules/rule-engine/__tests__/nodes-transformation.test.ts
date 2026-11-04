@@ -130,7 +130,7 @@ describe('Copy key-value pairs (TbCopyKeysNode)', () => {
   const T = 'tb:transformation:copy-key-value-pairs';
 
   it('DATA → METADATA: matching keys (a key is a FULL-match regular expression); strings raw, others as JSON', async () => {
-    const msg = testMessage({ temperature: 21.5, tempMax: { v: 30 }, label: 'Room A', xtemp: 1 });
+    const msg = testMessage({ temperature: 21.5, tempMax: { v: 30 }, label: 'Room A', xtemp: 1 }, { type: 'REST_API_REQUEST' });
     const { calls } = await run(T, msg, { config: { copyFrom: 'DATA', keys: ['temp.*', 'label'] } });
     const out = calls.next[0].msg;
     expect(out.metadata.temperature).toBe('21.5');
@@ -150,7 +150,7 @@ describe('Copy key-value pairs (TbCopyKeysNode)', () => {
   it('nothing matched, or data that is not a JSON object: the SAME message passes', async () => {
     const msg = testMessage({ t: 1 });
     expect((await run(T, msg, { config: { copyFrom: 'DATA', keys: ['nope'] } })).calls.next[0].msg).toBe(msg);
-    const arr = testMessage([1, 2], { metadata: { limit: '42' } });
+    const arr = testMessage([1, 2], { type: 'REST_API_REQUEST', metadata: { limit: '42' } });
     expect((await run(T, arr, { config: { copyFrom: 'METADATA', keys: ['limit'] } })).calls.next[0].msg).toBe(arr);
   });
 
@@ -208,48 +208,54 @@ describe('Rename keys (TbRenameKeysNode)', () => {
   it('no mapped key present, or data that is not an object: the SAME message passes', async () => {
     const msg = testMessage({ x: 1 });
     expect((await run(T, msg)).calls.next[0].msg).toBe(msg);
-    const arr = testMessage([1]);
+    const arr = testMessage([1], { type: 'REST_API_REQUEST' });
     expect((await run(T, arr)).calls.next[0].msg).toBe(arr);
   });
 });
 
 describe('JSON path (TbJsonPathNode)', () => {
   const T = 'tb:transformation:json-path';
-  const telemetry = () => testMessage({ ts: 1, values: { temp: 21, hum: 40 }, list: [{ a: 1 }, { a: 2 }] });
+  /** A telemetry message is FLAT, as in ThingsBoard (ruling M-1): data { key: value }, metadata.ts epoch ms. */
+  const telemetry = () => testMessage({ temperature: 21, humidity: 40 }, { metadata: { ts: '1793000000000' } });
+  /** A nested document — what a REST request (or a REST call's response) carries. */
+  const doc = () => testMessage({ values: { temp: 21, hum: 40 }, list: [{ a: 1 }, { a: 2 }] }, { type: 'REST_API_REQUEST' });
 
-  it('`$.values.temp` replaces the data with the value; the id is kept', async () => {
+  it('`$.temperature` on a telemetry message replaces the data with the reading; id and metadata kept', async () => {
     const msg = telemetry();
-    const { calls } = await run(T, msg, { config: { jsonPath: '$.values.temp' } });
+    const { calls } = await run(T, msg, { config: { jsonPath: '$.temperature' } });
     expect(calls.relations()).toEqual(['Success']);
     expect(calls.next[0].msg.data).toBe(21);
     expect(calls.next[0].msg.id).toBe(msg.id);
+    expect(calls.next[0].msg.metadata).toEqual(msg.metadata);
   });
 
-  it('a definite path to an object or to null gives that value', async () => {
-    expect((await run(T, telemetry(), { config: { jsonPath: '$.values' } })).calls.next[0].msg.data).toEqual({ temp: 21, hum: 40 });
-    expect((await run(T, testMessage({ n: null }), { config: { jsonPath: '$.n' } })).calls.next[0].msg.data).toBeNull();
+  it('a definite path into a nested document: a value, an object, or null', async () => {
+    expect((await run(T, doc(), { config: { jsonPath: '$.values.temp' } })).calls.next[0].msg.data).toBe(21);
+    expect((await run(T, doc(), { config: { jsonPath: '$.values' } })).calls.next[0].msg.data).toEqual({ temp: 21, hum: 40 });
+    expect((await run(T, testMessage({ n: null }, { type: 'REST_API_REQUEST' }), { config: { jsonPath: '$.n' } })).calls.next[0].msg.data).toBeNull();
   });
 
   it('an indefinite path gives the list of matches (empty when nothing matches)', async () => {
-    expect((await run(T, telemetry(), { config: { jsonPath: '$..a' } })).calls.next[0].msg.data).toEqual([1, 2]);
-    expect((await run(T, telemetry(), { config: { jsonPath: '$.list[?(@.a > 1)]' } })).calls.next[0].msg.data).toEqual([{ a: 2 }]);
-    expect((await run(T, telemetry(), { config: { jsonPath: '$.list[*].zzz' } })).calls.next[0].msg.data).toEqual([]);
+    expect((await run(T, doc(), { config: { jsonPath: '$..a' } })).calls.next[0].msg.data).toEqual([1, 2]);
+    expect((await run(T, doc(), { config: { jsonPath: '$.list[?(@.a > 1)]' } })).calls.next[0].msg.data).toEqual([{ a: 2 }]);
+    expect((await run(T, doc(), { config: { jsonPath: '$.list[*].zzz' } })).calls.next[0].msg.data).toEqual([]);
+    expect((await run(T, telemetry(), { config: { jsonPath: '$.*' } })).calls.next[0].msg.data).toEqual([21, 40]);
   });
 
   it('a definite path that is missing → Failure (PathNotFoundException)', async () => {
-    const { calls } = await run(T, telemetry(), { config: { jsonPath: '$.values.pressure' } });
-    expect(calls.failures.map((f) => f.error)).toEqual(['No results for path: $.values.pressure']);
+    const { calls } = await run(T, telemetry(), { config: { jsonPath: '$.pressure' } });
+    expect(calls.failures.map((f) => f.error)).toEqual(['No results for path: $.pressure']);
   });
 
   it('`$` passes the SAME message; a path without `$` is read from the root, as Jayway does', async () => {
     const msg = telemetry();
     expect((await run(T, msg)).calls.next[0].msg).toBe(msg);
-    expect((await run(T, telemetry(), { config: { jsonPath: 'values.hum' } })).calls.next[0].msg.data).toBe(40);
+    expect((await run(T, telemetry(), { config: { jsonPath: 'humidity' } })).calls.next[0].msg.data).toBe(40);
   });
 
   it('a malformed path → Failure, never the whole document', async () => {
     for (const jsonPath of ['$[', '$.values[', '$.values]', '$..', '$.values.', '$ .values', "$['values"]) {
-      const { calls } = await run(T, telemetry(), { config: { jsonPath } });
+      const { calls } = await run(T, doc(), { config: { jsonPath } });
       expect(calls.relations(), jsonPath).toEqual(['Failure']);
       expect(calls.failures[0].error, jsonPath).toMatch(/^Invalid JSON path/);
     }
@@ -301,7 +307,7 @@ describe('Split array msg (TbSplitArrayMsgNode)', () => {
   const T = 'tb:transformation:split-array-msg';
 
   it('N elements → N messages under Success, each element its data, each a NEW id', async () => {
-    const msg = testMessage([{ t: 1 }, { t: 2 }, { t: 3 }]);
+    const msg = testMessage([{ t: 1 }, { t: 2 }, { t: 3 }], { type: 'REST_API_REQUEST' });
     const { calls } = await run(T, msg);
     expect(calls.next.map((n) => n.msg.data)).toEqual([{ t: 1 }, { t: 2 }, { t: 3 }]);
     expect(calls.relations()).toEqual(['Success', 'Success', 'Success']);
@@ -310,11 +316,11 @@ describe('Split array msg (TbSplitArrayMsgNode)', () => {
   });
 
   it('one element → that element, the id kept; an empty array → nothing (the message ends)', async () => {
-    const one = testMessage([5]);
+    const one = testMessage([5], { type: 'REST_API_REQUEST' });
     const { calls } = await run(T, one);
     expect(calls.next.map((n) => n.msg.data)).toEqual([5]);
     expect(calls.next[0].msg.id).toBe(one.id);
-    expect((await run(T, testMessage([]))).calls.relations()).toEqual([]);
+    expect((await run(T, testMessage([], { type: 'REST_API_REQUEST' }))).calls.relations()).toEqual([]);
   });
 
   it('data that is not an array → Failure ("Msg data is not a JSON Array!")', async () => {

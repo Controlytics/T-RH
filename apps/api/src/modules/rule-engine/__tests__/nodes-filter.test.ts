@@ -123,10 +123,10 @@ describe('Check fields presence (TbCheckMessageNode)', () => {
   });
 
   it('data keys asked of data that is not a JSON object → Failure; metadata-only checks do not read the data', async () => {
-    const arr = testMessage([1, 2], { metadata: { deviceType: 'x' } });
+    const arr = testMessage([1, 2], { type: 'REST_API_REQUEST', metadata: { deviceType: 'x' } });
     const bad = await run(T, arr, { config: { messageNames: ['temperature'], checkAllKeys: true } });
     expect(bad.relations()).toEqual(['Failure']);
-    const metaOnly = await run(T, testMessage([1, 2], { metadata: { deviceType: 'x' } }), { config: { metadataNames: ['deviceType'], checkAllKeys: true } });
+    const metaOnly = await run(T, testMessage([1, 2], { type: 'REST_API_REQUEST', metadata: { deviceType: 'x' } }), { config: { metadataNames: ['deviceType'], checkAllKeys: true } });
     expect(metaOnly.relations()).toEqual(['True']);
   });
 });
@@ -293,6 +293,12 @@ describe('Script — filter (TbJsFilterNode)', () => {
     expect(yes.relations()).toEqual(['True']);
     expect(yes.next[0].msg).toBe(hot);
     expect((await run(T, testMessage({ t: 19 }), { config: { jsScript: 'return msg.t > 20;' } })).relations()).toEqual(['False']);
+  });
+
+  it('the default script `return msg.temperature > 20;` on a FLAT telemetry message (ruling M-1): True for 25, False for 19', async () => {
+    const flat = (temperature: number) => testMessage({ temperature, humidity: 40 }, { metadata: { ts: '1793000000000' } });
+    expect((await run(T, flat(25))).relations()).toEqual(['True']);
+    expect((await run(T, flat(19))).relations()).toEqual(['False']);
   });
 
   it('the script sees metadata and msgType', async () => {
