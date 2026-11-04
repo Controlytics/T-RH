@@ -563,7 +563,7 @@ export default async function alarmRoutes(app: FastifyInstance) {
       instrumentCode: updated.instrument?.code ?? null,
       instrumentName: updated.instrument?.name ?? null,
       metric: updated.metric,
-      ruleName: alarmDisplayName(typeNames, updated.source, updated.metric, updated.limitKind),
+      ruleName: alarmDisplayName(typeNames, updated.source, updated.metric, updated.limitKind, updated.ruleSnapshot),
       condition: (typeof frozenDescription === 'string' && frozenDescription)
         || describeSnapshot(updated.ruleSnapshot),
       triggeredValue: updated.triggeredValue,

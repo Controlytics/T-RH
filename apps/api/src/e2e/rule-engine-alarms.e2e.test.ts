@@ -70,6 +70,8 @@ let CLEAR: Built;
 let ATTR: Built;
 let DELAY: Built;
 let MATH: Built;
+let SAVE_HISTORY_ONLY: Built;
+let SAVE_WITH_LATEST: Built;
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -178,6 +180,8 @@ beforeAll(async () => {
     operation: 'ADD', arguments: [{ name: 'a', type: 'MESSAGE_BODY', key: 'a' }, { name: 'b', type: 'MESSAGE_BODY', key: 'b' }],
     result: { type: 'MESSAGE_BODY', key: 'sum', resultValuePrecision: 2 },
   });
+  SAVE_HISTORY_ONLY = await makeChain('save-timeseries history only', 'tb:action:save-timeseries', { skipLatestPersistence: true });
+  SAVE_WITH_LATEST = await makeChain('save-timeseries with latest', 'tb:action:save-timeseries');
   await prisma.$transaction([
     prisma.$executeRaw`UPDATE rule_chains SET root = false WHERE id = ${SEEDED}::uuid`,
     prisma.$executeRaw`UPDATE rule_chains SET root = true WHERE id = ${ROOT.chainId}::uuid`,
@@ -286,6 +290,20 @@ describe('Create alarm and Clear alarm', () => {
     expect(out[1].relation).toBe('False (unconnected)');
   });
 
+  it('acknowledging it fires the ACKNOWLEDGED webhook under its alarmType, not its metric (alarms/routes.ts)', async () => {
+    const [alarm] = await prisma.alarm.findMany({ where: { instrumentId: inst!.id, source: 'RULE', ruleSnapshot: { path: ['alarmType'], equals: ALARM_TYPE } } });
+    const res = await app.inject({
+      method: 'POST', url: `/api/alarms/${alarm.id}/acknowledge`,
+      headers: { ...sa, 'x-reauth-password': PW }, payload: { reason: 'Rule chain alarm reviewed by the e2e' },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const jobs = await prisma.$queryRaw<{ payload: { event: string; variables: { ruleName: string } } }[]>`
+      SELECT j.payload FROM graphile_worker._private_jobs j JOIN graphile_worker._private_tasks t ON t.id = j.task_id
+      WHERE t.identifier = 'alarm_webhook' AND j.payload ->> 'alarmId' = ${alarm.id} AND j.payload ->> 'event' = 'ACKNOWLEDGED'`;
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].payload.variables.ruleName).toBe(ALARM_TYPE);
+  });
+
   it('eight Create alarm messages AT ONCE open ONE alarm (the partial unique index settles the race)', async () => {
     const msgs = Array.from({ length: 8 }, (_, i) => instMsg('POST_TELEMETRY_REQUEST', { i }));
     await Promise.all(msgs.map((m) => ruleEngine.processNow(m, { chainId: RACE.chainId })));
@@ -331,14 +349,15 @@ describe('Save attributes', () => {
 // ─── Save time series over an ingest-origin reading (ruling S-3) ────────────
 
 describe('Save time series (ruling S-3)', () => {
+  type WriteCall = [string, RuleTelemetryReading[], string, { skipLatest?: boolean } | undefined];
   /** Every `telemetry.write` the engine's services make for the fixture instrument, while `fn` runs. */
-  async function countingWrites(fn: () => Promise<void>): Promise<[string, RuleTelemetryReading[], string][]> {
+  async function countingWrites(fn: () => Promise<void>): Promise<WriteCall[]> {
     const svc = ruleEngine.services.telemetry;
     const original = svc.write;
-    const calls: [string, RuleTelemetryReading[], string][] = [];
-    svc.write = async (id, readings, origin) => {
-      if (id === inst!.id) calls.push([id, readings, origin]);
-      return original.call(svc, id, readings, origin);
+    const calls: WriteCall[] = [];
+    svc.write = async (id, readings, origin, opts) => {
+      if (id === inst!.id) calls.push([id, readings, origin, opts]);
+      return original.call(svc, id, readings, origin, opts);
     };
     try {
       await fn();
@@ -372,11 +391,25 @@ describe('Save time series (ruling S-3)', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0][1]).toEqual([{ key: 'temp', value: 22.5, ts: new Date(ts) }]);
     expect(calls[0][2]).toBe(ruleNodeOrigin(ROOT.chainId, ROOT.nodeId));
+    expect(calls[0][3]).toEqual({ skipLatest: false });
     expect(await prisma.auditTrail.count({ where: { action: 'TELEMETRY_READING_REWRITTEN', targetId: inst!.id } })).toBe(0);
     const stored = await prisma.$queryRaw<{ value: unknown }[]>`
       SELECT value FROM instrument_telemetry_history WHERE instrument_id = ${inst!.id} AND key = 'temp' AND ts = ${new Date(ts)}`;
     expect(stored.map((s) => s.value)).toEqual([22.5]);
     await setEngineConfig({ skipSaveNodesForIngestOrigin: true });
+  });
+
+  it('skipLatestPersistence writes history ONLY; without it the latest readings move too', async () => {
+    const ts = Date.now() - 4_000;
+    await ruleEngine.processNow(instMsg('POST_TELEMETRY_REQUEST', { histOnly: 7 }, { ts: String(ts) }), { chainId: SAVE_HISTORY_ONLY.chainId });
+    await ruleEngine.processNow(instMsg('POST_TELEMETRY_REQUEST', { withLatest: 8 }, { ts: String(ts) }), { chainId: SAVE_WITH_LATEST.chainId });
+    const history = await prisma.$queryRaw<{ key: string; value: unknown }[]>`
+      SELECT key, value FROM instrument_telemetry_history
+      WHERE instrument_id = ${inst!.id} AND key IN ('histOnly', 'withLatest') AND ts = ${new Date(ts)} ORDER BY key`;
+    expect(history).toEqual([{ key: 'histOnly', value: 7 }, { key: 'withLatest', value: 8 }]);
+    const latest = await prisma.$queryRaw<{ key: string }[]>`
+      SELECT key FROM instrument_telemetry_latest WHERE instrument_id = ${inst!.id} AND key IN ('histOnly', 'withLatest') ORDER BY key`;
+    expect(latest.map((r) => r.key)).toEqual(['withLatest']);
   });
 });
 

@@ -455,11 +455,18 @@ describe('Save time series', () => {
   it('a flat body at metadata.ts; a { ts, values } body at its ts; an array of them', async () => {
     const write = vi.fn(async () => undefined);
     await run(T, {}, testMessage({ t: 1, h: 'x' }, { metadata: { ts: '1000' } }), { telemetry: { write } }, { nodeId: NODE, chainId: CHAIN });
-    expect(write.mock.calls[0]).toEqual(['instrument-1', [{ key: 't', value: 1, ts: new Date(1000) }, { key: 'h', value: 'x', ts: new Date(1000) }], `rule_node:${CHAIN}:${NODE}`]);
+    expect(write.mock.calls[0]).toEqual(['instrument-1', [{ key: 't', value: 1, ts: new Date(1000) }, { key: 'h', value: 'x', ts: new Date(1000) }],
+      `rule_node:${CHAIN}:${NODE}`, { skipLatest: false }]);
     await run(T, {}, testMessage({ ts: 2000, values: { t: 2 } }), { telemetry: { write } });
     expect((write.mock.calls[1] as unknown[])[1]).toEqual([{ key: 't', value: 2, ts: new Date(2000) }]);
     await run(T, {}, testMessage([{ ts: 3000, values: { t: 3 } }, { ts: 4000, values: { t: 4 } }]), { telemetry: { write } });
     expect((write.mock.calls[2] as unknown[])[1]).toEqual([{ key: 't', value: 3, ts: new Date(3000) }, { key: 't', value: 4, ts: new Date(4000) }]);
+  });
+
+  it('skipLatestPersistence reaches the write path as { skipLatest: true } (history only)', async () => {
+    const write = vi.fn(async () => undefined);
+    await run(T, { skipLatestPersistence: true }, testMessage({ t: 1 }, { metadata: { ts: '1000' } }), { telemetry: { write } });
+    expect((write.mock.calls[0] as unknown[])[3]).toEqual({ skipLatest: true });
   });
 
   it('useServerTs stamps a flat body with now; a body\'s own ts is kept', async () => {

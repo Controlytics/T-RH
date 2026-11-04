@@ -22,14 +22,16 @@ import { skipsIngestOrigin } from './attributes.js';
  * fails with ThingsBoard's wording. Only POST_TELEMETRY_REQUEST is accepted,
  * as in ThingsBoard.
  *
- * NARROWED, kept for export: `defaultTTL` (monthly partitions govern retention
- * here) and `skipLatestPersistence` (the write path always updates the latest
- * readings).
+ * `skipLatestPersistence` writes history only (the write path's `skipLatest`):
+ * `instrument_telemetry_latest` is left as it was.
+ *
+ * NARROWED, kept for export: `defaultTTL` (monthly partitions govern retention here).
  */
 export const SAVE_TIMESERIES_TYPE = 'tb:action:save-timeseries';
 
 interface SaveTimeseriesConfig extends JsonObject {
   useServerTs?: boolean;
+  skipLatestPersistence?: boolean;
 }
 
 export function telemetryReadings(msg: RuleMessage, useServerTs: boolean): RuleTelemetryReading[] {
@@ -56,6 +58,8 @@ export async function saveTimeseries(ctx: RuleContext<SaveTimeseriesConfig>, msg
   }
   const instrumentId = instrumentIdOf(msg, 'Save time series');
   const readings = telemetryReadings(msg, ctx.config.useServerTs === true);
-  if (readings.length > 0) await ctx.services.telemetry.write(instrumentId, readings, ctx.origin);
+  if (readings.length > 0) {
+    await ctx.services.telemetry.write(instrumentId, readings, ctx.origin, { skipLatest: ctx.config.skipLatestPersistence === true });
+  }
   ctx.tellNext(msg, 'Success');
 }
