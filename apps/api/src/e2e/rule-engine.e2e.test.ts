@@ -471,6 +471,7 @@ describe('the re-entry depth on the REAL nodes (ruling RE-1) — each chain here
         },
       }],
     };
+    try {
     await withRoot(doc, async () => {
       const skipped = loopSkipped();
       await injectMessage({ data: { type: alarmType, severity: 'MAJOR', originator: { id: inst.id } } });
@@ -483,8 +484,12 @@ describe('the re-entry depth on the REAL nodes (ruling RE-1) — each chain here
       expect(outs.map((r) => r.relation)).toEqual(['Created (unconnected)', 'Updated (unconnected)']);
       expect(loopSkipped() - skipped).toBeGreaterThanOrEqual(1);
     });
-    // Leave no open alarm behind for the cases below (Re-enter is OFF again: the clear does not re-enter).
-    expect(await ruleEngine.services.alarms.clear(inst.id, alarmType, undefined, ruleNodeOrigin(ROOT, C))).not.toBeNull();
+    } finally {
+      // No open alarm left behind for the cases below, whatever failed above (Re-enter is OFF again: the clear
+      // does not re-enter). In a finally: an early red here once left it open and failed "alarms: create …" too.
+      await ruleEngine.services.alarms.clear(inst.id, alarmType, undefined, ruleNodeOrigin(ROOT, C));
+    }
+    expect(await prisma.alarm.count({ where: { instrumentId: inst.id, source: 'RULE', state: 'ACTIVE', ruleSnapshot: { path: ['alarmType'], equals: alarmType } } })).toBe(0);
   });
 });
 
@@ -936,6 +941,27 @@ describe('debug rows', () => {
     });
     const n = await insertDebugRows([mk(ROOT), mk(randomUUID()), mk(ROOT)]);
     expect(n).toBe(2);
+  });
+
+  it('a batch is stored in BATCH ORDER (ascending ids) whatever plan the INSERT gets — with more chains than rows in a batch, the planner hashes the VALUES side', async () => {
+    // Thirty more chains, analysed: rule_chains is now estimated BIGGER than the batch, so the planner hashes the
+    // batch and probes it with the chains — the plan that handed the rows out in hash-bucket order (reversed).
+    const probe = `RE plan probe ${STAMP} `;
+    await prisma.ruleChain.createMany({ data: Array.from({ length: 30 }, (_, i) => ({ name: `${probe}${i}`, document: { version: 1, firstNodeId: null, nodes: [], connections: [] } })) });
+    try {
+      await prisma.$executeRawUnsafe('ANALYZE rule_chains');
+      const nodeId = randomUUID();
+      const batch = [0, 1, 2, 3, 4].map((n) => toDebugRow({
+        chainId: ROOT, nodeId, direction: 'IN', relation: null, msg: newMessage('X', { type: 'SYSTEM', id: 'SYSTEM' }, { order: n }) as RuleMessage,
+      }));
+      expect(await insertDebugRows(batch)).toBe(5);
+      const stored = await prisma.$queryRaw<{ data: { order: number } }[]>`
+        SELECT data FROM rule_node_debug_events WHERE chain_id = ${ROOT}::uuid AND node_id = ${nodeId}::uuid ORDER BY id`;
+      expect(stored.map((r) => r.data.order)).toEqual([0, 1, 2, 3, 4]);
+    } finally {
+      await prisma.ruleChain.deleteMany({ where: { name: { startsWith: probe } } });
+      await prisma.$executeRawUnsafe('ANALYZE rule_chains');
+    }
   });
 
   it('the hourly sweep removes rows past the retention and trims each node to its cap', async () => {

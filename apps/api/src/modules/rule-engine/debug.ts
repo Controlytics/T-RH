@@ -101,11 +101,25 @@ export function toDebugRow(e: RuleDebugEventInput): RuleDebugRow {
   };
 }
 
-/** Write rows, skipping any whose chain no longer exists. Returns how many were inserted. */
+/**
+ * Write rows, skipping any whose chain no longer exists. Returns how many were inserted.
+ *
+ * BATCH ORDER IS KEPT (found by FW-N2, 2026-11-05). The rows of one batch usually
+ * share a millisecond, so the id is what orders them (`listDebug` reads `ts DESC, id
+ * DESC`; the per-node trim keeps `ts DESC, id DESC`). The identity is assigned in the
+ * order the SELECT hands rows to the INSERT — but the `WHERE EXISTS` semi-join lets
+ * the planner HASH the VALUES side and probe it with `rule_chains`, and then rows come
+ * out in hash-bucket order: a batch of one chain came out REVERSED. It does so as soon
+ * as rule_chains is estimated bigger than the batch (any install with more chains than
+ * rows in a batch — measured with 31 chains and 3 rows) and with some small-table
+ * estimates. So each row carries its place (`ord`) and the SELECT is ORDER BY it: the
+ * ids follow the batch whatever the plan (proven on the test database, and pinned in
+ * rule-engine.e2e "debug rows").
+ */
 export async function insertDebugRows(rows: readonly RuleDebugRow[]): Promise<number> {
   if (rows.length === 0) return 0;
-  const values = Prisma.join(rows.map((r) => Prisma.sql`(
-    ${r.chainId}::uuid, ${r.nodeId}::uuid, ${r.ts}::timestamptz, ${r.direction}::varchar, ${r.relation}::varchar,
+  const values = Prisma.join(rows.map((r, i) => Prisma.sql`(
+    ${i}::int, ${r.chainId}::uuid, ${r.nodeId}::uuid, ${r.ts}::timestamptz, ${r.direction}::varchar, ${r.relation}::varchar,
     ${r.msgId}::varchar, ${r.msgType}::varchar, ${r.originatorType}::varchar, ${r.originatorId}::varchar,
     ${r.data}::jsonb, ${r.metadata}::jsonb, ${r.error}::text)`));
   return prisma.$executeRaw`
@@ -113,8 +127,9 @@ export async function insertDebugRows(rows: readonly RuleDebugRow[]): Promise<nu
       (chain_id, node_id, ts, direction, relation, msg_id, msg_type, originator_type, originator_id, data, metadata, error)
     SELECT v.chain_id, v.node_id, v.ts, v.direction, v.relation, v.msg_id, v.msg_type, v.originator_type, v.originator_id,
            v.data, v.metadata, v.error
-    FROM (VALUES ${values}) AS v(chain_id, node_id, ts, direction, relation, msg_id, msg_type, originator_type, originator_id, data, metadata, error)
-    WHERE EXISTS (SELECT 1 FROM rule_chains c WHERE c.id = v.chain_id)`;
+    FROM (VALUES ${values}) AS v(ord, chain_id, node_id, ts, direction, relation, msg_id, msg_type, originator_type, originator_id, data, metadata, error)
+    WHERE EXISTS (SELECT 1 FROM rule_chains c WHERE c.id = v.chain_id)
+    ORDER BY v.ord`;
 }
 
 /** Delete one node's rows beyond its newest `keep`, in one statement. Returns how many went. */
