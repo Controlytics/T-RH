@@ -240,6 +240,20 @@ describe('built nodes — descriptors, defaults and config schemas', () => {
     expect(keys('tb:action:create-alarm')).toEqual(expect.arrayContaining(['alarmType', 'severity', 'alarmDetailsBuildJs']));
   });
 
+  it('Delete attributes: the two toggles say what the handler (a33ea0cf, P-10 treatment) does; both off by default, as ThingsBoard', () => {
+    const s = RULE_NODE_TYPE_BY_ID.get('tb:action:delete-attributes')!;
+    const help = (key: string) => s.fields.find((f) => f.key === key)?.help ?? '';
+    expect(s.defaultConfig).toMatchObject({ sendAttributesDeletedNotification: false, notifyDevice: false });
+    expect(help('sendAttributesDeletedNotification')).toContain('naming the keys this delete removed');
+    expect(help('sendAttributesDeletedNotification')).toContain('Re-enter on rule-node writes');
+    expect(help('sendAttributesDeletedNotification')).toContain('Off by default, as in ThingsBoard');
+    expect(help('notifyDevice')).toContain('notifyDevice = true');
+    expect(help('notifyDevice')).toContain('the scope is not checked');
+    expect(help('notifyDevice')).toContain('Off by default, as in ThingsBoard');
+    // The node itself announces nothing unless asked.
+    expect(s.description).toBe('Deletes attributes of the originator instrument (audited, as an attribute delete on the Settings page is).');
+  });
+
   it('THINGSBOARD_EXPORT_NOTES_HEADER is the first line the shared export writes over its notes (one header with the API credential lines)', () => {
     const doc = { version: 1 as const, firstNodeId: null, connections: [], nodes: [
       { id: 'a0de0000-0000-4000-8000-000000000001', type: 'tb:flow:rule-chain', name: 'Hop', debugMode: 'off' as const, x: 0, y: 0, config: { ruleChainId: '' } },

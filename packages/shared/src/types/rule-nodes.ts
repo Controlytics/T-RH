@@ -910,8 +910,14 @@ const ACTION: RuleNodeTypeSpec[] = [
     fields: [
       { key: 'keys', label: 'Keys', type: 'keys', required: true, help: TEMPLATE_HELP },
       { key: 'scope', label: 'Scope', type: 'select', options: SCOPE_OPTIONS, help: SCOPES_HELP },
-      { key: 'sendAttributesDeletedNotification', label: 'Send an Attributes Deleted message', type: 'boolean' },
-      { key: 'notifyDevice', label: 'Tell the instrument', type: 'boolean' },
+      // P-10 treatment (FW-N2, a33ea0cf): both toggles honoured as ThingsBoard honours them, both off by default.
+      { key: 'sendAttributesDeletedNotification', label: 'Send an Attributes Deleted message', type: 'boolean',
+        help: 'Sends an Attributes Deleted message naming the keys this delete removed — none when no key existed. It enters a chain '
+          + 'only while that chain\'s "Re-enter on rule-node writes" is on. Off by default, as in ThingsBoard.' },
+      { key: 'notifyDevice', label: 'Tell the instrument', type: 'boolean',
+        help: 'After a delete that removed a key, the instrument is sent its attributes — also when the message\'s metadata says '
+          + 'notifyDevice = true. Off by default, as in ThingsBoard, which tells a device only for the Shared scope; here every '
+          + 'attribute is the instrument\'s, so the scope is not checked.' },
     ],
     defaultConfig: { scope: 'SERVER_SCOPE', keys: [], sendAttributesDeletedNotification: false, notifyDevice: false },
     configSchema: cfg({
