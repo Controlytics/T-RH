@@ -1,4 +1,6 @@
 import os from 'node:os';
+import dns from 'node:dns';
+import net from 'node:net';
 import { createHash } from 'node:crypto';
 import { Prisma, type Alarm, type PrismaClient } from '@prisma/client';
 import mqtt, { type MqttClient, type IClientOptions } from 'mqtt';
@@ -23,6 +25,7 @@ import { getChain } from './service.js';
 import { emitTelemetry, emitAttributes, emitAttributesDeleted, emitAlarm } from './emit.js';
 import { parseRuleNodeOrigin, ruleNodeOrigin, serialisableMessage, type RuleMessage } from './message.js';
 import { currentReentryDepth } from './context.js';
+import { targetNotAllowed } from './nodes/external/target-guard.js';
 
 /**
  * THE SERVICES a rule node may use (rule chains, 2026-11-03; spec §6, §7) —
@@ -47,8 +50,10 @@ import { currentReentryDepth } from './context.js';
  *    retries);
  *  - mqtt → one lazily connected client per node (`ctx.nodeKey`), closed on
  *    the node's destroy; protocol 3.1 / 3.1.1 / 5 as the node names it, a
- *    dropped client fails fast. There is NO http service: the REST API call
- *    and Slack nodes use their own guarded transport (ruling S-6).
+ *    dropped client fails fast; the broker judged by the S-6 guard as the REST
+ *    node's target is (review B M-4: resolved ONCE, every address judged, the
+ *    client connects to the judged address). There is NO http service: the REST
+ *    API call and Slack nodes use their own guarded transport (ruling S-6).
  * Every write takes the node's ORIGIN (`ctx.origin`) and passes it to the emit
  * helper of the event it causes — the loop guard (spec §5) reads it.
  */
@@ -349,6 +354,34 @@ export function mqttProtocolOptions(protocolVersion: number | undefined): Pick<I
   return { protocolVersion: 4 };
 }
 
+/**
+ * Where an MQTT node may connect (review B M-4, 2026-11-05): the S-6 guard the
+ * REST and Slack nodes go through (`nodes/external/target-guard.ts`) — link-local,
+ * unspecified and cloud-metadata addresses refused; loopback and private allowed.
+ * An IP literal is judged as it is, before any I/O. A NAME is resolved ONCE and
+ * EVERY address it resolves to is judged (one refused → refused); the client then
+ * connects to the first judged address, with `servername` = the name, so TLS still
+ * sends SNI for and verifies the certificate against the name. mqtt.js reconnects
+ * to that address, so no later DNS answer can move the connection (no rebinding);
+ * a broker that changes address is picked up when the node's client is next made
+ * (a config change, a chain save, a restart).
+ */
+export async function judgedBrokerAddress(host: string): Promise<{ address: string; servername?: string }> {
+  const literal = host.replace(/^\[|\]$/g, '');
+  if (net.isIP(literal) !== 0) {
+    const refused = targetNotAllowed(literal);
+    if (refused) throw new Error(refused);
+    return { address: literal };
+  }
+  const addresses = await dns.promises.lookup(host, { all: true, verbatim: true });
+  if (addresses.length === 0) throw new Error(`getaddrinfo ENOTFOUND ${host}`);
+  for (const a of addresses) {
+    const refused = targetNotAllowed(a.address);
+    if (refused) throw new Error(refused);
+  }
+  return { address: addresses[0].address, servername: host };
+}
+
 const SEVERITIES = new Set(['CRITICAL', 'MAJOR', 'MINOR']);
 /** ThingsBoard's WARNING / INDETERMINATE have no counterpart here: they read as MINOR (spec §7). */
 export function ruleAlarmSeverity(value: string): 'CRITICAL' | 'MAJOR' | 'MINOR' {
@@ -376,7 +409,11 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
     warn: (t, m) => logger.warn(m ?? {}, `[rule-engine] ${t}`),
     error: (t, m) => logger.error(m ?? {}, `[rule-engine] ${t}`),
   };
-  const mqttClients = new Map<string, { client: MqttClient; fingerprint: string; ready: Promise<void> }>();
+  /**
+   * One per nodeKey, set BEFORE the broker is judged (the lookup awaits), so two messages racing to
+   * a node's first publish share ONE client. `client` is null until the judged connect starts.
+   */
+  const mqttClients = new Map<string, { client: MqttClient | null; fingerprint: string; ready: Promise<void>; closed: boolean }>();
 
   async function instrumentOrThrow(id: string): Promise<{ id: string; code: string; gatewayId: string | null }> {
     const row = await prisma.instrument.findUnique({ where: { id }, select: { id: true, code: true, gatewayId: true } });
@@ -807,7 +844,7 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
               { nodeKey, host });
           }
           const options: IClientOptions = {
-            host, port: config.port ?? (ssl ? 8883 : 1883), protocol: ssl ? 'mqtts' : 'mqtt',
+            port: config.port ?? (ssl ? 8883 : 1883), protocol: ssl ? 'mqtts' : 'mqtt',
             // ThingsBoard: a blank client id is generated; `appendClientIdSuffix` makes a set one unique per node.
             clientId: mqttClientIdFor(nodeKey, config),
             clean: config.cleanSession !== false,
@@ -820,23 +857,37 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
               ...(creds.privateKey ? { key: creds.privateKey } : {}), ...(creds.privateKeyPassword ? { passphrase: creds.privateKeyPassword } : {}),
             } : {}),
           };
-          const client = mqtt.connect(options);
-          client.on('error', (err) => log.warn('MQTT node connection error', { nodeKey, err: err.message }));
-          const ready = new Promise<void>((resolve, reject) => {
-            const timer = setTimeout(() => reject(new Error(`MQTT_CONNECT_TIMEOUT: ${host} did not answer`)), (options.connectTimeout as number) + 1_000);
-            timer.unref();
-            client.once('connect', () => { clearTimeout(timer); resolve(); });
-          });
-          ready.catch(() => undefined);
-          entry = { client, fingerprint, ready };
+          const made = { client: null as MqttClient | null, fingerprint, ready: Promise.resolve(), closed: false };
+          made.ready = (async () => {
+            // M-4: the broker through the S-6 guard. A refused target (or a failed lookup) leaves NO entry
+            // and NO client — nothing reconnects to it every 5 s; the next message judges it again.
+            let target: { address: string; servername?: string };
+            try {
+              target = await judgedBrokerAddress(host);
+            } catch (e) {
+              if (mqttClients.get(nodeKey) === made) mqttClients.delete(nodeKey);
+              throw e;
+            }
+            if (made.closed) throw new Error('MQTT_CLOSED: the node was stopped while its broker was being resolved');
+            const client = mqtt.connect({ ...options, host: target.address, ...(target.servername ? { servername: target.servername } : {}) });
+            made.client = client;
+            client.on('error', (err) => log.warn('MQTT node connection error', { nodeKey, err: err.message }));
+            await new Promise<void>((resolve, reject) => {
+              const timer = setTimeout(() => reject(new Error(`MQTT_CONNECT_TIMEOUT: ${host} did not answer`)), (options.connectTimeout as number) + 1_000);
+              timer.unref();
+              client.once('connect', () => { clearTimeout(timer); resolve(); });
+            });
+          })();
+          made.ready.catch(() => undefined);
+          entry = made;
           mqttClients.set(nodeKey, entry);
         }
-        if (!entry.client.connected) {
-          // Never connected yet: wait for the first connect (or its timeout). Connected once and then
-          // DROPPED: `ready` is long resolved, so this FAILS FAST — mqtt.js would hold the publish in its
-          // offline queue until it reconnects, and the message would sit out its whole 30 s budget.
+        if (!entry.client || !entry.client.connected) {
+          // Never connected yet: wait for the judged connect (or its refusal / timeout). Connected once
+          // and then DROPPED: `ready` is long resolved, so this FAILS FAST — mqtt.js would hold the publish
+          // in its offline queue until it reconnects, and the message would sit out its whole 30 s budget.
           await entry.ready;
-          if (!entry.client.connected) throw new Error(`MQTT_NOT_CONNECTED: the connection to ${host} dropped — reconnecting every 5 s`);
+          if (!entry.client?.connected) throw new Error(`MQTT_NOT_CONNECTED: the connection to ${host} dropped — reconnecting every 5 s`);
         }
         await entry.client.publishAsync(topic, payload, { qos, retain });
       },
@@ -844,7 +895,8 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
         const entry = mqttClients.get(nodeKey);
         if (!entry) return;
         mqttClients.delete(nodeKey);
-        await entry.client.endAsync(true).catch(() => undefined);
+        entry.closed = true;
+        if (entry.client) await entry.client.endAsync(true).catch(() => undefined);
       },
     },
 

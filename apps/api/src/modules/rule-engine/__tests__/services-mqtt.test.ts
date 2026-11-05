@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
+import dns from 'node:dns';
 
 /**
  * `services.mqtt` (rule chains, fix round 2): ONE client per `nodeKey`
@@ -8,8 +9,11 @@ import { EventEmitter } from 'node:events';
  * (task-3b-review, "for later work in services.ts"): MQTT 3.1 really connects
  * as 3.1; a client id over ThingsBoard's limit (23 on 3.1, 256 otherwise) is
  * refused with ThingsBoard's words; a client that dropped fails fast; a PEM
- * certificate with SSL off is said to be unused. No broker: `mqtt.connect` is a
- * stand-in.
+ * certificate with SSL off is said to be unused. Review B M-4 (2026-11-05): the
+ * broker goes through the S-6 guard — resolved ONCE, every address judged, the
+ * client connected to the judged address with `servername` = the name. No broker
+ * and no DNS: `mqtt.connect` and `dns.promises.lookup` are stand-ins (a name
+ * resolves to the private 10.1.2.3 unless a test says otherwise).
  */
 const connects: { clientId: string; client: FakeClient; opts: Record<string, unknown> }[] = [];
 
@@ -41,7 +45,21 @@ const NODE = '0f000000-0000-4000-8000-0000000000aa';
 const CHAIN_A = '0f000000-0000-4000-8000-00000000000a';
 const CHAIN_B = '0f000000-0000-4000-8000-00000000000b';
 
-beforeEach(() => { connects.length = 0; });
+type LookupResult = { address: string; family: number }[];
+let resolves: Record<string, LookupResult | Error>;
+let lookups: { host: string; opts: unknown }[];
+
+beforeEach(() => {
+  connects.length = 0;
+  resolves = {};
+  lookups = [];
+  vi.spyOn(dns.promises, 'lookup').mockImplementation((async (host: string, opts: unknown) => {
+    lookups.push({ host, opts });
+    const r = resolves[host] ?? [{ address: '10.1.2.3', family: 4 }];
+    if (r instanceof Error) throw r;
+    return r;
+  }) as never);
+});
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe('mqttClientIdFor', () => {
@@ -155,6 +173,76 @@ describe('services.mqtt', () => {
     await svc.mqtt.publish(`${CHAIN_B}:${NODE}`, { host: 'h', ssl: true, credentials: { type: 'cert.PEM', cert: 'CERT', privateKey: 'KEY' } }, 't', 'x', 1, false);
     expect(connects[1].opts).toMatchObject({ protocol: 'mqtts', cert: 'CERT', key: 'KEY' });
     expect(warn.mock.calls.map((c) => String(c[1])).some((t) => /certificate/i.test(t))).toBe(false);
+    await svc.dispose();
+  });
+});
+
+describe('the broker through the S-6 guard (review B M-4)', () => {
+  const KEY = `${CHAIN_A}:${NODE}`;
+
+  it('a NAME is resolved ONCE (all addresses), and the client connects to the JUDGED address with servername = the name', async () => {
+    resolves['broker.plant'] = [{ address: '10.0.0.7', family: 4 }, { address: '10.0.0.8', family: 4 }];
+    const svc = services();
+    await svc.mqtt.publish(KEY, { host: 'broker.plant', ssl: true }, 't', 'x', 1, false);
+    await svc.mqtt.publish(KEY, { host: 'broker.plant', ssl: true }, 't', 'y', 1, false);
+    expect(lookups).toEqual([{ host: 'broker.plant', opts: { all: true, verbatim: true } }]);
+    expect(connects).toHaveLength(1);
+    expect(connects[0].opts).toMatchObject({ host: '10.0.0.7', servername: 'broker.plant', protocol: 'mqtts' });
+    expect(connects[0].client.published.map((p) => p.payload)).toEqual(['x', 'y']);
+    await svc.dispose();
+  });
+
+  it('a name resolving to a link-local / metadata address is REFUSED: a Failure, NO connect, no client kept — the next message judges it again', async () => {
+    resolves['meta.evil'] = [{ address: '169.254.169.254', family: 4 }];
+    const svc = services();
+    await expect(svc.mqtt.publish(KEY, { host: 'meta.evil' }, 't', 'x', 1, false)).rejects.toThrow(/^TARGET_NOT_ALLOWED: 169\.254\.169\.254/);
+    await expect(svc.mqtt.publish(KEY, { host: 'meta.evil' }, 't', 'x', 1, false)).rejects.toThrow(/^TARGET_NOT_ALLOWED/);
+    expect(connects).toHaveLength(0);
+    expect(lookups).toHaveLength(2);
+    await svc.dispose();
+  });
+
+  it('ONE refused address among several refuses the target (a split answer cannot slip a metadata address in)', async () => {
+    resolves['split.example'] = [{ address: '10.0.0.5', family: 4 }, { address: 'fe80::1', family: 6 }];
+    const svc = services();
+    await expect(svc.mqtt.publish(KEY, { host: 'split.example' }, 't', 'x', 1, false)).rejects.toThrow(/^TARGET_NOT_ALLOWED: fe80::1/);
+    expect(connects).toHaveLength(0);
+    await svc.dispose();
+  });
+
+  it('an IP literal is judged as it is, with no lookup: metadata / unspecified refused, loopback and private allowed (no servername)', async () => {
+    const svc = services();
+    for (const host of ['169.254.169.254', '0.0.0.0', '[fe80::1]', 'fd00:ec2::254']) {
+      await expect(svc.mqtt.publish(`${CHAIN_B}:${host}`, { host }, 't', 'x', 1, false), host).rejects.toThrow(/^TARGET_NOT_ALLOWED/);
+    }
+    expect(connects).toHaveLength(0);
+    await svc.mqtt.publish(`${CHAIN_A}:loop`, { host: '127.0.0.1' }, 't', 'x', 1, false);
+    await svc.mqtt.publish(`${CHAIN_A}:lan`, { host: '192.168.1.20' }, 't', 'x', 1, false);
+    expect(connects.map((c) => [c.opts.host, c.opts.servername])).toEqual([['127.0.0.1', undefined], ['192.168.1.20', undefined]]);
+    expect(lookups).toEqual([]);
+    await svc.dispose();
+  });
+
+  it('a lookup that FAILS is a Failure and is not cached: the next message resolves again', async () => {
+    resolves['flaky.plant'] = Object.assign(new Error('getaddrinfo ENOTFOUND flaky.plant'), { code: 'ENOTFOUND' });
+    const svc = services();
+    await expect(svc.mqtt.publish(KEY, { host: 'flaky.plant' }, 't', 'x', 1, false)).rejects.toThrow(/ENOTFOUND/);
+    resolves['flaky.plant'] = [{ address: '10.0.0.9', family: 4 }];
+    await svc.mqtt.publish(KEY, { host: 'flaky.plant' }, 't', 'x', 1, false);
+    expect(lookups).toHaveLength(2);
+    expect(connects.map((c) => c.opts.host)).toEqual(['10.0.0.9']);
+    await svc.dispose();
+  });
+
+  it('two messages racing to a node\'s FIRST publish share ONE lookup and ONE client', async () => {
+    const svc = services();
+    await Promise.all([
+      svc.mqtt.publish(KEY, { host: 'broker.local' }, 't', 'a', 1, false),
+      svc.mqtt.publish(KEY, { host: 'broker.local' }, 't', 'b', 1, false),
+    ]);
+    expect(lookups).toHaveLength(1);
+    expect(connects).toHaveLength(1);
+    expect(connects[0].client.published.map((p) => p.payload).sort()).toEqual(['a', 'b']);
     await svc.dispose();
   });
 });
