@@ -1046,6 +1046,31 @@ describe('instrument visibility: the debug tab and the inject route (review A I3
     const other = await send('POST', '/api/rule-engine/v1/messages', { originatorCode: hidden.code, data: { a: 1 } }, mg);
     expect(other.statusCode, other.body).toBe(202);
   });
+
+  it('I4 follow-up: a restricted caller naming NO instrument is 403 ORIGINATOR_REQUIRED — nothing queued, nothing audited', async () => {
+    const statsBefore = (await get('/api/rule-chains/stats', sa)).json() as { queueDepth: number; counters: Record<string, number> };
+    const before = new Date();
+    const res = await send('POST', '/api/rule-engine/v1/messages', { data: { a: 1 }, metadata: { instrumentId: hidden.id } }, sc);
+    expect(res.statusCode, res.body).toBe(403);
+    expect(res.json()).toEqual({
+      error: 'ORIGINATOR_REQUIRED',
+      message: 'Name an instrument you can see — a message without one is not limited to your view.',
+    });
+    expect(await prisma.auditTrail.count({ where: { action: 'RULE_ENGINE_MESSAGE_INJECTED', userId: scopedName, timestamp: { gte: before } } })).toBe(0);
+    const statsAfter = (await get('/api/rule-chains/stats', sa)).json() as { queueDepth: number; counters: Record<string, number> };
+    expect(statsAfter.queueDepth).toBe(statsBefore.queueDepth);
+    expect(statsAfter.counters.processed ?? 0).toBe(statsBefore.counters.processed ?? 0);
+  });
+
+  it('I4 follow-up controls: the restricted caller with its visible instrument, and an unrestricted MANAGE holder with no instrument, are accepted (202, audited)', async () => {
+    const before = new Date();
+    const scoped = await send('POST', '/api/rule-engine/v1/messages', { originatorCode: visible.code, data: { a: 2 } }, sc);
+    expect(scoped.statusCode, scoped.body).toBe(202);
+    const system = await send('POST', '/api/rule-engine/v1/messages', { data: { a: 3 } }, mg);
+    expect(system.statusCode, system.body).toBe(202);
+    expect(system.json()).toEqual({ accepted: false, reason: 'ENGINE_NOT_STARTED' }); // this file never starts the engine
+    expect(await prisma.auditTrail.count({ where: { action: 'RULE_ENGINE_MESSAGE_INJECTED', userId: { in: [scopedName, NAME.mg] }, timestamp: { gte: before } } })).toBe(2);
+  });
 });
 
 describe('the inject route body limit (review A I5)', () => {

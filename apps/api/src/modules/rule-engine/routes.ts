@@ -429,7 +429,7 @@ export async function ruleEngineIngressRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Rule Chains'],
       summary: 'Inject a message into the root rule chain',
-      description: 'Body `{ type?, originatorCode?, data, metadata? }`, at most 256 KB (413 above it) — a message (type REST_API_REQUEST unless given) from the instrument with that code (ignoring case; 404 ORIGINATOR_NOT_FOUND when there is none in the caller\'s instrument view) or, with no code, from SYSTEM. `metadata.requestId` is the message id; `metadata.rule_engine_origin` is `rest_api`. 202 `{ accepted: true, msgId }`, or `{ accepted: false, reason: ENGINE_NOT_STARTED | ENGINE_DISABLED | QUEUE_REFUSED }` (the audit row still names the message id; ENGINE_NOT_STARTED also while Configuration → Rule Engine has not been read since the engine started). Every call that names a valid originator writes ONE `RULE_ENGINE_MESSAGE_INJECTED` audit row first (credential-like keys masked); no re-auth, no reason.',
+      description: 'Body `{ type?, originatorCode?, data, metadata? }`, at most 256 KB (413 above it) — a message (type REST_API_REQUEST unless given) from the instrument with that code (ignoring case; 404 ORIGINATOR_NOT_FOUND when there is none in the caller\'s instrument view) or, with no code, from SYSTEM — refused 403 ORIGINATOR_REQUIRED for a caller whose instrument view is limited. `metadata.requestId` is the message id; `metadata.rule_engine_origin` is `rest_api`. 202 `{ accepted: true, msgId }`, or `{ accepted: false, reason: ENGINE_NOT_STARTED | ENGINE_DISABLED | QUEUE_REFUSED }` (the audit row still names the message id; ENGINE_NOT_STARTED also while Configuration → Rule Engine has not been read since the engine started). Every call that names a valid originator writes ONE `RULE_ENGINE_MESSAGE_INJECTED` audit row first (credential-like keys masked); no re-auth, no reason.',
       body: injectBody,
       response: injectResponse,
     },
@@ -437,10 +437,18 @@ export async function ruleEngineIngressRoutes(app: FastifyInstance) {
     const body = req.body as { type?: string; originatorCode?: string; data: unknown; metadata?: Record<string, string> };
     let originator: RuleOriginator = { type: 'SYSTEM', id: 'SYSTEM' };
     const code = body.originatorCode?.trim();
+    const { where: visibility } = await resolveVisibility(buildContext(req));
+    // A caller whose instrument view is LIMITED injects only AS an instrument it can see (review A
+    // I4, follow-up): a SYSTEM message is limited to no view — the engine fills instrument metadata
+    // from `metadata.instrumentId` for a non-instrument originator, and a chain acts on whatever it
+    // names. Refused before anything is queued or audited. Unrestricted callers and SUPER_ADMIN may
+    // still send one.
+    if (!code && visibility) {
+      return reply.code(403).send({ error: 'ORIGINATOR_REQUIRED', message: 'Name an instrument you can see — a message without one is not limited to your view.' });
+    }
     if (code) {
       // Inside the caller's instrument view (review A I4): an instrument it cannot see is the same
       // 404 as one that does not exist — never a 403 that says it does.
-      const { where: visibility } = await resolveVisibility(buildContext(req));
       const instrument = await prisma.instrument.findFirst({
         where: withVisibility({ code: { equals: code, mode: 'insensitive' } }, visibility) as Prisma.InstrumentWhereInput,
         select: { id: true, code: true },
