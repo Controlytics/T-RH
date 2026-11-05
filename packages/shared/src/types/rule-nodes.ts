@@ -1836,8 +1836,10 @@ export function toThingsboardConfig(type: string, config: Record<string, unknown
 
 const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const nonBlankText = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
-const KEPT_NOT_STARTED = 'ThingsBoard keeps the node but cannot start it';
-const REFUSED = 'ThingsBoard refuses to save the chain';
+/** A bean constraint the configuration breaks: ThingsBoard refuses the whole chain until it is set (controller ruling on SW-2). */
+const BEFORE_SAVE = 'before ThingsBoard will save the chain';
+/** A value ThingsBoard cannot deserialise or start with: the chain is saved, the node waits. */
+const UNTIL_THEN = 'until then ThingsBoard keeps the node but cannot start it';
 
 /** ThingsBoard's `SlackConversationType` (master e48b5780). */
 const SLACK_CONVERSATION_TYPES: readonly unknown[] = ['DIRECT', 'PUBLIC_CHANNEL', 'PRIVATE_CHANNEL'];
@@ -1850,20 +1852,22 @@ function optionLabel(type: string, key: string, value: unknown): string {
   return option?.label ?? String(value);
 }
 
-/** "choose <what> — <id> is this system's." or "— none is set." */
+/** "choose <what> after import — <id> is this system's." or "— none is set." */
 const ownIdNote = (what: string, kind: string, id: unknown): string =>
-  (nonBlankText(id) ? `choose ${what} — ${kind} ${id.trim()} is this system's.` : `choose ${what} — none is set.`);
+  (nonBlankText(id) ? `choose ${what} after import — ${kind} ${id.trim()} is this system's.` : `choose ${what} after import — none is set.`);
 
 /**
  * What to set in ThingsBoard after importing a node's EXPORTED configuration
  * (ruling SW-2) — one note per thing ThingsBoard cannot start as it stands,
- * worded by whether ThingsBoard keeps the node (a value it cannot deserialise)
- * or refuses the chain (a bean constraint). `config` is the configuration the
+ * worded by whether ThingsBoard keeps the node (a value it cannot deserialise:
+ * "… after import") or refuses the chain (a bean constraint: "… before
+ * ThingsBoard will save the chain"). `config` is the configuration the
  * export writes (`toThingsboardConfig`). `toThingsboardExport` puts the notes in
  * the rule chain's `additionalInfo.description`, which ThingsBoard shows as the
  * chain's Description. Empty when ThingsBoard can run the node as exported.
  *  - Send notification: its template and recipients are this system's records.
  *  - Send to Slack: a channel / user id here, a conversation OBJECT there (`@NotNull @Valid`).
+ *    Not mapped (controller ruling): the id alone says nothing of the object's type and name.
  *  - Rule chain, Generator (an instrument originator), Check relation (one entity):
  *    the id is this system's, or none is set (ThingsBoard's init needs one).
  *  - Tenant details: Application name / Server name / Server version exist only
@@ -1877,20 +1881,20 @@ export function thingsboardExportNotes(type: string, config: Record<string, unkn
       const deserialises = (config.templateId === undefined || config.templateId === null)
         && (t === undefined || t === null || (Array.isArray(t) && t.every((x) => typeof x === 'string' && UUID_TEXT.test(x))));
       return [deserialises
-        ? `choose its notification template and recipients — ${REFUSED} until they are set.`
-        : `choose its notification template and recipients — this system's template, roles and users do not exist there; ${KEPT_NOT_STARTED} until they are set.`];
+        ? `choose its notification template and recipients ${BEFORE_SAVE}.`
+        : `choose its notification template and recipients after import — this system's template, roles and users do not exist there; ${UNTIL_THEN}.`];
     }
     case 'tb:external:send-to-slack': {
       // TbSlackNodeConfiguration: @NotNull @Valid SlackConversation { @NotNull type, @NotEmpty id, @NotEmpty name }.
       const c = config.conversation;
       if (typeof c === 'string') {
-        return [`choose the Slack conversation — here it is the channel or user id "${c}", there a conversation object; ${KEPT_NOT_STARTED} until it is set.`];
+        return [`choose the Slack conversation after import — the channel or user id "${c}" cannot become a ThingsBoard conversation object (its type and name are not known here); ${UNTIL_THEN}.`];
       }
       if (isPlainObject(c) && c.type !== undefined && c.type !== null && !SLACK_CONVERSATION_TYPES.includes(c.type)) {
-        return [`choose the Slack conversation — ${KEPT_NOT_STARTED} until it is set.`];
+        return [`choose the Slack conversation after import — ${UNTIL_THEN}.`];
       }
       const complete = isPlainObject(c) && SLACK_CONVERSATION_TYPES.includes(c.type) && nonBlankText(c.id) && nonBlankText(c.name);
-      return complete ? [] : [`choose the Slack conversation — ${REFUSED} until it is set.`];
+      return complete ? [] : [`choose the Slack conversation ${BEFORE_SAVE}.`];
     }
     case 'tb:flow:rule-chain':
       return [ownIdNote('the rule chain it sends to', 'rule chain', config.ruleChainId)];
@@ -1903,9 +1907,9 @@ export function thingsboardExportNotes(type: string, config: Record<string, unkn
       const list = Array.isArray(config.detailsList) ? config.detailsList : [];
       const onlyHere = list.filter((v) => !TB_TENANT_DETAILS.includes(v));
       if (onlyHere.length > 0) {
-        return [`pick its tenant details — ${onlyHere.map((v) => optionLabel(type, 'detailsList', v)).join(', ')} exist only here; ${KEPT_NOT_STARTED} with them.`];
+        return [`pick its tenant details after import — ${onlyHere.map((v) => optionLabel(type, 'detailsList', v)).join(', ')} exist only here; ${UNTIL_THEN}.`];
       }
-      return list.length === 0 ? ['pick at least one tenant detail — ThingsBoard cannot start it with none.'] : [];
+      return list.length === 0 ? ['pick at least one tenant detail after import — ThingsBoard cannot start it with none.'] : [];
     }
     default:
       return [];

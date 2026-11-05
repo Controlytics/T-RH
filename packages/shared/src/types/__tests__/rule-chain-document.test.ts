@@ -683,9 +683,9 @@ describe('ThingsBoard export / import', () => {
     const exp = toThingsboardExport('Escalation', false, d);
     expect(exp.ruleChain.additionalInfo).toEqual({
       description: [
-        'Set in ThingsBoard after importing this chain:',
-        '- Node "Notify QA" (Send notification): choose its notification template and recipients — this system\'s template, roles and users do not exist there; ThingsBoard keeps the node but cannot start it until they are set.',
-        `- Node "To escalation" (Rule chain): choose the rule chain it sends to — rule chain ${U} is this system's.`,
+        'Set in ThingsBoard when you import this chain:',
+        '- Node "Notify QA" (Send notification): choose its notification template and recipients after import — this system\'s template, roles and users do not exist there; until then ThingsBoard keeps the node but cannot start it.',
+        `- Node "To escalation" (Rule chain): choose the rule chain it sends to after import — rule chain ${U} is this system's.`,
       ].join('\n'),
     });
     // The nodes still go out — nothing is dropped.
@@ -698,7 +698,7 @@ describe('ThingsBoard export / import', () => {
       nodes: [node(A, 'tb:action:generator', { name: 'Gen', config: { ...RULE_NODE_TYPE_BY_ID.get('tb:action:generator')!.defaultConfig, originatorType: 'INSTRUMENT', originatorId: 'i-7' } })],
     });
     expect(toThingsboardExport('C', false, d).ruleChain.additionalInfo?.description)
-      .toBe('Set in ThingsBoard after importing this chain:\n- Node "Gen" (Generator): choose the device it generates messages for — instrument i-7 is this system\'s.');
+      .toBe('Set in ThingsBoard when you import this chain:\n- Node "Gen" (Generator): choose the device it generates messages for after import — instrument i-7 is this system\'s.');
   });
 
   it('SW-2: a chain ThingsBoard can run as it stands carries NO description (additionalInfo stays null)', () => {

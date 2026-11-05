@@ -408,8 +408,8 @@ describe('credentials on export (spec §12 ruling S-5, secrets.ts)', () => {
   it('the export the route sends (exportChain) carries the SW-2 description — and masks nothing in it', () => {
     const exp = exportChain({ name: 'Out', root: false, debugMode: false, document: doc() });
     expect(exp.ruleChain.additionalInfo?.description).toBe([
-      'Set in ThingsBoard after importing this chain:',
-      '- Node "Slack" (Send to Slack): choose the Slack conversation — here it is the channel or user id "C1", there a conversation object; ThingsBoard keeps the node but cannot start it until it is set.',
+      'Set in ThingsBoard when you import this chain:',
+      '- Node "Slack" (Send to Slack): choose the Slack conversation after import — the channel or user id "C1" cannot become a ThingsBoard conversation object (its type and name are not known here); until then ThingsBoard keeps the node but cannot start it.',
     ].join('\n'));
   });
 

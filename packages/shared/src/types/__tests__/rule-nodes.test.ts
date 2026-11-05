@@ -936,7 +936,7 @@ describe('thingsboardExportNotes — ruling SW-2: what to set in ThingsBoard aft
 
   it('Send notification: its template and recipients are this system\'s — kept but not started there, or the chain REFUSED when the config would pass deserialisation with no template', () => {
     expect(thingsboardExportNotes('tb:external:send-notification', { templateId: UUID, targets: { roles: ['QA'], userIds: [] } })).toEqual([
-      'choose its notification template and recipients — this system\'s template, roles and users do not exist there; ThingsBoard keeps the node but cannot start it until they are set.',
+      'choose its notification template and recipients after import — this system\'s template, roles and users do not exist there; until then ThingsBoard keeps the node but cannot start it.',
     ]);
     // ThingsBoard's @NotNull templateId / @NotEmpty targets throw only when the configuration DESERIALISES (BaseRuleChainService
     // → RuleChainDataValidator.validateRuleNode): targets a list of ids (or none) and no template.
@@ -944,23 +944,23 @@ describe('thingsboardExportNotes — ruling SW-2: what to set in ThingsBoard aft
     expect(thingsboardExportNotes('tb:external:send-notification', { templateId: null, targets: ['QA-team'] })[0]).toMatch(/keeps the node but cannot start it/);
     for (const targets of [[UUID], [], null, undefined]) {
       expect(thingsboardExportNotes('tb:external:send-notification', { templateId: null, targets }), JSON.stringify(targets)).toEqual([
-        'choose its notification template and recipients — ThingsBoard refuses to save the chain until they are set.',
+        'choose its notification template and recipients before ThingsBoard will save the chain.',
       ]);
     }
   });
 
   it('Send to Slack: a channel id here is a conversation OBJECT there; with none at all ThingsBoard refuses the chain', () => {
     expect(thingsboardExportNotes('tb:external:send-to-slack', { messageTemplate: 'm', conversation: 'C0123' })).toEqual([
-      'choose the Slack conversation — here it is the channel or user id "C0123", there a conversation object; ThingsBoard keeps the node but cannot start it until it is set.',
+      'choose the Slack conversation after import — the channel or user id "C0123" cannot become a ThingsBoard conversation object (its type and name are not known here); until then ThingsBoard keeps the node but cannot start it.',
     ]);
     // A ThingsBoard type it does not know fails to deserialise: kept, not started.
     expect(thingsboardExportNotes('tb:external:send-to-slack', { messageTemplate: 'm', conversation: { type: 'CHANNEL', id: 'C0123', name: 'alarms' } })).toEqual([
-      'choose the Slack conversation — ThingsBoard keeps the node but cannot start it until it is set.',
+      'choose the Slack conversation after import — until then ThingsBoard keeps the node but cannot start it.',
     ]);
     // An object short of @NotNull type / @NotEmpty id / @NotEmpty name deserialises and breaks @Valid: refused.
     for (const conversation of [undefined, null, { id: 'C0123' }, { type: 'PUBLIC_CHANNEL', id: 'C0123' }, { id: 'C0123', name: 'alarms' }, { type: 'DIRECT', id: ' ', name: 'x' }]) {
       expect(thingsboardExportNotes('tb:external:send-to-slack', { messageTemplate: 'm', conversation }), JSON.stringify(conversation)).toEqual([
-        'choose the Slack conversation — ThingsBoard refuses to save the chain until it is set.',
+        'choose the Slack conversation before ThingsBoard will save the chain.',
       ]);
     }
     // ThingsBoard's own conversation object (an import kept it) goes back as it came: nothing to say.
@@ -968,24 +968,24 @@ describe('thingsboardExportNotes — ruling SW-2: what to set in ThingsBoard aft
   });
 
   it('Rule chain, Generator, Check relation: the id is this system\'s, or none is set', () => {
-    expect(thingsboardExportNotes('tb:flow:rule-chain', { ruleChainId: UUID })).toEqual([`choose the rule chain it sends to — rule chain ${UUID} is this system's.`]);
-    expect(thingsboardExportNotes('tb:flow:rule-chain', { ruleChainId: null })).toEqual(['choose the rule chain it sends to — none is set.']);
-    expect(thingsboardExportNotes('tb:action:generator', { originatorType: 'DEVICE', originatorId: UUID })).toEqual([`choose the device it generates messages for — instrument ${UUID} is this system's.`]);
-    expect(thingsboardExportNotes('tb:action:generator', { originatorType: 'DEVICE' })).toEqual(['choose the device it generates messages for — none is set.']);
+    expect(thingsboardExportNotes('tb:flow:rule-chain', { ruleChainId: UUID })).toEqual([`choose the rule chain it sends to after import — rule chain ${UUID} is this system's.`]);
+    expect(thingsboardExportNotes('tb:flow:rule-chain', { ruleChainId: null })).toEqual(['choose the rule chain it sends to after import — none is set.']);
+    expect(thingsboardExportNotes('tb:action:generator', { originatorType: 'DEVICE', originatorId: UUID })).toEqual([`choose the device it generates messages for after import — instrument ${UUID} is this system's.`]);
+    expect(thingsboardExportNotes('tb:action:generator', { originatorType: 'DEVICE' })).toEqual(['choose the device it generates messages for after import — none is set.']);
     expect(thingsboardExportNotes('tb:action:generator', { originatorType: 'RULE_NODE' })).toEqual([]);
     expect(thingsboardExportNotes('tb:action:generator', { originatorType: 'TENANT' })).toEqual([]);
-    expect(thingsboardExportNotes('tb:filter:check-relation-presence', { checkForSingleEntity: true, entityType: 'DEVICE', entityId: UUID })).toEqual([`choose the entity to check — instrument ${UUID} is this system's.`]);
-    expect(thingsboardExportNotes('tb:filter:check-relation-presence', { checkForSingleEntity: true })).toEqual(['choose the entity to check — none is set.']);
+    expect(thingsboardExportNotes('tb:filter:check-relation-presence', { checkForSingleEntity: true, entityType: 'DEVICE', entityId: UUID })).toEqual([`choose the entity to check after import — instrument ${UUID} is this system's.`]);
+    expect(thingsboardExportNotes('tb:filter:check-relation-presence', { checkForSingleEntity: true })).toEqual(['choose the entity to check after import — none is set.']);
     expect(thingsboardExportNotes('tb:filter:check-relation-presence', { checkForSingleEntity: false, entityId: UUID })).toEqual([]);
   });
 
   it('Tenant details: the three APPLICATION details exist only here, and ThingsBoard needs at least one of its own', () => {
     expect(thingsboardExportNotes('tb:enrichment:tenant-details', { detailsList: ['TITLE', 'EMAIL'] })).toEqual([]);
     expect(thingsboardExportNotes('tb:enrichment:tenant-details', { detailsList: ['TITLE', 'APP_NAME', 'SERVER_VERSION'] })).toEqual([
-      'pick its tenant details — Application name, Server version exist only here; ThingsBoard keeps the node but cannot start it with them.',
+      'pick its tenant details after import — Application name, Server version exist only here; until then ThingsBoard keeps the node but cannot start it.',
     ]);
-    expect(thingsboardExportNotes('tb:enrichment:tenant-details', { detailsList: [] })).toEqual(['pick at least one tenant detail — ThingsBoard cannot start it with none.']);
-    expect(thingsboardExportNotes('tb:enrichment:tenant-details', {})).toEqual(['pick at least one tenant detail — ThingsBoard cannot start it with none.']);
+    expect(thingsboardExportNotes('tb:enrichment:tenant-details', { detailsList: [] })).toEqual(['pick at least one tenant detail after import — ThingsBoard cannot start it with none.']);
+    expect(thingsboardExportNotes('tb:enrichment:tenant-details', {})).toEqual(['pick at least one tenant detail after import — ThingsBoard cannot start it with none.']);
   });
 
   it('every other node, and an unknown type, has nothing to say', () => {

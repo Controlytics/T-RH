@@ -393,7 +393,7 @@ export function toThingsboardExport(name: string, root: boolean, doc: RuleChainD
   return {
     ruleChain: {
       name, type: 'CORE', root, debugMode: false, configuration: null,
-      additionalInfo: notes.length > 0 ? { description: ['Set in ThingsBoard after importing this chain:', ...notes].join('\n') } : null,
+      additionalInfo: notes.length > 0 ? { description: ['Set in ThingsBoard when you import this chain:', ...notes].join('\n') } : null,
     },
     metadata: {
       firstNodeIndex: doc.firstNodeId !== null && index.has(doc.firstNodeId) ? index.get(doc.firstNodeId)! : null,
