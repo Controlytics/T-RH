@@ -321,12 +321,16 @@ function toOutput(value: unknown, msg: unknown, metadata: Record<string, string>
  * With a `key` (the engine's `ctx.runScript` passes
  * `<chainId>:<nodeId>:<chain version>`), three CONSECUTIVE SCRIPT_TIMEOUTs of
  * the same script text disable it: it then fails at once with
- * `SCRIPT_DISABLED` without entering the VM, until the chain is SAVED (a save
- * changes the chain version, which is part of the key) or the text changes.
- * Any run that ends some other way resets the count. Logged once when it trips.
+ * `SCRIPT_DISABLED` without entering the VM, until the chain is SAVED with a
+ * change (a save changes the chain version, which is part of the key — for a
+ * lifecycle node too, which reads the version its chain has NOW) or the text
+ * changes. Any run that ends some other way resets the count. Logged once when
+ * it trips. The budget itself is at most 5 s (ruling RE-3, config.ts), so the
+ * worst case is 15 s of a blocked loop.
  */
 export const SCRIPT_DISABLE_AFTER_TIMEOUTS = 3;
-export const SCRIPT_DISABLED_MESSAGE = `SCRIPT_DISABLED: timed out ${SCRIPT_DISABLE_AFTER_TIMEOUTS} times — fix and save the chain`;
+// "Change the chain and save it": a save that changes nothing writes nothing and keeps the version.
+export const SCRIPT_DISABLED_MESSAGE = `SCRIPT_DISABLED: timed out ${SCRIPT_DISABLE_AFTER_TIMEOUTS} times in a row — change the chain and save it`;
 const STRIKES_MAX_KEYS = 10_000;
 const strikes = new Map<string, number>();
 

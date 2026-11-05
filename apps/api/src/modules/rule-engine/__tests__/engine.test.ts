@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { createRuleEngine, type RuleEngine } from '../engine.js';
 import { registerNode, getHandler } from '../registry.js';
 import { registerAllNodes } from '../nodes/index.js';
@@ -374,20 +374,133 @@ describe('node lifecycles (onInit / onDestroy)', () => {
     expect(seen.map((s) => `${s.event} ${s.nodeKey}`)).toEqual([`destroy ${chain2.id}:${other.id}`]);
   });
 
-  it('a failed onInit is retried at the next sync (the version is not recorded)', async () => {
+  it('a failed onInit is retried (the version is not recorded) — after its backoff, not at the very next sync', async () => {
     const seen: Seen[] = [];
     const life = lifecycleType('test:life-fail', seen, { failFirst: true });
     const a = nodeOf(life, 'A');
     const chain = chainOf('c', docOf([a], []), { root: true });
     const { engine } = lifecycleEngine([chain]);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const t0 = Date.parse('2026-11-05T10:00:00Z');
+    vi.setSystemTime(t0);
+    try {
+      await engine.start();
+      expect(seen.filter((s) => s.event === 'init')).toEqual([]);
+      expect(engine.stats().counters.init_errors).toBe(1);
+      vi.setSystemTime(t0 + 5_000);
+      await engine.syncLifecycles();
+      expect(seen.filter((s) => s.event === 'init').map((s) => s.nodeKey)).toEqual([`${chain.id}:${a.id}`]);
+      vi.setSystemTime(t0 + 60_000);
+      await engine.syncLifecycles();
+      expect(seen.filter((s) => s.event === 'init')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+      await engine.stop();
+    }
+  });
+
+  it('m2: a chain that could not be READ is not recorded — the next sync initialises it', async () => {
+    const seen: Seen[] = [];
+    const life = lifecycleType('test:life-unreadable', seen);
+    const a = nodeOf(life, 'A');
+    const chain = chainOf('c', docOf([a], []), { root: true });
+    const mem = memoryDeps([chain]);
+    let unreadable = 1;
+    const engine = createRuleEngine({
+      ...mem.deps,
+      getChain: async (id: string) => (id === chain.id && unreadable-- > 0 ? null : mem.chains.get(id) ?? null),
+      lifecyclePollMs: 3_600_000,
+      services: () => Object.assign(fakeServices(), { dispose: async () => undefined }),
+    });
     await engine.start();
     try {
       expect(seen).toEqual([]);
-      expect(engine.stats().counters.init_errors).toBe(1);
       await engine.syncLifecycles();
       expect(seen.map((s) => `${s.event} ${s.nodeKey}`)).toEqual([`init ${chain.id}:${a.id}`]);
       await engine.syncLifecycles();
       expect(seen).toHaveLength(1);
+    } finally {
+      await engine.stop();
+    }
+  });
+
+  it('m3: an onInit that ALWAYS fails backs off 5 s, 10 s, 20 s … to 5 min — no hot retry, no cache invalidation in between; a save or force retries at once; each failed start gets a best-effort onDestroy', async () => {
+    const inits: number[] = [];
+    let destroys = 0;
+    const failing = type('test:life-always-fails', () => undefined, {
+      onInit: () => { inits.push(Date.now()); throw new Error('GENERATOR_ORIGINATOR_REQUIRED: no instrument'); },
+      onDestroy: () => { destroys++; },
+    });
+    const a = nodeOf(failing, 'A');
+    const chain = chainOf('c', docOf([a], []), { root: true });
+    const mem = memoryDeps([chain]);
+    let invalidations = 0;
+    const engine = createRuleEngine({
+      ...mem.deps, invalidateChain: () => { invalidations++; }, lifecyclePollMs: 3_600_000,
+      services: () => Object.assign(fakeServices(), { dispose: async () => undefined }),
+    });
+    vi.useFakeTimers({ toFake: ['Date'] });
+    let now = Date.parse('2026-11-05T10:00:00Z');
+    vi.setSystemTime(now);
+    const at = async (ms: number) => { now += ms; vi.setSystemTime(now); await engine.syncLifecycles(); return inits.length; };
+    try {
+      await engine.start();
+      expect(inits).toHaveLength(1);
+      expect(destroys).toBe(1);
+      expect(await at(0)).toBe(1);
+      expect(await at(4_999)).toBe(1);
+      expect(await at(1)).toBe(2); // 5 s after the first failure
+      expect(await at(9_999)).toBe(2);
+      expect(await at(1)).toBe(3); // then 10 s
+      expect(invalidations, 'the chain cache is dropped only when a start is actually tried').toBe(3);
+      await engine.syncLifecycles({ force: true });
+      expect(inits).toHaveLength(4);
+      // A save (a new version) is retried at once, and starts the backoff over.
+      mem.chains.set(chain.id, { ...chain, updatedAt: new Date(chain.updatedAt.getTime() + 1_000) });
+      expect(await at(0)).toBe(5);
+      expect(await at(4_999)).toBe(5);
+      expect(await at(1)).toBe(6);
+      // Doubling to the 5-minute ceiling: 10, 20, 40, 80, 160 s, then 300, 300.
+      for (const wait of [10_000, 20_000, 40_000, 80_000, 160_000, 300_000]) {
+        const n = inits.length;
+        expect(await at(wait - 1)).toBe(n);
+        expect(await at(1)).toBe(n + 1);
+      }
+      expect(await at(299_999)).toBe(12);
+      expect(await at(1)).toBe(13);
+      expect(destroys).toBe(13);
+    } finally {
+      vi.useRealTimers();
+      await engine.stop();
+    }
+  });
+
+  it('m1: a lifecycle node\'s script strikes follow the chain\'s CURRENT version — a save that does not touch the node re-enables it', async () => {
+    clearScriptStrikes();
+    const seen: Seen[] = [];
+    let initCtx: import('../context.js').RuleContext | undefined;
+    const life = lifecycleType('test:life-script', seen, { keep: (ctx) => { initCtx = ctx; } });
+    const gen = nodeOf(life, 'Gen');
+    const other = nodeOf(type('test:life-other', () => undefined), 'Other', { config: { v: 1 } });
+    const chain = chainOf('c', docOf([gen, other], []), { root: true });
+    const mem = memoryDeps([chain], { scriptTimeoutMs: 100 });
+    const engine = createRuleEngine({ ...mem.deps, lifecyclePollMs: 3_600_000, services: () => Object.assign(fakeServices(), { dispose: async () => undefined }) });
+    const run = (spin: boolean) => {
+      try {
+        return String(initCtx!.runScript('filter', 'if (msg.spin) { while (true) {} } return true;', testMessage({ spin })));
+      } catch (e) {
+        return (e as { code?: string }).code ?? 'error';
+      }
+    };
+    await engine.start();
+    try {
+      expect([run(true), run(true), run(true), run(false)]).toEqual(['SCRIPT_TIMEOUT', 'SCRIPT_TIMEOUT', 'SCRIPT_TIMEOUT', 'SCRIPT_DISABLED']);
+      // Saved with ANOTHER node changed: the Generator keeps its instance (and the context it was started with) …
+      mem.chains.set(chain.id, { ...chainOf('c', docOf([gen, { ...other, config: { v: 2 } }], []), { id: chain.id, root: true }), updatedAt: new Date(chain.updatedAt.getTime() + 1_000) });
+      await engine.syncLifecycles();
+      expect(seen.filter((s) => s.event === 'init')).toHaveLength(1);
+      // … and its script runs again.
+      expect(run(false)).toBe('true');
     } finally {
       await engine.stop();
     }

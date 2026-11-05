@@ -58,7 +58,10 @@ import { unsupportedNodeMessage } from './nodes/unsupported.js';
  * Lifecycle: at start, and every 5 s while any registered type has
  * `onInit` / `onDestroy`, the engine compares `rule_chains (id, updated_at)`
  * with what it initialised: a new or changed node is (re)initialised, a
- * removed one destroyed. With no lifecycle type registered, it never polls.
+ * removed one destroyed. A node that fails to start gets a best-effort
+ * onDestroy and is retried after 5 s, 10 s, 20 s … at most every 5 minutes,
+ * at once when its chain is saved. With no lifecycle type registered, it
+ * never polls.
  *
  * Configuration → Rule Engine is read on a 1 s timer into a snapshot, so the
  * emit helpers decide "accepting?" without awaiting anything. Switching it
@@ -212,6 +215,9 @@ interface LifecycleInstance {
 
 const BUDGET_EXCEEDED = Symbol('BUDGET_EXCEEDED');
 const WINDOW_SECONDS = 60;
+/** A failed lifecycle start is retried after 5 s, 10 s, 20 s … at most 5 minutes apart (m3). */
+const INIT_RETRY_BASE_MS = 5_000;
+const INIT_RETRY_MAX_MS = 300_000;
 
 const isFailure = (e: Emission) => e.kind === 'failure' || (e.kind === 'next' && e.relations.includes('Failure'));
 const fingerprintOf = (n: RuleChainNode) => `${n.type}\u0000${n.name}\u0000${n.debugMode}\u0000${JSON.stringify(n.config)}`;
@@ -226,7 +232,12 @@ class RuleEngineImpl implements RuleEngine {
   private readonly window = new Map<number, { total: number; chains: Map<string, number> }>();
   private readonly selfTimers = new Set<NodeJS.Timeout>();
   private readonly instances = new Map<string, LifecycleInstance>();
+  /** The version each chain's lifecycle nodes were ALL started at — absent until every one started. */
   private readonly chainVersions = new Map<string, number>();
+  /** Every chain's version as the last sync READ it, started or not — what a lifecycle node's script strikes key on (m1). */
+  private readonly liveVersions = new Map<string, number>();
+  /** A chain whose lifecycle start failed: retried at `at` (backoff), or at once when its version moves or `force` (m3). */
+  private readonly initRetry = new Map<string, { version: number; failures: number; at: number }>();
   private lifecycleBusy: Promise<void> | null = null;
   private configTimer: NodeJS.Timeout | null = null;
   private lifecycleTimer: NodeJS.Timeout | null = null;
@@ -323,6 +334,9 @@ class RuleEngineImpl implements RuleEngine {
     if (this.lifecycleBusy) await this.lifecycleBusy;
     for (const key of [...this.instances.keys()]) await this.destroyInstance(key);
     this.chainVersions.clear();
+    this.liveVersions.clear();
+    this.initRetry.clear();
+    this.lastInitErrorLogAt.clear();
     try {
       await this.deps.debug.stop?.();
     } catch (err) {
@@ -688,9 +702,12 @@ class RuleEngineImpl implements RuleEngine {
       log: (level: RuleLogLevel, text: string) => {
         logger[level]({ chainId: chain.id, nodeId: node.id }, `[rule-chain ${chain.name}/${node.name}] ${text}`);
       },
-      // Keyed to this node AND the chain's version: a save (a new updatedAt) re-enables a disabled script.
-      runScript: (kind, script, msg) => runVmScript(kind, script, msg.data, msg.metadata, msg.type, this.cfg.scriptTimeoutMs,
-        { key: `${ruleNodeKey(chain.id, node.id)}:${chain.updatedAt.getTime()}` }) as never,
+      // Keyed to this node AND the chain's CURRENT version: a save (a new updatedAt) re-enables a disabled
+      // script. A handler's chain is the one just loaded; a lifecycle context (a Generator) outlives saves
+      // that do not touch its node, so it reads the version the last sync saw (m1), not the one it started with.
+      runScript: (kind, script, msg) => runVmScript(kind, script, msg.data, msg.metadata, msg.type, this.cfg.scriptTimeoutMs, {
+        key: `${ruleNodeKey(chain.id, node.id)}:${flow ? chain.updatedAt.getTime() : (this.liveVersions.get(chain.id) ?? chain.updatedAt.getTime())}`,
+      }) as never,
     };
     return { ctx, close: () => { open = false; } };
   }
@@ -731,7 +748,13 @@ class RuleEngineImpl implements RuleEngine {
       for (const [key, inst] of [...this.instances]) if (!live.has(inst.chain.id)) await this.destroyInstance(key);
       for (const row of rows) {
         const version = row.updatedAt.getTime();
+        this.liveVersions.set(row.id, version);
         if (!force && this.chainVersions.get(row.id) === version) continue;
+        // A start that failed for THIS version waits out its backoff: no hot retry, and no
+        // cache drop (each one cost the chain's next message a database read). A save moves
+        // the version and is tried at once; `force` (tests) ignores the backoff.
+        const retry = this.initRetry.get(row.id);
+        if (!force && retry && retry.version === version && Date.now() < retry.at) continue;
         this.deps.invalidateChain(row.id);
         const chain = await this.deps.getChain(row.id);
         // Not recorded: a chain that could not be read is tried again at the next sync.
@@ -751,32 +774,56 @@ class RuleEngineImpl implements RuleEngine {
           if (!this.instances.has(key) && !(await this.initInstance(key, chain, node))) initialised = false;
         }
         // The version is recorded only once EVERY lifecycle node of the chain started:
-        // a failed onInit is retried at the next sync (5 s), not forgotten.
-        if (initialised) this.chainVersions.set(row.id, version);
+        // a failed onInit is retried — after 5 s, 10 s, 20 s … at most 5 min (m3) — not forgotten.
+        if (initialised) {
+          this.chainVersions.set(row.id, version);
+          this.initRetry.delete(row.id);
+        } else {
+          const failures = (retry && retry.version === version ? retry.failures : 0) + 1;
+          this.initRetry.set(row.id, { version, failures, at: Date.now() + Math.min(INIT_RETRY_MAX_MS, INIT_RETRY_BASE_MS * 2 ** Math.min(failures - 1, 20)) });
+        }
       }
       for (const id of [...this.chainVersions.keys()]) if (!live.has(id)) this.chainVersions.delete(id);
+      for (const id of [...this.liveVersions.keys()]) if (!live.has(id)) this.liveVersions.delete(id);
+      for (const id of [...this.initRetry.keys()]) if (!live.has(id)) this.initRetry.delete(id);
+      for (const key of [...this.lastInitErrorLogAt.keys()]) if (!live.has(key.slice(0, key.indexOf(':')))) this.lastInitErrorLogAt.delete(key);
     } catch (err) {
       this.inc('lifecycle_errors');
       logger.error({ err: errorText(err) }, '[rule-engine] node lifecycles could not be synchronised');
     }
   }
 
-  /** True when the node started (or has no onInit). A failed start is NOT kept, so the next sync retries it. */
+  /**
+   * True when the node started (or has no onInit). A failed start is NOT kept, so a later sync
+   * retries it (after its backoff); first it gets a best-effort onDestroy (m3), since an onInit
+   * that failed half way may already hold a timer or a connection.
+   */
   private async initInstance(key: string, chain: LoadedRuleChain, node: RuleChainNode): Promise<boolean> {
     const reg = getHandler(node.type) as RegisteredRuleNode | undefined;
     this.instances.set(key, { key, fingerprint: fingerprintOf(node), chain, node });
     if (!reg?.onInit) return true;
     try {
       await reg.onInit(this.contextFor(chain, node, null, null).ctx);
+      this.lastInitErrorLogAt.delete(key);
       return true;
     } catch (err) {
       this.instances.delete(key);
       this.inc('init_errors');
-      // Once a minute per node: a node that cannot start is retried every sync.
+      let destroyErr: string | null = null;
+      if (reg.onDestroy) {
+        try {
+          await reg.onDestroy(this.contextFor(chain, node, null, null).ctx);
+        } catch (e) {
+          this.inc('destroy_errors');
+          destroyErr = errorText(e);
+        }
+      }
+      // Once a minute per node at most (the backoff already spaces the attempts).
       const now = Date.now();
       if (now - (this.lastInitErrorLogAt.get(key) ?? 0) >= 60_000) {
         this.lastInitErrorLogAt.set(key, now);
-        logger.error({ err: errorText(err), chain: chain.name, node: node.name }, '[rule-engine] a node failed to start — retried at every sync (logged once a minute)');
+        logger.error({ err: errorText(err), ...(destroyErr ? { cleanupErr: destroyErr } : {}), chain: chain.name, node: node.name },
+          '[rule-engine] a node failed to start — retried after 5 s, 10 s, 20 s … at most every 5 min, and at once when its chain is saved');
       }
       return false;
     }
