@@ -1347,7 +1347,7 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
   summary follows the same rule** ("same in trends page also"): `Minimum` /
   `Maximum` only for a bound in force, the below / above line only for the
   assessed side(s).
-  No count moved. See `apps/web/CLAUDE.md`.
+  No count moved. See `docs/web-feature-notes.md`, "The Data Report page and the Instrument History widget" (moved out of `apps/web/CLAUDE.md` on 2026-11-05).
 - **The dashboard's selection alarms panel is the SHARED alarm table
   (2026-09-01).** `routes/dashboard/selection-alarms.tsx` was a bespoke `<ul>`;
   it now renders the cells from `routes/alarms/alarm-table.tsx`, the same ones
@@ -1465,7 +1465,7 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
       single line, not divided into separately").** The seam between two
       adjoining CIRCULATION rooms is cut out of the walls by the VIEW
       (`sharedOpenings()` in `apps/web/.../room-geometry.ts`), and a
-      continuation piece prints no code or name — see `apps/web/CLAUDE.md`.
+      continuation piece prints no code or name — see `docs/web-feature-notes.md`, "The QC floor plan is TRACED" (moved out of `apps/web/CLAUDE.md` on 2026-11-05).
       The stored rooms are unchanged: three rectangles, three §11 records.
       **`SHAFT-E` is UTILITY, not CIRCULATION**, or the corridor would open
       into the service band. Re-applied to the local database.
@@ -1551,7 +1551,7 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
       sizes it and the side panel cost a fifth of that. Also: 2D line weights
       scale with the canvas width (QC's 1069 is the reference; never heavier),
       and a tall narrow empty room prints its name up its length. QC is
-      unchanged by all three — see `apps/web/CLAUDE.md`. **Later the same
+      unchanged by all three — see `docs/web-feature-notes.md`, "The 2D ARCHITECTURAL style" (moved out of `apps/web/CLAUDE.md` on 2026-11-05). **Later the same
       day the rule became "every 2D plan that is not portrait"**
       (`LEGEND_UNDER_RATIO` 0.9; operator, on QC 3: "give legend on below
       the layout"). On a near-square plan that is a TRADE: the floor panel
@@ -1567,7 +1567,7 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
       view keeps the drawing's proportions, byte for byte. **2D style
       only** - the generated floors' fixed tiles break when stretched and
       stay centred. `planExtent` no longer clips drawn content at the
-      canvas edge (only its margin stops there). See `apps/web/CLAUDE.md`.
+      canvas edge (only its margin stops there). See `docs/web-feature-notes.md`, "The 2D ARCHITECTURAL style" (moved out of `apps/web/CLAUDE.md` on 2026-11-05).
     - **"CWH — Module-E" is the FOURTH floor in this style (same day,
       operator: "do module-e layout also same like qc").**
       `module-e-layout.ts`, traced from `Layouts/CWH/Module-E layout.pdf` —
@@ -1594,7 +1594,7 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
       with a light core, card headers a status gradient, and each reading in
       a pill - a soft tint of the QUANTITY when in limit, SOLID status colour
       with white text otherwise. The legend names the pill colours. The
-      standard style is untouched. See `apps/web/CLAUDE.md`.
+      standard style is untouched. See `docs/web-feature-notes.md`, "The 2D ARCHITECTURAL style" (moved out of `apps/web/CLAUDE.md` on 2026-11-05).
     - **Two more card shapes, `tall` and `compact`, exist for rooms the design
       cards cannot serve** — tried ONLY when `std` / `wide` print the Location
       under `LEGIBLE_LOC_FONT` (9 units; `chooseCard` in `floorplan-view.tsx`).
