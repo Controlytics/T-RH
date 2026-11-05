@@ -1,4 +1,11 @@
 import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
+
+// Follow-up (c): count the budgeted regex runs of Copy / Delete keys; the real lib runs every time.
+const regexRuns = vi.hoisted(() => ({ count: 0 }));
+vi.mock('../../../lib/regex-budget.js', async (importActual) => {
+  const real = await importActual<typeof import('../../../lib/regex-budget.js')>();
+  return { ...real, regexWithBudget: (...args: Parameters<typeof real.regexWithBudget>) => { regexRuns.count++; return real.regexWithBudget(...args); } };
+});
 import type { Alarm } from '@prisma/client';
 import { BUILT_RULE_NODE_TYPES } from '@digilog/shared';
 import { getHandler, registerNode } from '../registry.js';
@@ -182,15 +189,80 @@ describe('M-5 — a key pattern runs against a device-chosen key name under lib/
     expect(calls.next[0].msg.metadata).not.toHaveProperty(slowKey);
   });
 
-  it('Delete keys: the same cut-off keeps the key (fail closed — documented), and a key judged once is not judged again', async () => {
+  it('Delete keys: the same cut-off keeps the key (fail closed — documented); a DEFINITE answer is remembered, so a key judged once is not judged again', async () => {
     const msg = testMessage({ [slowKey]: 1, temp: 2 });
     const first = await run('tb:transformation:delete-key-value-pairs', msg, { config: { deleteFrom: 'DATA', keys: ['(a+)+', 'temp'] } });
     expect(first.calls.next[0].msg.data).toEqual({ [slowKey]: 1 });
-    // The same key name again: the remembered answer, no second budget spent.
+    // A definite answer (here a match) is remembered: the same key name again runs no regex.
+    await run('tb:transformation:delete-key-value-pairs', testMessage({ aaaa: 1 }), { config: { deleteFrom: 'DATA', keys: ['(a+)+'] } });
+    const before = regexRuns.count;
+    const again = await run('tb:transformation:delete-key-value-pairs', testMessage({ aaaa: 3 }), { config: { deleteFrom: 'DATA', keys: ['(a+)+'] } });
+    expect(regexRuns.count).toBe(before);
+    expect(again.calls.next[0].msg.data).toEqual({});
+  });
+
+  it('a pattern that runs out its budget 3 times is switched OFF for the node: 50 distinct pathological keys in ONE message cost at most 3 budget runs, well under 1 s, logged once', async () => {
+    const keys = Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`${'a'.repeat(28)}b${i}`, i]));
+    const ids = { nodeId: '0f000000-0000-4000-8000-0000000c0001', chainId: '0f000000-0000-4000-8000-0000000c0002', chainVersion: 1 };
+    const before = regexRuns.count;
     const started = Date.now();
-    const again = await run('tb:transformation:delete-key-value-pairs', testMessage({ [slowKey]: 3 }), { config: { deleteFrom: 'DATA', keys: ['(a+)+'] } });
-    expect(Date.now() - started).toBeLessThan(60);
-    expect(again.calls.next[0].msg.data).toEqual({ [slowKey]: 3 });
+    const { calls } = await run('tb:transformation:copy-key-value-pairs', testMessage({ ...keys, temp: 2 }), { ...ids, config: { copyFrom: 'DATA', keys: ['(a+)+', 'temp'] } });
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(regexRuns.count - before).toBe(3);
+    expect(calls.relations()).toEqual(['Success']);
+    expect(calls.next[0].msg.metadata.temp).toBe('2');
+    for (const k of Object.keys(keys)) expect(calls.next[0].msg.metadata).not.toHaveProperty(k);
+    expect(calls.logs.filter((l) => l.level === 'warn' && l.text.includes('switched off'))).toHaveLength(1);
+  });
+
+  it('the switch-off holds across messages — every key is "no match" with no regex run, a matching one too — until the chain version changes', async () => {
+    const T = 'tb:transformation:copy-key-value-pairs';
+    const node = { nodeId: '0f000000-0000-4000-8000-0000000c0011', chainId: '0f000000-0000-4000-8000-0000000c0012' };
+    const pathological = (tag: string) => Object.fromEntries(Array.from({ length: 3 }, (_, i) => [`${'a'.repeat(28)}b${tag}${i}`, i]));
+    await run(T, testMessage(pathological('x')), { ...node, chainVersion: 7, config: { copyFrom: 'DATA', keys: ['(a+)+'] } });
+    // Same chain version: switched off — `aaa` would match, and is not copied; nothing runs.
+    const before = regexRuns.count;
+    const off = await run(T, testMessage({ ...pathological('y'), aaa: 1 }), { ...node, chainVersion: 7, config: { copyFrom: 'DATA', keys: ['(a+)+'] } });
+    expect(regexRuns.count).toBe(before);
+    expect(off.calls.next[0].msg.metadata).not.toHaveProperty('aaa');
+    expect(off.calls.logs.filter((l) => l.text.includes('switched off'))).toHaveLength(0);
+    // The chain saved with a change (a new version): the pattern is back on.
+    const on = await run(T, testMessage({ aaa: 1 }), { ...node, chainVersion: 8, config: { copyFrom: 'DATA', keys: ['(a+)+'] } });
+    expect(on.calls.next[0].msg.metadata.aaa).toBe('1');
+    // Switched off again at version 8: even the REMEMBERED match of `aaa` is "no match" now — the switch-off comes first.
+    await run(T, testMessage(pathological('z')), { ...node, chainVersion: 8, config: { copyFrom: 'DATA', keys: ['(a+)+'] } });
+    const offAgain = await run(T, testMessage({ aaa: 1 }), { ...node, chainVersion: 8, config: { copyFrom: 'DATA', keys: ['(a+)+'] } });
+    expect(offAgain.calls.next[0].msg.metadata).not.toHaveProperty('aaa');
+  });
+
+  it('run-outs count in TOTAL, not in a row: key names alternating with harmless ones do not keep a catastrophic pattern alive', async () => {
+    const T = 'tb:transformation:delete-key-value-pairs';
+    const node = { nodeId: '0f000000-0000-4000-8000-0000000c0031', chainId: '0f000000-0000-4000-8000-0000000c0032', chainVersion: 1 };
+    const data: Record<string, number> = {};
+    for (let i = 0; i < 10; i++) {
+      data[`${'a'.repeat(28)}b${i}`] = i; // runs out
+      data[`harmless${i}`] = i;              // a quick, fresh "no match" in between
+    }
+    const before = regexRuns.count;
+    const started = Date.now();
+    await run(T, testMessage(data), { ...node, config: { deleteFrom: 'DATA', keys: ['(a+)+'] } });
+    expect(Date.now() - started).toBeLessThan(1_000);
+    // 3 run-outs and the harmless names judged before the third one; nothing after the switch-off.
+    expect(regexRuns.count - before).toBeLessThanOrEqual(6);
+  });
+
+  it('a TIMEOUT is never remembered: the same pathological key spends the budget again in the next message (until the third run switches the pattern off)', async () => {
+    const T = 'tb:transformation:delete-key-value-pairs';
+    const node = { nodeId: '0f000000-0000-4000-8000-0000000c0021', chainId: '0f000000-0000-4000-8000-0000000c0022', chainVersion: 1 };
+    const key = `${'a'.repeat(28)}bSAME`;
+    const runs: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      const before = regexRuns.count;
+      const r = await run(T, testMessage({ [key]: i }), { ...node, config: { deleteFrom: 'DATA', keys: ['(a+)+'] } });
+      runs.push(regexRuns.count - before);
+      expect(r.calls.next[0].msg.data).toEqual({ [key]: i });
+    }
+    expect(runs).toEqual([1, 1, 1, 0]);
   });
 
   it('a key longer than the budget judges (1,000 characters) never matches a pattern — it cannot be judged whole; a plain name beside it still applies', async () => {

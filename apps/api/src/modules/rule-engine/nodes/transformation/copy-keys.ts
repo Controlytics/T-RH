@@ -2,7 +2,7 @@ import { RULE_RELATION_SUCCESS } from '@digilog/shared';
 import type { RuleNodeHandler } from '../../context.js';
 import { copyMessage } from '../../message.js';
 import { isPlainObject } from '../filter/support.js';
-import { keyMatcher } from './pattern.js';
+import { keyMatcher, keyPatternScope } from './pattern.js';
 
 /**
  * Copy key-value pairs — ThingsBoard's `TbCopyKeysNode` (spec §7).
@@ -26,7 +26,7 @@ export interface CopyKeysConfig {
 }
 
 export const copyKeys: RuleNodeHandler<CopyKeysConfig> = (ctx, msg) => {
-  const matches = keyMatcher(ctx.config.keys);
+  const matches = keyMatcher(ctx.config.keys, keyPatternScope(ctx));
   if (!isPlainObject(msg.data)) {
     ctx.tellNext(msg, RULE_RELATION_SUCCESS);
     return;

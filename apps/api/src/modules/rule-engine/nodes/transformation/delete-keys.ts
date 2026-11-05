@@ -2,7 +2,7 @@ import { RULE_RELATION_SUCCESS } from '@digilog/shared';
 import type { RuleNodeHandler } from '../../context.js';
 import { copyMessage } from '../../message.js';
 import { isPlainObject } from '../filter/support.js';
-import { keyMatcher } from './pattern.js';
+import { keyMatcher, keyPatternScope } from './pattern.js';
 
 /**
  * Delete key-value pairs — ThingsBoard's `TbDeleteKeysNode` (spec §7): every
@@ -19,7 +19,7 @@ export interface DeleteKeysConfig {
 }
 
 export const deleteKeys: RuleNodeHandler<DeleteKeysConfig> = (ctx, msg) => {
-  const matches = keyMatcher(ctx.config.keys);
+  const matches = keyMatcher(ctx.config.keys, keyPatternScope(ctx));
   if (ctx.config.deleteFrom === 'METADATA') {
     const gone = Object.keys(msg.metadata).filter(matches);
     if (gone.length === 0) {
