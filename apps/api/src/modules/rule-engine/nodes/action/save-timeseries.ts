@@ -19,13 +19,18 @@ import { skipsIngestOrigin } from './attributes.js';
  * The data: ThingsBoard's three telemetry shapes — flat `{ key: value }` at
  * `metadata.ts` (or the server time with `useServerTs`; ingest's shape here),
  * `{ ts, values }` at its own ts, or an array of either. A null value
- * fails with ThingsBoard's wording. Only POST_TELEMETRY_REQUEST is accepted,
- * as in ThingsBoard.
+ * fails with ThingsBoard's wording, and so does a body with no reading at all
+ * ("Msg body is empty: {}"). Only POST_TELEMETRY_REQUEST is accepted, as in
+ * ThingsBoard.
  *
  * `skipLatestPersistence` writes history only (the write path's `skipLatest`):
- * `instrument_telemetry_latest` is left as it was.
+ * `instrument_telemetry_latest` is left as it was. It is the ONE source of truth
+ * (ruling CV-3): ThingsBoard 4.x's `processingSettings` is converted to and from
+ * it at import / export (`@digilog/shared` `fromThingsboardConfig`), never read here.
  *
- * NARROWED, kept for export: `defaultTTL` (monthly partitions govern retention here).
+ * NARROWED, kept for export: `defaultTTL` (monthly partitions govern retention here);
+ * the processing strategies not built here (Deduplicate, WebSockets only, a time
+ * series Skip — the import warns, naming them).
  */
 export const SAVE_TIMESERIES_TYPE = 'tb:action:save-timeseries';
 
@@ -58,8 +63,8 @@ export async function saveTimeseries(ctx: RuleContext<SaveTimeseriesConfig>, msg
   }
   const instrumentId = instrumentIdOf(msg, 'Save time series');
   const readings = telemetryReadings(msg, ctx.config.useServerTs === true);
-  if (readings.length > 0) {
-    await ctx.services.telemetry.write(instrumentId, readings, ctx.origin, { skipLatest: ctx.config.skipLatestPersistence === true });
-  }
+  // TbMsgTimeseriesNode: `if (tsKvMap.isEmpty()) tellFailure("Msg body is empty: " + src)` (TB-P 3).
+  if (readings.length === 0) throw new Error(`Msg body is empty: ${JSON.stringify(msg.data)}`);
+  await ctx.services.telemetry.write(instrumentId, readings, ctx.origin, { skipLatest: ctx.config.skipLatestPersistence === true });
   ctx.tellNext(msg, 'Success');
 }

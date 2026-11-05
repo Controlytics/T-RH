@@ -11,10 +11,14 @@
  *     unique index `alarms_active_rule_type_unique` settles the race); the
  *     Alarms list serves it and `alarmDisplayName` names it by its alarmType;
  *   - Clear alarm → `claimClear` (state CLEARED, `clearDetails`) → `Cleared`;
- *     again → `False`;
+ *     again → `False`; with a CUSTOM clear script its details are what the
+ *     Cleared message and the emitted ALARM_CLEAR carry (TB-P 2);
  *   - Save attributes → `instrument_attributes` + an INSTRUMENT_ATTRIBUTE_SET
- *     audit row by user SYSTEM naming the chain and node; with the chain's
- *     "Re-enter" ON its ATTRIBUTES_UPDATED reaches the root chain;
+ *     audit row by user SYSTEM naming the chain and node; with
+ *     `sendAttributesUpdatedNotification` and the chain's "Re-enter" ON its
+ *     ATTRIBUTES_UPDATED reaches the root chain — with the notification OFF none
+ *     does; with `updateAttributesOnlyOnValueChange` OFF it lists every key while
+ *     only the changed one is written and audited, and nothing changed sends nothing (TB-P 7);
  *   - Save time series over an INGEST-origin reading: skip ON → no write at
  *     all; skip OFF → written, an upsert no-op (no TELEMETRY_READING_REWRITTEN);
  *   - Delay → a `rule_engine_message` job on `rule-engine:<instrument>` with
@@ -53,6 +57,7 @@ const SA = `t5_sa_${STAMP}`;
 const PW = 'RuleNodes@2026';
 const ALARM_TYPE = `High temp ${STAMP}`;
 const RACE_TYPE = `Race ${STAMP}`;
+const ALARM_TYPE_2 = `Door ${STAMP}`;
 
 let app: FastifyInstance;
 let sa: Record<string, string>;
@@ -68,6 +73,10 @@ let CREATE: Built;
 let RACE: Built;
 let CLEAR: Built;
 let ATTR: Built;
+let ATTR_QUIET: Built;
+let ATTR_ALL: Built;
+let CREATE_2: Built;
+let CLEAR_2: Built;
 let DELAY: Built;
 let MATH: Built;
 let SAVE_HISTORY_ONLY: Built;
@@ -174,7 +183,14 @@ beforeAll(async () => {
   CREATE = await makeChain('create-alarm', 'tb:action:create-alarm', { alarmType: ALARM_TYPE, severity: 'MAJOR', alarmDetailsBuildJs: 'return { t: msg.t };' });
   RACE = await makeChain('create-alarm race', 'tb:action:create-alarm', { alarmType: RACE_TYPE, severity: 'MINOR' });
   CLEAR = await makeChain('clear-alarm', 'tb:action:clear-alarm', { alarmType: ALARM_TYPE });
-  ATTR = await makeChain('save-attributes', 'tb:action:save-attributes', {}, true);
+  ATTR = await makeChain('save-attributes', 'tb:action:save-attributes', { sendAttributesUpdatedNotification: true }, true);
+  // TB-P 7: ThingsBoard's default (notification off) sends nothing, Re-enter or not.
+  ATTR_QUIET = await makeChain('save-attributes quiet', 'tb:action:save-attributes', {}, true);
+  ATTR_ALL = await makeChain('save-attributes all keys', 'tb:action:save-attributes',
+    { sendAttributesUpdatedNotification: true, updateAttributesOnlyOnValueChange: false }, true);
+  // TB-P 2: a CUSTOM clear script (the shipped one returns the previous details, so it cannot show the gap).
+  CREATE_2 = await makeChain('create-alarm 2', 'tb:action:create-alarm', { alarmType: ALARM_TYPE_2, severity: 'MINOR', alarmDetailsBuildJs: 'return { raisedAt: msg.t };' });
+  CLEAR_2 = await makeChain('clear-alarm 2', 'tb:action:clear-alarm', { alarmType: ALARM_TYPE_2, alarmDetailsBuildJs: 'return { closedAt: msg.t };' }, true);
   DELAY = await makeChain('delay', 'tb:action:delay', { periodInSeconds: 120, maxPendingMsgs: 1 });
   MATH = await makeChain('math-function', 'tb:action:math-function', {
     operation: 'ADD', arguments: [{ name: 'a', type: 'MESSAGE_BODY', key: 'a' }, { name: 'b', type: 'MESSAGE_BODY', key: 'b' }],
@@ -290,6 +306,24 @@ describe('Create alarm and Clear alarm', () => {
     expect(out[1].relation).toBe('False (unconnected)');
   });
 
+  it('TB-P 2: a CUSTOM clear script\'s details are what the Cleared message AND the emitted ALARM_CLEAR carry; the raise details stay recorded', async () => {
+    await ruleEngine.processNow(instMsg('POST_TELEMETRY_REQUEST', { t: 40 }), { chainId: CREATE_2.chainId });
+    const [open] = await activeRule(ALARM_TYPE_2);
+    expect(open, 'the second alarm is open').toBeDefined();
+    createdAlarms.add(open.id);
+    await ruleEngine.processNow(instMsg('POST_TELEMETRY_REQUEST', { t: 18 }), { chainId: CLEAR_2.chainId });
+    const after = await prisma.alarm.findUniqueOrThrow({ where: { id: open.id } });
+    expect(after.state).toBe('CLEARED');
+    expect(after.ruleSnapshot).toMatchObject({ details: { raisedAt: 40 }, clearDetails: { closedAt: 18 } });
+    const [cleared] = await waitForRows(CLEAR_2.chainId, { direction: 'OUT' }, 1);
+    expect(cleared).toMatchObject({ relation: 'Cleared (unconnected)', msg_type: 'ALARM' });
+    expect(cleared.data.details).toEqual({ closedAt: 18 });
+    // Re-enter is ON for that chain: its ALARM_CLEAR enters the root chain carrying the same details.
+    const [entered] = await waitForRows(ROOT.chainId, { msgType: 'ALARM_CLEAR', originatorId: open.id, direction: 'IN' }, 1);
+    expect(entered, 'the ALARM_CLEAR entered the root chain').toBeDefined();
+    expect(entered.data).toMatchObject({ id: open.id, cleared: true, details: { closedAt: 18 } });
+  });
+
   it('acknowledging it fires the ACKNOWLEDGED webhook under its alarmType, not its metric (alarms/routes.ts)', async () => {
     const [alarm] = await prisma.alarm.findMany({ where: { instrumentId: inst!.id, source: 'RULE', ruleSnapshot: { path: ['alarmType'], equals: ALARM_TYPE } } });
     const res = await app.inject({
@@ -343,6 +377,38 @@ describe('Save attributes', () => {
   it('the same value again is neither re-written nor re-audited', async () => {
     await ruleEngine.processNow(instMsg('POST_ATTRIBUTES_REQUEST', { fw: value }), { chainId: ATTR.chainId });
     expect(await prisma.auditTrail.count({ where: { action: 'INSTRUMENT_ATTRIBUTE_SET', targetId: inst!.id } })).toBe(1);
+  });
+
+  const audits = () => prisma.auditTrail.count({ where: { action: 'INSTRUMENT_ATTRIBUTE_SET', targetId: inst!.id } });
+  const updatedAtRoot = (atLeast: number, ms?: number) =>
+    waitForRows(ROOT.chainId, { msgType: 'ATTRIBUTES_UPDATED', originatorId: inst!.id, direction: 'IN' }, atLeast, ms);
+
+  it('TB-P 7: notification OFF (ThingsBoard\'s default) — written and audited, but NO Attributes Updated message, even with Re-enter ON', async () => {
+    const before = await audits();
+    await ruleEngine.processNow(instMsg('POST_ATTRIBUTES_REQUEST', { quiet: value }), { chainId: ATTR_QUIET.chainId });
+    expect((await prisma.instrumentAttribute.findUnique({ where: { instrumentId_key: { instrumentId: inst!.id, key: 'quiet' } } }))?.value).toBe(value);
+    expect(await audits()).toBe(before + 1);
+    const [out] = await waitForRows(ATTR_QUIET.chainId, { direction: 'OUT' }, 1);
+    expect(out.relation).toBe('Success (unconnected)');
+    // Give a message time to arrive, then: none naming `quiet` entered the root.
+    const entered = await updatedAtRoot(999, 1_500);
+    expect(entered.some((r) => r.data && 'quiet' in r.data)).toBe(false);
+  });
+
+  it('TB-P 7: updateAttributesOnlyOnValueChange OFF — the message lists EVERY key, only the changed one is written and audited; nothing changed → no message', async () => {
+    const site = `QC ${STAMP}`;
+    const before = await audits();
+    const rowsBefore = (await updatedAtRoot(0, 0)).length;
+    await ruleEngine.processNow(instMsg('POST_ATTRIBUTES_REQUEST', { fw: value, site }), { chainId: ATTR_ALL.chainId });
+    expect(await audits(), 'site written; fw (unchanged) is not re-written or audited').toBe(before + 1);
+    const got = await updatedAtRoot(rowsBefore + 1);
+    expect(got).toHaveLength(rowsBefore + 1);
+    expect(got[rowsBefore].data).toEqual({ fw: value, site });
+    expect(got[rowsBefore].metadata.rule_engine_origin).toBe(ruleNodeOrigin(ATTR_ALL.chainId, ATTR_ALL.nodeId));
+    // The same message again changes nothing: no write, no audit, and NO message (re-entry stays bounded).
+    await ruleEngine.processNow(instMsg('POST_ATTRIBUTES_REQUEST', { fw: value, site }), { chainId: ATTR_ALL.chainId });
+    expect(await audits()).toBe(before + 1);
+    expect(await updatedAtRoot(rowsBefore + 2, 1_500)).toHaveLength(rowsBefore + 1);
   });
 });
 

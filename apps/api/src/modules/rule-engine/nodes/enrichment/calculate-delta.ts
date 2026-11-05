@@ -1,6 +1,6 @@
 import type { RuleContext } from '../../context.js';
 import { copyMessage, type RuleMessage } from '../../message.js';
-import { bodyFields, metadataTs, roundHalfUp, toNumber, type JsonObject } from '../action/support.js';
+import { bodyFields, javaAsDouble, javaParseDouble, metadataTs, roundHalfUp, type JsonObject } from '../action/support.js';
 
 /**
  * CALCULATE DELTA — ThingsBoard's `CalculateDeltaNode` (rule chains, Task 5).
@@ -10,9 +10,13 @@ import { bodyFields, metadataTs, roundHalfUp, toNumber, type JsonObject } from '
  * first), rounded to `round` places (HALF_UP) when set, and with
  * `addPeriodBetweenMsgs` the milliseconds since the previous one under
  * `periodValueKey`. `Other` for any other message type or a message without
- * the key; `Failure` for a non-numeric value or, with
- * `tellFailureIfDeltaIsNegative`, a negative delta ("Delta value is
- * negative!"). With `excludeZeroDeltas` a zero delta passes on UNCHANGED.
+ * the key. The value is read as ThingsBoard reads it (`asDouble()`, TB-P 6):
+ * text that is not a number counts as 0, a boolean as 1 / 0 — never a Failure.
+ * `Failure` with `tellFailureIfDeltaIsNegative` for a negative delta ("Delta
+ * value is negative!"), and for a delta that is not finite ("NaN" text — Java's
+ * BigDecimal cannot hold it). With `excludeZeroDeltas` a zero delta passes on UNCHANGED.
+ * A stored previous value is judged as ThingsBoard's `extractValue` judges the
+ * latest one: unparseable text, a boolean or JSON fails.
  *
  * THE PREVIOUS VALUE. With `useCache` it is the last value this node saw for
  * the originator (kept in memory, dropped when the node is changed or removed,
@@ -52,12 +56,30 @@ export function clearDeltaCaches(): void {
   caches.clear();
 }
 
+/**
+ * ThingsBoard's `extractValue` for the stored previous reading: a number as is;
+ * text by `Double.parseDouble`, else "Calculation failed. Unable to parse value
+ * [x] of telemetry [key] to Double"; a boolean or JSON value fails; null is no
+ * previous value.
+ */
+function storedValue(key: string, v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'number') return v;
+  if (typeof v === 'string') {
+    const n = javaParseDouble(v);
+    if (n === null) throw new Error(`Calculation failed. Unable to parse value [${v}] of telemetry [${key}] to Double`);
+    return n;
+  }
+  if (typeof v === 'boolean') throw new Error('Calculation failed. Boolean values are not supported!');
+  throw new Error('Calculation failed. JSON values are not supported!');
+}
+
 async function previousFromDb(ctx: RuleContext<CalculateDeltaConfig>, msg: RuleMessage, key: string, ts: number): Promise<Previous | null> {
   // Readings belong to instruments; another originator has only the cache.
   if (msg.originator.type !== 'INSTRUMENT') return null;
   const rows = await ctx.services.telemetry.history(msg.originator.id, [key], new Date(0), new Date(ts - 1), 'NONE', 'DESC', 1);
   const row = rows[key]?.[0];
-  const value = row ? toNumber(row.value) : null;
+  const value = row ? storedValue(key, row.value) : null;
   return row && value !== null ? { ts: row.ts, value } : null;
 }
 
@@ -68,8 +90,9 @@ export async function calculateDelta(ctx: RuleContext<CalculateDeltaConfig>, msg
     ctx.tellNext(msg, 'Other');
     return;
   }
-  const current = toNumber(fields[cfg.inputValueKey]);
-  if (current === null) throw new Error(`Calculate delta: the value of "${cfg.inputValueKey}" is not a number`);
+  // TB-P 6: ThingsBoard reads `json.get(inputValueKey).asDouble()` — text that is not a number
+  // is 0, a boolean 1 / 0 — never a Failure.
+  const current = javaAsDouble(fields[cfg.inputValueKey]);
   const ts = metadataTs(msg);
 
   let cache: Map<string, Previous> | undefined;
@@ -87,6 +110,8 @@ export async function calculateDelta(ctx: RuleContext<CalculateDeltaConfig>, msg
   }
 
   let delta = previous ? current - previous.value : 0;
+  // `BigDecimal.valueOf(delta)` throws for NaN / Infinity ("NaN" / "Infinity" text parses to them).
+  if (!Number.isFinite(delta)) throw new Error(`DELTA_NOT_FINITE: the delta of "${cfg.inputValueKey}" came out as ${delta}`);
   if (cfg.tellFailureIfDeltaIsNegative !== false && delta < 0) throw new Error('Delta value is negative!');
   if (cfg.excludeZeroDeltas === true && delta === 0) {
     ctx.tellNext(msg, 'Success');

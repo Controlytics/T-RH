@@ -3,7 +3,8 @@ import type { RuleContext } from '../../context.js';
 import { copyMessage, type RuleMessage } from '../../message.js';
 import { compileExpression, evaluateExpression } from './math-expression.js';
 import {
-  ATTRIBUTE_SCOPES, bodyFields, instrumentIdOf, processPattern, roundHalfUp, toNumber, type JsonObject,
+  ATTRIBUTE_SCOPES, bodyFields, instrumentIdOf, javaDoubleToString, javaLong, javaLongText, processPattern, roundHalfUp, toNumber,
+  type JsonObject,
 } from './support.js';
 
 /**
@@ -26,12 +27,22 @@ import {
  * where `x^2` would be XOR (`math-expression.ts`). A result that is not a
  * finite number (√−1, x / 0, log 0) FAILS rather than store NaN or Infinity.
  *
- * RESULT: rounded HALF_UP to `resultValuePrecision` places (0 = a whole
- * number), then to MESSAGE_BODY, MESSAGE_METADATA (as text), ATTRIBUTE (saved
- * through the attribute writer, `attributeScope`) or TIME_SERIES (written at
- * the server time through the ingest write path); for the last two
- * `addToBody` / `addToMetadata` also put it on the message. ATTRIBUTE /
- * TIME_SERIES result keys may be patterns. Out on `Success`.
+ * RESULT (ThingsBoard's rule, TB-P 2026-11-05): for GET_EXP / CEIL / FLOOR or
+ * at `resultValuePrecision` 0 (also when it is absent, as ThingsBoard's `int`
+ * defaults) the result is TRUNCATED toward zero (`(long) value` — 7.5 → 7, no
+ * rounding); otherwise rounded HALF_UP to the precision. It goes to
+ * MESSAGE_BODY, MESSAGE_METADATA (text: `Long.toString` / `Double.toString` —
+ * "7", "5.0", "1.0E7"), ATTRIBUTE (saved through the attribute writer,
+ * `attributeScope`, as the text of the number; NO Attributes Updated message, as
+ * TbMathNode sends none) or TIME_SERIES (written at the server time through the
+ * ingest write path — the UNROUNDED result, as ThingsBoard's `DoubleDataEntry(result)`);
+ * for the last two `addToBody` / `addToMetadata` also put the truncated / rounded
+ * value on the message. Out on `Success`.
+ *
+ * NARROWED / KEPT DIFFERENT: a result that is not finite FAILS (ThingsBoard
+ * stores `(long) NaN = 0` / Long.MAX on the integer path and fails on the double
+ * path); ATTRIBUTE / TIME_SERIES result keys are patterns everywhere (ThingsBoard
+ * saves under the RAW key text and puts the processed key on the message).
  */
 export const MATH_FUNCTION_TYPE = 'tb:action:math-function';
 
@@ -159,6 +170,9 @@ function operate(cfg: MathConfig, values: number[]): number {
   return TWO[op](values[0], values[1]);
 }
 
+/** ThingsBoard's `TbRuleNodeMathFunctionType.isIntegerResult()`: the three functions whose result is a whole number. */
+const INTEGER_RESULT_OPERATIONS = new Set(['GET_EXP', 'CEIL', 'FLOOR']);
+
 export async function mathFunction(ctx: RuleContext<MathConfig>, msg: RuleMessage): Promise<void> {
   const cfg = ctx.config;
   const args = Array.isArray(cfg.arguments) ? cfg.arguments : [];
@@ -166,7 +180,12 @@ export async function mathFunction(ctx: RuleContext<MathConfig>, msg: RuleMessag
   if (!Number.isFinite(result)) throw new Error(`MATH_RESULT_NOT_FINITE: ${cfg.operation} came out as ${result}`);
   const res = cfg.result;
   const precision = typeof res.resultValuePrecision === 'number' && res.resultValuePrecision >= 0 ? Math.floor(res.resultValuePrecision) : 0;
-  const value = roundHalfUp(result, precision);
+  // TbMathNode.isIntegerResult: an integer-result function OR precision 0 → `(long) value`
+  // (toward zero, no rounding), written as a long; otherwise HALF_UP at the precision,
+  // written in metadata by `Double.toString` ("5.0").
+  const integer = INTEGER_RESULT_OPERATIONS.has(cfg.operation) || precision === 0;
+  const value = integer ? javaLong(result) : roundHalfUp(result, precision);
+  const text = integer ? javaLongText(result) : javaDoubleToString(value);
   const key = keyOf(res.type, res.key, msg);
   if (!key) throw new Error('MATH_RESULT_KEY_REQUIRED: the result key came out blank');
 
@@ -181,19 +200,22 @@ export async function mathFunction(ctx: RuleContext<MathConfig>, msg: RuleMessag
       toBody();
       break;
     case 'MESSAGE_METADATA':
-      out.metadata[key] = String(value);
+      out.metadata[key] = text;
       break;
     case 'ATTRIBUTE': {
       const scope = typeof res.attributeScope === 'string' && (ATTRIBUTE_SCOPES as readonly string[]).includes(res.attributeScope) ? res.attributeScope : 'SERVER_SCOPE';
-      await ctx.services.attributes.save(instrumentIdOf(msg, 'Math function'), { [key]: String(value) }, ctx.origin, false, scope);
+      // No Attributes Updated message: TbMathNode.saveAttribute passes no notification callback.
+      await ctx.services.attributes.save(instrumentIdOf(msg, 'Math function'), { [key]: String(value) }, ctx.origin, false, scope, { updated: 'none' });
       if (res.addToBody === true) toBody();
-      if (res.addToMetadata === true) out.metadata[key] = String(value);
+      if (res.addToMetadata === true) out.metadata[key] = text;
       break;
     }
     case 'TIME_SERIES':
-      await ctx.services.telemetry.write(instrumentIdOf(msg, 'Math function'), [{ key, value, ts: new Date() }], ctx.origin);
+      // ThingsBoard stores the UNROUNDED result (`new DoubleDataEntry(key, result)`); only the
+      // copies added to the message are truncated / rounded (ruling P-3).
+      await ctx.services.telemetry.write(instrumentIdOf(msg, 'Math function'), [{ key, value: result, ts: new Date() }], ctx.origin);
       if (res.addToBody === true) toBody();
-      if (res.addToMetadata === true) out.metadata[key] = String(value);
+      if (res.addToMetadata === true) out.metadata[key] = text;
       break;
     default:
       throw new Error(`MATH_RESULT_INVALID: unknown result type "${String((res as { type: unknown }).type)}"`);

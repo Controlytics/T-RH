@@ -14,13 +14,19 @@ import { instrumentIdOf, isPlainObject, processPatterns, scopeOf, type JsonObjec
  * `metadata.scope` when it carries one, else the node's) only labels the
  * emitted message.
  *
- * NARROWED by the writer, kept for export:
- *  - `updateAttributesOnlyOnValueChange: false` — an unchanged value is never
- *    re-written (it would be an audit row of a change that did not happen);
- *  - `sendAttributesUpdatedNotification` / `sendAttributesDeletedNotification`
- *    — the event is always emitted; whether it re-enters is the chain's
- *    "Re-enter on rule-node writes" switch (spec §5);
- *  - Delete attributes' `notifyDevice` — a removal is always announced.
+ * Save attributes' two toggles, as ThingsBoard's (TB-P 7, 2026-11-05):
+ *  - `sendAttributesUpdatedNotification` — the ATTRIBUTES_UPDATED message is sent
+ *    only when it is on and the scope is not CLIENT_SCOPE (`checkSendNotification`),
+ *    and only after a save that CHANGED a value; it re-enters a chain only under
+ *    that chain's "Re-enter on rule-node writes" (spec §5) — the emit path's loop guard;
+ *  - `updateAttributesOnlyOnValueChange: false` — that message lists EVERY key of
+ *    the message, not only the changed ones. The write itself stays change-only:
+ *    an unchanged value is never re-written or audited (21 CFR Part 11 — it would
+ *    be an audit row of a change that did not happen; ThingsBoard re-saves it with
+ *    a new timestamp), and the instrument is told only the changed keys.
+ *
+ * NARROWED, kept for export (Delete attributes): `sendAttributesDeletedNotification`
+ * — the event is always emitted; `notifyDevice` — a removal is always announced.
  */
 export const SAVE_ATTRIBUTES_TYPE = 'tb:action:save-attributes';
 export const DELETE_ATTRIBUTES_TYPE = 'tb:action:delete-attributes';
@@ -42,6 +48,8 @@ function attributeText(key: string, v: unknown): string | undefined {
 interface SaveAttributesConfig extends JsonObject {
   scope?: string;
   notifyDevice?: boolean;
+  sendAttributesUpdatedNotification?: boolean;
+  updateAttributesOnlyOnValueChange?: boolean;
 }
 
 export async function saveAttributes(ctx: RuleContext<SaveAttributesConfig>, msg: RuleMessage): Promise<void> {
@@ -57,7 +65,10 @@ export async function saveAttributes(ctx: RuleContext<SaveAttributesConfig>, msg
     const text = attributeText(k, v);
     if (text !== undefined) kv[k] = text;
   }
-  await ctx.services.attributes.save(instrumentId, kv, ctx.origin, ctx.config.notifyDevice === true, scopeOf(msg, ctx.config.scope));
+  const scope = scopeOf(msg, ctx.config.scope);
+  const notify = ctx.config.sendAttributesUpdatedNotification === true && scope !== 'CLIENT_SCOPE';
+  const updated = !notify ? 'none' : ctx.config.updateAttributesOnlyOnValueChange === false ? 'all' : 'changed';
+  await ctx.services.attributes.save(instrumentId, kv, ctx.origin, ctx.config.notifyDevice === true, scope, { updated });
   ctx.tellNext(msg, 'Success');
 }
 

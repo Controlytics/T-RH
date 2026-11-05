@@ -13,6 +13,7 @@ import { registerActionNodes } from '../nodes/action/index.js';
 import { metadataTs, processPattern, roundHalfUp } from '../nodes/action/support.js';
 import { compileExpression, evaluateExpression } from '../nodes/action/math-expression.js';
 import { newMessage, newMessageId, type RuleMessage } from '../message.js';
+import { alarmMessageData } from '../emit.js';
 import { fakeContext, testMessage } from '../../../test-support/rule-engine.js';
 import type { RuleServices } from '../services.js';
 
@@ -150,12 +151,39 @@ describe('Math function', () => {
     expect(r.out!.data).toEqual({ temperature: 212, temperatureCelsius: 100 });
   });
 
-  it('metadata and CONSTANT arguments; a metadata result is text; precision 0 is a whole number', async () => {
+  it('metadata and CONSTANT arguments; precision 0 TRUNCATES toward zero, as ThingsBoard\'s (long) cast (TB-P 1)', async () => {
     const r = await run(T, {
       operation: 'MULT', arguments: [{ type: 'MESSAGE_METADATA', key: 'k' }, { type: 'CONSTANT', key: '2.5' }],
       result: { type: 'MESSAGE_METADATA', key: 'out', resultValuePrecision: 0 },
     }, testMessage({}, { metadata: { k: '3' } }));
-    expect(r.out!.metadata.out).toBe('8');
+    // 3 × 2.5 = 7.5 → 7 (ThingsBoard's integer path: `(long) value`, no rounding).
+    expect(r.out!.metadata.out).toBe('7');
+    const neg = await run(T, {
+      operation: 'SUB', arguments: [{ type: 'CONSTANT', key: '0' }, { type: 'CONSTANT', key: '7.9' }],
+      result: { type: 'MESSAGE_BODY', key: 'r', resultValuePrecision: 0 },
+    }, testMessage({}));
+    expect((neg.out!.data as { r: number }).r).toBe(-7);
+  });
+
+  it('an integer-result function (GET_EXP, CEIL, FLOOR) takes the integer path at ANY precision; others round HALF_UP', async () => {
+    const one = async (operation: string, v: number, precision: number) => (await run(T, {
+      operation, arguments: [body('v')], result: { type: 'MESSAGE_METADATA', key: 'out', resultValuePrecision: precision },
+    }, testMessage({ v }))).out!.metadata.out;
+    expect(await one('FLOOR', 7.9, 2)).toBe('7');            // Long.toString, never "7.0"
+    expect(await one('CEIL', -7.9, 3)).toBe('-7');
+    expect(await one('ABS', -2.345, 2)).toBe('2.35');         // HALF_UP at 2
+  });
+
+  it('a metadata result on the double path is Java\'s Double.toString: "5.0", "1.0E7", "1.0E-4"', async () => {
+    const one = async (v: number, precision: number) => (await run(T, {
+      operation: 'ABS', arguments: [body('v')], result: { type: 'MESSAGE_METADATA', key: 'out', resultValuePrecision: precision },
+    }, testMessage({ v }))).out!.metadata.out;
+    expect(await one(5, 2)).toBe('5.0');
+    expect(await one(1234.5, 2)).toBe('1234.5');
+    expect(await one(12345678.9, 1)).toBe('1.23456789E7');
+    expect(await one(10_000_000, 1)).toBe('1.0E7');
+    expect(await one(0.0001, 4)).toBe('1.0E-4');
+    expect(await one(0.001, 3)).toBe('0.001');
   });
 
   it('attribute and latest-reading arguments; a missing one takes its defaultValue, else fails', async () => {
@@ -181,8 +209,14 @@ describe('Math function', () => {
       operation: 'SQRT', arguments: [body('x')],
       result: { type: 'ATTRIBUTE', key: '${k}', resultValuePrecision: 2, attributeScope: 'SHARED_SCOPE', addToBody: true },
     }, testMessage({ x: 2 }, { metadata: { k: 'dewPoint' } }), { attributes: { save } }, { nodeId: NODE, chainId: CHAIN });
-    expect(save).toHaveBeenCalledWith('instrument-1', { dewPoint: '1.41' }, `rule_node:${CHAIN}:${NODE}`, false, 'SHARED_SCOPE');
+    // No Attributes Updated message: TbMathNode.saveAttribute passes no notification callback.
+    expect(save).toHaveBeenCalledWith('instrument-1', { dewPoint: '1.41' }, `rule_node:${CHAIN}:${NODE}`, false, 'SHARED_SCOPE', { updated: 'none' });
     expect(r.out!.data).toEqual({ x: 2, dewPoint: 1.41 });
+    // Precision 0: the attribute is the TRUNCATED whole number.
+    const whole = await run(T, { operation: 'DIV', arguments: [body('a'), body('b')], result: { type: 'ATTRIBUTE', key: 'q', resultValuePrecision: 0 } },
+      testMessage({ a: 23, b: 3 }), { attributes: { save } });
+    expect((save.mock.calls[1] as unknown[])[1]).toEqual({ q: '7' });
+    expect(whole.relation).toBe('Success');
   });
 
   it('a TIME_SERIES result is written at the server time, and can be added to the metadata', async () => {
@@ -197,6 +231,17 @@ describe('Math function', () => {
     expect(readings[0]).toMatchObject({ key: 'peak', value: 7 });
     expect(readings[0].ts.getTime()).toBeGreaterThanOrEqual(before);
     expect(r.out!.metadata.peak).toBe('7');
+  });
+
+  it('a TIME_SERIES result stores the UNROUNDED result (ThingsBoard\'s DoubleDataEntry(result)); only the copies on the message are rounded', async () => {
+    const write = vi.fn(async () => undefined);
+    const r = await run(T, {
+      operation: 'DIV', arguments: [body('a'), body('b')], result: { type: 'TIME_SERIES', key: 'ratio', resultValuePrecision: 2, addToBody: true, addToMetadata: true },
+    }, testMessage({ a: 10, b: 3 }), { telemetry: { write } });
+    const [, readings] = write.mock.calls[0] as unknown as [string, { key: string; value: unknown }[]];
+    expect(readings[0].value).toBe(10 / 3);
+    expect((r.out!.data as { ratio: number }).ratio).toBe(3.33);
+    expect(r.out!.metadata.ratio).toBe('3.33');
   });
 
   it('Java semantics for FLOOR_DIV, FLOOR_MOD, GET_EXP, RAD, SIGNUM; a non-finite result fails', async () => {
@@ -284,11 +329,25 @@ describe('Create alarm', () => {
       { type: 'Door', severity: 'MAJOR', details: { door: 'A' }, originator: { entityType: 'INSTRUMENT', id: 'inst-9' } });
     await run(T, { useMessageAlarmData: true }, alarmMsg, { prisma, alarms: { createOrUpdate } });
     expect(createOrUpdate.mock.calls[0][0]).toMatchObject({ instrumentId: 'inst-9', alarmType: 'Door', severity: 'MAJOR', details: { door: 'A' } });
-    await run(T, { useMessageAlarmData: true, overwriteAlarmDetails: true, alarmDetailsBuildJs: 'return { prev: JSON.parse(metadata.prevAlarmDetails) };' },
-      alarmMsg, { prisma, alarms: { createOrUpdate } });
-    expect(createOrUpdate.mock.calls[1][0]).toMatchObject({ details: { prev: { door: 'A' } } });
+    // TB-P 8: on CREATE ThingsBoard builds the details with NO previous alarm (buildAlarmDetails(msg, null)) —
+    // the message alarm's own details are not handed to the script as prevAlarmDetails.
+    const script = 'return { prev: metadata.prevAlarmDetails === undefined ? "none" : JSON.parse(metadata.prevAlarmDetails) };';
+    await run(T, { useMessageAlarmData: true, overwriteAlarmDetails: true, alarmDetailsBuildJs: script }, alarmMsg, { prisma, alarms: { createOrUpdate } });
+    expect(createOrUpdate.mock.calls[1][0]).toMatchObject({ details: { prev: 'none' } });
+    // On UPDATE the open alarm's details are (updateAlarm passes existingAlarm.getDetails()).
+    await run(T, { useMessageAlarmData: true, overwriteAlarmDetails: true, alarmDetailsBuildJs: script }, alarmMsg,
+      { prisma: prismaWithOpen({ ruleSnapshot: { alarmType: 'Door', details: { open: 1 } } }).prisma, alarms: { createOrUpdate } });
+    expect(createOrUpdate.mock.calls[2][0]).toMatchObject({ details: { prev: { open: 1 } } });
     const noType = await run(T, { useMessageAlarmData: true }, testMessage({ severity: 'MAJOR' }), { prisma, alarms: { createOrUpdate } });
     expect(noType.thrown?.message).toMatch(/^ALARM_DATA_INVALID/);
+  });
+
+  it('on create, an incoming metadata.prevAlarmDetails reaches the script as it came (ThingsBoard hands the message over unchanged)', async () => {
+    const { prisma } = prismaWithOpen(null);
+    const createOrUpdate = vi.fn(async () => ({ alarm: alarmRow() as never, created: true }));
+    await run(T, { alarmDetailsBuildJs: 'return { seen: metadata.prevAlarmDetails };' },
+      testMessage({}, { metadata: { prevAlarmDetails: '{"upstream":1}' } }), { prisma, alarms: { createOrUpdate } });
+    expect(createOrUpdate.mock.calls[0][0]).toMatchObject({ details: { seen: '{"upstream":1}' } });
   });
 
   it('a non-instrument originator, a blank type and a TBEL node fail', async () => {
@@ -307,14 +366,32 @@ describe('Clear alarm', () => {
 
   it('an open alarm of the type: cleared (details from the script) → ALARM message, isClearedAlarm, relation Cleared', async () => {
     const { prisma } = prismaWithOpen({ ruleSnapshot: { alarmType: 'Hot', details: { count: 4 } } });
-    const clear = vi.fn(async () => alarmRow({ state: 'CLEARED', clearedAt: new Date(2_000) }) as never);
+    // What services.alarms.clear hands back: the raise details kept, the clear script's beside them.
+    const clear = vi.fn(async () => alarmRow({
+      state: 'CLEARED', clearedAt: new Date(2_000),
+      ruleSnapshot: { alarmType: 'Hot', nodeId: NODE, chainId: CHAIN, details: { count: 4 }, clearDetails: { was: 4 } },
+    }) as never);
     const r = await run(T, { alarmType: 'Hot', alarmDetailsBuildJs: 'return { was: JSON.parse(metadata.prevAlarmDetails).count };' },
       testMessage({}), { prisma, alarms: { clear } }, { nodeId: NODE, chainId: CHAIN });
     expect(clear).toHaveBeenCalledWith('instrument-1', 'Hot', { was: 4 }, `rule_node:${CHAIN}:${NODE}`);
     expect(r.relation).toBe('Cleared');
     expect(r.out!.type).toBe('ALARM');
     expect(r.out!.metadata.isClearedAlarm).toBe('true');
-    expect(r.out!.data).toMatchObject({ cleared: true, status: 'CLEARED_UNACK' });
+    // TB-P 2: ThingsBoard's clear_alarm REPLACES the alarm's details with the clear script's —
+    // the Cleared message carries those, not the details from before the clear.
+    expect(r.out!.data).toMatchObject({ cleared: true, status: 'CLEARED_UNACK', details: { was: 4 } });
+  });
+
+  it('alarmMessageData — ONE rule for the Cleared message and the ALARM_CLEAR emit: a RULE alarm\'s clearDetails win once it has them', () => {
+    const raised = alarmRow({ ruleSnapshot: { alarmType: 'Hot', details: { t: 31 } } });
+    expect(alarmMessageData(raised as never).details).toEqual({ t: 31 });
+    const cleared = alarmRow({ state: 'CLEARED', ruleSnapshot: { alarmType: 'Hot', details: { t: 31 }, clearDetails: { closedAt: 19 } } });
+    expect(alarmMessageData(cleared as never).details).toEqual({ closedAt: 19 });
+    // A clear script that returned nothing stored {} — that IS the alarm's details now.
+    expect(alarmMessageData(alarmRow({ state: 'CLEARED', ruleSnapshot: { alarmType: 'Hot', details: { t: 1 }, clearDetails: {} } }) as never).details).toEqual({});
+    // The evaluator's alarms keep their whole snapshot as details.
+    expect(alarmMessageData(alarmRow({ source: 'INSTRUMENT_LIMIT', ruleSnapshot: { limit: 30, clearDetails: 'x' } }) as never).details)
+      .toEqual({ limit: 30, clearDetails: 'x' });
   });
 
   it('nothing open → False, nothing cleared; a lost race (clear returns null) → False', async () => {
@@ -387,9 +464,27 @@ describe('Save attributes', () => {
     const save = vi.fn(async () => ['fw']);
     const msg = attrs({ fw: '1.2', n: 5, b: true, o: { k: 1 } });
     const r = await run(T, { notifyDevice: true }, msg, { attributes: { save } }, { nodeId: NODE, chainId: CHAIN });
-    expect(save).toHaveBeenCalledWith('instrument-1', { fw: '1.2', n: '5', b: 'true', o: '{"k":1}' }, `rule_node:${CHAIN}:${NODE}`, true, 'SERVER_SCOPE');
+    expect(save).toHaveBeenCalledWith('instrument-1', { fw: '1.2', n: '5', b: 'true', o: '{"k":1}' }, `rule_node:${CHAIN}:${NODE}`, true, 'SERVER_SCOPE', { updated: 'none' });
     expect(r.relation).toBe('Success');
     expect(r.out).toBe(msg);
+  });
+
+  it('TB-P 7: the Attributes Updated message follows the node\'s two toggles, as in ThingsBoard', async () => {
+    const save = vi.fn(async () => ['a']);
+    const updatedOf = async (config: Record<string, unknown>, metadata: Record<string, unknown> = {}) => {
+      save.mockClear();
+      await run(T, config, attrs({ a: '1' }, { metadata: { rule_engine_origin: 'rest_api', ...metadata } }), { attributes: { save } });
+      return ((save.mock.calls[0] as unknown[])[5] as { updated: string }).updated;
+    };
+    // sendAttributesUpdatedNotification off (ThingsBoard's default): none.
+    expect(await updatedOf({})).toBe('none');
+    // On: the changed keys; with updateAttributesOnlyOnValueChange OFF, every key of the message.
+    expect(await updatedOf({ sendAttributesUpdatedNotification: true })).toBe('changed');
+    expect(await updatedOf({ sendAttributesUpdatedNotification: true, updateAttributesOnlyOnValueChange: false })).toBe('all');
+    // Never for the client scope — the node's, or the one the message names (checkSendNotification).
+    expect(await updatedOf({ sendAttributesUpdatedNotification: true, scope: 'CLIENT_SCOPE' })).toBe('none');
+    expect(await updatedOf({ sendAttributesUpdatedNotification: true }, { scope: 'CLIENT_SCOPE' })).toBe('none');
+    expect(await updatedOf({ sendAttributesUpdatedNotification: true, scope: 'CLIENT_SCOPE' }, { scope: 'SHARED_SCOPE' })).toBe('changed');
   });
 
   it('the message\'s own metadata.scope wins over the node\'s', async () => {
@@ -492,7 +587,7 @@ describe('Save time series', () => {
     expect(write).toHaveBeenCalledTimes(2);
   });
 
-  it('another type, a null value, a body that is not telemetry and a non-instrument originator fail; an empty body passes', async () => {
+  it('another type, a null value, a body that is not telemetry and a non-instrument originator fail', async () => {
     const write = vi.fn(async () => undefined);
     expect((await run(T, {}, testMessage({ t: 1 }, { type: 'POST_ATTRIBUTES_REQUEST' }), { telemetry: { write } })).thrown?.message)
       .toBe('Unsupported msg type: POST_ATTRIBUTES_REQUEST');
@@ -500,8 +595,19 @@ describe('Save time series', () => {
     expect((await run(T, {}, testMessage('21.5'), { telemetry: { write } })).thrown?.message).toMatch(/^TELEMETRY_DATA_INVALID/);
     expect((await run(T, {}, newMessage('POST_TELEMETRY_REQUEST', { type: 'SYSTEM', id: 'SYSTEM' }, { t: 1 }), { telemetry: { write } })).thrown?.message)
       .toMatch(/^ORIGINATOR_NOT_INSTRUMENT/);
-    expect((await run(T, {}, testMessage({}), { telemetry: { write } })).relation).toBe('Success');
     expect(write).not.toHaveBeenCalled();
+  });
+
+  it('TB-P 3: an EMPTY body fails with ThingsBoard\'s wording, "Msg body is empty: " + the data', async () => {
+    const write = vi.fn(async () => undefined);
+    const empty = async (data: unknown) => (await run(T, {}, testMessage(data), { telemetry: { write } })).thrown?.message;
+    expect(await empty({})).toBe('Msg body is empty: {}');
+    expect(await empty([])).toBe('Msg body is empty: []');
+    expect(await empty({ ts: 1000, values: {} })).toBe('Msg body is empty: {"ts":1000,"values":{}}');
+    expect(await empty([{}])).toBe('Msg body is empty: [{}]');
+    expect(write).not.toHaveBeenCalled();
+    // An ingest-origin message under the S-3 skip is not parsed at all (it passes, as ThingsBoard's short-circuit does).
+    expect((await run(T, {}, testMessage({}, { metadata: { rule_engine_origin: 'ingest' } }), { telemetry: { write } })).relation).toBe('Success');
   });
 });
 

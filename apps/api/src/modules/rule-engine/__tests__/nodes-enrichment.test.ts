@@ -113,9 +113,47 @@ describe('Calculate delta', () => {
     expect(z.out!.data).toEqual({ pulse: 0.3, other: 1 });
   });
 
-  it('a value that is not a number fails, naming the key', async () => {
-    const r = await run(T, cfg, msgAt('n/a', 1_000), { telemetry: { history } });
-    expect(r.thrown?.message).toContain('"pulse" is not a number');
+  it('TB-P 6: the current value is read as Jackson\'s asDouble() — text that is not a number is 0, true is 1 — never a Failure', async () => {
+    const lenient = { ...cfg, tellFailureIfDeltaIsNegative: false };
+    await run(T, lenient, msgAt(10, 1_000), { telemetry: { history } }, { nodeId, chainId });
+    const na = await run(T, lenient, msgAt('n/a', 2_000), { telemetry: { history } }, { nodeId, chainId });
+    expect(na.thrown).toBeNull();
+    expect(na.out!.data).toMatchObject({ pulse: 'n/a', delta: -10 });
+    // The cache moved on to 0 (ThingsBoard caches the asDouble value).
+    const after = await run(T, lenient, msgAt(5, 3_000), { telemetry: { history } }, { nodeId, chainId });
+    expect(after.out!.data).toMatchObject({ delta: 5 });
+    const delta = async (value: unknown) => {
+      clearDeltaCaches();
+      await run(T, lenient, msgAt(0, 1_000), { telemetry: { history } }, { nodeId, chainId });
+      return ((await run(T, lenient, msgAt(value, 2_000), { telemetry: { history } }, { nodeId, chainId })).out!.data as { delta: number }).delta;
+    };
+    expect(await delta(true)).toBe(1);
+    expect(await delta(false)).toBe(0);
+    expect(await delta(null)).toBe(0);
+    expect(await delta({ a: 1 })).toBe(0);
+    expect(await delta(' 12.5 ')).toBe(12.5);       // trimmed, as NumberInput.parseAsDouble
+    expect(await delta('1e2')).toBe(100);
+    expect(await delta('7f')).toBe(7);              // Double.parseDouble takes a float suffix
+    expect(await delta('0x10')).toBe(0);            // ... and not a hex integer
+    expect(await delta('')).toBe(0);
+  });
+
+  it('a value whose delta is not finite ("NaN", "Infinity") fails: BigDecimal holds neither', async () => {
+    await run(T, cfg, msgAt(1, 1_000), { telemetry: { history } }, { nodeId, chainId });
+    const r = await run(T, cfg, msgAt('NaN', 2_000), { telemetry: { history } }, { nodeId, chainId });
+    expect(r.thrown?.message).toMatch(/^DELTA_NOT_FINITE/);
+  });
+
+  it('the PREVIOUS value read from the database is judged as ThingsBoard\'s extractValue: unparseable text, a boolean or JSON fail', async () => {
+    const prev = async (value: unknown) => {
+      clearDeltaCaches();
+      history.mockResolvedValueOnce({ pulse: [{ ts: 500, value }] });
+      return run(T, cfg, msgAt(100, 1_000), { telemetry: { history } }, { nodeId, chainId });
+    };
+    expect((await prev(' 40 ')).out!.data).toMatchObject({ delta: 60 });
+    expect((await prev('n/a')).thrown?.message).toBe('Calculation failed. Unable to parse value [n/a] of telemetry [pulse] to Double');
+    expect((await prev(true)).thrown?.message).toBe('Calculation failed. Boolean values are not supported!');
+    expect((await prev({ a: 1 })).thrown?.message).toBe('Calculation failed. JSON values are not supported!');
   });
 
   it('useCache off: every message reads the database', async () => {
@@ -271,11 +309,36 @@ describe('Originator telemetry', () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it('FIRST over the default window [now − 2 min, now − 1 min]: the earliest reading, as text', async () => {
+  it('FIRST over the default window [now − 2 min, now − 1 min]: the earliest reading, QUOTED as ThingsBoard writes it (TB-P 4)', async () => {
     const r = await run(T, { latestTsKeyNames: ['temp', 'hum'] }, testMessage({}), { telemetry: { history } });
     expect(history).toHaveBeenCalledWith('instrument-1', ['temp', 'hum'], new Date(NOW - 120_000), new Date(NOW - 60_000), 'NONE', 'ASC', 1);
-    expect(r.out!.metadata.temp).toBe('21.5');
+    // updateMetadata: resultNode.get(key).toString() of a TEXT node — TbGetTelemetryNodeTest expects "\"22.4\"".
+    expect(r.out!.metadata.temp).toBe('"21.5"');
     expect(r.out!.metadata).not.toHaveProperty('hum');
+  });
+
+  it('FIRST / LAST text is getValueAsString: Java\'s Double.toString for a fraction, the text of a string, JSON for an object', async () => {
+    const one = async (value: unknown) => {
+      history.mockResolvedValueOnce({ temp: [{ ts: NOW - 90_000, value }] });
+      return (await run(T, { latestTsKeyNames: ['temp'], fetchMode: 'LAST' }, testMessage({}), { telemetry: { history } })).out!.metadata.temp;
+    };
+    expect(await one(22)).toBe('"22"');
+    expect(await one(0.0001)).toBe('"1.0E-4"');
+    expect(await one('NA "x"')).toBe('"NA \\"x\\""');
+    expect(await one(true)).toBe('"true"');
+    expect(await one({ a: 1 })).toBe('"{\\"a\\":1}"');
+    // An imported `fetchTo: DATA` (not a ThingsBoard option for this node) gets the bare text.
+    const data = await run(T, { latestTsKeyNames: ['temp'], fetchTo: 'DATA' }, testMessage({ x: 1 }), { telemetry: { history } });
+    expect(data.out!.data).toEqual({ x: 1, temp: '21.5' });
+  });
+
+  it('TB-P 4: NO keys configured fails every message with ThingsBoard\'s init error, before any read', async () => {
+    const r = await run(T, { latestTsKeyNames: [] }, testMessage({}), { telemetry: { history } });
+    expect(r.thrown?.message).toBe('Telemetry should be specified!');
+    expect(history).not.toHaveBeenCalled();
+    // Keys that are configured but come out blank pass on unchanged (ThingsBoard queries them and finds nothing).
+    const blank = await run(T, { latestTsKeyNames: ['${nothing}'] }, testMessage({}, { metadata: { nothing: ' ' } }), { telemetry: { history } });
+    expect(blank.relation).toBe('Success');
   });
 
   it('LAST reads newest first; ALL returns [{ ts, value }] in order and limit, as JSON in the metadata', async () => {

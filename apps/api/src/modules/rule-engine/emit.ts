@@ -249,6 +249,17 @@ export function alarmTypeOf(a: EmittedAlarm, typeName?: string): string {
   return [a.source, a.metric, a.limitKind].filter(Boolean).join(' ');
 }
 
+/**
+ * A RULE alarm's details (TB-P 2, 2026-11-05): once the Clear alarm node cleared
+ * it, the clear script's result (`clearDetails`) — ThingsBoard's `clear_alarm`
+ * REPLACES the alarm's details with it, so both its Cleared message and its
+ * ALARM_CLEAR carry them; before that, the raise / update details. The raise
+ * details stay in the snapshot as the record.
+ */
+function ruleAlarmDetails(snap: Record<string, unknown>): unknown {
+  return Object.prototype.hasOwnProperty.call(snap, 'clearDetails') ? snap.clearDetails : (snap.details ?? {});
+}
+
 /** The alarm as ThingsBoard's alarm JSON, plus this system's own columns. */
 export function alarmMessageData(a: EmittedAlarm, typeName?: string): Record<string, unknown> {
   const snap = snapshotOf(a);
@@ -265,7 +276,7 @@ export function alarmMessageData(a: EmittedAlarm, typeName?: string): Record<str
     endTs: Math.max(ms(a.raisedAt), ms(a.clearedAt), ms(a.acknowledgedAt)),
     ackTs: ms(a.acknowledgedAt),
     clearTs: ms(a.clearedAt),
-    details: a.source === 'RULE' ? (snap.details ?? {}) : snap,
+    details: a.source === 'RULE' ? ruleAlarmDetails(snap) : snap,
     source: a.source,
     metric: a.metric,
     limitKind: a.limitKind ?? null,

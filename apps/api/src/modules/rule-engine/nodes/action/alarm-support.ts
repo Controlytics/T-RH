@@ -24,14 +24,15 @@ export function snapshotDetails(ruleSnapshot: unknown): unknown {
  * ThingsBoard's `buildAlarmDetails`: the node's details script over the
  * message, with the existing alarm's details in `metadata.prevAlarmDetails`
  * (JSON) when there is one — the shipped script reads them. Only the SCRIPT
- * sees that key; the outgoing message keeps the incoming metadata. A script
+ * sees that key; the outgoing message keeps the incoming metadata. With no
+ * existing alarm the message is handed over as it is (ThingsBoard's
+ * `dummyMsg = msg`) — an incoming `prevAlarmDetails` included. A script
  * returning nothing gives `{}`.
  */
 export function buildAlarmDetails(ctx: RuleContext<JsonObject>, msg: RuleMessage, previous: unknown): unknown {
   const script = jsScriptOf(ctx.config, 'alarmDetailsBuildJs');
   const metadata = { ...msg.metadata };
   if (previous !== undefined) metadata.prevAlarmDetails = JSON.stringify(previous);
-  else delete metadata.prevAlarmDetails;
   const out = ctx.runScript('details', script, { ...msg, metadata });
   return out === undefined ? {} : out;
 }

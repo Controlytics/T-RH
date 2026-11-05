@@ -1,7 +1,7 @@
 import type { RuleContext } from '../../context.js';
 import type { RuleMessage } from '../../message.js';
 import type { RuleTelemetryAggregation } from '../../services.js';
-import { instrumentIdOf, metadataText, processPattern, processPatterns, type JsonObject } from '../action/support.js';
+import { instrumentIdOf, javaValueText, processPattern, processPatterns, type JsonObject } from '../action/support.js';
 import { fetchToOf, withFetched } from './fetch.js';
 
 /**
@@ -14,8 +14,14 @@ import { fetchToOf, withFetched } from './fetch.js';
  * millisecond instants. A window that starts after it ends fails ("Interval
  * start should be less than Interval end", ThingsBoard's wording).
  *
- * `fetchMode` FIRST / LAST → the earliest / newest reading per key, as TEXT
- * (ThingsBoard's `getValueAsString`); ALL → `[{ ts, value }, …]` per key, at
+ * No keys configured → every message FAILS with ThingsBoard's init error
+ * "Telemetry should be specified!" (ThingsBoard refuses to start such a node and
+ * fails each message sent to it; TB-P 4).
+ *
+ * `fetchMode` FIRST / LAST → the earliest / newest reading per key: ThingsBoard's
+ * `getValueAsString` (`Double.toString` for a fraction), written to the metadata
+ * as ThingsBoard writes it — a JSON STRING, quotes included (`"21.5"`; TB-P 4);
+ * ALL → `[{ ts, value }, …]` per key, at
  * most `limit`, in `orderBy` order — or with an `aggregation` one
  * `[{ ts: windowEnd, value }]` over the whole window (numeric readings only,
  * quoted numbers included; COUNT counts every reading). A key with nothing in
@@ -60,6 +66,9 @@ function windowOf(cfg: OriginatorTelemetryConfig, msg: RuleMessage, now: number)
 
 export async function originatorTelemetry(ctx: RuleContext<OriginatorTelemetryConfig>, msg: RuleMessage): Promise<void> {
   const cfg = ctx.config;
+  // TB-P 4: ThingsBoard's init refuses a node with no keys ("Telemetry should be specified!")
+  // and fails every message sent to it. No init path stops messages here, so the handler fails each.
+  if (!Array.isArray(cfg.latestTsKeyNames) || cfg.latestTsKeyNames.length === 0) throw new Error('Telemetry should be specified!');
   const instrumentId = instrumentIdOf(msg, 'Originator telemetry');
   const keys = processPatterns(cfg.latestTsKeyNames, msg);
   const { from, to } = windowOf(cfg, msg, Date.now());
@@ -84,7 +93,10 @@ export async function originatorTelemetry(ctx: RuleContext<OriginatorTelemetryCo
       const arr = list.map((r) => ({ ts: r.ts, value: r.value }));
       entries.push([key, fetchTo === 'METADATA' ? JSON.stringify(arr) : arr]);
     } else {
-      entries.push([key, metadataText(list[0].value)]);
+      // ThingsBoard: resultNode.put(key, entry.getValueAsString()), then the metadata gets
+      // resultNode.get(key).toString() — the text as a JSON STRING, quotes included ("\"21.5\"").
+      const text = javaValueText(list[0].value);
+      entries.push([key, fetchTo === 'METADATA' ? JSON.stringify(text) : text]);
     }
   }
   ctx.tellNext(withFetched(msg, fetchTo, entries, 'Originator telemetry'), 'Success');

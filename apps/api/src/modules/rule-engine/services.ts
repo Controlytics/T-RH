@@ -35,7 +35,8 @@ import { parseRuleNodeOrigin, ruleNodeOrigin, serialisableMessage, type RuleMess
  *  - attributes → the attribute table under the routes' advisory lock, one
  *    audit row per CHANGED key with user `SYSTEM` (ruling T2-A), the downlink
  *    published after the commit when `notifyDevice`. An unchanged value is
- *    neither written nor audited. Sensor-offset keys are refused (SUPER_ADMIN
+ *    neither written nor audited. ATTRIBUTES_UPDATED follows the caller's
+ *    `updated` option (TB-P 7). Sensor-offset keys are refused (SUPER_ADMIN
  *    only — a chain shifting every reading is not a chain's call);
  *  - alarms → `alarms` rows `source RULE`, `metric CUSTOM` (the dedupe is the
  *    partial unique index `alarms_active_rule_type_unique`); the clear is
@@ -52,6 +53,18 @@ export interface RuleTelemetryReading {
   key: string;
   value: unknown;
   ts: Date;
+}
+
+export interface RuleAttributeSaveOptions {
+  /**
+   * The ATTRIBUTES_UPDATED message a save emits (TB-P 7, 2026-11-05), through the
+   * emit path and its loop guard: `changed` (the default) — the keys that changed;
+   * `all` — every key of the save (ThingsBoard's `updateAttributesOnlyOnValueChange`
+   * off); `none` — no message (the node's `sendAttributesUpdatedNotification` off, or
+   * a Math function result). NEVER when nothing changed: a write that changes nothing
+   * emits nothing, so re-entry stays bounded (rulings C-1, RE-1).
+   */
+  updated?: 'changed' | 'all' | 'none';
 }
 
 export type RuleTelemetryAggregation = 'NONE' | 'AVG' | 'MIN' | 'MAX' | 'SUM' | 'COUNT';
@@ -148,8 +161,8 @@ export interface RuleServices {
   attributes: {
     /** Every attribute, or only `keys` (exact names). */
     get(instrumentId: string, keys?: string[]): Promise<Record<string, string>>;
-    /** Returns the keys that CHANGED (written and audited). */
-    save(instrumentId: string, kv: Record<string, string>, origin: string, notifyDevice: boolean, scope?: string): Promise<string[]>;
+    /** Returns the keys that CHANGED (written and audited). An unchanged value is never written, audited or told to the device. */
+    save(instrumentId: string, kv: Record<string, string>, origin: string, notifyDevice: boolean, scope?: string, opts?: RuleAttributeSaveOptions): Promise<string[]>;
     /** Returns the keys that existed and were removed. */
     delete(instrumentId: string, keys: string[], origin: string, scope?: string): Promise<string[]>;
   };
@@ -493,7 +506,7 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
         return Object.fromEntries(rows.map((r) => [r.key, r.value]));
       },
 
-      async save(instrumentId, kv, origin, notifyDevice, scope) {
+      async save(instrumentId, kv, origin, notifyDevice, scope, opts = {}) {
         const entries = Object.entries(kv).map(([k, v]) => [k.trim(), v] as [string, string]).filter(([k]) => k.length > 0);
         if (entries.length === 0) return [];
         await refuseOffsetKeys(entries.map(([k]) => k));
@@ -523,7 +536,10 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
         }, { timeout: 30_000 });
         if (changed.length === 0) return [];
         if (notifyDevice) await announce(instrument, changed);
-        await emitAttributes(instrumentId, changed, origin, { type: 'ATTRIBUTES_UPDATED', scope: scope ?? 'SERVER_SCOPE', code: instrument.code });
+        const updated = opts.updated ?? 'changed';
+        if (updated !== 'none') {
+          await emitAttributes(instrumentId, updated === 'all' ? entries : changed, origin, { type: 'ATTRIBUTES_UPDATED', scope: scope ?? 'SERVER_SCOPE', code: instrument.code });
+        }
         return changed.map(([k]) => k);
       },
 

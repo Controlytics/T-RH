@@ -16,7 +16,8 @@ import { buildAlarmDetails, openRuleAlarm, snapshotDetails } from './alarm-suppo
  * `metadata.prevAlarmDetails`) stored as its `clearDetails`.
  *
  * Out: `Cleared`, the message turned into ThingsBoard's (type `ALARM`, the
- * alarm JSON, `isClearedAlarm` "true"); `False` when there is nothing to clear
+ * alarm JSON — its `details` the clear script's, as ThingsBoard's `clear_alarm`
+ * replaces them (`alarmMessageData`, TB-P 2) — `isClearedAlarm` "true"); `False` when there is nothing to clear
  * — none open, already cleared, a clear another message won first, or an
  * originator that is neither an instrument nor an alarm.
  *

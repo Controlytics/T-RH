@@ -19,11 +19,12 @@ import { buildAlarmDetails, openRuleAlarm, snapshotDetails } from './alarm-suppo
  *    holds; it must come out as CRITICAL / MAJOR / MINOR or ThingsBoard's
  *    WARNING / INDETERMINATE (stored as MINOR) — anything else FAILS, as
  *    ThingsBoard's `AlarmSeverity.valueOf` does, never a silent MINOR.
- *  - Details: the details script, with the open alarm's details in
- *    `metadata.prevAlarmDetails`. With `useMessageAlarmData` the message data
+ *  - Details: the details script, with the OPEN alarm's details in
+ *    `metadata.prevAlarmDetails` — none on create, as ThingsBoard's
+ *    `buildAlarmDetails(msg, null)`. With `useMessageAlarmData` the message data
  *    IS an alarm (`type`, `severity`, `details`, `originator.id` — what an
  *    ALARM message carries): its details are used as they are unless
- *    `overwriteAlarmDetails`, when the script runs over them.
+ *    `overwriteAlarmDetails`, when the script builds them instead.
  *  - Out: Created (new) or Updated (the open one), the message turned into
  *    ThingsBoard's: type `ALARM`, data = the alarm JSON (`alarmMessageData`),
  *    metadata = the incoming metadata + `isNewAlarm` / `isExistingAlarm` "true".
@@ -81,9 +82,11 @@ export async function createAlarm(ctx: RuleContext<CreateAlarmConfig>, msg: Rule
   }
 
   const open = await openRuleAlarm(ctx, instrumentId, alarmType);
+  // TB-P 8: ThingsBoard's createNewAlarm builds the details with NO previous alarm
+  // (`buildAlarmDetails(msg, null)`); only updateAlarm passes the open alarm's details.
   const details = fromMessage && cfg.overwriteAlarmDetails !== true
     ? messageDetails
-    : buildAlarmDetails(ctx, msg, open ? snapshotDetails(open.ruleSnapshot) : fromMessage ? messageDetails : undefined);
+    : buildAlarmDetails(ctx, msg, open ? snapshotDetails(open.ruleSnapshot) : undefined);
 
   const { alarm, created } = await ctx.services.alarms.createOrUpdate({
     instrumentId, alarmType, severity, details, nodeId: ctx.node.id, chainId: ctx.chain.id,

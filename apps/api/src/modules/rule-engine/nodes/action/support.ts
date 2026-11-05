@@ -114,6 +114,88 @@ export function roundHalfUp(x: number, places: number): number {
   return Object.is(n, -0) ? 0 : n;
 }
 
+// ─── Java's number text and parsing (TB-P, 2026-11-05) ──────────────────────
+
+/**
+ * Java's `Double.toString(double)`: a plain decimal with at least one fraction
+ * digit for 10⁻³ ≤ |x| < 10⁷ (`5.0`, `0.001`), otherwise `d.dddE±n` (`1.0E7`,
+ * `1.0E-4`); `NaN`, `Infinity`, `-0.0`. The digits are the shortest that read
+ * back as `x` — JDK 19+'s rule; an older JDK can print longer digits for rare
+ * values (not reproduced).
+ */
+export function javaDoubleToString(x: number): string {
+  if (Number.isNaN(x)) return 'NaN';
+  if (x === Infinity) return 'Infinity';
+  if (x === -Infinity) return '-Infinity';
+  if (x === 0) return Object.is(x, -0) ? '-0.0' : '0.0';
+  const abs = Math.abs(x);
+  if (abs >= 1e-3 && abs < 1e7) {
+    const s = String(x);
+    return s.includes('.') ? s : `${s}.0`;
+  }
+  const [mantissa, exponent] = x.toExponential().split('e');
+  return `${mantissa.includes('.') ? mantissa : `${mantissa}.0`}E${Number(exponent)}`;
+}
+
+const LONG_MAX = 9223372036854775807n;
+const LONG_MIN = -9223372036854775808n;
+
+/** Java's `(long) x` as text: toward zero, NaN → 0, beyond the long range → Long.MAX / MIN_VALUE. */
+export function javaLongText(x: number): string {
+  if (Number.isNaN(x)) return '0';
+  if (x >= 9223372036854775807) return LONG_MAX.toString();
+  if (x <= -9223372036854775808) return LONG_MIN.toString();
+  return BigInt(Math.trunc(x)).toString();
+}
+
+/** Java's `(long) x` as a JSON number (exact up to 2^53, as any JSON number here). */
+export const javaLong = (x: number): number => Number(javaLongText(x));
+
+/** Java's `String.trim()`: every char ≤ U+0020 off both ends. */
+const javaTrim = (s: string) => s.replace(/^[\u0000- ]+|[\u0000- ]+$/g, '');
+const JAVA_DOUBLE = /^[+-]?(NaN|Infinity|(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?[fFdD]?)$/;
+
+/**
+ * Java's `Double.parseDouble(text)` — null where Java throws NumberFormatException.
+ * Trimmed; decimal digits with an optional exponent and float / double suffix;
+ * `NaN` / `Infinity` with a sign. Hexadecimal floating-point text (`0x1p3`) is
+ * not read (null) — Java reads it; no instrument sends it.
+ */
+export function javaParseDouble(text: string): number | null {
+  const t = javaTrim(text);
+  const m = JAVA_DOUBLE.exec(t);
+  if (!m) return null;
+  const negative = t.startsWith('-');
+  if (m[1] === 'NaN') return NaN;
+  if (m[1] === 'Infinity') return negative ? -Infinity : Infinity;
+  return Number(t.replace(/[fFdD]$/, ''));
+}
+
+/**
+ * Jackson's `JsonNode.asDouble()` for a message value: a number as is; text
+ * through `NumberInput.parseAsDouble` (trimmed, empty or unparseable → 0); a
+ * boolean 1 / 0 (`BooleanNode`); null, an object or an array → 0.
+ */
+export function javaAsDouble(v: unknown): number {
+  if (typeof v === 'number') return v;
+  if (typeof v === 'boolean') return v ? 1 : 0;
+  if (typeof v === 'string') return javaParseDouble(v) ?? 0;
+  return 0;
+}
+
+/**
+ * ThingsBoard's `KvEntry.getValueAsString()` for a stored reading: a string as
+ * is; a whole number as a long (`22`); any other number by `Double.toString`;
+ * a boolean `true` / `false`; an object or array as JSON.
+ */
+export function javaValueText(v: unknown): string {
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number') return Number.isInteger(v) && Math.abs(v) < 1e21 ? String(v) : javaDoubleToString(v);
+  if (typeof v === 'boolean') return String(v);
+  if (v === undefined) return '';
+  return JSON.stringify(v);
+}
+
 /** A metadata value as ThingsBoard writes one: a string as is, anything else as JSON. */
 export function metadataText(v: unknown): string {
   if (typeof v === 'string') return v;

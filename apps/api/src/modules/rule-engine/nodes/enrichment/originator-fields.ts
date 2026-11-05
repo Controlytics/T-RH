@@ -13,6 +13,12 @@ import { fetchToOf, withFetched } from './fetch.js';
  * left out. `Failure` for a field name outside that list (an imported typo is
  * named, not silently skipped), an originator that is not an instrument, or an
  * instrument that no longer exists.
+ *
+ * A ThingsBoard export from before 3.6 names the mapping `fieldsMapping`: the
+ * import applies ThingsBoard's own v0 upgrade (`fieldsMapping` → `dataMapping`,
+ * ruling CV-3, `@digilog/shared` `upgradeThingsboardConfig`), and the strict
+ * document parse requires `dataMapping` — so no stored config reaches this
+ * handler without it, and there is no fallback here (TB-P 5).
  */
 export const ORIGINATOR_FIELDS_TYPE = 'tb:enrichment:originator-fields';
 
