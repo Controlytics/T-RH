@@ -238,6 +238,25 @@ describe('built nodes — descriptors, defaults and config schemas', () => {
     expect(keys('tb:action:create-alarm')).toEqual(expect.arrayContaining(['alarmType', 'severity', 'alarmDetailsBuildJs']));
   });
 
+  it('REST API call models ThingsBoard 4\'s requestBodyTemplate (review B I-3): a template field, text or null, no default', () => {
+    const s = RULE_NODE_TYPE_BY_ID.get('tb:external:rest-api-call')!;
+    const field = s.fields.find((f) => f.key === 'requestBodyTemplate');
+    expect(field).toMatchObject({ type: 'template', label: 'Body template' });
+    expect(field!.help).toMatch(/JSON-escaped/);
+    expect(visibleRuleNodeFields('tb:external:rest-api-call', {}).map((f) => f.key)).toContain('requestBodyTemplate');
+    // ThingsBoard's defaultConfiguration() leaves it null, so the catalogue default leaves it out.
+    expect(s.defaultConfig).not.toHaveProperty('requestBodyTemplate');
+    const base = { restEndpointUrlPattern: 'http://x', requestMethod: 'POST' };
+    for (const requestBodyTemplate of ['{"t": $[t]}', '', null]) {
+      expect(s.configSchema.safeParse({ ...base, requestBodyTemplate }).success, String(requestBodyTemplate)).toBe(true);
+    }
+    expect(s.configSchema.safeParse({ ...base, requestBodyTemplate: 42 }).success).toBe(false);
+    expect(s.configSchema.safeParse({ ...base, requestBodyTemplate: 'x'.repeat(4_001) }).success).toBe(false);
+    // ThingsBoard's own key both ways.
+    expect(toThingsboardConfig(s.id, { ...base, requestBodyTemplate: '{"a": 1}' })).toMatchObject({ requestBodyTemplate: '{"a": 1}' });
+    expect(fromThingsboardConfig(s.id, { ...base, requestBodyTemplate: '{"a": 1}' }).config).toMatchObject({ requestBodyTemplate: '{"a": 1}' });
+  });
+
   it('a schema keeps ThingsBoard keys it does not model (scriptLang, tbelScript, processingSettings …)', () => {
     const s = RULE_NODE_TYPE_BY_ID.get('tb:action:log')!;
     const tb = { scriptLang: 'TBEL', jsScript: 'return "x";', tbelScript: 'return "x";', configurationVersion: 0 };
@@ -294,7 +313,12 @@ describe('built nodes — descriptors, defaults and config schemas', () => {
     expect(s.relations).toEqual(['Alarm Created', 'Alarm Updated', 'Alarm Severity Updated', 'Alarm Cleared', 'Success', 'Failure']);
     expect(s.fields).toEqual([]);
     expect(s.defaultConfig).toEqual({ persistAlarmRulesState: false, fetchAlarmRulesStateOnStart: false });
-    expect(s.description).toContain('instrument-limit alarms');
+    // Contract C3 (refined DP-1): the evaluator's alarms leave on their label only; everything else on Success.
+    expect(s.description).toContain('Configuration → Instrument Limit Alarms');
+    expect(s.description).toContain('leaves on Alarm Created when raised and on Alarm Cleared when cleared, on that label only');
+    expect(s.description).toContain('Alarm Updated and Alarm Severity Updated stay unused');
+    expect(s.description).toContain('passes on Success unchanged');
+    expect(s.description).not.toContain('Passes the message on unchanged —');
     expect(s.configSchema.safeParse({ persistAlarmRulesState: true, fetchAlarmRulesStateOnStart: true }).success).toBe(true);
     expect(s.configSchema.safeParse({}).success).toBe(true);
     expect(s.configSchema.safeParse({ persistAlarmRulesState: 'yes' }).success).toBe(false);

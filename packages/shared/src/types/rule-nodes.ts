@@ -925,10 +925,15 @@ const ACTION: RuleNodeTypeSpec[] = [
   // ThingsBoard's two settings are accepted and ignored.
   built({
     id: 'tb:action:device-profile', tbClass: `${TB}profile.TbDeviceProfileNode`, group: 'action', label: 'Device profile (deprecated)',
-    description: 'Passes the message on unchanged — profile alarm rules are this system\'s instrument-limit alarms (Configuration → Instrument Limit Alarms).',
-    // ThingsBoard's @RuleNode relationTypes, in its order (TbDeviceProfileNode, master e48b5780). Ruling DP-1:
-    // the evaluator's alarms are what these four carry here (FW-N2 makes the handler send them), so an
-    // imported "Alarm Created" → … branch is a real connection, not a dead one.
+    description: 'Stands in for ThingsBoard\'s device-profile alarm rules, which here are the alarms the system raises itself '
+      + '(instrument limits — Configuration → Instrument Limit Alarms — inactivity, sensor failure and range): such an alarm '
+      + 'leaves on Alarm Created when raised and on Alarm Cleared when cleared, on that label only. The system never updates '
+      + 'an alarm or changes its severity, so Alarm Updated and Alarm Severity Updated stay unused. Every other message — an '
+      + 'acknowledgement, an alarm a rule node raised, telemetry — passes on Success unchanged.',
+    // ThingsBoard's @RuleNode relationTypes, in its order (TbDeviceProfileNode, master e48b5780). Ruling DP-1
+    // (refined; contract C3): the evaluator's alarms (origin `system`) leave on these four, each on its label
+    // only — the handler is nodes/action/device-profile.ts (da23d112) — so an imported "Alarm Created" → …
+    // branch is a real connection, not a dead one.
     relations: ['Alarm Created', 'Alarm Updated', 'Alarm Severity Updated', 'Alarm Cleared', RULE_RELATION_SUCCESS, RULE_RELATION_FAILURE],
     fields: [],
     defaultConfig: { persistAlarmRulesState: false, fetchAlarmRulesStateOnStart: false },
@@ -1129,6 +1134,11 @@ const EXTERNAL: RuleNodeTypeSpec[] = [
       { key: 'maxParallelRequestsCount', label: 'Parallel requests at most (0 = no limit)', type: 'number', min: 0 },
       { key: 'ignoreRequestBody', label: 'Send no body', type: 'boolean' },
       { key: 'parseToPlainText', label: 'Send a string as plain text', type: 'boolean' },
+      // ThingsBoard 4's TbRestApiCallNodeConfiguration.requestBodyTemplate (TbHttpClient.getRequestBody, master e48b5780; review B I-3).
+      { key: 'requestBodyTemplate', label: 'Body template', type: 'template',
+        help: 'Empty: the message data is the body. Otherwise this text is the body, with ${metadataKey} / $[dataKey] filled in — '
+          + 'each value JSON-escaped, so "${deviceName}" stays a JSON string; ${*} / $[*] put in the whole metadata / data as JSON. '
+          + 'It must be valid JSON once filled, unless "Send a string as plain text" is on (then it is sent as it is, nothing escaped).' },
       { key: 'credentials', label: 'Credentials', type: 'json', help: CREDENTIALS_HELP },
     ],
     defaultConfig: {
@@ -1142,6 +1152,7 @@ const EXTERNAL: RuleNodeTypeSpec[] = [
       headers: stringMap.nullable().optional(),
       readTimeoutMs: z.number().int().min(0).optional(), maxParallelRequestsCount: z.number().int().min(0).optional(),
       ignoreRequestBody: z.boolean().optional(), parseToPlainText: z.boolean().optional(),
+      requestBodyTemplate: template.nullable().optional(),
       enableProxy: z.boolean().optional(), credentials: clientCredentials.optional(),
     }),
   }),
