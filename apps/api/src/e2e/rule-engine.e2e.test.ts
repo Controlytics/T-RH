@@ -59,7 +59,7 @@ import { fixtureProfileId } from '../test-support/fixture-profile.js';
 import { setFixtureMeasurements } from '../test-support/fixture-measurements.js';
 import { ensurePartitions } from '../workers/telemetry-partition.worker.js';
 import { ruleEngine, addDurableJobs } from '../modules/rule-engine/engine.js';
-import { ruleEngineMessageJobSchema } from '@digilog/queue';
+import { ruleEngineMessageJobSchema, getProducer } from '@digilog/queue';
 import { getHandler } from '../modules/rule-engine/registry.js';
 import { runInFlow } from '../modules/rule-engine/context.js';
 import { invalidateChainCache } from '../modules/rule-engine/service.js';
@@ -67,7 +67,7 @@ import { invalidateRuleEngineConfigCache } from '../modules/rule-engine/config.j
 import { insertDebugRows, toDebugRow, trimDebugNode } from '../modules/rule-engine/debug.js';
 import { newMessage, ruleNodeOrigin, type RuleMessage } from '../modules/rule-engine/message.js';
 import { runRuleEngineMessage } from '../workers/rule-engine-message.worker.js';
-import { runRuleEngineDebugSweep } from '../workers/rule-engine-debug-sweep.worker.js';
+import { runRuleEngineDebugSweep, ruleEngineDebugSweepTask } from '../workers/rule-engine-debug-sweep.worker.js';
 import { invalidateOffsetConfigCache } from '../modules/instruments/load-offsets.js';
 import { invalidateReauthCache } from '../lib/reauth-check.js';
 
@@ -724,6 +724,33 @@ describe('debug rows', () => {
       expect(kept.map((r) => (r.data as { i: number }).i)).toEqual([100, 101, 102, 103]);
     } finally {
       await setEngineConfig({});
+    }
+  });
+
+  it('M3: the hourly sweep TASK deletes the empty, unlocked rule-engine: job queues — never one with a job, a locked one, or another queue', async () => {
+    // graphile 0.16 never deletes a named queue (completeJob only unlocks it): one row per
+    // originator that ever passed a Delay / Checkpoint, forever, without this.
+    const q = (n: string) => `rule-engine:fwapi-gc-${n}-${STAMP}`;
+    const other = `fwapi-gc-other-${STAMP}`;
+    const mine = [q('empty'), q('locked'), q('busy'), other];
+    const producer = await getProducer();
+    try {
+      await prisma.$executeRaw`INSERT INTO graphile_worker._private_job_queues (queue_name) VALUES (${q('empty')}), (${other})`;
+      await prisma.$executeRaw`INSERT INTO graphile_worker._private_job_queues (queue_name, locked_at, locked_by) VALUES (${q('locked')}, now(), 'fwapi-e2e')`;
+      // A queue holding a waiting job: `rule-engine:<originator id>`.
+      await addDurableJobs([{
+        msg: newMessage('POST_TELEMETRY_REQUEST', { type: 'INSTRUMENT', id: `fwapi-gc-busy-${STAMP}` }, {}, {}), chainId: ROOT, nodeId: SAVE_TS, relation: 'Success', reentryDepth: 0,
+      }], 0);
+      const logged: string[] = [];
+      await ruleEngineDebugSweepTask({}, { withPgClient: producer.withPgClient, logger: { info: (m: string) => { logged.push(m); } } } as never);
+      const left = await prisma.$queryRaw<{ queue_name: string }[]>`
+        SELECT queue_name FROM graphile_worker._private_job_queues WHERE queue_name = ANY(${mine}::text[]) ORDER BY queue_name`;
+      expect(left.map((r) => r.queue_name)).toEqual([other, q('busy'), q('locked')].sort());
+      expect(logged.some((m) => /empty rule-engine job queue/.test(m)), logged.join(' | ')).toBe(true);
+    } finally {
+      await prisma.$executeRaw`DELETE FROM graphile_worker._private_jobs j USING graphile_worker._private_job_queues q
+        WHERE j.job_queue_id = q.id AND q.queue_name = ANY(${mine}::text[])`;
+      await prisma.$executeRaw`DELETE FROM graphile_worker._private_job_queues WHERE queue_name = ANY(${mine}::text[])`;
     }
   });
 });
