@@ -598,6 +598,76 @@ describe('ThingsBoard export / import', () => {
     expect(again.document.nodes[2].config.originatorType).toBe('DEVICE');
   });
 
+  // ─── Ruling DP-1 (2026-11-05): a connection a node can NEVER take is named on import ───
+  it('DP-1: a connection whose label the source node never sends imports with ONE warning per connection, naming node and label', () => {
+    const r = fromThingsboardExport({
+      ruleChain: { name: 'Dead ends' },
+      metadata: {
+        firstNodeIndex: 0,
+        nodes: [
+          tbNode('filter.TbOriginatorTypeSwitchNode', 'By type', { version: 0 }),
+          tbNode('action.TbLogNode', 'Log', { scriptLang: 'JS', jsScript: 'return "x";' }),
+          tbNode('filter.TbJsFilterNode', 'Hot?', { scriptLang: 'JS', jsScript: 'return msg.t > 30;' }),
+          tbNode('flow.TbRuleChainOutputNode', 'Out', { version: 0 }),
+        ],
+        connections: [
+          { fromIndex: 0, toIndex: 1, type: 'Device' },   // mapped by SW-1 first: taken, no warning
+          { fromIndex: 0, toIndex: 1, type: 'Asset' },    // there are no assets here
+          { fromIndex: 1, toIndex: 2, type: 'True' },     // a Log node sends Success / Failure only
+          { fromIndex: 2, toIndex: 1, type: 'Success' },  // a filter sends True / False / Failure
+          { fromIndex: 2, toIndex: 3, type: 'True' },
+          { fromIndex: 3, toIndex: 1, type: 'Success' },  // an Output ends the chain
+        ],
+      },
+    });
+    expect(r.warnings).toEqual([
+      'Node "By type" (Entity type switch): its "Asset" connection to "Log" is never taken — it sends only Instrument, Alarm, User, System, Rule node, Failure.',
+      'Node "Log" (Log): its "True" connection to "Hot?" is never taken — it sends only Success, Failure.',
+      'Node "Hot?" (Script): its "Success" connection to "Log" is never taken — it sends only True, False, Failure.',
+      'Node "Out" (Output): its "Success" connection to "Log" is never taken — it sends nothing on.',
+    ]);
+    // Every connection is still imported (and exported back): the warning names it, nothing is dropped.
+    expect(r.document.connections).toHaveLength(6);
+  });
+
+  it('DP-1: ThingsBoard\'s Device Profile alarm branches import WITHOUT a warning — the node sends Alarm Created / Updated / Severity Updated / Cleared', () => {
+    const r = fromThingsboardExport({
+      ruleChain: { name: 'Profile alarms' },
+      metadata: {
+        firstNodeIndex: 0,
+        nodes: [
+          tbNode('profile.TbDeviceProfileNode', 'Device Profile Node', { persistAlarmRulesState: false, fetchAlarmRulesStateOnStart: false }, 1),
+          tbNode('action.TbLogNode', 'Notify', { scriptLang: 'JS', jsScript: 'return "x";' }),
+        ],
+        connections: ['Alarm Created', 'Alarm Updated', 'Alarm Severity Updated', 'Alarm Cleared', 'Success'].map((type) => ({ fromIndex: 0, toIndex: 1, type })),
+      },
+    });
+    expect(r.warnings).toEqual([]);
+    expect(r.document.connections.map((c) => c.relation)).toEqual(['Alarm Created', 'Alarm Updated', 'Alarm Severity Updated', 'Alarm Cleared', 'Success']);
+  });
+
+  it('DP-1: a node that names its relations at run time (Switch, Device profile switch, Rule chain) never warns; nor does a later / none node, whose own warning already says every message goes to Failure', () => {
+    const r = fromThingsboardExport({
+      ruleChain: { name: 'Dynamic' },
+      metadata: {
+        firstNodeIndex: 0,
+        nodes: [
+          tbNode('filter.TbJsSwitchNode', 'Script switch', { scriptLang: 'JS', jsScript: 'return ["anything"];' }),
+          tbNode('filter.TbDeviceTypeSwitchNode', 'By profile', { version: 0 }),
+          tbNode('flow.TbRuleChainInputNode', 'To chain', { ruleChainId: null, forwardMsgToDefaultRuleChain: false }, 1),
+          tbNode('edge.TbMsgPushToEdgeNode', 'To edge', {}),
+          tbNode('action.TbLogNode', 'Log', { scriptLang: 'JS', jsScript: 'return "x";' }),
+        ],
+        connections: [
+          { fromIndex: 0, toIndex: 4, type: 'anything' }, { fromIndex: 1, toIndex: 4, type: 'Thermohygrometer' },
+          { fromIndex: 2, toIndex: 4, type: 'Done' }, { fromIndex: 3, toIndex: 4, type: 'Success' },
+        ],
+      },
+    });
+    expect(r.warnings).toEqual([`Node "To edge": Push to edge ${NO_COUNTERPART}.`]);
+    expect(r.document.connections).toHaveLength(4);
+  });
+
   it('reads ThingsBoard 3.x "debugMode: true" as debug all', () => {
     const tb = toThingsboardExport('C', false, doc()) as any;
     delete tb.metadata.nodes[0].debugAll;

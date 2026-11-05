@@ -520,6 +520,16 @@ export function fromThingsboardExport(json: unknown, opts: { newId?: () => strin
     }
     seen.add(key);
     connections.push({ from, to, relation });
+    // Ruling DP-1: a BUILT node with fixed relations that never sends this label leaves the connection
+    // dead — named, one warning per connection, and kept (it exports back). A node that names its
+    // relations at run time is never judged; a later / none / Unsupported node already warned that
+    // every message goes to Failure.
+    const source = nodes.find((n) => n.id === from)!;
+    const spec = RULE_NODE_TYPE_BY_ID.get(source.type);
+    if (spec && spec.status === 'built' && spec.relations !== 'dynamic' && !spec.relations.includes(relation)) {
+      const sends = spec.relations.length === 0 ? 'it sends nothing on' : `it sends only ${spec.relations.join(', ')}`;
+      warnings.push(`Node "${source.name}" (${spec.label}): its "${relation}" connection to "${nameOf(to)}" is never taken — ${sends}.`);
+    }
   }
 
   if (Array.isArray(meta.ruleChainConnections) && meta.ruleChainConnections.length > 0) {

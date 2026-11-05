@@ -926,7 +926,11 @@ const ACTION: RuleNodeTypeSpec[] = [
   built({
     id: 'tb:action:device-profile', tbClass: `${TB}profile.TbDeviceProfileNode`, group: 'action', label: 'Device profile (deprecated)',
     description: 'Passes the message on unchanged — profile alarm rules are this system\'s instrument-limit alarms (Configuration → Instrument Limit Alarms).',
-    relations: FS, fields: [],
+    // ThingsBoard's @RuleNode relationTypes, in its order (TbDeviceProfileNode, master e48b5780). Ruling DP-1:
+    // the evaluator's alarms are what these four carry here (FW-N2 makes the handler send them), so an
+    // imported "Alarm Created" → … branch is a real connection, not a dead one.
+    relations: ['Alarm Created', 'Alarm Updated', 'Alarm Severity Updated', 'Alarm Cleared', RULE_RELATION_SUCCESS, RULE_RELATION_FAILURE],
+    fields: [],
     defaultConfig: { persistAlarmRulesState: false, fetchAlarmRulesStateOnStart: false },
     configSchema: cfg({ persistAlarmRulesState: z.boolean().optional(), fetchAlarmRulesStateOnStart: z.boolean().optional() }),
   }),

@@ -284,11 +284,13 @@ describe('built nodes — descriptors, defaults and config schemas', () => {
     expect(visibleRuleNodeFields('tb:filter:nope', {})).toEqual([]);
   });
 
-  it('Device profile (deprecated) is a BUILT pass-through: Success / Failure, no fields, ThingsBoard\'s config accepted', () => {
+  it('Device profile (deprecated) is a BUILT node with ThingsBoard\'s SIX relations (ruling DP-1), no fields, ThingsBoard\'s config accepted', () => {
     const s = RULE_NODE_TYPE_BY_ID.get('tb:action:device-profile')!;
     expect(s.tbClass).toBe('org.thingsboard.rule.engine.profile.TbDeviceProfileNode');
     expect(s.status).toBe('built');
-    expect(s.relations).toEqual(['Success', 'Failure']);
+    // TbDeviceProfileNode's @RuleNode relationTypes, in its order (master e48b5780). The handler that emits
+    // the four alarm labels for the evaluator's alarms is FW-N2's (ruling DP-1); the labels are the contract.
+    expect(s.relations).toEqual(['Alarm Created', 'Alarm Updated', 'Alarm Severity Updated', 'Alarm Cleared', 'Success', 'Failure']);
     expect(s.fields).toEqual([]);
     expect(s.defaultConfig).toEqual({ persistAlarmRulesState: false, fetchAlarmRulesStateOnStart: false });
     expect(s.description).toContain('instrument-limit alarms');
