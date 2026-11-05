@@ -32,6 +32,7 @@ import { auditLog, clampSignatureMeaning } from '../../lib/audit.js';
 import { stripHtml } from '../../lib/sanitize.js';
 import { AppError } from '../../lib/errors.js';
 import { mergeMaskedSecrets, maskDocumentSecrets, changedSecrets } from './secrets.js';
+import type { ScopeWhere } from '../instruments/visibility.js';
 
 /** The shipped root chain's id — fixed by migration `20261103181000_rule_chains`. */
 export const SEEDED_ROOT_CHAIN_ID = 'b1a7e000-0000-4000-8000-000000000000';
@@ -428,15 +429,45 @@ export interface RuleDebugEventView {
 
 export const RULE_DEBUG_LIST_MAX = 1_000;
 
-/** A chain's debug events, newest first; `nodeId` narrows to one node, `before` to events strictly older. */
+/**
+ * A chain's debug events, newest first; `nodeId` narrows to one node, `before` to events strictly older.
+ *
+ * `visibility` (review A I3, 2026-11-05): the caller's instrument scope from `resolveVisibility`,
+ * undefined = unrestricted (and SUPER_ADMIN). A debug row holds the message's data and metadata —
+ * readings, codes, alarm details — so a RESTRICTED caller sees an event only when its originator is
+ * an instrument it can see, or an ALARM of one (looked up in `alarms`, never through metadata a
+ * script may rewrite). SYSTEM / USER / RULE_NODE events — and an alarm that no longer exists — are
+ * hidden from it: an allowlist, so a new originator type is hidden until someone decides otherwise.
+ * The filter is IN the query, before the limit, so a page is never short of visible rows that exist
+ * (the alarm-webhook `/deliveries` precedent).
+ */
 export async function listDebug(
   chainId: string,
-  opts: { nodeId?: string; limit?: number; before?: Date } = {},
+  opts: { nodeId?: string; limit?: number; before?: Date; visibility?: ScopeWhere } = {},
   db: Db = prisma,
 ): Promise<RuleDebugEventView[]> {
   const take = Math.min(RULE_DEBUG_LIST_MAX, Math.max(1, Math.floor(opts.limit ?? 100)));
+  let where: Prisma.RuleNodeDebugEventWhereInput = {
+    chainId, ...(opts.nodeId ? { nodeId: opts.nodeId } : {}), ...(opts.before ? { ts: { lt: opts.before } } : {}),
+  };
+  if (opts.visibility) {
+    const visible = (await db.instrument.findMany({ where: opts.visibility, select: { id: true } })).map((r) => r.id);
+    const ids = await db.$queryRaw<{ id: bigint }[]>`
+      SELECT e.id FROM rule_node_debug_events e
+      WHERE e.chain_id = ${chainId}::uuid
+        AND (${opts.nodeId ?? null}::uuid IS NULL OR e.node_id = ${opts.nodeId ?? null}::uuid)
+        AND (${opts.before ?? null}::timestamptz IS NULL OR e.ts < ${opts.before ?? null}::timestamptz)
+        AND (
+          (e.originator_type = 'INSTRUMENT' AND e.originator_id = ANY(${visible}::text[]))
+          OR (e.originator_type = 'ALARM' AND EXISTS (
+            SELECT 1 FROM alarms a WHERE a.id = e.originator_id AND a.instrument_id = ANY(${visible}::text[])))
+        )
+      ORDER BY e.ts DESC, e.id DESC
+      LIMIT ${take}`;
+    where = { id: { in: ids.map((r) => r.id) } };
+  }
   const rows = await db.ruleNodeDebugEvent.findMany({
-    where: { chainId, ...(opts.nodeId ? { nodeId: opts.nodeId } : {}), ...(opts.before ? { ts: { lt: opts.before } } : {}) },
+    where,
     orderBy: [{ ts: 'desc' }, { id: 'desc' }],
     take,
   });

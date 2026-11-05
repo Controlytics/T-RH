@@ -1,5 +1,8 @@
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Prisma, RuleChain } from '@prisma/client';
+import rateLimit from '@fastify/rate-limit';
+import { buildContext } from '../../lib/build-context.js';
+import { resolveVisibility, withVisibility } from '../instruments/visibility.js';
 import { RULE_NODE_TYPES, toRuleNodeTypeDescriptor, readRuleChainDocument } from '@digilog/shared';
 import { prisma } from '../../lib/prisma.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
@@ -102,7 +105,17 @@ const notFound = (reply: FastifyReply) =>
 const exists = async (id: string) =>
   (await prisma.ruleChain.findUnique({ where: { id }, select: { id: true } })) !== null;
 
+/** `/test-script` calls per user per minute (review A M2). */
+export const TEST_SCRIPT_PER_MINUTE = 10;
+
 export default async function ruleChainRoutes(app: FastifyInstance) {
+  // app.ts registers @fastify/rate-limit globally; the e2e app does not (turning it on there
+  // would put the login limits on every other suite). Registered here, scoped to this plugin,
+  // only when no parent has — so the `/test-script` limit below is real in both (the modbus
+  // module's pattern).
+  if (!app.hasDecorator('rateLimit')) {
+    await app.register(rateLimit, { global: false });
+  }
   const canRead = { preValidation: [app.requirePermission(READ)] };
   const canManage = { preValidation: [app.requirePermission(MANAGE)] };
 
@@ -164,10 +177,20 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
   // ─── TEST SCRIPT ───────────────────────────────────────
   app.post('/test-script', {
     ...canManage,
+    config: {
+      // Review A M2: a script runs on the server's one event loop for up to scriptTimeoutMs (5 s at
+      // most) and outside the strike blacklist, and nothing bounds its memory — 10 a minute per user.
+      // Over it: 429 with the plugin's "Rate limit exceeded, retry in <time left>".
+      rateLimit: {
+        max: TEST_SCRIPT_PER_MINUTE,
+        timeWindow: '1 minute',
+        keyGenerator: (req: FastifyRequest) => `rule-test-script:${req.user.sub}`,
+      },
+    },
     schema: {
       tags: ['Rule Chains'],
       summary: 'Run a node script against a sample message',
-      description: 'The editor\'s Test script button: the script runs in the engine\'s script VM, with the configured time budget, against `msg` / `metadata` / `msgType` (defaults `{}`, `{}`, POST_TELEMETRY_REQUEST; a `generator` script sees them as ThingsBoard\'s `prevMsg` / `prevMetadata` / `prevMsgType`, as the Generator node runs it, msgType defaulting to empty). 200 `{ result }` — a filter\'s boolean, a switch\'s relation list, a transform\'s message list, else the return value. 400 `{ error: SCRIPT_SYNTAX | SCRIPT_TIMEOUT | SCRIPT_ERROR | SCRIPT_RESULT, message }`. Runs whether or not the engine is switched on.',
+      description: 'The editor\'s Test script button: the script runs in the engine\'s script VM, with the configured time budget, against `msg` / `metadata` / `msgType` (defaults `{}`, `{}`, POST_TELEMETRY_REQUEST; a `generator` script sees them as ThingsBoard\'s `prevMsg` / `prevMetadata` / `prevMsgType`, as the Generator node runs it, msgType defaulting to empty). 200 `{ result }` — a filter\'s boolean, a switch\'s relation list, a transform\'s message list, else the return value. 400 `{ error: SCRIPT_SYNTAX | SCRIPT_TIMEOUT | SCRIPT_ERROR | SCRIPT_RESULT, message }`. Runs whether or not the engine is switched on. At most 10 calls a minute per user (429 above it).',
       body: testScriptBody,
     },
   }, async (req, reply) => {
@@ -253,16 +276,18 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Rule Chains'],
       summary: 'A chain\'s debug events, newest first',
-      description: '`nodeId` narrows to one node; `before` (an instant) to older events — the next page; `limit` 1..1000, default 100.',
+      description: '`nodeId` narrows to one node; `before` (an instant) to older events — the next page; `limit` 1..1000, default 100. A caller whose instrument view is limited sees only the events of an instrument in its view or of an alarm of one; events from the system, a user or a rule node are hidden from it (review A I3).',
       params: idParams,
       querystring: debugQuery,
       response: debugResponse,
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
+    // The CHAIN is configuration and is not scoped; its events are (review A I3).
     if (!(await exists(id))) return notFound(reply);
     const q = req.query as { nodeId?: string; limit?: number; before?: string };
-    return { data: await listDebug(id, { nodeId: q.nodeId, limit: q.limit, before: q.before ? new Date(q.before) : undefined }) };
+    const { where: visibility } = await resolveVisibility(buildContext(req));
+    return { data: await listDebug(id, { nodeId: q.nodeId, limit: q.limit, before: q.before ? new Date(q.before) : undefined, visibility }) };
   });
 
   app.delete('/:id/debug', {
@@ -391,13 +416,20 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
 /** `audit_trail.signature_meaning` is VARCHAR(255) and the insert is raw SQL: a longer one is a 500. */
 const clampInjectMeaning = (s: string) => (s.length <= 255 ? s : `${s.slice(0, 254)}…`);
 
+/**
+ * The largest inject body (review A I5): every call is one audit row holding the whole `data`, and
+ * the app's default limit is 10 MB (base64 uploads). Over it: 413, before any audit row.
+ */
+export const INJECT_BODY_LIMIT = 256 * 1024;
+
 export async function ruleEngineIngressRoutes(app: FastifyInstance) {
   app.post('/messages', {
     preValidation: [app.requirePermission(MANAGE)],
+    bodyLimit: INJECT_BODY_LIMIT,
     schema: {
       tags: ['Rule Chains'],
       summary: 'Inject a message into the root rule chain',
-      description: 'Body `{ type?, originatorCode?, data, metadata? }` — a message (type REST_API_REQUEST unless given) from the instrument with that code (ignoring case; 404 ORIGINATOR_NOT_FOUND) or, with no code, from SYSTEM. `metadata.requestId` is the message id; `metadata.rule_engine_origin` is `rest_api`. 202 `{ accepted: true, msgId }`, or `{ accepted: false, reason: ENGINE_NOT_STARTED | ENGINE_DISABLED | QUEUE_REFUSED }` (the audit row still names the message id; ENGINE_NOT_STARTED also while Configuration → Rule Engine has not been read since the engine started). Every call that names a valid originator writes ONE `RULE_ENGINE_MESSAGE_INJECTED` audit row first (credential-like keys masked); no re-auth, no reason.',
+      description: 'Body `{ type?, originatorCode?, data, metadata? }`, at most 256 KB (413 above it) — a message (type REST_API_REQUEST unless given) from the instrument with that code (ignoring case; 404 ORIGINATOR_NOT_FOUND when there is none in the caller\'s instrument view) or, with no code, from SYSTEM. `metadata.requestId` is the message id; `metadata.rule_engine_origin` is `rest_api`. 202 `{ accepted: true, msgId }`, or `{ accepted: false, reason: ENGINE_NOT_STARTED | ENGINE_DISABLED | QUEUE_REFUSED }` (the audit row still names the message id; ENGINE_NOT_STARTED also while Configuration → Rule Engine has not been read since the engine started). Every call that names a valid originator writes ONE `RULE_ENGINE_MESSAGE_INJECTED` audit row first (credential-like keys masked); no re-auth, no reason.',
       body: injectBody,
       response: injectResponse,
     },
@@ -406,7 +438,13 @@ export async function ruleEngineIngressRoutes(app: FastifyInstance) {
     let originator: RuleOriginator = { type: 'SYSTEM', id: 'SYSTEM' };
     const code = body.originatorCode?.trim();
     if (code) {
-      const instrument = await ruleEngine.services.instruments.byCode(code);
+      // Inside the caller's instrument view (review A I4): an instrument it cannot see is the same
+      // 404 as one that does not exist — never a 403 that says it does.
+      const { where: visibility } = await resolveVisibility(buildContext(req));
+      const instrument = await prisma.instrument.findFirst({
+        where: withVisibility({ code: { equals: code, mode: 'insensitive' } }, visibility) as Prisma.InstrumentWhereInput,
+        select: { id: true, code: true },
+      });
       if (!instrument) return reply.code(404).send({ error: 'ORIGINATOR_NOT_FOUND', message: `No instrument has the code "${code}".` });
       originator = { type: 'INSTRUMENT', id: instrument.id, code: instrument.code };
     }

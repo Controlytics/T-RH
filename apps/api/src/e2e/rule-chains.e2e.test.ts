@@ -34,6 +34,7 @@ import { prisma } from '../lib/prisma.js';
 import { hashPassword } from '../lib/password.js';
 import { invalidateRolePermsCache } from '../plugins/rbac.js';
 import { invalidateReauthCache } from '../lib/reauth-check.js';
+import { fixtureProfileId } from '../test-support/fixture-profile.js';
 import {
   defaultRootChainDocument, emptyRuleChainDocument, newRuleNodeConfig, toThingsboardExport, fromThingsboardExport,
   ruleChainsEqual, RULE_NODE_TYPES, DEFAULT_ROOT_CHAIN_NAME,
@@ -56,6 +57,8 @@ type H = Record<string, string>;
 let sa: H, rd: H, mg: H, no: H;
 const userIds: string[] = [];
 const chains: string[] = [];
+/** Instruments the visibility cases create (review A I3 / I4), deleted in afterAll. */
+const instrumentIds: string[] = [];
 type Saved = { configValue: unknown; configType: string; requiresReauth: boolean } | null | undefined;
 let reauthBefore: Saved;
 let engineBefore: Saved;
@@ -161,6 +164,8 @@ afterAll(async () => {
   } catch (e) { console.error('restore root', e); }
   // By id, AND by this run's suffix: a case that fails (or a mutation run) may have created a chain it never recorded.
   try { await prisma.ruleChain.deleteMany({ where: { OR: [{ id: { in: chains } }, { name: { contains: S } }], root: false } }); } catch (e) { console.error('cleanup chains', e); }
+  // The visibility cases' instruments (their alarms went in that describe's afterAll; credentials cascade).
+  try { await prisma.instrument.deleteMany({ where: { id: { in: instrumentIds } } }); } catch (e) { console.error('cleanup instruments', e); }
   try {
     await prisma.session.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
@@ -907,5 +912,177 @@ describe('the audit userId guard (ruling T2-A)', () => {
       await expect(auditLog({ action, targetType: 'Instrument', targetId: randomUUID() }))
         .rejects.toThrow(`audit.userId required for action='${action}'`);
     }
+  });
+});
+
+// ─── instrument visibility (review A I3 / I4), the inject body limit (I5) ────
+
+/**
+ * A role that sees ONE instrument (an instrument-only scope) and holds
+ * RULE_CHAIN_MANAGE. SUPER_ADMIN short-circuits visibility, so every restricted
+ * case is driven through this role — and each is paired with a control that
+ * passes (the visible instrument, an unrestricted MANAGE holder, SUPER_ADMIN),
+ * so a route that hides everything cannot look correct here.
+ */
+describe('instrument visibility: the debug tab and the inject route (review A I3, I4)', () => {
+  const SCOPED = `RC_SCOPED_${S}`;
+  const scopedName = `rc_sc_${s}`;
+  let sc: H;
+  let visible: { id: string; code: string };
+  let hidden: { id: string; code: string };
+  const alarmIds: string[] = [];
+  let chainId = '';
+  let nodeX = '';
+  let nodeY = '';
+  const t0 = Date.now() - 60_000;
+
+  async function instrument(code: string) {
+    const res = await send('POST', '/api/instruments', { profileId: await fixtureProfileId('fixture:rule-chains'), name: code, code }, { ...sa, 'x-reauth-password': PW });
+    expect(res.statusCode, res.body).toBe(201);
+    const row = res.json() as { id: string; code: string };
+    instrumentIds.push(row.id);
+    return { id: row.id, code: row.code };
+  }
+
+  async function alarmOf(instrumentId: string) {
+    const a = await prisma.alarm.create({
+      data: {
+        instrumentId, source: 'RULE', metric: 'CUSTOM', severity: 'MINOR', state: 'CLEARED', clearedAt: new Date(),
+        ruleSnapshot: { source: 'RULE', alarmType: `RC scope ${S}`, description: 'rule-chains e2e' },
+      },
+    });
+    alarmIds.push(a.id);
+    return a.id;
+  }
+
+  beforeAll(async () => {
+    visible = await instrument(`RCV-${S}`);
+    hidden = await instrument(`RCH-${S}`);
+    await prisma.role.create({ data: { name: SCOPED, displayName: SCOPED, hierarchyLevel: 3, permissions: ['RULE_CHAIN_MANAGE'] } });
+    ROLES.push(SCOPED);
+    await prisma.roleConfig.create({ data: { role: SCOPED, instrumentScope: { locationIds: [], instrumentIds: [visible.id] } as never } });
+    invalidateRolePermsCache();
+    await makeUser(scopedName, SCOPED);
+    sc = { authorization: `Bearer ${await loginAs(app, scopedName, PW)}` };
+
+    const chain = await create(`Scope ${S}`, twoNodeDoc());
+    chainId = chain.id;
+    [nodeX, nodeY] = chain.document.nodes.map((n) => n.id);
+    const alarmVisible = await alarmOf(visible.id);
+    const alarmHidden = await alarmOf(hidden.id);
+    // Oldest first; every row after the second is HIDDEN from the scoped role, so the newest
+    // visible row sits under six newer hidden ones — a filter applied after LIMIT would lose it.
+    const seed: [string, string, string, string][] = [
+      [nodeX, 'INSTRUMENT', visible.id, 'visible instrument'],
+      [nodeX, 'ALARM', alarmVisible, 'alarm of the visible instrument'],
+      [nodeX, 'INSTRUMENT', hidden.id, 'hidden instrument'],
+      [nodeX, 'ALARM', alarmHidden, 'alarm of the hidden instrument'],
+      [nodeY, 'ALARM', randomUUID(), 'alarm that does not exist'],
+      [nodeY, 'SYSTEM', 'SYSTEM', 'system'],
+      [nodeY, 'USER', userIds[0], 'user'],
+      [nodeY, 'RULE_NODE', nodeX, 'rule node'],
+    ];
+    const { insertDebugRows, toDebugRow } = await import('../modules/rule-engine/debug.js');
+    const { newMessage } = await import('../modules/rule-engine/message.js');
+    const n = await insertDebugRows(seed.map(([nodeId, type, id, label], i) => toDebugRow({
+      chainId, nodeId, direction: 'IN', relation: null, ts: new Date(t0 + i * 1_000),
+      msg: newMessage('POST_TELEMETRY_REQUEST', { type: type as never, id }, { label }, {}),
+    })));
+    expect(n).toBe(seed.length);
+  });
+
+  afterAll(async () => {
+    // The scope row FIRST: a role left scoped is an access rule another suite would trip on.
+    try { await prisma.roleConfig.deleteMany({ where: { role: SCOPED } }); } catch (e) { console.error('restore role config', e); }
+    try { await prisma.alarm.deleteMany({ where: { id: { in: alarmIds } } }); } catch (e) { console.error('cleanup alarms', e); }
+  });
+
+  type Row = { originatorType: string; originatorId: string; data: { label: string } };
+  const labels = async (headers: H, query = '') => {
+    const res = await get(`/api/rule-chains/${chainId}/debug${query}`, headers);
+    expect(res.statusCode, res.body).toBe(200);
+    return (res.json().data as Row[]).map((r) => r.data.label);
+  };
+
+  it('I3: a restricted caller sees only events of a VISIBLE instrument or an alarm of one — newest first', async () => {
+    expect(await labels(sc)).toEqual(['alarm of the visible instrument', 'visible instrument']);
+  });
+
+  it('I3 controls: an unrestricted MANAGE holder and SUPER_ADMIN see every event', async () => {
+    const all = [
+      'rule node', 'user', 'system', 'alarm that does not exist',
+      'alarm of the hidden instrument', 'hidden instrument', 'alarm of the visible instrument', 'visible instrument',
+    ];
+    expect(await labels(mg)).toEqual(all);
+    expect(await labels(sa)).toEqual(all);
+  });
+
+  it('I3: the filter is in the query — limit 1 is the newest VISIBLE event (six newer hidden ones); before and nodeId still apply', async () => {
+    expect(await labels(sc, '?limit=1')).toEqual(['alarm of the visible instrument']);
+    expect(await labels(sc, `?before=${encodeURIComponent(new Date(t0 + 1_000).toISOString())}`)).toEqual(['visible instrument']);
+    expect(await labels(sc, `?nodeId=${nodeX}`)).toEqual(['alarm of the visible instrument', 'visible instrument']);
+    expect(await labels(sc, `?nodeId=${nodeY}`)).toEqual([]);
+    // Control: the same query unrestricted returns the newest row of all.
+    expect(await labels(mg, '?limit=1')).toEqual(['rule node']);
+  });
+
+  it('I4: a restricted caller naming an instrument outside its view is 404 ORIGINATOR_NOT_FOUND, as an unknown code is — and nothing is audited', async () => {
+    const before = new Date();
+    const out = await send('POST', '/api/rule-engine/v1/messages', { originatorCode: hidden.code, data: { a: 1 } }, sc);
+    expect(out.statusCode, out.body).toBe(404);
+    const unknown = await send('POST', '/api/rule-engine/v1/messages', { originatorCode: `NOPE-${S}`, data: { a: 1 } }, sc);
+    expect(unknown.statusCode).toBe(404);
+    expect(out.json().error).toBe('ORIGINATOR_NOT_FOUND');
+    expect(out.json()).toEqual({ ...unknown.json(), message: unknown.json().message.replace(`NOPE-${S}`, hidden.code) });
+    expect(await prisma.auditTrail.count({ where: { action: 'RULE_ENGINE_MESSAGE_INJECTED', userId: scopedName, timestamp: { gte: before } } })).toBe(0);
+  });
+
+  it('I4 controls: the visible instrument is accepted (and audited); an unrestricted MANAGE holder may name the other', async () => {
+    const before = new Date();
+    const ok = await send('POST', '/api/rule-engine/v1/messages', { originatorCode: visible.code.toLowerCase(), data: { a: 1 } }, sc);
+    expect(ok.statusCode, ok.body).toBe(202);
+    expect(ok.json()).toEqual({ accepted: false, reason: 'ENGINE_NOT_STARTED' }); // this file never starts the engine
+    expect(await prisma.auditTrail.count({ where: { action: 'RULE_ENGINE_MESSAGE_INJECTED', userId: scopedName, timestamp: { gte: before } } })).toBe(1);
+    const other = await send('POST', '/api/rule-engine/v1/messages', { originatorCode: hidden.code, data: { a: 1 } }, mg);
+    expect(other.statusCode, other.body).toBe(202);
+  });
+});
+
+describe('the inject route body limit (review A I5)', () => {
+  const LIMIT = 256 * 1024;
+  /** `{"data":"xxx…"}` of exactly `bytes` bytes (ASCII). */
+  const bodyOf = (bytes: number) => JSON.stringify({ data: 'x'.repeat(bytes - '{"data":""}'.length) });
+
+  it('256 KB is accepted; one byte more is 413, and nothing is audited', async () => {
+    const atLimit = bodyOf(LIMIT);
+    expect(Buffer.byteLength(atLimit)).toBe(LIMIT);
+    const ok = await app.inject({ method: 'POST', url: '/api/rule-engine/v1/messages', headers: { ...mg, 'content-type': 'application/json' }, payload: atLimit });
+    expect(ok.statusCode, ok.body.slice(0, 300)).toBe(202);
+    const before = new Date();
+    const over = await app.inject({ method: 'POST', url: '/api/rule-engine/v1/messages', headers: { ...mg, 'content-type': 'application/json' }, payload: bodyOf(LIMIT + 1) });
+    expect(over.statusCode, over.body.slice(0, 300)).toBe(413);
+    expect(await prisma.auditTrail.count({ where: { action: 'RULE_ENGINE_MESSAGE_INJECTED', userId: NAME.mg, timestamp: { gte: before } } })).toBe(0);
+  });
+});
+
+// ─── LAST: the test-script rate limit (review A M2) — its own users ──────────
+
+describe('POST /test-script is rate limited (review A M2)', () => {
+  it('10 a minute per user: the 11th is 429; another user is not limited', async () => {
+    const a = `rc_rl_a_${s}`;
+    const b = `rc_rl_b_${s}`;
+    await makeUser(a, MGR);
+    await makeUser(b, MGR);
+    const ha = { authorization: `Bearer ${await loginAs(app, a, PW)}` };
+    const hb = { authorization: `Bearer ${await loginAs(app, b, PW)}` };
+    const body = { scriptType: 'filter', script: 'return true;', msg: {} };
+    for (let i = 1; i <= 10; i++) {
+      const res = await send('POST', '/api/rule-chains/test-script', body, ha);
+      expect(res.statusCode, `call ${i}: ${res.body}`).toBe(200);
+    }
+    const over = await send('POST', '/api/rule-chains/test-script', body, ha);
+    expect(over.statusCode, over.body).toBe(429);
+    const other = await send('POST', '/api/rule-chains/test-script', body, hb);
+    expect(other.statusCode, other.body).toBe(200);
   });
 });
