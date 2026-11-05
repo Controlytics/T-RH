@@ -27,7 +27,7 @@ For every kind of code change, update every doc in the right column **in the sam
 | **New `config/static-routes/<surface>.routes.ts`** | `BACKEND_GUIDE.md` static-routes list, `docs/archive/PHASE_5_RECENT_WORK.md` § 9 |
 | **`PUBLIC_GET_PATHS` change** in `plugins/auth.ts` | `BACKEND_GUIDE.md`, `future/backend/README.md` "Public paths" |
 | **New `requireAnyPermission` / `enforceReauth` usage** | `BACKEND_GUIDE.md` rbac plugin entry, `future/backend/README.md` rbac entry |
-| ~~**New rule-chain node** in `nodes/<category>.ts`~~ | *(removed 2026-05-17 — rule-chain subsystem torn out; N/A)* |
+| **New rule-chain node** — a ThingsBoard node moved to `built`, or one added (live again 2026-11-05; the struck row that stood here named DigiLog's `nodes/<category>.ts`, torn out 2026-05-17) | **Code, in one commit:** (1) the catalogue entry in `packages/shared/src/types/rule-nodes.ts` — ThingsBoard's id `tb:<group>:<kebab>`, `tbClass`, label, fields, `defaultConfig` = ThingsBoard's `defaultConfiguration()` with NO key its configuration class lacks (ThingsBoard's Jackson refuses unknown keys, so an export would not start there — ruling P-3), the zod config, relations, `tbConfigurationVersion` = its `@RuleNode(version)`; (2) if ThingsBoard versions the node's configuration, its `upgrade()` mirrored from source into `upgradeThingsboardConfig` (rulings CV-1 / CV-3); (3) the handler `apps/api/src/modules/rule-engine/nodes/<group>/<file>.ts`, its header naming the ThingsBoard class and every narrowing, per-node state keyed by `ctx.nodeKey`, scripts through `ctx.runScript`, writes through `ctx.services` with `ctx.origin`; (4) registered in `nodes/<group>/index.ts` (never `nodes/index.ts`); (5) tests in `rule-engine/__tests__/nodes-<group>.test.ts`, plus an import / export case when ThingsBoard ships it in a chain; (6) the `[47, 10, 29]` status pins moved in `packages/shared/src/types/__tests__/rule-nodes.test.ts` AND `apps/api/src/e2e/rule-chains.e2e.test.ts`; (7) `npm run build -w @digilog/shared`. **Docs:** `docs/feature-notes.md` RULE CHAINS (the catalogue line, the narrowings list, the "later" list), `CHANGELOG.md`, and the catalogue count in `packages/shared/CLAUDE.md` RULE CHAINS. |
 | ~~**New data-ingestion file**~~ | *(removed 2026-06-17 — data-ingestion module torn out, Phase 7; N/A)* |
 | ~~**New `queries/*.routes.ts`** sibling~~ | *(removed 2026-06-17 — queries module torn out, Phase 7; N/A)* |
 | **New `assets/{routes,services,repositories}/` file** | `BACKEND_GUIDE.md` Assets module structure, `future/backend/MODULES.md` |
@@ -78,7 +78,7 @@ When adding a new config def, you must update **all twelve** of these in the sam
 7. `packages/shared/src/types/permissions.ts` — perm if new
 8. `packages/shared/src/types/feature-privileges.ts` — privilege + `FEATURE_TO_PERMISSION_MAP`
 9. `packages/shared/src/types/reauth-actions.ts` — reauth if applicable
-10. `apps/api/prisma/seed.ts` — seed default config row
+10. `apps/api/prisma/seed.ts` — seed default config row ONLY if the def's defaults cannot produce it: `configRegistry.seedDefaults()` (`apps/api/src/lib/config-discovery.ts`) writes every registered def's default row at boot, which is how every def since 2026-08 got its row; `seed.ts` holds five security rows and the access matrix (corrected 2026-11-05)
 11. `apps/api/src/plugins/auth.ts` — `PUBLIC_GET_PATHS` if endpoint is public
 12. Rebuild shared: `npm run build -w @digilog/shared`
 

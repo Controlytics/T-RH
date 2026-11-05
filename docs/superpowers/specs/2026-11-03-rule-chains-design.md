@@ -18,6 +18,8 @@ ThingsBoard documents **87 nodes** (13 filter, 11 enrichment, 12 transformation,
 
 Ruling S-1 (mine): "all nodes with the same functionality" is delivered as the 46 now and the 12 as follow-ups, each honestly labelled in the palette and the docs; the 29 are documented as not applicable. Cost if wrong: the operator expected the 29 — they cannot exist without their entities.
 
+> **Superseded 2026-11-05 (rulings T1-1, T1-2, D-P; `.superpowers/sdd/2026-11-03-rule-chains/progress.md`):** ThingsBoard documents **86** nodes, not 87 (the 13th filter row was an older name of Entity type filter / switch), and the build is **47 built / 10 later / 29 none**: Check relation presence and Related device attributes were counted as both B and L (they are built on the gateway link), "Generate (dashboard) report" is two classes, and Device profile (deprecated) is a BUILT pass-through because every ThingsBoard root chain v3.6 .. v4.2 enters through it. The live numbers and every later ruling are in `docs/feature-notes.md` RULE CHAINS.
+
 ## 3. Goals, non-goals, anti-goals
 
 **Goals.** G1 An administrator creates, edits, imports, exports and deletes rule chains on a canvas identical in concept to ThingsBoard's (palette by group, drag to place, connect with labelled relations, node settings dialog, per-node debug mode, "make root"). G2 Every event listed in §5 enters the root chain as a ThingsBoard-typed message with the same `metadata` keys ThingsBoard sets (`deviceName`→`instrumentCode`, `deviceType`→`profileName`, `ts`, …). G3 The 46 nodes behave as their ThingsBoard counterparts (same relation labels, same config semantics, same script API `msg`/`metadata`/`msgType`). G4 Debug mode shows, per node, every incoming and outgoing event with its relation, data, metadata and error — the ThingsBoard "Debug" tab. G5 The engine never slows or breaks ingest: enqueue is O(1) and never throws; a chain that errors ends the message on `Failure`; a script cannot run longer than its timeout. G6 §11: every chain change is a re-authenticated, audited, reasoned write; a rule-created alarm is an `alarms` row like any other (acknowledged, webhooked, notified, reported).
@@ -56,6 +58,13 @@ Ruling S-1 (mine): "all nodes with the same functionality" is delivered as the 4
 Loop guard: a message a node CREATES or SAVES (Save time series, Save attributes, Delete attributes, Create/Clear alarm) is written through the normal code path, which would fire the events above again. Each write made BY the engine carries `metadata.rule_engine_origin=rule_node:<nodeId>`; the emit helpers skip a message whose origin is a rule node **unless** the chain's "Re-enter on rule-node writes" setting is on (default OFF; ThingsBoard re-enters — Ruling S-2: OFF by default because the shipped root chain saves what ingest already stored and would otherwise loop once per key; cost if wrong: a chain that wants to react to its own writes flips one switch).
 
 **The shipped root chain** (seeded by the migration when the table is empty, exactly ThingsBoard's default): Input → *Message Type Switch* → `Post telemetry` → **Save Timeseries** · `Post attributes` → **Save Attributes** · `RPC Request from Device` → (nothing) · `Other` → **Log Other** (a Log node) · `Alarm`/`Alarm Cleared`/`Activity Event`/`Inactivity Event` → (nothing). Save Timeseries over a reading ingest already stored is an upsert no-op (same value, same ts — `writeBatch` writes no audit row when nothing changed), so the shipped chain costs one no-op transaction per message and changes nothing — the engine's own Configuration page (§10) can set "Skip Save nodes for ingest-origin messages" ON (default ON) to make it zero-cost; Ruling S-3.
+
+> **Superseded 2026-11-05 — read with the table above:**
+> - **`POST_TELEMETRY_REQUEST` is FLAT** (ruling M-1, 2026-11-04): `data = { key: value }`, the instant in `metadata.ts` (epoch ms as text), one message per distinct instant — ThingsBoard's rule-engine shape. The `{ ts, values }` in the table was wrong; Save time series still ACCEPTS it.
+> - **`ATTRIBUTES_UPDATED` from Save attributes is NOT always sent** (rulings P-9 / P-10, 2026-11-05): only when the node's `sendAttributesUpdatedNotification` is on (default OFF), the effective scope is not `CLIENT_SCOPE`, and the save changed a value. A Math function ATTRIBUTE result sends none.
+> - The loop-guard origin is `rule_node:<chainId>:<nodeId>` (the chain that made the write decides re-entry). **Ruling RE-1 (2026-11-05)** caps re-entry at ONE generation even with the switch ON (`1cc3d5f4`).
+> - **The shipped root chain has FOUR nodes** (ruling T1-3): the Input is the chain's `firstNodeId`, not a node.
+> - `REST_API_REQUEST` is audited (`RULE_ENGINE_MESSAGE_INJECTED`, one row per call) — ruling W-2.
 
 ## 6. The engine (G5)
 
@@ -167,12 +176,16 @@ Names, groups and relation labels are ThingsBoard's. "originator" = the message'
 
 Counts: B = 46 (13→10 filter … tallied in `packages/shared/src/types/rule-nodes.ts` by a test), L = 12, N = 29.
 
+> **Superseded 2026-11-05:** the counts are B = **47**, L = **10**, N = **29** of **86** (see the §2 note). Message type switch labels are ThingsBoard's `TbMsgType` verbatim — **`REST API request`** (lower-case r), not "REST API Request". Device profile (deprecated) is **B** (a pass-through). Save attributes' `ATTRIBUTES_UPDATED` follows the §5 note (P-10). Configuration keys follow ThingsBoard master where this table differs (Originator fields / Tenant attributes `dataMapping`, Math `MESSAGE_METADATA`, REST credentials `anonymous` / `basic` / `cert.PEM`, no MQTT QoS field) — Task 1 report. Every narrowing is listed by node in the feature note.
+
 ## 8. Data model (40 → 44 models; enums 13 → 14; two migrations)
 
 - `RuleChain { id uuid, name @unique, root Boolean (partial unique index WHERE root), debugMode Boolean, firstNodeId uuid?, document Json (the whole chain: nodes + connections + firstNodeIndex, ThingsBoard export shape; the SOURCE OF TRUTH), reEnterOnRuleNodeWrites Boolean default false, createdAt, updatedAt, createdBy, updatedBy }`. Nodes and connections are ALSO projected into `RuleNode { id, chainId, type, name, config Json, debugMode, x, y, index }` and `RuleNodeConnection { id, chainId, fromNodeId, toNodeId, relation }` by the save transaction so the engine and the debug table have real ids to key on (Ruling D-1: document + projection, like dashboards hold a document; the projection is rebuilt on every save, never edited by itself).
 - `RuleNodeDebugEvent { id bigserial, chainId, nodeId, ts, direction IN|OUT (validated string), relation?, msgId, msgType, originatorType, originatorId, data Json, metadata Json, error? }` with an index on `(nodeId, ts desc)`; swept by age and per-node cap.
 - `AlarmMetric` gains `CUSTOM` (migration `…_alarm_metric_custom`, its own `ALTER TYPE … ADD VALUE` as every enum change here); the partial unique index for RULE alarms (migration `…_rule_chains`, hand-authored like the 2026-11-02 one). The Alarms page / reports / notifications read a RULE alarm's type NAME from `ruleSnapshot.alarmType` (`alarmTypeKeyFor` returns null for RULE today → `alarmDisplayName` falls back to that field; touch point).
 - Seeded root chain (§5) inserted by the migration when `rule_chains` is empty.
+
+> **Superseded 2026-11-05:** **enums stay 13** — `CUSTOM` is a new VALUE of `AlarmMetric`, not an enum (Task 2 report). Models 40 → 44 as stated; migrations `20261103180000_alarm_metric_custom` and `20261103181000_rule_chains`.
 
 ## 9. API (`/api/rule-chains`, 57 → 59 web routes)
 
@@ -183,6 +196,8 @@ Counts: B = 46 (13→10 filter … tallied in `packages/shared/src/types/rule-no
 ## 10. Configuration → Rule Engine (a config def, 37 → 38)
 
 `rule-engine.def.ts` (SUPER_ADMIN card, dynamic page): `enabled` (default ON — the shipped root chain is a no-op; OFF stops processing and empties the queue), `skipSaveNodesForIngestOrigin` (ON), `scriptTimeoutMs` (2000, 100..30000), `queueCapacity` (10000), `concurrency` (8), `debugRetentionHours` (24), `debugMaxEventsPerNode` (1000), `httpTimeoutMs` (10000), `hopLimit` (200). Plus `rule-engine-attributes.def.ts` (38 → 39): the "Application attributes" key/value list the Tenant attributes node reads.
+
+> **Superseded 2026-11-05 (ruling RE-3):** `scriptTimeoutMs`'s administered maximum is **5,000 ms**, not 30,000 — three consecutive time-outs disable a script (ruling C-2), so the worst case is 15 s of a blocked event loop (`6930fa18`).
 
 ## 11. The web (G1, G4)
 
@@ -195,6 +210,8 @@ Counts: B = 46 (13→10 filter … tallied in `packages/shared/src/types/rule-no
 
 Writes: `RULE_CHAIN_MANAGE` + re-auth + reason + audit with the whole document. Scripts: time-boxed VM with no I/O; authors are MANAGE holders (SUPER_ADMIN by default). HTTP nodes: outbound only, with the node's timeout; no credentials in debug events (the REST node's `Authorization` header is masked in debug). MQTT external node: credentials stored in the chain document (encrypted? — Ruling S-5: stored as given, masked in the editor and in exports as ThingsBoard does; cost if wrong: an exported chain carries a broker password). Rule-created alarms go through the same acknowledge / webhook / notification paths. Debug events can hold telemetry values — readable only with `RULE_CHAIN_READ`.
 
+> **Superseded 2026-11-05 (ruling T2-D; ruling S-6):** credentials are masked as `"***"` in EVERY response, for EVERY caller (RULE_CHAIN_MANAGE included), in the export and in the audit values; a save sending `"***"` keeps the stored value. REST API call and Send to Slack refuse link-local, unspecified and cloud-metadata addresses after one judged DNS lookup; loopback and private networks are allowed (accepted risk).
+
 ## 13. Tests
 
 - shared: the catalogue (`rule-nodes.ts`): 46 built / 12 later / 29 none pinned; every built type has a zod config schema, a descriptor and a relations list; ThingsBoard class map round-trips.
@@ -206,6 +223,8 @@ Writes: `RULE_CHAIN_MANAGE` + re-auth + reason + audit with the whole document. 
 ## 14. Touch points and counts
 
 modules 27 → 28; models 40 → 44; enums 13 → 14 (`AlarmMetric.CUSTOM`); permissions 46 → 48; reauth 58 → 59; audit 105 → 111 / 118 → 124; sidebar items 15 → 16; tree groups 15 → 16, nodes 56 → 58, privileges 39 → 41 (snapshot appended); defs 37 → 39; routes 57 → 59; queue tasks 7 → 9; type files 40 → 41 (`rule-nodes.ts`); web deps + `@xyflow/react`; api deps + `jsonpath-plus`. Docs: CHANGELOG, feature note RULE CHAINS, endpoints.md, the four CLAUDE.md, CONTRIBUTING's 12-touchpoint list for the two defs, `tasks/todo.md`.
+
+> **Superseded 2026-11-05 — the counts as built** (re-derived with root `CLAUDE.md`'s commands): enums **13** (not 14); audit **105 → 112 / 118 → 125** (the inject route is audited too, ruling W-2); type files **40 → 42** (`rule-nodes.ts`, `rule-chain-document.ts`; ruling P-1); config pages 24 unchanged; migrations 54 → 56. The rest as stated.
 
 ## 15. Calls I made that the operator did not (overturn any)
 

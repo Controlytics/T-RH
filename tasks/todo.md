@@ -1,5 +1,69 @@
 # tasks/todo.md
 
+## 2026-11-03 .. 2026-11-05 — RULE CHAINS (a ThingsBoard-style rule engine) — built, not pushed, not deployed
+
+Operator: "add rule chains how in thingsboard has same add rule chains and what ever rule nodes are in thingsboard those all
+should come in this also, and all the nodes functionalities should be come as same", then "skip questions and start". Spec
+`docs/superpowers/specs/2026-11-03-rule-chains-design.md`, plan `docs/superpowers/plans/2026-11-03-rule-chains.md`, SDD
+ledger and every ruling `.superpowers/sdd/2026-11-03-rule-chains/progress.md`; the rules in `docs/feature-notes.md` RULE CHAINS;
+every route in `docs/recreation/06-api/endpoints.md`.
+
+- [x] T1 shared — catalogue (86 = 47 built / 10 later / 29 none), document, permissions, reauth, audit, sidebar, tree, import /
+  export, configurationVersion upgrades, CV-3 boundary (`0c1bb61c` `83b736c8` `a4e661ff` `02de0005` `46c91dc9` `c3d1c76a`
+  `6740b577` `f1f54f88`)
+- [x] T2 API — 4 models, 2 migrations, routes, 2 config defs, credentials masked for every caller (`2dbf3b62` `481a7820`
+  `b57c83a0` `8c3553e8`)
+- [x] T3 engine — queue, processor, script VM, debug, durable path, emit hooks, stats / test-script / inject (`06532861`
+  `8e916ce3` `864d0098` `3112b462` `eece0222` `0b57af6f` `0df7624c` `76a15f10` `738f9e50`)
+- [x] T4 filter / flow / transformation nodes (`6ca785d8` `202f9810` `c4179379` `7c2ef9e3`)
+- [x] T5 enrichment / action nodes, RULE alarms, ThingsBoard parity TB-P (`f33b2449` `6a2cf576` `b8a17e1f`)
+- [x] T6 external nodes, the S-6 target guard, the v3.6.4 / v4.2 ThingsBoard fixtures (`d8631f4d` `a0264c91` `ca591b65`)
+- [x] T7 web — list, canvas editor, settings forms, debug panel (`9335a869` `66f08fc5` `995fcd86` `7119d4c4`)
+- [x] T8 docs — changelog, feature note, endpoints, package notes, counts, spec superseding notes, CONTRIBUTING row (this entry;
+  report `.superpowers/sdd/2026-11-03-rule-chains/task-8-report.md`)
+- [x] Engine fix round 3, part 1 — RE-3 `scriptTimeoutMs` max 5,000 ms (`6930fa18`); RE-1 re-entry one generation deep +
+  `alarms.createOrUpdate` changed-only (`1cc3d5f4`); RE-2 durable items never evicted, refused at capacity, handed back on
+  stop, a refused job rescheduled instead of thrown (`366f9b63`).
+- [ ] **Engine fix round 3, the rest (rc-t3c, in flight when this was written)** — the e2e loop-guard pins on the REAL
+  handlers (re-review I2); MQTT 3.1 passthrough + 23-char client id, fail fast on
+  a dropped client, delete `services.http.fetch`, `cert.PEM` with ssl off; Generator disable key on the live version;
+  getChain-null test; onInit backoff; `alarms.clear` origin runtime pin; mutants F1 / F5 / F6; `task-3c-report.md`.
+- [ ] **Final fix wave** — fold the three template helpers (`transformation/pattern.ts`, `action/support.ts`,
+  `external/template.ts`); Delete attributes' `sendAttributesDeletedNotification` / `notifyDevice` (the P-10 treatment, emit
+  only when a key was removed); the null-value wording (`Can't parse value: {"t":null}`); the SWEEP of all 47 built nodes'
+  default / exported configuration keys against their ThingsBoard configuration classes (Important — an export ThingsBoard
+  cannot start is a broken export); S-6 minors (Alibaba 100.100.100.200 / Azure 168.63.129.16 literals, drop `Content-Length` on a
+  bodyless request, header mask for `x-auth-key` / `x-access-key` / `x-session-id`, tests for the non-`all` lookup branch, a lane
+  released when send throws, numeric URL spellings); the stale `$.values.temperature` JSON-path help in `rule-nodes.ts` (m5).
+- [ ] Whole-branch review, then the gate: API suite (single fork, test DB), shared suite, every touched web file one per process,
+  tsc ×3, `npm run lint`, `npm run db:verify-migrations`.
+- [ ] **Operator:** restart the local dev server (`prisma generate` hit EPERM on the Prisma engine DLL while `tsx watch` held it;
+  the JS client was regenerated, the engine binary was not).
+- [ ] **Operator:** a real-browser check on :5176 of drag from the palette, drag-to-connect and pan / zoom on `/rule-chains/:id`
+  (never run here — only headless renders and jsdom).
+- [ ] **Deploy (at the operator's word only):** push to `trh`; on AWS `npm ci` (two new exact dependencies: `@xyflow/react`
+  12.12.0, `jsonpath-plus` 11.2.1) and `npx prisma migrate deploy` (`20261103180000_alarm_metric_custom`,
+  `20261103181000_rule_chains` — the second seeds the root chain only when `rule_chains` is empty; AWS `alarms` rows are
+  unaffected); every user reloads; verify-chain after the schema change.
+- [ ] Deferred minors (from every review; none blocks): an Unsupported node with no `tbClass` exports its literal type (T1 m4);
+  the `secrets.ts` heuristics (the key pattern over-masks `tokenKeyName`, only string leaves are masked, array secrets merge by
+  index, a save with an unresolved `"***"` gives no warning, a literal password `***` cannot be stored); the two config defs carry
+  no re-auth action (T2-13 — switching the engine OFF needs no password under a re-auth policy; a one-line `reauthAction` if
+  wanted); Slack incoming-webhook URL needs a catalogue field; REST URL templating inserts unencoded values (as ThingsBoard);
+  Check relation presence reads prisma directly; Rename keys copies before it knows a change; Deduplication makes a started
+  engine poll `rule_chains` every 5 s; browser Back is not guarded by the editor's leave guard (needs a data router);
+  notification templates may 403 for a MANAGE holder who is not SUPER_ADMIN (untested against a real role); the script hash
+  computed per run (cache it, 3b m9); a durable job rescheduled by RE-2 runs twice if the process crashes between the
+  re-add and the completion (accepted); Delay's pending count reads graphile's private tables; Calculate delta's history lookup not measured under load;
+  `Double.toString` digits match JDK 19+, not verified against a ThingsBoard install's JDK; the PE class in the unknown-class
+  test named from memory; node names / configs stored verbatim (escape outside React).
+- [ ] "Later" nodes, each a feature first: GPS geofencing filter / events (lat / long keys), Related entity data and Create /
+  Delete relation (relations beyond the gateway link), Device state (the activity tracker accepting an event), REST call reply
+  (a synchronous REST request route), RPC call request / reply (device RPC), AI request (an AI provider).
+- [ ] Docs owed: `apps/web/CLAUDE.md` is over the 150k-char load limit (151,866 before this entry, 153,612 after) — split it
+  as root `CLAUDE.md` was (2026-10-07); README, PROJECT_SUMMARY, PROJECT_ARCHITECTURE, BACKEND_GUIDE, FRONTEND_GUIDE,
+  `docs/index.md` and `future/` carry counts older than this feature (listed in the Task 8 report) — a doc audit pass.
+
 ## 2026-11-03 (evening) — DEPLOYED: page reports on templates + Supervisor fix + register-map Test-before-Add + Permissions-tab held toggles
 
 - [x] AWS `ea7dee9 -> c3e9d83` (migration `20261103120000_report_templates_page_kinds` applied; health 200; routes answer under `kind`; chunks carry the new strings), then `c3e9d83 -> d96041c` (Permissions tab shows a held toggle with its holder; `permissionsHeld` on the role GET for ROLE_MANAGE). trh/data-layer = AWS = `d96041cd`.

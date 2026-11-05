@@ -184,8 +184,8 @@ export const allNavItems: NavItem[] = [
   },
   {
     // 2026-11-03: the rule engine (rule chains). Visibility is the `rule-chains`
-    // tree group (RULE_CHAIN_READ / MANAGE). The pages land in Task 7 of the
-    // rule-chains plan; until then the `*` route sends the link to `/`.
+    // tree group (RULE_CHAIN_READ / MANAGE). The link opens the Rule Chains list
+    // (`routes/rule-chains/index.tsx`); `/rule-chains/:id` is the canvas editor.
     id: 'rule-chains',
     label: 'Rule Chains',
     href: '/rule-chains',
