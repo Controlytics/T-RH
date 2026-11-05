@@ -10,10 +10,17 @@
  * A SECRET LEAF is a STRING:
  *   - outside a `credentials` object: whose key matches `SECRET_KEY`
  *     (password, passphrase, secret, token — botToken —, private key, API key,
- *     an Authorization header);
+ *     an Authorization header; since the final fix wave, 2026-11-05, also
+ *     ThingsBoard's GCP Pub/Sub `serviceAccountKey` (account key), Kafka's
+ *     `sasl.jaas.config` (jaas) and the header names `x-auth-key`,
+ *     `x-access-key`, `x-session-id` — review B I-5, task-6b minor 4);
  *   - inside a `credentials` object (MQTT / REST's ThingsBoard shape): any
  *     string except `type`, `username`, `caCert` and `cert` (a user name and a
- *     public certificate are not secrets).
+ *     public certificate are not secrets);
+ *   - ANYWHERE, under any key and as an array element: a string holding a PEM
+ *     PRIVATE KEY block or a service-account file's `"private_key"`
+ *     (`isSecretValue`; ruling N1-6 — a `-----BEGIN CERTIFICATE-----` is public
+ *     and stays readable, as `caCert` / `cert` always did).
  * Objects and arrays are WALKED, never replaced: replacing `credentials` with
  * the string "***" would make the node fail its schema and re-import as
  * Unsupported.
@@ -21,32 +28,46 @@
  * MASKING turns every non-empty secret leaf into "***" on a deep copy; the
  * stored document is never touched. MERGING (a save or an import) puts the
  * value stored for the SAME node id and type back wherever a secret leaf
- * arrives as exactly "***"; with nothing stored it stays "***" and is reported
- * as unresolved (the node refuses it at run time — Task 6).
+ * arrives as exactly "***" — a leaf masked for its VALUE is recognised by the
+ * value STORED at that path, since "***" no longer looks like a key; with
+ * nothing stored a key-named secret stays "***" and is reported as unresolved
+ * (the node refuses it at run time — Task 6).
  */
 import type { RuleChainDocument, RuleChainNode } from '@digilog/shared';
 
 export const MASKED_SECRET = '***';
 
-const SECRET_KEY = /password|passphrase|secret|token|private[-_]?key|api[-_]?key|authorization|credentials/i;
+const SECRET_KEY = /password|passphrase|secret|token|private[-_]?key|api[-_]?key|account[-_]?key$|auth[-_]?key|access[-_]?key|session[-_]?id|jaas|authorization|credentials/i;
 const CREDENTIAL_PUBLIC_KEYS = new Set(['type', 'username', 'cacert', 'cert']);
 const isCredentials = (key: string) => /^credentials$/i.test(key);
+/** A PEM PRIVATE KEY block of any algorithm (PKCS#8, RSA, EC, ENCRYPTED, OPENSSH, PGP …), or a service-account file's `"private_key"`. */
+const SECRET_VALUE = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY|"private_key"/;
 
-/** Is the string under `key` a secret? */
+/** Is the string under `key` a secret, by its key name? */
 export function isSecretLeaf(key: string, insideCredentials: boolean): boolean {
   return insideCredentials ? !CREDENTIAL_PUBLIC_KEYS.has(key.toLowerCase()) : SECRET_KEY.test(key);
 }
 
+/** Is this string a secret whatever its key — a private key or a service-account key file (ruling N1-6)? */
+export function isSecretValue(value: string): boolean {
+  return SECRET_VALUE.test(value);
+}
+
+/** A string leaf is a secret by its key (`null` for an array element: no key) or by its value. */
+const isSecret = (key: string | null, inside: boolean, value: string): boolean =>
+  (key !== null && isSecretLeaf(key, inside)) || isSecretValue(value);
+
 const isPlainObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
+const maskString = (key: string | null, inside: boolean, v: string): string =>
+  (v.length > 0 && isSecret(key, inside, v) ? MASKED_SECRET : v);
+
 function maskValue(value: unknown, inside: boolean): unknown {
-  if (Array.isArray(value)) return value.map((v) => maskValue(v, inside));
+  if (Array.isArray(value)) return value.map((v) => (typeof v === 'string' ? maskString(null, inside, v) : maskValue(v, inside)));
   if (!isPlainObject(value)) return value;
   const out: Record<string, unknown> = {};
   for (const [key, v] of Object.entries(value)) {
-    out[key] = typeof v === 'string'
-      ? (isSecretLeaf(key, inside) && v.length > 0 ? MASKED_SECRET : v)
-      : maskValue(v, inside || isCredentials(key));
+    out[key] = typeof v === 'string' ? maskString(key, inside, v) : maskValue(v, inside || isCredentials(key));
   }
   return out;
 }
@@ -64,14 +85,21 @@ export function maskDocumentSecrets(doc: RuleChainDocument): RuleChainDocument {
 /** Every secret leaf of a configuration: path → value. */
 function secretLeaves(value: unknown, inside: boolean, path: string, out: Map<string, string>): void {
   if (Array.isArray(value)) {
-    value.forEach((v, i) => secretLeaves(v, inside, `${path}[${i}]`, out));
+    value.forEach((v, i) => {
+      const p = `${path}[${i}]`;
+      if (typeof v === 'string') {
+        if (isSecret(null, inside, v)) out.set(p, v);
+      } else {
+        secretLeaves(v, inside, p, out);
+      }
+    });
     return;
   }
   if (!isPlainObject(value)) return;
   for (const [key, v] of Object.entries(value)) {
     const p = path ? `${path}.${key}` : key;
     if (typeof v === 'string') {
-      if (isSecretLeaf(key, inside)) out.set(p, v);
+      if (isSecret(key, inside, v)) out.set(p, v);
     } else {
       secretLeaves(v, inside || isCredentials(key), p, out);
     }
@@ -105,9 +133,17 @@ export function changedSecrets(before: RuleChainDocument, after: RuleChainDocume
   return changed.sort();
 }
 
+/** A stored string that "***" may stand for: a non-empty real value. */
+const restorable = (s: unknown): s is string => typeof s === 'string' && s.length > 0 && s !== MASKED_SECRET;
+
 function mergeValue(incoming: unknown, stored: unknown, inside: boolean, path: string, unresolved: string[]): unknown {
   if (Array.isArray(incoming)) {
-    return incoming.map((v, i) => mergeValue(v, Array.isArray(stored) ? stored[i] : undefined, inside, `${path}[${i}]`, unresolved));
+    return incoming.map((v, i) => {
+      const s = Array.isArray(stored) ? stored[i] : undefined;
+      // An array element has no key: only a value-secret was masked, recognised by what is stored there.
+      if (typeof v === 'string') return v === MASKED_SECRET && restorable(s) && isSecretValue(s) ? s : v;
+      return mergeValue(v, s, inside, `${path}[${i}]`, unresolved);
+    });
   }
   if (!isPlainObject(incoming)) return incoming;
   const from = isPlainObject(stored) ? stored : undefined;
@@ -116,8 +152,12 @@ function mergeValue(incoming: unknown, stored: unknown, inside: boolean, path: s
     const p = path ? `${path}.${key}` : key;
     const s = from?.[key];
     if (typeof v === 'string') {
-      if (v === MASKED_SECRET && isSecretLeaf(key, inside)) {
-        if (typeof s === 'string' && s.length > 0 && s !== MASKED_SECRET) {
+      const byKey = isSecretLeaf(key, inside);
+      // A leaf masked for its VALUE comes back as "***", which no longer looks like a
+      // private key: the value STORED at this path says it was one.
+      const byStoredValue = typeof s === 'string' && isSecretValue(s);
+      if (v === MASKED_SECRET && (byKey || byStoredValue)) {
+        if (restorable(s)) {
           out[key] = s;
         } else {
           out[key] = v;
