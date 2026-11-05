@@ -68,7 +68,7 @@ import { ruleEngine } from '../modules/rule-engine/engine.js';
 import { getChain, invalidateChainCache } from '../modules/rule-engine/service.js';
 import { invalidateRuleEngineConfigCache } from '../modules/rule-engine/config.js';
 import { newMessage, ruleNodeOrigin, type RuleMessage } from '../modules/rule-engine/message.js';
-import type { RuleTelemetryReading } from '../modules/rule-engine/services.js';
+import type { RuleTelemetryReading, RuleTelemetryWriteOptions } from '../modules/rule-engine/services.js';
 import { alarmDisplayName, loadAlarmTypeNames } from '../modules/alarms/load-type-names.js';
 import { invalidateOffsetConfigCache } from '../modules/instruments/load-offsets.js';
 
@@ -519,7 +519,7 @@ describe('Delete attributes — its two toggles honoured as ThingsBoard\'s, defa
 // ─── Save time series over an ingest-origin reading (ruling S-3) ────────────
 
 describe('Save time series (ruling S-3)', () => {
-  type WriteCall = [string, RuleTelemetryReading[], string, { skipLatest?: boolean } | undefined];
+  type WriteCall = [string, RuleTelemetryReading[], string, RuleTelemetryWriteOptions | undefined];
   /** Every `telemetry.write` the engine's services make for the fixture instrument, while `fn` runs. */
   async function countingWrites(fn: () => Promise<void>): Promise<WriteCall[]> {
     const svc = ruleEngine.services.telemetry;
@@ -553,15 +553,18 @@ describe('Save time series (ruling S-3)', () => {
     await setEngineConfig({ skipSaveNodesForIngestOrigin: false });
     const ts = Date.now() - 6_000;
     const before = (await rows(ROOT.chainId, { msgType: 'POST_TELEMETRY_REQUEST', originatorId: inst!.id, direction: 'OUT' })).length;
+    let msgId = '';
     const calls = await countingWrites(async () => {
       expect((await ingest({ ts, temp: 22.5 })).statusCode).toBe(200);
       const out = await waitForRows(ROOT.chainId, { msgType: 'POST_TELEMETRY_REQUEST', originatorId: inst!.id, direction: 'OUT' }, before + 1);
       expect(out.slice(before).map((r) => r.relation)).toEqual(['Success (unconnected)']);
+      msgId = out[before].msg_id;
     });
     expect(calls).toHaveLength(1);
     expect(calls[0][1]).toEqual([{ key: 'temp', value: 22.5, ts: new Date(ts) }]);
     expect(calls[0][2]).toBe(ruleNodeOrigin(ROOT.chainId, ROOT.nodeId));
-    expect(calls[0][3]).toEqual({ skipLatest: false });
+    // The message rides along (review A I2): the ingest message's id and its origin, for a rewrite's audit wording.
+    expect(calls[0][3]).toEqual({ skipLatest: false, message: { id: msgId, origin: 'ingest' } });
     expect(await prisma.auditTrail.count({ where: { action: 'TELEMETRY_READING_REWRITTEN', targetId: inst!.id } })).toBe(0);
     const stored = await prisma.$queryRaw<{ value: unknown }[]>`
       SELECT value FROM instrument_telemetry_history WHERE instrument_id = ${inst!.id} AND key = 'temp' AND ts = ${new Date(ts)}`;
