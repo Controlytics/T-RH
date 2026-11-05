@@ -57,7 +57,6 @@ export function fakeServices(overrides: ServiceOverrides = {}, config: Partial<R
     instruments: group('instruments', ['byId', 'byCode', 'gatewayOf', 'fields'], overrides.instruments),
     alarms: group('alarms', ['createOrUpdate', 'clear', 'byId'], overrides.alarms),
     notifications: group('notifications', ['email', 'sms', 'byTemplate'], overrides.notifications),
-    http: group('http', ['fetch'], overrides.http),
     mqtt: group('mqtt', ['publish', 'close'], overrides.mqtt),
     appAttributes: overrides.appAttributes ?? notStubbed('appAttributes'),
     appDetails: overrides.appDetails ?? notStubbed('appDetails'),

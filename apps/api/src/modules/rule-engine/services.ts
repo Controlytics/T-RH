@@ -45,8 +45,10 @@ import { currentReentryDepth } from './context.js';
  *    evaluator's alarms do (spec §12) and emit their ALARM / ALARM_CLEAR;
  *  - notifications → `sendNotification` (a `notification_logs` row, durable
  *    retries);
- *  - http → Node's fetch with a timeout; mqtt → one lazily connected client
- *    per node, closed on the node's destroy.
+ *  - mqtt → one lazily connected client per node (`ctx.nodeKey`), closed on
+ *    the node's destroy; protocol 3.1 / 3.1.1 / 5 as the node names it, a
+ *    dropped client fails fast. There is NO http service: the REST API call
+ *    and Slack nodes use their own guarded transport (ruling S-6).
  * Every write takes the node's ORIGIN (`ctx.origin`) and passes it to the emit
  * helper of the event it causes — the loop guard (spec §5) reads it.
  */
@@ -212,9 +214,9 @@ export interface RuleServices {
     sms(payload: RuleSmsPayload): Promise<RuleSendResult>;
     byTemplate(templateId: string, targets: { roles: string[]; userIds: string[] }, variables: Record<string, string>): Promise<RuleSendResult>;
   };
-  http: {
-    fetch(url: string, init: RequestInit, timeoutMs?: number): Promise<Response>;
-  };
+  // No `http` here (fix round 3, task-6b-review Minor 1): the unguarded `http.fetch` no node used was
+  // removed — the REST API call and Slack nodes send through nodes/external/http.ts, which refuses
+  // link-local and metadata targets after DNS (ruling S-6). Add no outbound primitive that skips it.
   mqtt: {
     /** One client per `nodeKey` (`ctx.nodeKey` = `<chainId>:<nodeId>`): two chains sharing node ids never share a client. */
     publish(nodeKey: string, config: RuleMqttConfig, topic: string, payload: string, qos: 0 | 1 | 2, retain: boolean): Promise<void>;
@@ -316,17 +318,35 @@ async function storedAt(instrumentId: string, readings: RuleTelemetryReading[]):
   return new Map(rows.map((r) => [`${r.key}\u0000${r.ts.getTime()}`, { value: r.value, raw_value: r.raw_value }]));
 }
 
+/** ThingsBoard's `TbMqttNode`: MQTT_3_MAX_CLIENT_ID_LENGTH = 23 (the 3.1 spec's limit), MQTT_5_MAX_CLIENT_ID_LENGTH = 256. */
+export const MQTT_3_1_MAX_CLIENT_ID_LENGTH = 23;
+export const MQTT_MAX_CLIENT_ID_LENGTH = 256;
+
 /**
  * The MQTT client id of a node: the configured one (with `_<suffix>` when
  * `appendClientIdSuffix`), else `digilog-rule-<suffix>`. The suffix is 10 hex
  * of sha1(nodeKey), so it is stable for the node, differs between two chains
- * that share node ids, and stays within MQTT 3.1's 23 characters.
+ * that share node ids, and the generated id stays within MQTT 3.1's 23
+ * characters. A SET id longer than ThingsBoard allows — 23 on MQTT 3.1
+ * (protocol 3), its suffix included, else 256 — is refused with ThingsBoard's
+ * own words (`TbMqttNode.getClientId`), never cut short: a shortened id could
+ * collide with another client's and knock it off the broker.
  */
-export function mqttClientIdFor(nodeKey: string, config: Pick<RuleMqttConfig, 'clientId' | 'appendClientIdSuffix'>): string {
+export function mqttClientIdFor(nodeKey: string, config: Pick<RuleMqttConfig, 'clientId' | 'appendClientIdSuffix' | 'protocolVersion'>): string {
   const suffix = createHash('sha1').update(nodeKey).digest('hex').slice(0, 10);
   const set = config.clientId?.trim();
   if (!set) return `digilog-rule-${suffix}`;
-  return config.appendClientIdSuffix ? `${set}_${suffix}` : set;
+  const id = config.appendClientIdSuffix ? `${set}_${suffix}` : set;
+  const max = config.protocolVersion === 3 ? MQTT_3_1_MAX_CLIENT_ID_LENGTH : MQTT_MAX_CLIENT_ID_LENGTH;
+  if (id.length > max) throw new Error(`The length of Client ID cannot be longer than ${max}, but current length is ${id.length}.`);
+  return id;
+}
+
+/** The node's protocol level as mqtt.js takes it: 3 = MQTT 3.1 (protocol name MQIsdp), 5 = MQTT 5, anything else 3.1.1. */
+export function mqttProtocolOptions(protocolVersion: number | undefined): Pick<IClientOptions, 'protocolVersion' | 'protocolId'> {
+  if (protocolVersion === 3) return { protocolVersion: 3, protocolId: 'MQIsdp' };
+  if (protocolVersion === 5) return { protocolVersion: 5 };
+  return { protocolVersion: 4 };
 }
 
 const SEVERITIES = new Set(['CRITICAL', 'MAJOR', 'MINOR']);
@@ -356,7 +376,8 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
     warn: (t, m) => logger.warn(m ?? {}, `[rule-engine] ${t}`),
     error: (t, m) => logger.error(m ?? {}, `[rule-engine] ${t}`),
   };
-  const mqttClients = new Map<string, { client: MqttClient; fingerprint: string; ready: Promise<void> }>();
+  /** `connectedOnce`: the broker accepted this client at least once — after that, "not connected" means it DROPPED. */
+  const mqttClients = new Map<string, { client: MqttClient; fingerprint: string; ready: Promise<void>; connectedOnce: boolean }>();
 
   async function instrumentOrThrow(id: string): Promise<{ id: string; code: string; gatewayId: string | null }> {
     const row = await prisma.instrument.findUnique({ where: { id }, select: { id: true, code: true, gatewayId: true } });
@@ -763,12 +784,6 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
       },
     },
 
-    http: {
-      fetch(url, init, timeoutMs) {
-        return fetch(url, { ...init, signal: AbortSignal.timeout(Math.max(1, timeoutMs ?? hooks.config().httpTimeoutMs)) });
-      },
-    },
-
     mqtt: {
       async publish(nodeKey, config, topic, payload, qos, retain) {
         const host = (config.host ?? '').trim();
@@ -784,6 +799,14 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
         }
         if (!entry) {
           const ssl = config.ssl === true;
+          // ThingsBoard builds a TLS context only when SSL is on (TbMqttNode.getSslContext), so a PEM
+          // certificate with SSL off is not used there either: the connection is plain. Kept as
+          // ThingsBoard does — an imported chain behaves the same — and said, since nothing in the
+          // editor shows it: refusing would fail a chain ThingsBoard runs.
+          if (creds.type === 'cert.PEM' && !ssl) {
+            log.warn('MQTT node: its credentials are a client certificate (PEM) but SSL is off — the certificate is NOT used and the connection is plain TCP, as in ThingsBoard. Switch SSL on to use it.',
+              { nodeKey, host });
+          }
           const options: IClientOptions = {
             host, port: config.port ?? (ssl ? 8883 : 1883), protocol: ssl ? 'mqtts' : 'mqtt',
             // ThingsBoard: a blank client id is generated; `appendClientIdSuffix` makes a set one unique per node.
@@ -791,25 +814,34 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
             clean: config.cleanSession !== false,
             connectTimeout: Math.max(1, config.connectTimeoutSec ?? 10) * 1000,
             reconnectPeriod: 5_000,
-            ...(config.protocolVersion === 5 ? { protocolVersion: 5 as const } : {}),
+            ...mqttProtocolOptions(config.protocolVersion),
             ...(creds.type === 'basic' ? { username: creds.username, password: creds.password } : {}),
-            ...(creds.type === 'cert.PEM' ? {
+            ...(creds.type === 'cert.PEM' && ssl ? {
               ...(creds.caCert ? { ca: creds.caCert } : {}), ...(creds.cert ? { cert: creds.cert } : {}),
               ...(creds.privateKey ? { key: creds.privateKey } : {}), ...(creds.privateKeyPassword ? { passphrase: creds.privateKeyPassword } : {}),
             } : {}),
           };
           const client = mqtt.connect(options);
           client.on('error', (err) => log.warn('MQTT node connection error', { nodeKey, err: err.message }));
-          const ready = new Promise<void>((resolve, reject) => {
+          const created: { client: MqttClient; fingerprint: string; ready: Promise<void>; connectedOnce: boolean } = {
+            client, fingerprint, ready: Promise.resolve(), connectedOnce: false,
+          };
+          created.ready = new Promise<void>((resolve, reject) => {
             const timer = setTimeout(() => reject(new Error(`MQTT_CONNECT_TIMEOUT: ${host} did not answer`)), (options.connectTimeout as number) + 1_000);
             timer.unref();
-            client.once('connect', () => { clearTimeout(timer); resolve(); });
+            client.once('connect', () => { clearTimeout(timer); created.connectedOnce = true; resolve(); });
           });
-          ready.catch(() => undefined);
-          entry = { client, fingerprint, ready };
+          created.ready.catch(() => undefined);
+          entry = created;
           mqttClients.set(nodeKey, entry);
         }
-        if (!entry.client.connected) await entry.ready;
+        if (!entry.client.connected) {
+          // FAIL FAST once a connected client has dropped: mqtt.js would hold the publish in its
+          // offline queue until it reconnects, and the message would sit out its whole 30 s budget.
+          if (entry.connectedOnce) throw new Error(`MQTT_NOT_CONNECTED: the connection to ${host} dropped — reconnecting every 5 s`);
+          await entry.ready;
+          if (!entry.client.connected) throw new Error(`MQTT_NOT_CONNECTED: the connection to ${host} dropped as it opened — reconnecting every 5 s`);
+        }
         await entry.client.publishAsync(topic, payload, { qos, retain });
       },
       async close(nodeKey) {
