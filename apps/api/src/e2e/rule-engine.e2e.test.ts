@@ -68,6 +68,7 @@ import { newMessage, ruleNodeOrigin, type RuleMessage } from '../modules/rule-en
 import { runRuleEngineMessage } from '../workers/rule-engine-message.worker.js';
 import { runRuleEngineDebugSweep } from '../workers/rule-engine-debug-sweep.worker.js';
 import { invalidateOffsetConfigCache } from '../modules/instruments/load-offsets.js';
+import { invalidateReauthCache } from '../lib/reauth-check.js';
 
 const SEEDED = 'b1a7e000-0000-4000-8000-000000000000';
 const SWITCH = DEFAULT_ROOT_CHAIN_NODE_IDS.messageTypeSwitch;
@@ -84,6 +85,10 @@ let sa: Record<string, string>;
 let userId: string;
 let inst: { id: string; code: string; token: string };
 let engineCfgBefore: { configValue: unknown; configType: string; requiresReauth: boolean } | null | undefined;
+/** The other config rows this file writes (ruling D8-1): captured first, restored in afterAll. */
+type CfgRow = { configValue: unknown; configType: string; requiresReauth: boolean } | null;
+let attrsCfgBefore: CfgRow | undefined;
+let reauthCfgBefore: CfgRow | undefined;
 const startedAt = new Date();
 const createdInstruments: string[] = [];
 const createdAlarms: string[] = [];
@@ -167,6 +172,12 @@ beforeAll(async () => {
   expect(await prisma.ruleChain.count({ where: { id: SEEDED, root: true } }), 'the seeded root chain must exist').toBe(1);
   const cfgRow = await prisma.systemConfig.findUnique({ where: { configKey: 'rule-engine' } });
   engineCfgBefore = cfgRow ? { configValue: cfgRow.configValue, configType: cfgRow.configType, requiresReauth: cfgRow.requiresReauth } : null;
+  const capture = async (configKey: string): Promise<CfgRow> => {
+    const r = await prisma.systemConfig.findUnique({ where: { configKey } });
+    return r ? { configValue: r.configValue, configType: r.configType, requiresReauth: r.requiresReauth } : null;
+  };
+  attrsCfgBefore = await capture('rule-engine-attributes');
+  reauthCfgBefore = await capture('action-reauth');
   // The fixture instrument carries no offset attribute, so ingest stores the reading as sent.
   invalidateOffsetConfigCache();
 
@@ -200,8 +211,18 @@ beforeAll(async () => {
   createdInstruments.push(inst.id);
 });
 
+/** Put a captured config row back as it was (deleted when there was none); undefined = never captured. */
+async function restoreRow(configKey: string, before: CfgRow | undefined) {
+  if (before) await prisma.systemConfig.upsert({ where: { configKey }, update: before as never, create: { configKey, ...before } as never });
+  else if (before === null) await prisma.systemConfig.deleteMany({ where: { configKey } });
+}
+
 afterAll(async () => {
+  // The Action Re-authentication policy back FIRST (D8-1 cases), whatever else fails.
+  try { await restoreRow('action-reauth', reauthCfgBefore); } catch (e) { console.error('restore action-reauth', e); }
+  invalidateReauthCache();
   try { await ruleEngine.stop(); } catch (e) { console.error('engine stop', e); }
+  try { await restoreRow('rule-engine-attributes', attrsCfgBefore); } catch (e) { console.error('restore rule-engine-attributes', e); }
   // Configuration → Rule Engine back FIRST, whatever else fails.
   try {
     if (engineCfgBefore) await prisma.systemConfig.update({ where: { configKey: 'rule-engine' }, data: engineCfgBefore as never });
@@ -774,5 +795,50 @@ describe('services (what Tasks 4-6 call)', () => {
     expect(await svc.instruments.gatewayOf(inst.id)).toBeNull();
     expect(await svc.instruments.fields(inst.id)).toMatchObject({ id: inst.id, code: inst.code, name: `RE ${STAMP}`, isGateway: 'false' });
     expect(Object.keys(await svc.appDetails()).sort()).toEqual(['APP_NAME', 'SERVER_NAME', 'SERVER_VERSION', 'TITLE']);
+  });
+});
+
+describe('Configuration → Rule Engine and Application Attributes can ask for the password (ruling D8-1)', () => {
+  /** The run's own engine settings (setEngineConfig({})), so a save here changes nothing the engine runs on. */
+  const ENGINE_BODY = { enabled: true, skipSaveNodesForIngestOrigin: false, scriptTimeoutMs: 2000, queueCapacity: 10000, concurrency: 8,
+    debugRetentionHours: 24, debugMaxEventsPerNode: 1000, httpTimeoutMs: 10000, hopLimit: 200 };
+  const put = (key: string, payload: Record<string, unknown>) =>
+    app.inject({ method: 'PUT', url: `/api/config/dynamic/${key}`, headers: sa, payload });
+
+  it.each([
+    ['rule-engine', ENGINE_BODY],
+    ['rule-engine-attributes', { attributes: [{ key: 'site', value: `QC ${STAMP}` }] }],
+  ] as [string, Record<string, unknown>][])(
+    '%s: with UPDATE_CONFIG_PAGE required for the role, a save without _currentPassword is refused; with it, saved (the password not stored)',
+    async (key, body) => {
+      const policy = (reauthCfgBefore?.configValue ?? {}) as Record<string, unknown>;
+      await prisma.systemConfig.upsert({
+        where: { configKey: 'action-reauth' },
+        update: { configValue: { ...policy, UPDATE_CONFIG_PAGE: ['SUPER_ADMIN'] } as never },
+        create: { configKey: 'action-reauth', configValue: { UPDATE_CONFIG_PAGE: ['SUPER_ADMIN'] } as never, configType: 'security', requiresReauth: false },
+      });
+      invalidateReauthCache();
+      try {
+        const without = await put(key, { ...body });
+        expect(without.statusCode, without.body).toBe(401);
+        expect(without.json()).toMatchObject({ error: 'REAUTH_REQUIRED', action: 'UPDATE_CONFIG_PAGE' });
+        const withPw = await put(key, { ...body, _currentPassword: PW });
+        expect(withPw.statusCode, withPw.body).toBe(200);
+        const stored = (await prisma.systemConfig.findUnique({ where: { configKey: key } }))?.configValue as Record<string, unknown>;
+        expect(stored).toMatchObject(body);
+        expect(stored).not.toHaveProperty('_currentPassword');
+      } finally {
+        await restoreRow('action-reauth', reauthCfgBefore);
+        invalidateReauthCache();
+      }
+    },
+  );
+
+  it('the manifest names UPDATE_CONFIG_PAGE for both, so the config page asks up front', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/config/registry/manifest', headers: sa });
+    expect(res.statusCode, res.body).toBe(200);
+    const byKey = new Map((res.json() as { moduleKey: string; reauthAction: string | null }[]).map((m) => [m.moduleKey, m.reauthAction]));
+    expect(byKey.get('rule-engine')).toBe('UPDATE_CONFIG_PAGE');
+    expect(byKey.get('rule-engine-attributes')).toBe('UPDATE_CONFIG_PAGE');
   });
 });
