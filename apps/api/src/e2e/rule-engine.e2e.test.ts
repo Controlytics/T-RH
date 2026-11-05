@@ -134,7 +134,8 @@ async function restoreSeededRoot() {
 
 type DebugRow = { node_id: string; direction: string; relation: string | null; msg_id: string; msg_type: string; originator_id: string; data: any; metadata: any; ts: Date };
 
-const rows = (where: { nodeId?: string; msgType?: string; originatorId?: string; msgId?: string; direction?: 'IN' | 'OUT' } = {}) => prisma.$queryRaw<DebugRow[]>`
+/** `alarmId`: an alarm message's `metadata.alarmId` — since ruling AL-1 its ORIGINATOR is the alarm's instrument. */
+const rows = (where: { nodeId?: string; msgType?: string; originatorId?: string; msgId?: string; direction?: 'IN' | 'OUT'; alarmId?: string } = {}) => prisma.$queryRaw<DebugRow[]>`
   SELECT node_id::text, direction, relation, msg_id, msg_type, originator_id, data, metadata, ts
   FROM rule_node_debug_events
   WHERE chain_id = ${ROOT}::uuid AND ts >= ${startedAt}
@@ -143,6 +144,7 @@ const rows = (where: { nodeId?: string; msgType?: string; originatorId?: string;
     AND (${where.originatorId ?? null}::text IS NULL OR originator_id = ${where.originatorId ?? null})
     AND (${where.msgId ?? null}::text IS NULL OR msg_id = ${where.msgId ?? null})
     AND (${where.direction ?? null}::text IS NULL OR direction = ${where.direction ?? null})
+    AND (${where.alarmId ?? null}::text IS NULL OR metadata ->> 'alarmId' = ${where.alarmId ?? null})
   ORDER BY id`;
 
 async function waitForRows(where: Parameters<typeof rows>[0], atLeast: number, ms = 2_000): Promise<DebugRow[]> {
@@ -882,7 +884,8 @@ describe('services (what Tasks 4-6 call)', () => {
       // Outside any flow (depth 0) with Re-enter ON: every ALARM the services emit reaches the root.
       const first = await svc.alarms.createOrUpdate(input);
       createdAlarms.push(first.alarm.id);
-      const atRoot = (atLeast: number) => waitForRows({ nodeId: SWITCH, msgType: 'ALARM', originatorId: first.alarm.id, direction: 'IN' }, atLeast);
+      // AL-1: from the alarm's INSTRUMENT, the alarm in metadata.alarmId.
+      const atRoot = (atLeast: number) => waitForRows({ nodeId: SWITCH, msgType: 'ALARM', originatorId: inst.id, alarmId: first.alarm.id, direction: 'IN' }, atLeast);
       expect(await atRoot(1)).toHaveLength(1);
       // The same details in another key order, the same severity: nothing to write, nothing to say.
       const same = await svc.alarms.createOrUpdate({ ...input, details: { door: 'A', n: 1 } });

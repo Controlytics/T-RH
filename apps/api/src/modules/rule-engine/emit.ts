@@ -231,6 +231,19 @@ export interface EmittedAlarm {
 
 export type AlarmMessageKind = 'ALARM' | 'ALARM_CLEAR' | 'ALARM_ACK';
 
+/**
+ * ThingsBoard's alarm metadata flags, by its names (`DataConstants.IS_NEW_ALARM` …,
+ * master e48b5780). An alarm message carries only the flag that is TRUE, as
+ * `AlarmState.pushMsg` and `TbAbstractAlarmNode.toAlarmMsg` write them — never "false".
+ * The Device profile node routes the evaluator's alarms by these (ruling DP-1).
+ */
+export const ALARM_FLAG = {
+  NEW: 'isNewAlarm',
+  EXISTING: 'isExistingAlarm',
+  SEVERITY_UPDATED: 'isSeverityUpdated',
+  CLEARED: 'isClearedAlarm',
+} as const;
+
 export interface AlarmEmitFlags {
   isNewAlarm?: boolean;
   isExistingAlarm?: boolean;
@@ -299,25 +312,37 @@ export function alarmMessageData(a: EmittedAlarm, typeName?: string): Record<str
 }
 
 /**
- * `ALARM` (raised, or a RULE alarm updated), `ALARM_CLEAR`, `ALARM_ACK` — the
- * originator is the ALARM; the instrument is in `metadata.instrumentId`
- * (`instrumentCode` filled by the engine). Flags as ThingsBoard sets them.
+ * `ALARM` (raised, or a RULE alarm updated), `ALARM_CLEAR`, `ALARM_ACK`.
+ *
+ * FROM THE ALARM'S INSTRUMENT (ruling AL-1, 2026-11-05), as in ThingsBoard, where
+ * every alarm message comes from the alarm's originator, the device (master
+ * e48b5780: `DefaultTbContext.alarmActionMsg` takes `alarm.getOriginator()`;
+ * `AlarmState.pushMsg` sends the profile alarm from the device; a user's ack /
+ * clear goes `DefaultTbAlarmService` → `logEntityAction(…, alarm.getOriginator(), …)`
+ * → `EntityActionService.pushEntityActionToRuleEngine` `.originator(entityId)`). So
+ * an Originator fields / attributes / Save node behind "Alarm Acknowledged" works
+ * as it does in ThingsBoard. The alarm itself is `metadata.alarmId` and the data —
+ * the alarm JSON, its `id` included; `metadata.instrumentId` stays for chains that
+ * read it. `instrumentCode` / `instrumentName` / `profileName` are filled in by the
+ * engine when not given. This covers the evaluator's raises and clears, the
+ * acknowledge route and the rule nodes' create / update / clear (services.ts).
+ * Flags as ThingsBoard sets them: only the true one (`ALARM_FLAG`).
  */
 export function emitAlarm(kind: AlarmMessageKind, alarm: EmittedAlarm, flags: AlarmEmitFlags = {}): Promise<number> {
   const origin = flags.origin ?? SYSTEM_ORIGIN;
   return deliver(`alarm ${kind}`, origin, () => {
+    const code = flags.instrumentCode || undefined;
     const metadata: Record<string, unknown> = {
+      alarmId: alarm.id,
       instrumentId: alarm.instrumentId,
-      ...(flags.instrumentCode ? { instrumentCode: flags.instrumentCode } : {}),
+      ...(code ? { instrumentCode: code } : {}),
       ts: Date.now(),
     };
-    if (kind === 'ALARM') {
-      metadata.isNewAlarm = flags.isNewAlarm === true;
-      metadata.isExistingAlarm = flags.isExistingAlarm === true;
-    }
-    if (kind === 'ALARM_CLEAR') metadata.isClearedAlarm = true;
+    if (kind === 'ALARM' && flags.isNewAlarm === true) metadata[ALARM_FLAG.NEW] = 'true';
+    if (kind === 'ALARM' && flags.isExistingAlarm === true) metadata[ALARM_FLAG.EXISTING] = 'true';
+    if (kind === 'ALARM_CLEAR') metadata[ALARM_FLAG.CLEARED] = 'true';
     if (kind === 'ALARM_ACK') metadata.acknowledgedBy = flags.acknowledgedBy ?? alarm.acknowledgedBy ?? '';
-    return [newMessage(kind, { type: 'ALARM', id: alarm.id }, alarmMessageData(alarm, flags.typeName), metadata)];
+    return [newMessage(kind, { type: 'INSTRUMENT', id: alarm.instrumentId, ...(code ? { code } : {}) }, alarmMessageData(alarm, flags.typeName), metadata)];
   });
 }
 

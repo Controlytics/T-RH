@@ -130,7 +130,8 @@ async function restoreSeededRoot() {
 }
 
 type DebugRow = { node_id: string; direction: string; relation: string | null; msg_id: string; msg_type: string; originator_id: string; data: any; metadata: any; error: string | null };
-type Where = { msgType?: string; originatorId?: string; msgId?: string; direction?: 'IN' | 'OUT' };
+/** `alarmId`: an alarm message's `metadata.alarmId` — since ruling AL-1 its ORIGINATOR is the alarm's instrument. */
+type Where = { msgType?: string; originatorId?: string; msgId?: string; direction?: 'IN' | 'OUT'; alarmId?: string };
 
 const rows = (chainId: string, where: Where = {}) => prisma.$queryRaw<DebugRow[]>`
   SELECT node_id::text, direction, relation, msg_id, msg_type, originator_id, data, metadata, error
@@ -140,6 +141,7 @@ const rows = (chainId: string, where: Where = {}) => prisma.$queryRaw<DebugRow[]
     AND (${where.originatorId ?? null}::text IS NULL OR originator_id = ${where.originatorId ?? null})
     AND (${where.msgId ?? null}::text IS NULL OR msg_id = ${where.msgId ?? null})
     AND (${where.direction ?? null}::text IS NULL OR direction = ${where.direction ?? null})
+    AND (${where.alarmId ?? null}::text IS NULL OR metadata ->> 'alarmId' = ${where.alarmId ?? null})
   ORDER BY id`;
 
 async function waitForRows(chainId: string, where: Where, atLeast: number, ms = 3_000): Promise<DebugRow[]> {
@@ -304,9 +306,10 @@ describe('Create alarm and Clear alarm', () => {
     // Re-enter is OFF for this chain: its ALARM_CLEAR carries the node's origin (REQUIRED, review item 5)
     // and the loop guard holds it back — with a system origin it would enter the root regardless.
     // (The ON half is the TB-P 2 case below: CLEAR_2's ALARM_CLEAR does enter.)
+    // AL-1: an alarm message comes from the alarm's INSTRUMENT, the alarm is metadata.alarmId.
     await new Promise((r) => setTimeout(r, 500));
     await ruleEngine.drain();
-    expect(await rows(ROOT.chainId, { msgType: 'ALARM_CLEAR', originatorId: before.id })).toEqual([]);
+    expect(await rows(ROOT.chainId, { msgType: 'ALARM_CLEAR', originatorId: inst!.id, alarmId: before.id })).toEqual([]);
     await ruleEngine.processNow(instMsg('POST_TELEMETRY_REQUEST', { t: 19 }), { chainId: CLEAR.chainId });
     const out = await waitForRows(CLEAR.chainId, { direction: 'OUT' }, 2);
     expect(out[1].relation).toBe('False (unconnected)');
@@ -325,7 +328,8 @@ describe('Create alarm and Clear alarm', () => {
     expect(cleared).toMatchObject({ relation: 'Cleared (unconnected)', msg_type: 'ALARM' });
     expect(cleared.data.details).toEqual({ closedAt: 18 });
     // Re-enter is ON for that chain: its ALARM_CLEAR enters the root chain carrying the same details.
-    const [entered] = await waitForRows(ROOT.chainId, { msgType: 'ALARM_CLEAR', originatorId: open.id, direction: 'IN' }, 1);
+    // From the alarm's INSTRUMENT (ruling AL-1), the alarm in metadata.alarmId and the data.
+    const [entered] = await waitForRows(ROOT.chainId, { msgType: 'ALARM_CLEAR', originatorId: inst!.id, alarmId: open.id, direction: 'IN' }, 1);
     expect(entered, 'the ALARM_CLEAR entered the root chain').toBeDefined();
     expect(entered.data).toMatchObject({ id: open.id, cleared: true, details: { closedAt: 18 } });
   });
@@ -342,6 +346,13 @@ describe('Create alarm and Clear alarm', () => {
       WHERE t.identifier = 'alarm_webhook' AND j.payload ->> 'alarmId' = ${alarm.id} AND j.payload ->> 'event' = 'ACKNOWLEDGED'`;
     expect(jobs).toHaveLength(1);
     expect(jobs[0].payload.variables.ruleName).toBe(ALARM_TYPE);
+    // AL-1 through the REAL acknowledge route: its ALARM_ACK (origin user) enters the root chain FROM THE
+    // INSTRUMENT, the alarm in metadata.alarmId and the data — as ThingsBoard's ack (alarm.getOriginator()).
+    const [ack] = await waitForRows(ROOT.chainId, { msgType: 'ALARM_ACK', alarmId: alarm.id, direction: 'IN' }, 1);
+    expect(ack, 'the ALARM_ACK entered the root chain').toBeDefined();
+    expect(ack.originator_id).toBe(inst!.id);
+    expect(ack.metadata).toMatchObject({ alarmId: alarm.id, acknowledgedBy: SA, rule_engine_origin: 'user', instrumentCode: inst!.code });
+    expect(ack.data).toMatchObject({ id: alarm.id, acknowledged: true });
   });
 
   it('eight Create alarm messages AT ONCE open ONE alarm (the partial unique index settles the race)', async () => {

@@ -202,22 +202,43 @@ function alarm(over: Partial<Parameters<typeof emitAlarm>[1]> = {}): Parameters<
 }
 
 describe('alarms', () => {
-  it('ALARM: originator the alarm; ThingsBoard status and flags; the evaluator\'s type name', async () => {
+  it('ALARM (ruling AL-1): from the alarm\'s INSTRUMENT (with its code), metadata.alarmId, data = the alarm JSON with its id; ThingsBoard status; only the TRUE flag', async () => {
     await emitAlarm('ALARM', alarm(), { isNewAlarm: true, typeName: 'High Temperature', instrumentCode: 'CWH/1' });
     const [m] = queued;
-    expect(m.originator).toEqual({ type: 'ALARM', id: 'al-1' });
-    expect(m.metadata).toMatchObject({ instrumentId: 'i1', instrumentCode: 'CWH/1', isNewAlarm: 'true', isExistingAlarm: 'false', rule_engine_origin: 'system' });
+    expect(m.originator).toEqual({ type: 'INSTRUMENT', id: 'i1', code: 'CWH/1' });
+    expect(m.metadata).toMatchObject({ alarmId: 'al-1', instrumentId: 'i1', instrumentCode: 'CWH/1', isNewAlarm: 'true', rule_engine_origin: 'system' });
+    // ThingsBoard writes the one flag that is true (AlarmState.pushMsg, TbAbstractAlarmNode.toAlarmMsg) — never "false".
+    expect(m.metadata).not.toHaveProperty('isExistingAlarm');
     expect(m.data).toMatchObject({ id: 'al-1', type: 'High Temperature', status: 'ACTIVE_UNACK', severity: 'MAJOR', startTs: 5000, cleared: false });
   });
 
-  it('a RULE alarm is typed by its own alarmType; CLEAR / ACK carry their flags', async () => {
+  it('a RULE alarm is typed by its own alarmType; CLEAR / ACK carry their flags — and come from the instrument too', async () => {
     const rule = alarm({ source: 'RULE', metric: 'CUSTOM', limitKind: null, ruleSnapshot: { alarmType: 'Door open', details: { d: 1 } } });
     await emitAlarm('ALARM_CLEAR', { ...rule, state: 'CLEARED', clearedAt: new Date(9_000) }, { typeName: 'ignored' });
     await emitAlarm('ALARM_ACK', { ...rule, acknowledgedAt: new Date(7_000), acknowledgedBy: 'qa1' }, { acknowledgedBy: 'qa1', origin: 'user' });
-    expect(queued[0].data).toMatchObject({ type: 'Door open', status: 'CLEARED_UNACK', details: { d: 1 }, clearTs: 9000, endTs: 9000 });
-    expect(queued[0].metadata.isClearedAlarm).toBe('true');
-    expect(queued[1].data).toMatchObject({ status: 'ACTIVE_ACK', ackTs: 7000 });
-    expect(queued[1].metadata).toMatchObject({ acknowledgedBy: 'qa1', rule_engine_origin: 'user' });
+    expect(queued[0].data).toMatchObject({ id: 'al-1', type: 'Door open', status: 'CLEARED_UNACK', details: { d: 1 }, clearTs: 9000, endTs: 9000 });
+    expect(queued[0].metadata).toMatchObject({ alarmId: 'al-1', isClearedAlarm: 'true' });
+    expect(queued[1].data).toMatchObject({ id: 'al-1', status: 'ACTIVE_ACK', ackTs: 7000 });
+    expect(queued[1].metadata).toMatchObject({ alarmId: 'al-1', acknowledgedBy: 'qa1', rule_engine_origin: 'user' });
+    // No code given: the engine fills it in before the first node (hydrate), as for telemetry.
+    for (const m of queued) expect(m.originator).toEqual({ type: 'INSTRUMENT', id: 'i1' });
+  });
+
+  it('AL-1: every alarm message — the evaluator\'s raise and clear, the acknowledge, a rule node\'s create / update / clear — has the instrument as originator', async () => {
+    reEnter = true;
+    const node = ruleNodeOrigin(CHAIN, NODE);
+    await emitAlarm('ALARM', alarm(), { isNewAlarm: true });
+    await emitAlarm('ALARM_CLEAR', alarm({ state: 'CLEARED' }), { isClearedAlarm: true });
+    await emitAlarm('ALARM_ACK', alarm({ acknowledgedAt: new Date(6_000) }), { origin: 'user' });
+    await emitAlarm('ALARM', alarm(), { isNewAlarm: true, origin: node });
+    await emitAlarm('ALARM', alarm(), { isExistingAlarm: true, origin: node });
+    await emitAlarm('ALARM_CLEAR', alarm({ state: 'CLEARED' }), { isClearedAlarm: true, origin: node });
+    expect(queued.map((m) => [m.type, m.originator.type, m.originator.id, m.metadata.alarmId])).toEqual([
+      ['ALARM', 'INSTRUMENT', 'i1', 'al-1'], ['ALARM_CLEAR', 'INSTRUMENT', 'i1', 'al-1'], ['ALARM_ACK', 'INSTRUMENT', 'i1', 'al-1'],
+      ['ALARM', 'INSTRUMENT', 'i1', 'al-1'], ['ALARM', 'INSTRUMENT', 'i1', 'al-1'], ['ALARM_CLEAR', 'INSTRUMENT', 'i1', 'al-1'],
+    ]);
+    expect(queued[4].metadata).toMatchObject({ isExistingAlarm: 'true' });
+    expect(queued[4].metadata).not.toHaveProperty('isNewAlarm');
   });
 
   it('INACTIVITY_EVENT and ACTIVITY_EVENT', async () => {
