@@ -20,7 +20,9 @@
  *   - ANYWHERE, under any key and as an array element: a string holding a PEM
  *     PRIVATE KEY block or a service-account file's `"private_key"`
  *     (`isSecretValue`; ruling N1-6 — a `-----BEGIN CERTIFICATE-----` is public
- *     and stays readable, as `caCert` / `cert` always did).
+ *     and stays readable, as `caCert` / `cert` always did) — EXCEPT under a
+ *     script key (`jsScript` …, from the catalogue's `RULE_SCRIPT_KEYS`): a
+ *     script is code, and the record of what ran must stay readable (N1-13).
  * Objects and arrays are WALKED, never replaced: replacing `credentials` with
  * the string "***" would make the node fail its schema and re-import as
  * Unsupported.
@@ -33,7 +35,7 @@
  * nothing stored a key-named secret stays "***" and is reported as unresolved
  * (the node refuses it at run time — Task 6).
  */
-import type { RuleChainDocument, RuleChainNode } from '@digilog/shared';
+import { RULE_SCRIPT_KEYS, type RuleChainDocument, type RuleChainNode } from '@digilog/shared';
 
 export const MASKED_SECRET = '***';
 
@@ -53,9 +55,19 @@ export function isSecretValue(value: string): boolean {
   return SECRET_VALUE.test(value);
 }
 
+/**
+ * The script keys (`jsScript`, `tbelScript`, `alarmDetailsBuild…`) — the catalogue's ONE list. A script is
+ * CODE: one that reads `msg["private_key"]` or builds a PEM header is the logic that ran, and the §11
+ * record (the audit values), the editor and the export must show it (ruling N1-13). The VALUE test never
+ * applies to them; no key-name rule matches them either.
+ */
+const SCRIPT_KEYS: ReadonlySet<string> = new Set(Object.values(RULE_SCRIPT_KEYS).flat());
+/** May this string be a secret by its VALUE — anywhere but under a script key? */
+const valueMayBeSecret = (key: string | null): boolean => key === null || !SCRIPT_KEYS.has(key);
+
 /** A string leaf is a secret by its key (`null` for an array element: no key) or by its value. */
 const isSecret = (key: string | null, inside: boolean, value: string): boolean =>
-  (key !== null && isSecretLeaf(key, inside)) || isSecretValue(value);
+  (key !== null && isSecretLeaf(key, inside)) || (valueMayBeSecret(key) && isSecretValue(value));
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
@@ -155,7 +167,7 @@ function mergeValue(incoming: unknown, stored: unknown, inside: boolean, path: s
       const byKey = isSecretLeaf(key, inside);
       // A leaf masked for its VALUE comes back as "***", which no longer looks like a
       // private key: the value STORED at this path says it was one.
-      const byStoredValue = typeof s === 'string' && isSecretValue(s);
+      const byStoredValue = valueMayBeSecret(key) && typeof s === 'string' && isSecretValue(s);
       if (v === MASKED_SECRET && (byKey || byStoredValue)) {
         if (restorable(s)) {
           out[key] = s;

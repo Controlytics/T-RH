@@ -153,6 +153,38 @@ describe('maskSecrets with the widened rule', () => {
   });
 });
 
+describe('a SCRIPT is code, never a secret value (ruling N1-13)', () => {
+  const N = 'c0de0000-0000-4000-8000-0000000000bb';
+  const SCRIPT = 'var k = msg["private_key"]; delete msg["private_key"];\nreturn {msg: msg, metadata: metadata, msgType: msgType};';
+  const DETAILS = 'var d = {}; d["private_key"] = "-----BEGIN PRIVATE KEY-----"; return d;';
+  const doc = (jsScript: string, details = DETAILS): RuleChainDocument => ({
+    version: 1, firstNodeId: N, connections: [],
+    nodes: [
+      { id: N, type: 'tb:transformation:script', name: 'Strip key', debugMode: 'off', config: { scriptLang: 'JS', jsScript }, x: 0, y: 0 },
+      { id: 'c0de0000-0000-4000-8000-0000000000bc', type: 'tb:action:create-alarm', name: 'Alarm', debugMode: 'off',
+        config: { alarmType: 'A', severity: 'MAJOR', scriptLang: 'JS', alarmDetailsBuildJs: details, alarmDetailsBuildTbel: details }, x: 0, y: 0 },
+    ],
+  });
+
+  it('a script that mentions "private_key" (or even a PEM header) stays readable through the GET / audit mask, the export and the merge', () => {
+    const stored = doc(SCRIPT);
+    expect(maskSecrets(stored.nodes[0].config)).toEqual({ scriptLang: 'JS', jsScript: SCRIPT });
+    const masked = maskDocumentSecrets(stored);
+    expect(masked.nodes[0].config.jsScript).toBe(SCRIPT);
+    expect(masked.nodes[1].config.alarmDetailsBuildJs).toBe(DETAILS);
+    expect(masked.nodes[1].config.alarmDetailsBuildTbel).toBe(DETAILS);
+    const exp = exportChain({ name: 'S', root: false, debugMode: false, document: stored });
+    expect((exp.metadata.nodes[0].configuration as Record<string, unknown>).jsScript).toBe(SCRIPT);
+    expect((exp.metadata.nodes[1].configuration as Record<string, unknown>).alarmDetailsBuildJs).toBe(DETAILS);
+    // An edited script is a change of logic, not of a secret: the audit's secretsChanged lists nothing.
+    expect(changedSecrets(stored, doc(`${SCRIPT}\n// edited`, `${DETAILS} // edited`))).toEqual([]);
+    // A script typed as "***" is that text — nothing stored is put back over it, and nothing is "unresolved".
+    const merged = mergeMaskedSecrets(doc(MASKED_SECRET), stored);
+    expect((merged.document as RuleChainDocument).nodes[0].config.jsScript).toBe(MASKED_SECRET);
+    expect(merged.unresolved).toEqual([]);
+  });
+});
+
 describe('the merge on a save / import keeps a value-masked secret', () => {
   const N = 'c0de0000-0000-4000-8000-0000000000aa';
   const doc = (config: Record<string, unknown>): RuleChainDocument => ({
