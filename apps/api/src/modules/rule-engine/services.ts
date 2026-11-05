@@ -376,8 +376,7 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
     warn: (t, m) => logger.warn(m ?? {}, `[rule-engine] ${t}`),
     error: (t, m) => logger.error(m ?? {}, `[rule-engine] ${t}`),
   };
-  /** `connectedOnce`: the broker accepted this client at least once — after that, "not connected" means it DROPPED. */
-  const mqttClients = new Map<string, { client: MqttClient; fingerprint: string; ready: Promise<void>; connectedOnce: boolean }>();
+  const mqttClients = new Map<string, { client: MqttClient; fingerprint: string; ready: Promise<void> }>();
 
   async function instrumentOrThrow(id: string): Promise<{ id: string; code: string; gatewayId: string | null }> {
     const row = await prisma.instrument.findUnique({ where: { id }, select: { id: true, code: true, gatewayId: true } });
@@ -823,24 +822,21 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
           };
           const client = mqtt.connect(options);
           client.on('error', (err) => log.warn('MQTT node connection error', { nodeKey, err: err.message }));
-          const created: { client: MqttClient; fingerprint: string; ready: Promise<void>; connectedOnce: boolean } = {
-            client, fingerprint, ready: Promise.resolve(), connectedOnce: false,
-          };
-          created.ready = new Promise<void>((resolve, reject) => {
+          const ready = new Promise<void>((resolve, reject) => {
             const timer = setTimeout(() => reject(new Error(`MQTT_CONNECT_TIMEOUT: ${host} did not answer`)), (options.connectTimeout as number) + 1_000);
             timer.unref();
-            client.once('connect', () => { clearTimeout(timer); created.connectedOnce = true; resolve(); });
+            client.once('connect', () => { clearTimeout(timer); resolve(); });
           });
-          created.ready.catch(() => undefined);
-          entry = created;
+          ready.catch(() => undefined);
+          entry = { client, fingerprint, ready };
           mqttClients.set(nodeKey, entry);
         }
         if (!entry.client.connected) {
-          // FAIL FAST once a connected client has dropped: mqtt.js would hold the publish in its
+          // Never connected yet: wait for the first connect (or its timeout). Connected once and then
+          // DROPPED: `ready` is long resolved, so this FAILS FAST — mqtt.js would hold the publish in its
           // offline queue until it reconnects, and the message would sit out its whole 30 s budget.
-          if (entry.connectedOnce) throw new Error(`MQTT_NOT_CONNECTED: the connection to ${host} dropped — reconnecting every 5 s`);
           await entry.ready;
-          if (!entry.client.connected) throw new Error(`MQTT_NOT_CONNECTED: the connection to ${host} dropped as it opened — reconnecting every 5 s`);
+          if (!entry.client.connected) throw new Error(`MQTT_NOT_CONNECTED: the connection to ${host} dropped — reconnecting every 5 s`);
         }
         await entry.client.publishAsync(topic, payload, { qos, retain });
       },
