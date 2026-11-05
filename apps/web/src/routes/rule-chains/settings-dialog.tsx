@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import {
   ALL_RECORDS_PARAM, RULE_DEBUG_MODES, RULE_NODE_GROUPS, RULE_NODE_NAME_MAX, RULE_NODE_TYPE_BY_ID,
@@ -63,9 +63,18 @@ export function useNodeFormContext(node: RuleChainNode | null, chainId: string):
   };
 }
 
-export function NodeSettingsDialog({ open, node, chainId, readOnly, onApply, onDelete, onClose }: {
-  open: boolean;
-  node: RuleChainNode | null;
+/**
+ * MOUNTED ONLY WHILE OPEN, and the editor keys it by the node's id plus an
+ * open counter (fix round 1, Critical). Its state is seeded ONCE, lazily, from
+ * the node it opened on — so every open starts from what the node holds now:
+ * never the previous node's values, never an edit that was cancelled, never the
+ * empty config of a first render. (It used to stay mounted and copy the node in
+ * by an effect after its first render, and the form's local-state fields had
+ * already seeded themselves from the empty config: a map field then wrote back
+ * only the rows it showed, and adding one header dropped the stored ones.)
+ */
+export function NodeSettingsDialog({ node, chainId, readOnly, onApply, onDelete, onClose }: {
+  node: RuleChainNode;
   chainId: string;
   readOnly: boolean;
   onApply: (patch: NodePatch) => void;
@@ -74,22 +83,14 @@ export function NodeSettingsDialog({ open, node, chainId, readOnly, onApply, onD
 }) {
   const nameId = useId();
   const debugId = useId();
-  const [name, setName] = useState('');
-  const [debugMode, setDebugMode] = useState<RuleDebugMode>('off');
-  const [config, setConfig] = useState<Record<string, unknown>>({});
+  const [name, setName] = useState(() => node.name);
+  const [debugMode, setDebugMode] = useState<RuleDebugMode>(() => node.debugMode);
+  const [config, setConfig] = useState<Record<string, unknown>>(
+    () => JSON.parse(JSON.stringify(node.config ?? {})) as Record<string, unknown>,
+  );
   const [issues, setIssues] = useState<string[]>([]);
-  const context = useNodeFormContext(open ? node : null, chainId);
+  const context = useNodeFormContext(node, chainId);
 
-  // Fresh from the node on every open: an edit left from another node must not carry over.
-  useEffect(() => {
-    if (!open || !node) return;
-    setName(node.name);
-    setDebugMode(node.debugMode);
-    setConfig(JSON.parse(JSON.stringify(node.config ?? {})) as Record<string, unknown>);
-    setIssues([]);
-  }, [open, node]);
-
-  if (!open || !node) return null;
   const spec = RULE_NODE_TYPE_BY_ID.get(node.type) ?? null;
   const supported = spec !== null && spec.status === 'built';
   const group = spec ? RULE_NODE_GROUPS.find((g) => g.id === spec.group)?.label : undefined;
@@ -115,7 +116,7 @@ export function NodeSettingsDialog({ open, node, chainId, readOnly, onApply, onD
   };
 
   return (
-    <Dialog open={open} onClose={onClose} className="max-w-3xl">
+    <Dialog open onClose={onClose} className="max-w-3xl">
       <DialogBanner
         title={node.name}
         subtitle={supported && spec ? `${group} · ${spec.label}` : `${spec ? spec.label : 'Unsupported'} · ${tbClassOf(node, spec) ?? 'unknown class'}`}

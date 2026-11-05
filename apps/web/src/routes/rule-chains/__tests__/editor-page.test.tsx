@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import { render, screen, fireEvent, within, waitFor, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, Link } from 'react-router-dom';
 import { installXyflowStubs } from '@/test-support/xyflow-stubs';
+import { newRuleNodeConfig } from '@digilog/shared';
+import { INPUT_NODE_ID } from '../types';
 
 /**
  * The rule chain editor (rule chains, 2026-11-04), on the REAL React Flow:
@@ -44,11 +46,11 @@ const CHAIN = {
   },
 };
 
-const state: { role: string; permissions: string[] } = { role: 'SUPER_ADMIN', permissions: [] };
-const chainMutate = vi.fn(async (data?: unknown) => data ?? CHAIN);
+const state: { role: string; permissions: string[]; chain: typeof CHAIN } = { role: 'SUPER_ADMIN', permissions: [], chain: CHAIN };
+const chainMutate = vi.fn(async (data?: unknown) => data ?? state.chain);
 vi.mock('swr', () => ({
   default: (key: string | null) => {
-    if (key === '/api/rule-chains/c-1') return { data: CHAIN, error: undefined, isLoading: false, mutate: chainMutate };
+    if (key === '/api/rule-chains/c-1') return { data: state.chain, error: undefined, isLoading: false, mutate: chainMutate };
     return { data: undefined, error: undefined, isLoading: false, mutate: vi.fn() };
   },
 }));
@@ -117,6 +119,7 @@ async function saveWith(reason: string) {
 beforeEach(() => {
   state.role = 'SUPER_ADMIN';
   state.permissions = [];
+  state.chain = CHAIN;
   put.mockReset();
   chainMutate.mockClear();
   reauthActions.length = 0;
@@ -222,6 +225,104 @@ describe('the canvas', () => {
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByTestId('unsupported-note')).toHaveTextContent('TbSqsNode');
     expect(within(dialog).getByText(/"queueUrl": "q"/)).toBeInTheDocument();
+  });
+});
+
+// Two REST nodes: the stored headers include a credential the server MASKED.
+const R1 = '55555555-5555-4555-8555-555555555555';
+const R2 = '66666666-6666-4666-8666-666666666666';
+const REST = 'tb:external:rest-api-call';
+const REST_CHAIN = {
+  ...CHAIN,
+  document: {
+    version: 1,
+    firstNodeId: R1,
+    nodes: [
+      { id: R1, type: REST, name: 'Call MES', debugMode: 'off', x: 300, y: 200,
+        config: { ...newRuleNodeConfig(REST), restEndpointUrlPattern: 'https://mes.local/api', headers: { Authorization: '***', 'X-Env': 'prod' }, readTimeoutMs: 5000 } },
+      { id: R2, type: REST, name: 'Call LIMS', debugMode: 'off', x: 700, y: 200,
+        config: { ...newRuleNodeConfig(REST), restEndpointUrlPattern: 'https://lims.local/api', headers: { 'X-Other': 'b' }, readTimeoutMs: 9000 } },
+    ],
+    connections: [{ from: R1, to: R2, relation: 'Success' }],
+  },
+} as unknown as typeof CHAIN;
+
+describe('node settings start from the node, every time (fix round 1, Critical)', () => {
+  const timeout = (dialog: HTMLElement) => within(dialog).getByLabelText(/^Timeout/);
+  const headers = (dialog: HTMLElement) => within(dialog).getByTestId('field-headers:map');
+
+  it('a second node never shows the first one\'s values', () => {
+    state.chain = REST_CHAIN;
+    mount();
+    fireEvent.doubleClick(card(R1));
+    let dialog = screen.getByRole('dialog');
+    expect(within(headers(dialog)).getByLabelText('Key 1')).toHaveValue('Authorization');
+    expect(within(headers(dialog)).getByLabelText('Value 1')).toHaveValue('•••• (stored)');
+    expect(within(headers(dialog)).getByLabelText('Key 2')).toHaveValue('X-Env');
+    expect(timeout(dialog)).toHaveValue(5000);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    fireEvent.doubleClick(card(R2));
+    dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByLabelText('Name')).toHaveValue('Call LIMS');
+    expect(within(headers(dialog)).getByLabelText('Key 1')).toHaveValue('X-Other');
+    expect(within(headers(dialog)).queryByLabelText('Key 2')).toBeNull();
+    expect(timeout(dialog)).toHaveValue(9000);
+  });
+
+  it('a cancelled edit is gone when the dialog opens again', () => {
+    state.chain = REST_CHAIN;
+    mount();
+    fireEvent.doubleClick(card(R1));
+    let dialog = screen.getByRole('dialog');
+    fireEvent.change(timeout(dialog), { target: { value: '1234' } });
+    fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'Renamed' } });
+    fireEvent.change(within(headers(dialog)).getByLabelText('Value 2'), { target: { value: 'test' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    fireEvent.doubleClick(card(R1));
+    dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByLabelText('Name')).toHaveValue('Call MES');
+    expect(timeout(dialog)).toHaveValue(5000);
+    expect(within(headers(dialog)).getByLabelText('Value 2')).toHaveValue('prod');
+    expect(screen.queryByTestId('unsaved')).toBeNull();
+  });
+
+  it('adding a header keeps the stored ones; the masked one goes back as *** (the server keeps its value)', async () => {
+    state.chain = REST_CHAIN;
+    put.mockResolvedValue(REST_CHAIN);
+    mount();
+    fireEvent.doubleClick(card(R1));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(within(headers(dialog)).getByRole('button', { name: 'Add row' }));
+    fireEvent.change(within(headers(dialog)).getByLabelText('Key 3'), { target: { value: 'X-New' } });
+    fireEvent.change(within(headers(dialog)).getByLabelText('Value 3'), { target: { value: 'v' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Apply' }));
+    await saveWith('add a header');
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    const nodes = (put.mock.calls[0][1] as { document: { nodes: { id: string; config: Record<string, unknown> }[] } }).document.nodes;
+    expect(nodes.find((n) => n.id === R1)!.config.headers).toEqual({ Authorization: '***', 'X-Env': 'prod', 'X-New': 'v' });
+    expect(nodes.find((n) => n.id === R2)!.config.headers).toEqual({ 'X-Other': 'b' });
+  });
+
+  it('Apply on an untouched dialog changes nothing: no unsaved mark, Save stays off', () => {
+    state.chain = REST_CHAIN;
+    mount();
+    fireEvent.doubleClick(card(R1));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Apply' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByTestId('unsaved')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    // ... and records no undo step (dirty compares documents; Undo reads the history).
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+  });
+
+  it('Enter on a focused node opens its settings (the keyboard\'s double-click); the Input has none', () => {
+    const { container } = mount();
+    fireEvent.keyDown(container.querySelector(`.react-flow__node[data-id="${INPUT_NODE_ID}"]`) as HTMLElement, { key: 'Enter' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.keyDown(container.querySelector(`.react-flow__node[data-id="${T}"]`) as HTMLElement, { key: 'Enter' });
+    expect(within(screen.getByRole('dialog')).getByLabelText('Name')).toHaveValue('Save Timeseries');
   });
 });
 

@@ -118,6 +118,20 @@ describe('moving, editing and removing', () => {
     expect(next.nodes[0]).toBe(doc.nodes[0]);
   });
 
+  it('a settings patch that changes NOTHING returns the SAME document (an untouched Apply is no undo step)', () => {
+    const doc = docWith(SWITCH, SAVE_TS);
+    const n = doc.nodes[1];
+    // The dialog hands back a deep COPY of the config, keys in another order.
+    const copy = Object.fromEntries(Object.entries(JSON.parse(JSON.stringify(n.config)) as Record<string, unknown>).reverse());
+    expect(updateNodeIn(doc, n.id, { name: n.name, debugMode: n.debugMode, config: copy })).toBe(doc);
+    expect(updateNodeIn(doc, n.id, {})).toBe(doc);
+    expect(updateNodeIn(doc, 'no-such-node', { name: 'x' })).toBe(doc);
+    // Any one difference is an edit.
+    expect(updateNodeIn(doc, n.id, { name: `${n.name} 2` })).not.toBe(doc);
+    expect(updateNodeIn(doc, n.id, { debugMode: 'all' })).not.toBe(doc);
+    expect(updateNodeIn(doc, n.id, { config: { ...copy, useServerTs: !(n.config as { useServerTs?: boolean }).useServerTs } })).not.toBe(doc);
+  });
+
   it('removing a node removes its connections and, if it was the first node, the Input\'s link', () => {
     const doc0 = docWith(SWITCH, SAVE_TS, 'tb:action:log');
     const [a, b, c] = doc0.nodes;

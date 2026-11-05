@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import type { Node } from '@xyflow/react';
 import type { RuleChainDocument } from '@digilog/shared';
-import { buildFlowEdges, buildFlowNodes, inputPosition, removalOf, type RuleFlowNode } from '../flow-mapping';
+import {
+  MIN_START_ZOOM, READABLE_FIT_ZOOM, buildFlowEdges, buildFlowNodes, inputPosition, removalOf, startView, type RuleFlowNode,
+} from '../flow-mapping';
 import {
   INPUT_NODE_ID, RULE_GROUP_COLORS, RULE_GROUP_INK, RULE_INPUT_COLOR, RULE_UNSUPPORTED_COLOR, contrastRatio,
 } from '../types';
@@ -84,6 +86,30 @@ describe('edges', () => {
 
   it('no first node, no Input link', () => {
     expect(buildFlowEdges({ ...DOC, firstNodeId: null }, [], true).some((e) => e.source === INPUT_NODE_ID)).toBe(false);
+  });
+});
+
+describe('the first view (startView, fix round 1)', () => {
+  const size = { width: 1000, height: 600 };
+  it('a chain that fits at a readable zoom or better gets React Flow\'s own fitView', () => {
+    // (1000 - 80) / 800 = 1.15 across, (600 - 80) / 300 = 1.73 down → fits at >= 0.75.
+    expect(startView({ x: 0, y: 0, width: 800, height: 300 }, size)).toEqual({ kind: 'fit' });
+    // Exactly at the readable zoom still fits.
+    expect(startView({ x: 0, y: 0, width: 920 / READABLE_FIT_ZOOM, height: 100 }, size)).toEqual({ kind: 'fit' });
+  });
+
+  it('between the readable zoom and the floor: the whole chain, centred, at the zoom that fits', () => {
+    const v = startView({ x: 100, y: 50, width: 900, height: 700 }, size); // fit = min(920 / 900, 520 / 700) ≈ 0.743
+    expect(v.kind).toBe('viewport');
+    if (v.kind !== 'viewport') return;
+    expect(v.viewport.zoom).toBeCloseTo(520 / 700, 6);
+    expect(v.viewport.x).toBeCloseTo((1000 - 900 * v.viewport.zoom) / 2 - 100 * v.viewport.zoom, 6);
+    expect(v.viewport.y).toBeCloseTo((600 - 700 * v.viewport.zoom) / 2 - 50 * v.viewport.zoom, 6);
+  });
+
+  it('too wide even at the floor: the floor zoom, its LEFT edge (the Input) in view, vertically centred', () => {
+    const v = startView({ x: -200, y: 0, width: 4000, height: 300 }, size);
+    expect(v).toEqual({ kind: 'viewport', viewport: { x: 40 - -200 * MIN_START_ZOOM, y: (600 - 300 * MIN_START_ZOOM) / 2, zoom: MIN_START_ZOOM } });
   });
 });
 

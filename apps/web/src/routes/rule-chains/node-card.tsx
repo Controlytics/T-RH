@@ -43,9 +43,10 @@ export const RuleNodeCard = memo(function RuleNodeCard({ data, selected }: NodeP
       style={{ background: supported && spec ? groupColorVar(spec.group) : groupColorVar(null) }}
     >
       {takesInput && <Handle type="target" position={Position.Left} className="rc-handle" />}
-      <div className="flex items-center justify-between gap-2">
-        {/* The group is the card's colour; the line names the TYPE (ThingsBoard's card does the same). */}
-        <span className="truncate text-[0.6875rem] font-bold uppercase tracking-[0.06em] opacity-80" title={spec ? GROUP_LABEL.get(spec.group) : undefined}>
+      <div className="flex items-start justify-between gap-2">
+        {/* The group is the card's colour; the line names the TYPE (ThingsBoard's card does the
+            same). It WRAPS: a truncated "MESSAGE TYPE S…" hid the type (fix round 1). */}
+        <span className="min-w-0 break-words text-[0.6875rem] font-bold uppercase leading-tight tracking-[0.04em] opacity-80" title={spec ? GROUP_LABEL.get(spec.group) : undefined}>
           {supported && spec ? spec.label : spec ? `${spec.label} · not here` : 'Unsupported'}
         </span>
         {debug && (

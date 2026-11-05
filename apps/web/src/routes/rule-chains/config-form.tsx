@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from 'react';
+import { useId, useMemo, useState, type ReactNode } from 'react';
 import {
   MESSAGE_TYPE_SWITCH_LABELS, RULE_KEY_MAX, RULE_MESSAGE_TYPES, newRuleNodeConfig, visibleRuleNodeFields,
   type RuleNodeConfigField,
@@ -26,11 +26,16 @@ import { MASKED_SECRET } from './types';
  * - A flag that is null or absent reads as ThingsBoard's default — an imported
  *   config may carry `dynamicSeverity: null`, which the shallow default merge
  *   would let hide BOTH severity fields.
- * - A value the server MASKED (`"***"`, a credential shown to a viewer without
- *   RULE_CHAIN_MANAGE, or one an export masked) is shown as "(stored)", never
- *   as text; sending `"***"` back keeps the stored value (the server's rule).
- *   Which keys are secret is the SERVER's decision — this form only reads its
- *   answer.
+ * - A value the server MASKED is shown as "•••• (stored)", never as text. Every
+ *   rule chain response masks every stored credential as `"***"`, for EVERY
+ *   caller (ruling T2-D), and a save that sends `"***"` back keeps the stored
+ *   value (the server's merge). A text field shows the marker with Change; a
+ *   JSON or map field shows it in place of the leaf and turns it back into
+ *   `"***"` when it writes. Which keys are secret is the SERVER's decision —
+ *   this form only reads its answer.
+ * - Fields that edit through a LOCAL copy (a number being typed, map rows, JSON
+ *   text) re-seed it whenever their config value changes from outside
+ *   (`useSeeded`), never only once at mount.
  * - A config value the form cannot represent (an imported select value that is
  *   not an option, a message type outside this system's list) is shown and
  *   kept, never silently dropped.
@@ -62,6 +67,50 @@ export function visibleFieldsFor(type: string, config: Record<string, unknown>):
 const isMasked = (v: unknown) => v === MASKED_SECRET;
 const holdsMask = (v: unknown) => JSON.stringify(v ?? null).includes(`"${MASKED_SECRET}"`);
 
+/** What a masked credential reads as, in every field type. */
+export const MASK_DISPLAY = '•••• (stored)';
+
+/** Every `"***"` leaf as the marker, for a JSON or map field's text. */
+function maskForDisplay(v: unknown): unknown {
+  if (v === MASKED_SECRET) return MASK_DISPLAY;
+  if (Array.isArray(v)) return v.map(maskForDisplay);
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, maskForDisplay(x)]));
+  return v;
+}
+
+/** The inverse: a leaf left as the marker is written back as `"***"` (the server keeps the stored value). */
+function unmaskFromDisplay(v: unknown): unknown {
+  if (v === MASK_DISPLAY) return MASKED_SECRET;
+  if (Array.isArray(v)) return v.map(unmaskFromDisplay);
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, unmaskFromDisplay(x)]));
+  return v;
+}
+
+/**
+ * A field's LOCAL copy of its value (the text being typed, the map rows), seeded
+ * from the config value and RE-SEEDED whenever that value changes from OUTSIDE
+ * — a value this field did not hand up itself (fix round 1: it used to be
+ * seeded once at mount, so a form that mounted before its config arrived kept
+ * showing, and writing, the wrong rows). `commit(local, value)` records what
+ * the field hands up, so its own write does not re-seed it: a row whose key is
+ * still blank, or JSON being typed, stays as typed. React's "adjust state while
+ * rendering" pattern; the comparison is by identity, which the form preserves
+ * (`{ ...config, [key]: v }` keeps every other value's reference).
+ */
+function useSeeded<T>(external: unknown, seed: () => T) {
+  const [local, setLocal] = useState<T>(seed);
+  const [from, setFrom] = useState<unknown>(external);
+  if (!Object.is(external, from)) {
+    setFrom(external);
+    setLocal(seed());
+  }
+  const commit = (next: T, value: unknown) => {
+    setLocal(next);
+    setFrom(value);
+  };
+  return [local, setLocal, commit] as const;
+}
+
 const labelCls = 'block text-[0.8125rem] font-semibold text-slate-700';
 const helpCls = 'text-[0.75rem] text-slate-500';
 
@@ -75,7 +124,7 @@ function Help({ field, extra }: { field: RuleNodeConfigField; extra?: ReactNode 
   return <p className={helpCls}>{field.help}{field.help && extra ? ' ' : ''}{extra}</p>;
 }
 
-const MASK_NOTE = '*** is a stored secret: leave it as *** to keep it, or type the new value.';
+const MASK_NOTE = `${MASK_DISPLAY} is a stored secret: leave it as it is to keep it, or replace it with the new value.`;
 
 export function ConfigForm({ nodeType, fields, value, onChange, context = {}, readOnly = false }: {
   nodeType: string;
@@ -85,7 +134,8 @@ export function ConfigForm({ nodeType, fields, value, onChange, context = {}, re
   context?: ConfigFormContext;
   readOnly?: boolean;
 }) {
-  const defaults = newRuleNodeConfig(nodeType);
+  // Memoized: a field compares its value by identity, and an omitted key shows this default.
+  const defaults = useMemo(() => newRuleNodeConfig(nodeType), [nodeType]);
   const set = (key: string, v: unknown) => onChange({ ...value, [key]: v });
   const unset = (key: string) => {
     const { [key]: _gone, ...rest } = value;
@@ -155,9 +205,9 @@ function FieldControl({ field, raw, shown, fallback, readOnly, context, set, uns
     case 'relations':
       return <KeysField field={field} shown={shown} readOnly={readOnly} set={set} />;
     case 'map':
-      return <MapField field={field} shown={shown} readOnly={readOnly} set={set} />;
+      return <MapField field={field} raw={raw} shown={shown} readOnly={readOnly} set={set} />;
     case 'json':
-      return <JsonField id={id} field={field} shown={shown} readOnly={readOnly} set={set} />;
+      return <JsonField id={id} field={field} raw={raw} shown={shown} readOnly={readOnly} set={set} />;
     case 'script':
       return <ScriptField field={field} value={typeof shown === 'string' ? shown : ''} readOnly={readOnly} onChange={set} testScript={context.testScript} />;
     case 'instrument': {
@@ -209,7 +259,7 @@ function FieldControl({ field, raw, shown, fallback, readOnly, context, set, uns
       );
     }
     default:
-      return <JsonField id={id} field={field} shown={shown} readOnly={readOnly} set={set} />;
+      return <JsonField id={id} field={field} raw={raw} shown={shown} readOnly={readOnly} set={set} />;
   }
 }
 
@@ -227,7 +277,7 @@ function TextField({ id, field, raw, fallback, readOnly, set, multiline }: {
       {masked ? (
         <div className="flex items-center gap-2">
           <span className="inline-flex h-10 flex-1 items-center rounded-[var(--radius-control)] border border-slate-200 bg-slate-50 px-3 font-mono text-[0.875rem] text-slate-600">
-            •••• (stored)
+            {MASK_DISPLAY}
           </span>
           {!readOnly && <Button type="button" variant="outline" onClick={() => setChanging(true)}>Change</Button>}
         </div>
@@ -252,7 +302,7 @@ function TextField({ id, field, raw, fallback, readOnly, set, multiline }: {
 function NumberField({ id, field, raw, fallback, readOnly, set, unset }: {
   id: string; field: RuleNodeConfigField; raw: unknown; fallback: unknown; readOnly: boolean; set: (v: unknown) => void; unset: () => void;
 }) {
-  const [text, setText] = useState(typeof raw === 'number' ? String(raw) : '');
+  const [text, setText, commit] = useSeeded(raw, () => (typeof raw === 'number' ? String(raw) : ''));
   return (
     <>
       <Label htmlFor={id} field={field} />
@@ -267,10 +317,9 @@ function NumberField({ id, field, raw, fallback, readOnly, set, unset }: {
         disabled={readOnly}
         onChange={(e) => {
           const t = e.target.value;
-          setText(t);
-          if (t.trim() === '') { unset(); return; }
+          if (t.trim() === '') { commit(t, undefined); unset(); return; }
           const n = Number(t);
-          if (Number.isFinite(n)) set(n);
+          if (Number.isFinite(n)) { commit(t, n); set(n); } else setText(t);
         }}
       />
       <Help field={field} />
@@ -371,16 +420,23 @@ function KeysField({ field, shown, readOnly, set }: { field: RuleNodeConfigField
   );
 }
 
-/** Key → value rows. Rows are local while typed, so a key being retyped does not vanish. */
-function MapField({ field, shown, readOnly, set }: { field: RuleNodeConfigField; shown: unknown; readOnly: boolean; set: (v: unknown) => void }) {
-  const [rows, setRows] = useState<{ k: string; v: string }[]>(() =>
+/**
+ * Key → value rows. Rows are local while typed, so a key being retyped does not
+ * vanish; they are re-seeded when the map changes from outside. A masked value
+ * shows as the marker and is written back as `"***"`.
+ */
+function MapField({ field, raw, shown, readOnly, set }: { field: RuleNodeConfigField; raw: unknown; shown: unknown; readOnly: boolean; set: (v: unknown) => void }) {
+  const [rows, setRows, commitRows] = useSeeded<{ k: string; v: string }[]>(raw, () =>
     shown && typeof shown === 'object' && !Array.isArray(shown)
-      ? Object.entries(shown as Record<string, unknown>).map(([k, v]) => ({ k, v: typeof v === 'string' ? v : JSON.stringify(v) }))
+      ? Object.entries(shown as Record<string, unknown>).map(([k, v]) => ({
+        k, v: v === MASKED_SECRET ? MASK_DISPLAY : typeof v === 'string' ? v : JSON.stringify(v),
+      }))
       : []);
   const keys = useRowKeys(rows.length);
   const commit = (next: { k: string; v: string }[]) => {
-    setRows(next);
-    set(Object.fromEntries(next.filter((r) => r.k.trim() !== '').map((r) => [r.k.trim(), r.v])));
+    const value = Object.fromEntries(next.filter((r) => r.k.trim() !== '').map((r) => [r.k.trim(), r.v === MASK_DISPLAY ? MASKED_SECRET : r.v]));
+    commitRows(next, value);
+    set(value);
   };
   const seen = new Map<string, number>();
   for (const r of rows) { const k = r.k.trim(); if (k) seen.set(k, (seen.get(k) ?? 0) + 1); }
@@ -421,10 +477,17 @@ function MapField({ field, shown, readOnly, set }: { field: RuleNodeConfigField;
   );
 }
 
-/** JSON text. Invalid JSON stays in the box and is NOT written to the config. */
-function JsonField({ id, field, shown, readOnly, set }: { id: string; field: RuleNodeConfigField; shown: unknown; readOnly: boolean; set: (v: unknown) => void }) {
-  const [text, setText] = useState(() => (shown === undefined ? '' : JSON.stringify(shown, null, 2)));
-  const [error, setError] = useState<string | null>(null);
+/**
+ * JSON text. Invalid JSON stays in the box and is NOT written to the config.
+ * A masked leaf shows as the marker and is written back as `"***"`. The text
+ * is re-seeded when the value changes from outside.
+ */
+function JsonField({ id, field, raw, shown, readOnly, set }: { id: string; field: RuleNodeConfigField; raw: unknown; shown: unknown; readOnly: boolean; set: (v: unknown) => void }) {
+  const [state, setState, commit] = useSeeded<{ text: string; error: string | null }>(raw, () => ({
+    text: shown === undefined ? '' : JSON.stringify(maskForDisplay(shown), null, 2),
+    error: null,
+  }));
+  const { text, error } = state;
   return (
     <>
       <Label htmlFor={id} field={field} />
@@ -436,14 +499,17 @@ function JsonField({ id, field, shown, readOnly, set }: { id: string; field: Rul
         disabled={readOnly}
         aria-invalid={error ? true : undefined}
         onChange={(e) => {
-          setText(e.target.value);
-          if (e.target.value.trim() === '') { setError(null); set(null); return; }
+          const t = e.target.value;
+          if (t.trim() === '') { commit({ text: t, error: null }, null); set(null); return; }
+          let parsed: unknown;
           try {
-            set(JSON.parse(e.target.value));
-            setError(null);
+            parsed = unmaskFromDisplay(JSON.parse(t));
           } catch (err) {
-            setError(`Not valid JSON — not applied. ${(err as Error).message}`);
+            setState({ text: t, error: `Not valid JSON — not applied. ${(err as Error).message}` });
+            return;
           }
+          commit({ text: t, error: null }, parsed);
+          set(parsed);
         }}
         className="ctl w-full font-mono text-[0.8125rem]"
       />

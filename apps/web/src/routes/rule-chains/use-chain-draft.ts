@@ -101,8 +101,25 @@ export interface NodePatch {
   config?: Record<string, unknown>;
 }
 
-/** One node's settings (the dialog's Apply). Other nodes keep their object identity. */
+/** JSON with object keys sorted — equal for two values that differ only in key order. */
+function canonical(v: unknown): string {
+  return JSON.stringify(v, (_k, x: unknown) => (x && typeof x === 'object' && !Array.isArray(x)
+    ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+    : x));
+}
+
+/**
+ * One node's settings (the dialog's Apply). Other nodes keep their object
+ * identity. A patch that changes NOTHING (an Apply on an untouched dialog)
+ * returns the SAME document, so it records no undo step (fix round 1).
+ */
 export function updateNodeIn(doc: RuleChainDocument, id: string, patch: NodePatch): RuleChainDocument {
+  const node = doc.nodes.find((n) => n.id === id);
+  if (!node) return doc;
+  const unchanged = (patch.name === undefined || patch.name === node.name)
+    && (patch.debugMode === undefined || patch.debugMode === node.debugMode)
+    && (patch.config === undefined || canonical(patch.config) === canonical(node.config));
+  if (unchanged) return doc;
   return { ...doc, nodes: doc.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)) };
 }
 

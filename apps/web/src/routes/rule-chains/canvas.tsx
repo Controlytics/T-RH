@@ -8,7 +8,7 @@ import '@xyflow/react/dist/style.css';
 import './rule-chains.css';
 import type { RuleChainDocument } from '@digilog/shared';
 import {
-  buildFlowEdges, buildFlowNodes, removalOf,
+  buildFlowEdges, buildFlowNodes, removalOf, startView,
   type ChainFlowNode, type PairEdge, type PairEdgeData, type RuleNodeData,
 } from './flow-mapping';
 import { NODE_TYPES } from './node-card';
@@ -46,8 +46,7 @@ export interface CanvasProps {
   onSelectNode: (id: string | null) => void;
 }
 
-/** Under this a node's name is ~7 px — unreadable (the built render, 2026-11-04). */
-const MIN_START_ZOOM = 0.65;
+const FIT_OPTIONS = { padding: 0.12, maxZoom: 1 };
 
 const DEFAULT_EDGE_OPTIONS = {
   markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color: '#64748b' },
@@ -87,11 +86,9 @@ function Flow(props: CanvasProps) {
     return () => { if (props.apiRef) props.apiRef.current = null; };
   }, [props.apiRef, rf]);
 
-  // The FIRST view, once React Flow has measured the nodes: the whole chain
-  // when it fits at a readable zoom (0.65..1); a chain too wide for that opens
-  // at 0.65 with its LEFT edge — the Input, where every message starts — in
-  // view, rather than centred with both ends cut (seen in the built render).
-  // The Controls' fit button still shows the whole chain at any zoom.
+  // The FIRST view, once React Flow has measured the nodes (`startView`): React
+  // Flow's own fitView when the chain fits at a readable zoom, else the Input
+  // in view. The Controls' fit button still shows the whole chain at any zoom.
   const initialized = useNodesInitialized();
   const placed = useRef(false);
   useEffect(() => {
@@ -99,14 +96,9 @@ function Flow(props: CanvasProps) {
     placed.current = true;
     const r = wrapper.current?.getBoundingClientRect();
     if (!r || r.width <= 0 || r.height <= 0) return;
-    const b = rf.getNodesBounds(rf.getNodes());
-    const pad = 40;
-    const fit = Math.min((r.width - 2 * pad) / Math.max(b.width, 1), (r.height - 2 * pad) / Math.max(b.height, 1));
-    const zoom = Math.max(MIN_START_ZOOM, Math.min(1, fit));
-    const fitsAcross = b.width * zoom <= r.width - 2 * pad;
-    const x = fitsAcross ? (r.width - b.width * zoom) / 2 - b.x * zoom : pad - b.x * zoom;
-    const y = (r.height - b.height * zoom) / 2 - b.y * zoom;
-    void rf.setViewport({ x, y, zoom });
+    const view = startView(rf.getNodesBounds(rf.getNodes()), { width: r.width, height: r.height });
+    if (view.kind === 'fit') void rf.fitView(FIT_OPTIONS);
+    else void rf.setViewport(view.viewport);
   }, [initialized, rf]);
 
   const onNodesChange = useCallback((changes: NodeChange<ChainFlowNode>[]) => {
@@ -142,6 +134,16 @@ function Flow(props: CanvasProps) {
         onAddNode(type, rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }));
       }}
       data-testid="rule-chain-canvas"
+      // Enter on a FOCUSED node opens its settings — the keyboard's double-click
+      // (React Flow makes each node focusable; Enter also selects it).
+      onKeyDown={(e) => {
+        if (e.key !== 'Enter') return;
+        const el = e.target as HTMLElement;
+        const id = el.classList?.contains('react-flow__node') ? el.getAttribute('data-id') : null;
+        if (!id || id === INPUT_NODE_ID) return;
+        e.preventDefault();
+        onOpenNode(id);
+      }}
     >
       <ReactFlow<ChainFlowNode, PairEdge>
         nodes={nodes}
@@ -171,7 +173,7 @@ function Flow(props: CanvasProps) {
         maxZoom={2}
       >
         <Background variant={BackgroundVariant.Dots} gap={18} size={1.2} color="#cbd5e1" />
-        <Controls showInteractive={false} position="bottom-left" fitViewOptions={{ padding: 0.12, maxZoom: 1 }} />
+        <Controls showInteractive={false} position="bottom-left" fitViewOptions={FIT_OPTIONS} />
         <MiniMap pannable zoomable nodeColor={minimapColour} nodeStrokeColor="#94a3b8" position="bottom-right" />
       </ReactFlow>
     </div>

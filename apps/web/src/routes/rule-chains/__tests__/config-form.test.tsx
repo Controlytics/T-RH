@@ -276,12 +276,77 @@ describe('ConfigForm — a credential the server masked', () => {
     expect(within(r).getByText('•••• (stored)')).toBeInTheDocument();
   });
 
-  it('a JSON or map field holding a masked leaf says what *** means', () => {
-    setup({
+  it('a JSON field shows a masked leaf as "(stored)", says what that means, and writes it back as ***', () => {
+    const { last } = setup({
       fields: [{ key: 'credentials', label: 'Credentials', type: 'json' }],
       initial: { credentials: { type: 'basic', username: 'u', password: '***' } },
     });
-    expect(screen.getByText(/\*\*\* is a stored secret/)).toBeInTheDocument();
+    const r = row('credentials', 'json');
+    const box = within(r).getByRole('textbox') as HTMLTextAreaElement;
+    expect(box.value).toContain('"password": "•••• (stored)"');
+    expect(box.value).not.toContain('***');
+    expect(within(r).getByText(/•••• \(stored\) is a stored secret/)).toBeInTheDocument();
+    fireEvent.change(box, { target: { value: box.value.replace('"u"', '"admin"') } });
+    expect(last()?.credentials).toEqual({ type: 'basic', username: 'admin', password: '***' });
+    fireEvent.change(box, { target: { value: box.value.replace('"•••• (stored)"', '"new-secret"') } });
+    expect(last()?.credentials).toEqual({ type: 'basic', username: 'admin', password: 'new-secret' });
+  });
+
+  it('a map field shows a masked value as "(stored)" and writes it back as *** when another row changes', () => {
+    const { last } = setup({
+      fields: [{ key: 'headers', label: 'Headers', type: 'map' }],
+      initial: { headers: { Authorization: '***', 'X-Env': 'prod' } },
+    });
+    const r = row('headers', 'map');
+    expect(within(r).getByLabelText('Value 1')).toHaveValue('•••• (stored)');
+    fireEvent.change(within(r).getByLabelText('Value 2'), { target: { value: 'test' } });
+    expect(last()?.headers).toEqual({ Authorization: '***', 'X-Env': 'test' });
+  });
+});
+
+describe('ConfigForm — a value replaced from OUTSIDE re-seeds the fields that edit a local copy (fix round 1)', () => {
+  const fields: RuleNodeConfigField[] = [
+    { key: 'round', label: 'Decimals', type: 'number', min: 0, max: 15 },
+    { key: 'renameKeysMapping', label: 'Key → new key', type: 'map' },
+    { key: 'arguments', label: 'Arguments', type: 'json' },
+  ];
+
+  function Replaceable({ onValue }: { onValue: (v: Record<string, unknown>) => void }) {
+    const [value, setValue] = useState<Record<string, unknown>>({ round: 2, renameKeysMapping: { a: 'A' }, arguments: [1] });
+    return (
+      <>
+        <button type="button" onClick={() => setValue({ round: 7, renameKeysMapping: { b: 'B', c: 'C' }, arguments: { x: 1 } })}>replace</button>
+        <ConfigForm nodeType="tb:test:fixture" fields={fields} value={value} onChange={(v) => { setValue(v); onValue(v); }} />
+      </>
+    );
+  }
+
+  it('number, map and JSON show the new value, and the next edit builds on it — never on the old rows', () => {
+    const values: Record<string, unknown>[] = [];
+    render(<Replaceable onValue={(v) => values.push(v)} />);
+    fireEvent.click(screen.getByRole('button', { name: 'replace' }));
+    expect(within(row('round', 'number')).getByRole('spinbutton')).toHaveValue(7);
+    const map = row('renameKeysMapping', 'map');
+    expect(within(map).getByLabelText('Key 1')).toHaveValue('b');
+    expect(within(map).getByLabelText('Key 2')).toHaveValue('c');
+    expect((within(row('arguments', 'json')).getByRole('textbox') as HTMLTextAreaElement).value).toContain('"x": 1');
+    fireEvent.click(within(map).getByRole('button', { name: 'Add row' }));
+    fireEvent.change(within(map).getByLabelText('Key 3'), { target: { value: 'd' } });
+    expect(values[values.length - 1].renameKeysMapping).toEqual({ b: 'B', c: 'C', d: '' });
+  });
+
+  it('its OWN write does not re-seed it: a row whose key is still blank stays, JSON being typed stays', () => {
+    render(<Replaceable onValue={() => undefined} />);
+    const map = row('renameKeysMapping', 'map');
+    fireEvent.click(within(map).getByRole('button', { name: 'Add row' }));
+    fireEvent.change(within(map).getByLabelText('Value 2'), { target: { value: 'only a value' } });
+    expect(within(map).getByLabelText('Key 2')).toHaveValue('');
+    expect(within(map).getByLabelText('Value 2')).toHaveValue('only a value');
+    const box = within(row('arguments', 'json')).getByRole('textbox') as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: '[1, 2' } });
+    expect(box.value).toBe('[1, 2');
+    fireEvent.change(box, { target: { value: '[1,2]' } });
+    expect(box.value).toBe('[1,2]');
   });
 });
 

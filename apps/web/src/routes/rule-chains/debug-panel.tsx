@@ -173,10 +173,15 @@ export function DebugPanel({ chainId, nodes, nodeId, onNodeChange, canClear, onC
         <p className="text-[0.6875rem] text-slate-400">Newest first · refreshes every {DEBUG_POLL_MS / 1000} s</p>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {error ? (
-          <p role="alert" className="m-3 rounded-md border border-rose-200 bg-rose-50 p-2 text-sm text-rose-800">Could not load debug events. {error.message}</p>
-        ) : rows.length === 0 ? (
-          <p className="p-6 text-center text-sm text-slate-500">{loading ? 'Loading…' : 'No debug events.'}</p>
+        {/* A failed poll keeps the events it last read (SWR keeps them), under
+            the alert: a blip must not blank a trace someone is reading. */}
+        {error && (
+          <p role="alert" className="m-3 rounded-md border border-rose-200 bg-rose-50 p-2 text-sm text-rose-800">
+            Could not load debug events. {error.message}{rows.length > 0 ? ' The events below are from the last successful read.' : ''}
+          </p>
+        )}
+        {rows.length === 0 ? (
+          !error && <p className="p-6 text-center text-sm text-slate-500">{loading ? 'Loading…' : 'No debug events.'}</p>
         ) : (
           <ul>
             {rows.map((e) => <EventRow key={e.id} event={e} nodeName={names.get(e.nodeId) ?? e.nodeId} showNode={nodeId === null} />)}

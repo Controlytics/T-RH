@@ -144,6 +144,39 @@ export function buildFlowEdges(doc: RuleChainDocument, prev: readonly Edge[], ca
   return edges;
 }
 
+/** The first view: fit at a readable zoom or better, else start at the Input. */
+export const READABLE_FIT_ZOOM = 0.75;
+/** Under this a node's name is ~7 px — unreadable (the built render, 2026-11-04). */
+export const MIN_START_ZOOM = 0.65;
+const START_PAD = 40;
+
+export type StartView =
+  | { kind: 'fit' }
+  | { kind: 'viewport'; viewport: { x: number; y: number; zoom: number } };
+
+/**
+ * The chain's first view in a canvas of `size` (fix round 1): React Flow's
+ * fitView when the whole chain fits at {@link READABLE_FIT_ZOOM} or better;
+ * otherwise the largest zoom down to {@link MIN_START_ZOOM} — the whole chain
+ * when it fits at that zoom, else its LEFT edge (the Input, where every message
+ * starts) in view, vertically centred.
+ */
+export function startView(
+  bounds: { x: number; y: number; width: number; height: number },
+  size: { width: number; height: number },
+): StartView {
+  const fit = Math.min(
+    (size.width - 2 * START_PAD) / Math.max(bounds.width, 1),
+    (size.height - 2 * START_PAD) / Math.max(bounds.height, 1),
+  );
+  if (fit >= READABLE_FIT_ZOOM) return { kind: 'fit' };
+  const zoom = Math.max(MIN_START_ZOOM, fit);
+  const fitsAcross = bounds.width * zoom <= size.width - 2 * START_PAD;
+  const x = fitsAcross ? (size.width - bounds.width * zoom) / 2 - bounds.x * zoom : START_PAD - bounds.x * zoom;
+  const y = (size.height - bounds.height * zoom) / 2 - bounds.y * zoom;
+  return { kind: 'viewport', viewport: { x, y, zoom } };
+}
+
 /** What a canvas Delete removes, from React Flow's deleted nodes and edges. */
 export function removalOf(nodes: readonly Node[], edges: readonly Edge[]): { nodeIds: string[]; pairs: { from: string; to: string }[]; input: boolean } {
   const nodeIds = nodes.map((n) => n.id).filter((id) => id !== INPUT_NODE_ID);

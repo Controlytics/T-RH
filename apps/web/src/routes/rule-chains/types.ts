@@ -21,8 +21,8 @@ export interface RuleChainSummary {
 
 /**
  * `GET /api/rule-chains/:id`. The document is read FORGIVINGLY by the server;
- * credential leaves come back as `"***"` to a caller without
- * RULE_CHAIN_MANAGE, and a PUT that sends `"***"` keeps the stored value.
+ * every stored credential comes back as `"***"`, to EVERY caller (ruling
+ * T2-D), and a PUT that sends `"***"` keeps the stored value.
  */
 export interface RuleChainDetail {
   id: string;

@@ -131,7 +131,11 @@ export function EditorView({ chain, mutate }: {
 
   const [dialog, setDialog] = useState<Dialogs>(null);
   const [picker, setPicker] = useState<Picker>(null);
-  const [settingsFor, setSettingsFor] = useState<string | null>(null);
+  // The node whose settings are open, and a counter per open: the dialog is
+  // KEYED by both, so each open starts from the node as it is now.
+  const [settingsFor, setSettingsFor] = useState<{ id: string; seq: number } | null>(null);
+  const settingsSeq = useRef(0);
+  const openSettings = (id: string) => { settingsSeq.current += 1; setSettingsFor({ id, seq: settingsSeq.current }); };
   const [selected, setSelected] = useState<string | null>(null);
   const [debugOpen, setDebugOpen] = useState(false);
   const [debugNode, setDebugNode] = useState<string | null>(null);
@@ -173,7 +177,7 @@ export function EditorView({ chain, mutate }: {
 
   const pickerSource = picker ? doc.nodes.find((n) => n.id === picker.from) : undefined;
   const pickerTarget = picker ? doc.nodes.find((n) => n.id === picker.to) : undefined;
-  const settingsNode = settingsFor ? doc.nodes.find((n) => n.id === settingsFor) ?? null : null;
+  const settingsNode = settingsFor ? doc.nodes.find((n) => n.id === settingsFor.id) ?? null : null;
 
   // ── Writes ───────────────────────────────────────────────────────────────
   const save = (reason: string) => writes.run(
@@ -332,7 +336,7 @@ export function EditorView({ chain, mutate }: {
             onRemove={(what) => session.edit((d) => removeFromDoc(d, what))}
             onConnect={connect}
             onEditEdge={(from, to) => setPicker({ from, to, editing: true })}
-            onOpenNode={(id) => setSettingsFor(id)}
+            onOpenNode={openSettings}
             onSelectNode={(id) => { setSelected(id); if (id) setDebugNode(id); }}
           />
           {doc.nodes.length === 0 && (
@@ -369,21 +373,25 @@ export function EditorView({ chain, mutate }: {
         onClose={() => setPicker(null)}
       />
 
-      <NodeSettingsDialog
-        open={settingsNode !== null}
-        node={settingsNode}
-        chainId={chain.id}
-        readOnly={!canEdit}
-        onApply={(patch) => {
-          if (settingsFor) session.edit((d) => updateNodeIn(d, settingsFor, patch));
-          setSettingsFor(null);
-        }}
-        onDelete={() => {
-          if (settingsFor) session.edit((d) => removeFromDoc(d, { nodeIds: [settingsFor] }));
-          setSettingsFor(null);
-        }}
-        onClose={() => setSettingsFor(null)}
-      />
+      {settingsFor && settingsNode && (
+        <NodeSettingsDialog
+          key={`${settingsFor.id}:${settingsFor.seq}`}
+          node={settingsNode}
+          chainId={chain.id}
+          readOnly={!canEdit}
+          onApply={(patch) => {
+            const id = settingsFor.id;
+            session.edit((d) => updateNodeIn(d, id, patch));
+            setSettingsFor(null);
+          }}
+          onDelete={() => {
+            const id = settingsFor.id;
+            session.edit((d) => removeFromDoc(d, { nodeIds: [id] }));
+            setSettingsFor(null);
+          }}
+          onClose={() => setSettingsFor(null)}
+        />
+      )}
 
       <Dialog open={dialog === 'chain'} onClose={() => setDialog(null)}>
         <DialogBanner title="Chain settings" subtitle="Saved with the chain" />

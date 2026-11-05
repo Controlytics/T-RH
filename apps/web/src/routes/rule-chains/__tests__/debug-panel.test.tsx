@@ -28,11 +28,13 @@ const EVENTS = {
 };
 
 const swrCalls: { key: string | null; options: Record<string, unknown> | undefined }[] = [];
+// What the debug request answers: SWR keeps the last data beside a later error.
+const debugState: { data: typeof EVENTS | undefined; error: Error | undefined } = { data: EVENTS, error: undefined };
 const mutate = vi.fn(async () => undefined);
 vi.mock('swr', () => ({
   default: (key: string | null, options?: Record<string, unknown>) => {
     swrCalls.push({ key, options });
-    if (key && key.startsWith(`/api/rule-chains/${CHAIN}/debug`)) return { data: EVENTS, error: undefined, isLoading: false, mutate };
+    if (key && key.startsWith(`/api/rule-chains/${CHAIN}/debug`)) return { data: debugState.data, error: debugState.error, isLoading: false, mutate };
     return { data: undefined, error: undefined, isLoading: false, mutate };
   },
 }));
@@ -64,7 +66,30 @@ function mount(over: Partial<Parameters<typeof DebugPanel>[0]> = {}) {
   return { onNodeChange };
 }
 
-beforeEach(() => { swrCalls.length = 0; del.mockReset(); reauthActions.length = 0; mutate.mockClear(); });
+beforeEach(() => {
+  swrCalls.length = 0; del.mockReset(); reauthActions.length = 0; mutate.mockClear();
+  debugState.data = EVENTS; debugState.error = undefined;
+});
+
+describe('DebugPanel — a failed poll (fix round 1)', () => {
+  it('keeps the events it last read, under the alert that says so', () => {
+    debugState.error = new Error('Network down');
+    mount();
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('Could not load debug events. Network down');
+    expect(alert).toHaveTextContent('The events below are from the last successful read.');
+    expect(screen.getAllByTestId('debug-event')).toHaveLength(3);
+  });
+
+  it('with nothing read yet: the alert alone, never "No debug events."', () => {
+    debugState.data = undefined;
+    debugState.error = new Error('Network down');
+    mount();
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not load debug events. Network down');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('last successful read');
+    expect(screen.queryByText('No debug events.')).toBeNull();
+  });
+});
 
 describe('DebugPanel', () => {
   it('lists the node\'s events NEWEST FIRST (time, then the larger id)', () => {
