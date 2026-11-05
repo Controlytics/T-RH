@@ -545,6 +545,72 @@ describe('other sources', () => {
   });
 });
 
+/**
+ * Review A M7: `POST /api/instruments/bulk` creates and updates instruments, but only the single
+ * routes emitted ENTITY_*. Ruling: the bulk route emits what the single route for the same change
+ * emits — ENTITY_CREATED per created instrument (as POST /), ENTITY_UPDATED per instrument whose
+ * own columns it changed (a TCP/IP address or reading, as PUT /:id) — and NOTHING for an
+ * attribute-only update, as the single attribute routes send nothing (operator attribute writes
+ * → ATTRIBUTES_UPDATED is "Later" in spec §5).
+ */
+describe('the bulk upload emits as the single routes do (review A M7)', () => {
+  const C = (n: string) => `REB-${STAMP}-${n}`;
+  const NET = `10.${(Number.parseInt(STAMP.slice(-4), 36) % 200) + 30}.${Number.parseInt(STAMP.slice(-6, -4), 36) % 250}`;
+  const ip = (n: number) => `${NET}.${n}`;
+  const MAP = [{ key: 'Temperature', register: '40001', dataType: 'FLOAT32', byteOrder: 'ABCD', scale: 1 }];
+  let pushProfile = '';
+  let tcpProfile = '';
+  const signed = () => ({ ...sa, 'x-reauth-password': PW });
+  const bulk = (csv: string, profileId: string) => app.inject({
+    method: 'POST', url: '/api/instruments/bulk', headers: signed(), payload: { csv, profileId, reason: 'Rule-engine M7 e2e' },
+  });
+
+  beforeAll(async () => {
+    pushProfile = (await prisma.instrumentProfile.create({ data: { name: `REB Push ${STAMP}`, attributeKeys: 'Room' } })).id;
+    tcpProfile = (await prisma.instrumentProfile.create({ data: { name: `REB Modbus ${STAMP}`, connection: 'MODBUS_TCP', attributeKeys: 'Room' } })).id;
+  });
+
+  afterAll(async () => {
+    try { await prisma.instrument.deleteMany({ where: { code: { startsWith: `REB-${STAMP}-` } } }); } catch (e) { console.error('bulk instruments', e); }
+    try { await prisma.instrumentProfile.deleteMany({ where: { id: { in: [pushProfile, tcpProfile].filter(Boolean) } } }); } catch (e) { console.error('bulk profiles', e); }
+  });
+
+  it('a CREATED row → ENTITY_CREATED with its profile name and no token; an attribute-only UPDATE → nothing', async () => {
+    const first = await bulk(`Instrument ID,Room\n${C('a')},R1`, pushProfile);
+    expect(first.statusCode, first.body).toBe(200);
+    const [made] = (first.json() as { created: { id: string; token: string | null }[] }).created;
+    expect(made?.id, first.body).toBeTruthy();
+    const [row] = await waitForRows({ nodeId: SWITCH, msgType: 'ENTITY_CREATED', originatorId: made.id }, 1);
+    expect(row?.data, 'ENTITY_CREATED reached the root chain').toMatchObject({ id: made.id, code: C('a'), profileName: `REB Push ${STAMP}` });
+    expect(JSON.stringify(row.data)).not.toContain(made.token ?? '\u0000');
+    expect(row.data.credentials).toBeUndefined();
+
+    const second = await bulk(`Instrument ID,Room\n${C('a')},R2`, pushProfile);
+    expect(second.statusCode, second.body).toBe(200);
+    expect((second.json() as { updated: unknown[] }).updated).toHaveLength(1);
+    await settle();
+    await new Promise((r) => setTimeout(r, 600));
+    await settle();
+    expect(await rows({ nodeId: SWITCH, msgType: 'ENTITY_UPDATED', originatorId: made.id })).toEqual([]);
+    // Exactly ONE ENTITY_CREATED entered the switch: the update did not send a second.
+    expect(await rows({ nodeId: SWITCH, msgType: 'ENTITY_CREATED', originatorId: made.id, direction: 'IN' })).toHaveLength(1);
+  });
+
+  it('an UPDATE that moves a TCP/IP address → ENTITY_UPDATED carrying the new address', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/instruments', headers: signed(),
+      payload: { name: C('t'), code: C('t'), profileId: tcpProfile, modbusHost: ip(11), modbusPort: 502, modbusRegisters: MAP },
+    });
+    expect(res.statusCode, res.body).toBe(201);
+    const tcpId = (res.json() as { id: string }).id;
+    const moved = await bulk(`Instrument ID,IP address,Port\n${C('t')},${ip(12)},502`, tcpProfile);
+    expect(moved.statusCode, moved.body).toBe(200);
+    expect((moved.json() as { updated: { address?: unknown }[] }).updated[0]?.address, moved.body).toEqual({ from: { host: ip(11), port: 502 }, to: { host: ip(12), port: 502 } });
+    const [row] = await waitForRows({ nodeId: SWITCH, msgType: 'ENTITY_UPDATED', originatorId: tcpId }, 1);
+    expect(row?.data, 'ENTITY_UPDATED reached the root chain').toMatchObject({ id: tcpId, code: C('t'), modbusHost: ip(12), modbusPort: 502 });
+  });
+});
+
 describe('routes', () => {
   it('test-script runs a filter: { result: true }; a script error is a 400 naming it', async () => {
     const ok = await app.inject({ method: 'POST', url: '/api/rule-chains/test-script', headers: sa,

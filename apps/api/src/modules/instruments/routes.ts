@@ -324,6 +324,35 @@ function present(row: InstrumentRow, activeWindowMinutes: number) {
 /** Reads join the profile for its name and its connection (see `present`). */
 const withProfileName = { profile: { select: { name: true, connection: true } } };
 
+/**
+ * ENTITY_CREATED / ENTITY_UPDATED for what a bulk upload created and moved (review A M7), each
+ * instrument re-read after its commit with its profile name, as the single routes re-read it
+ * (`emitEntity` whitelists the columns: no token, no credential). The created instruments' tokens
+ * exist only in the upload's response, so a failure here is logged and never fails the upload.
+ */
+async function emitBulkEntities(
+  createdIds: readonly string[],
+  updatedIds: readonly string[],
+  log: { error: (obj: object, msg: string) => void },
+): Promise<void> {
+  if (createdIds.length === 0 && updatedIds.length === 0) return;
+  try {
+    const rows = await prisma.instrument.findMany({ where: { id: { in: [...createdIds, ...updatedIds] } }, include: withProfileName });
+    const byId = new Map(rows.map((r) => [r.id, r as unknown as Record<string, unknown> & { id: string }]));
+    for (const id of createdIds) {
+      const row = byId.get(id);
+      if (row) await emitEntity('ENTITY_CREATED', row);
+    }
+    for (const id of updatedIds) {
+      const row = byId.get(id);
+      if (row) await emitEntity('ENTITY_UPDATED', row);
+    }
+  } catch (err) {
+    log.error({ err, created: createdIds.length, updated: updatedIds.length },
+      'bulk upload: the rule-engine ENTITY_* messages could not be sent — the instruments ARE registered / updated');
+  }
+}
+
 const activeCredential = {
   where: { revokedAt: null },
   // `lastUsedAt` is deliberately NOT selected: `present()` does not read it.
@@ -2432,6 +2461,17 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         errors.push({ row: p.row, message: `Not created: ${(err as Error).message.slice(0, 200)}` });
       }
     }
+
+    // Rule chains (spec §5; review A M7, 2026-11-05): what the SINGLE route for the same change
+    // emits, after every row's own commit — ENTITY_CREATED per created instrument (as POST /),
+    // ENTITY_UPDATED per instrument whose own columns moved (a TCP/IP address or reading, as
+    // PUT /:id). An attribute-only update sends nothing: the single attribute routes send nothing
+    // (operator attribute writes → ATTRIBUTES_UPDATED is "Later" in spec §5).
+    await emitBulkEntities(
+      created.map((c) => c.id),
+      updated.filter((u) => u.address || u.reading).map((u) => u.id),
+      req.log,
+    );
 
     // Parse errors, plan errors and write errors are interleaved by source row
     // so the operator reads one ascending list against their spreadsheet.
