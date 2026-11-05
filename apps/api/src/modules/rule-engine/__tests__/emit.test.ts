@@ -264,6 +264,8 @@ describe('every alarm raise and clear site emits (a site added without it fails 
     expect(count(ingest, /await emitTelemetryBatch\(/g)).toBe(1);
     expect(count(read('../../instruments/attribute-report.ts'), /await emitAttributes\(/g)).toBe(1);
     const routes = read('../../instruments/routes.ts');
-    for (const kind of ['ENTITY_CREATED', 'ENTITY_UPDATED', 'ENTITY_DELETED']) expect(count(routes, new RegExp(`emitEntity\\('${kind}'`, 'g'))).toBe(1);
+    // The single create / update / delete routes, plus the bulk upload's CREATED and UPDATED (review A M7, emitBulkEntities).
+    const sites = { ENTITY_CREATED: 2, ENTITY_UPDATED: 2, ENTITY_DELETED: 1 };
+    for (const [kind, n] of Object.entries(sites)) expect(count(routes, new RegExp(`emitEntity\\('${kind}'`, 'g')), kind).toBe(n);
   });
 });
