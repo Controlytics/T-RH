@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
-import { createRuleEngine, type RuleEngine } from '../engine.js';
+import { createRuleEngine, type RuleEngine, type DurableHandBack } from '../engine.js';
+import { logger } from '../../../lib/logger.js';
 import { registerNode, getHandler } from '../registry.js';
 import { registerAllNodes } from '../nodes/index.js';
 import { runRuleEngineMessage, ruleEngineMessageTask } from '../../../workers/rule-engine-message.worker.js';
@@ -772,53 +773,105 @@ describe('the durable path (rule_engine_message)', () => {
     }
   });
 
-  it('RE-2: stop() hands every WAITING durable resume back to graphile — its message, node, relation and depth (durable_requeued)', async () => {
-    const handed: { msgId: string; chainId: string; nodeId: string; runAt: Date | undefined; opts: unknown }[] = [];
-    const hold = type('test:re2-hold3', () => new Promise<void>(() => undefined));
+  /**
+   * An engine whose originator A is held in flight (a node that never settles), so every
+   * `resumeAfter` for A WAITS in the queue; `handBack` stands in for graphile's add_jobs
+   * (M6: one call per batch). stopWaitMs is short: the held flow never ends.
+   */
+  async function heldEngine(id: string, handBack: (items: readonly DurableHandBack[], firstSequence: number) => Promise<void>, budgetMs = 5_000) {
+    const hold = type(`test:${id}-hold`, () => new Promise<void>(() => undefined));
     const h = nodeOf(hold, 'Hold');
-    const d = nodeOf(type('test:re2-d3', () => undefined), 'Delay');
+    const d = nodeOf(type(`test:${id}-delay`, () => undefined), 'Delay');
     const chain = chainOf('c', docOf([h, d], [], h), { root: true });
-    const mem = memoryDeps([chain]);
-    const services = Object.assign(fakeServices({
-      durable: { enqueue: async (msg, chainId, nodeId, runAt, opts) => { handed.push({ msgId: msg.id, chainId, nodeId, runAt, opts }); } },
-    }), { dispose: async () => undefined });
-    const engine = createRuleEngine({ ...mem.deps, budgetMs: 60_000, services: () => services });
+    const engine = createRuleEngine({
+      ...memoryDeps([chain]).deps, budgetMs: 60_000, stopWaitMs: 20, handBackDurable: handBack, durableHandBackBudgetMs: budgetMs,
+      services: () => Object.assign(fakeServices(), { dispose: async () => undefined }),
+    });
     await engine.start();
     engine.enqueue(testMessage({}, { originator: { id: 'A' } }));
     await waitFor(() => engine.stats().inFlight === 1);
+    return { engine, chain, delay: d };
+  }
+
+  it('RE-2: stop() hands every WAITING durable resume back to graphile — its message, node, relation and depth (durable_requeued)', async () => {
+    const batches: DurableHandBack[][] = [];
+    const { engine, chain, delay: d } = await heldEngine('re2-a', async (items) => { batches.push([...items]); });
     const deep = { ...testMessage({ n: 1 }, { originator: { id: 'A' } }), _hops: 9 };
     const plain = testMessage({ n: 2 }, { originator: { id: 'A' } });
     expect(engine.resumeAfter(deep, chain.id, d.id, ['True'], { reentryDepth: 1 })).toBe(true);
     expect(engine.resumeAfter(plain, chain.id, d.id)).toBe(true);
     engine.enqueue(testMessage({ ordinary: true }, { originator: { id: 'A' } }));
-    const counters = () => engine.stats().counters;
     await engine.stop();
-    expect(handed).toEqual([
-      { msgId: deep.id, chainId: chain.id, nodeId: d.id, runAt: undefined, opts: { reentryDepth: 1, relation: 'True' } },
-      { msgId: plain.id, chainId: chain.id, nodeId: d.id, runAt: undefined, opts: { reentryDepth: 0, relation: 'Success' } },
-    ]);
-    expect(counters()).toMatchObject({ durable_requeued: 2 });
-    expect(counters().durable_dropped ?? 0).toBe(0);
+    // ONE insert for both (M6); the ordinary message is not handed back.
+    expect(batches.map((b) => b.map((i) => ({ msgId: i.msg.id, hops: i.msg._hops, chainId: i.chainId, nodeId: i.nodeId, relation: i.relation, depth: i.reentryDepth })))).toEqual([[
+      { msgId: deep.id, hops: 9, chainId: chain.id, nodeId: d.id, relation: 'True', depth: 1 },
+      { msgId: plain.id, hops: undefined, chainId: chain.id, nodeId: d.id, relation: 'Success', depth: 0 },
+    ]]);
+    expect(engine.stats().counters).toMatchObject({ durable_requeued: 2 });
+    expect(engine.stats().counters.durable_dropped ?? 0).toBe(0);
   });
 
-  it('RE-2: a hand-back that fails is counted durable_dropped (and logged), the others still go back', async () => {
-    let calls = 0;
-    const hold = type('test:re2-hold4', () => new Promise<void>(() => undefined));
-    const h = nodeOf(hold, 'Hold');
-    const d = nodeOf(type('test:re2-d4', () => undefined), 'Delay');
-    const chain = chainOf('c', docOf([h, d], [], h), { root: true });
-    const services = Object.assign(fakeServices({
-      durable: { enqueue: async () => { calls++; if (calls === 1) throw new Error('database gone'); } },
-    }), { dispose: async () => undefined });
-    const engine = createRuleEngine({ ...memoryDeps([chain]).deps, budgetMs: 60_000, services: () => services });
-    await engine.start();
-    engine.enqueue(testMessage({}, { originator: { id: 'A' } }));
-    await waitFor(() => engine.stats().inFlight === 1);
-    engine.resumeAfter(testMessage({ n: 1 }, { originator: { id: 'A' } }), chain.id, d.id);
-    engine.resumeAfter(testMessage({ n: 2 }, { originator: { id: 'A' } }), chain.id, d.id);
+  it('M6: 1 200 waiting resumes go back in THREE inserts (500, 500, 200), in order — logged once with the count', async () => {
+    const info = vi.spyOn(logger, 'info');
+    const batches: DurableHandBack[][] = [];
+    const sequences: number[] = [];
+    const { engine, chain, delay: d } = await heldEngine('m6-batch', async (items, first) => { batches.push([...items]); sequences.push(first); });
+    const ids: string[] = [];
+    for (let i = 0; i < 1_200; i++) {
+      const m = testMessage({ i }, { originator: { id: 'A' } });
+      ids.push(m.id);
+      expect(engine.resumeAfter(m, chain.id, d.id)).toBe(true);
+    }
     await engine.stop();
-    expect(calls).toBe(2);
-    expect(engine.stats().counters).toMatchObject({ durable_dropped: 1, durable_requeued: 1 });
+    expect(batches.map((b) => b.length)).toEqual([500, 500, 200]);
+    expect(batches.flat().map((i) => i.msg.id)).toEqual(ids);
+    // Each batch's first place in the whole hand-back: the jobs' run_at order (addDurableJobs).
+    expect(sequences).toEqual([0, 500, 1_000]);
+    expect(engine.stats().counters).toMatchObject({ durable_requeued: 1_200 });
+    const logged = info.mock.calls.filter((c) => typeof c[1] === 'string' && c[1].includes('handed back'));
+    expect(logged).toHaveLength(1);
+    expect(logged[0][0]).toMatchObject({ handedBack: 1_200, notHandedBack: 0 });
+    info.mockRestore();
+  });
+
+  it('RE-2 / M6: a batch that fails is retried ONE AT A TIME — only the item that fails alone is lost (durable_dropped, logged)', async () => {
+    const error = vi.spyOn(logger, 'error');
+    const added: string[] = [];
+    const sequences: number[] = [];
+    let bad = '';
+    const { engine, chain, delay: d } = await heldEngine('m6-retry', async (items, first) => {
+      if (items.some((i) => i.msg.id === bad)) throw new Error('database refused the batch');
+      added.push(...items.map((i) => i.msg.id));
+      sequences.push(first);
+    });
+    const msgs = [1, 2, 3].map((n) => testMessage({ n }, { originator: { id: 'A' } }));
+    bad = msgs[1].id;
+    for (const m of msgs) engine.resumeAfter(m, chain.id, d.id);
+    await engine.stop();
+    expect(added).toEqual([msgs[0].id, msgs[2].id]);
+    // Retried alone, each keeps its place in the order.
+    expect(sequences).toEqual([0, 2]);
+    expect(engine.stats().counters).toMatchObject({ durable_requeued: 2, durable_dropped: 1 });
+    const logged = error.mock.calls.filter((c) => typeof c[1] === 'string' && c[1].includes('handed back'));
+    expect(logged).toHaveLength(1);
+    expect(logged[0][0]).toMatchObject({ handedBack: 2, notHandedBack: 1, err: 'database refused the batch' });
+    error.mockRestore();
+  });
+
+  it('M6: BOUNDED — an insert still running when the budget ends is not waited for; nothing more is sent; the rest is counted durable_dropped', async () => {
+    let calls = 0;
+    const { engine, chain, delay: d } = await heldEngine('m6-bound', async () => {
+      calls++;
+      await new Promise((r) => setTimeout(r, 400));
+    }, 100);
+    for (let i = 0; i < 700; i++) engine.resumeAfter(testMessage({ i }, { originator: { id: 'A' } }), chain.id, d.id);
+    const t0 = Date.now();
+    await engine.stop();
+    expect(Date.now() - t0).toBeLessThan(380);
+    // The first batch was sent and timed out; the second never was, and no item was retried alone.
+    expect(calls).toBe(1);
+    expect(engine.stats().counters).toMatchObject({ durable_dropped: 700 });
+    expect(engine.stats().counters.durable_requeued ?? 0).toBe(0);
   });
 
   it('RE-2: switching the engine OFF drops waiting durable resumes — counted durable_dropped (the worker drops them too when off)', async () => {

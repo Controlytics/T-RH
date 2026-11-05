@@ -202,3 +202,25 @@ export function serialisableMessage(msg: RuleMessage): RuleMessage {
     ...(msg._hops !== undefined ? { _hops: msg._hops } : {}),
   };
 }
+
+/** graphile's attempts for a `rule_engine_message` job — what `services.durable.enqueue` passes. */
+export const DURABLE_JOB_MAX_ATTEMPTS = 5;
+
+/**
+ * The PAYLOAD of a `rule_engine_message` job (the shape `ruleEngineMessageJobSchema`
+ * in @digilog/queue parses): the message with its stack and hop count, its re-entry
+ * depth when above 0 (ruling RE-1), the node it resumes AFTER, and the relation when
+ * it is not `Success`. The engine's batched hand-back on stop (M6) builds its jobs
+ * here; `services.durable.enqueue` builds the same shape inline today (a unit test
+ * pins that the two agree — durable-handback.test.ts).
+ */
+export function durableJobPayload(
+  msg: RuleMessage, chainId: string, nodeId: string, opts: { reentryDepth: number; relation?: string },
+): Record<string, unknown> {
+  return {
+    message: { ...serialisableMessage(msg), ...(opts.reentryDepth > 0 ? { _reentryDepth: opts.reentryDepth } : {}) },
+    chainId,
+    resumeAfterNodeId: nodeId,
+    ...(opts.relation && opts.relation !== 'Success' ? { relation: opts.relation } : {}),
+  };
+}

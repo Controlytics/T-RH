@@ -10,10 +10,14 @@ import {
   type RuleDebugDirection, type RuleDebugEventInput,
 } from './debug.js';
 import { setRuleEngineSink, emitCounters, type RuleEngineSink } from './emit.js';
-import { createRuleServices, type RuleServices, type RuleServicesHandle, type RuleServicesHooks } from './services.js';
+import { getProducer } from '@digilog/queue';
+import {
+  createRuleServices, RULE_ENGINE_MESSAGE_TASK, ruleEngineQueueName, type RuleServices, type RuleServicesHandle, type RuleServicesHooks,
+} from './services.js';
 import { runScript as runVmScript, type RuleScriptKind } from './script-vm.js';
 import {
-  copyMessage, failureMessage, errorText, ruleNodeOrigin, ruleNodeKey, isRuleNodeOrigin, RULE_ENGINE_ORIGIN_KEY, type RuleMessage,
+  copyMessage, failureMessage, errorText, ruleNodeOrigin, ruleNodeKey, isRuleNodeOrigin, RULE_ENGINE_ORIGIN_KEY,
+  durableJobPayload, DURABLE_JOB_MAX_ATTEMPTS, type RuleMessage,
 } from './message.js';
 import { runInFlow, REENTRY_DEPTH_MAX, type RuleContext, type RuleLogLevel } from './context.js';
 import { registerAllNodes } from './nodes/index.js';
@@ -86,7 +90,8 @@ import { unsupportedNodeMessage } from './nodes/unsupported.js';
  * stored switch may say OFF. `started` stays false until then, so the durable
  * task reschedules its job and the inject route answers ENGINE_NOT_STARTED.
  *
- * STOP: the queue is paused, waiting durable resumes are handed back (RE-2),
+ * STOP: the queue is paused, waiting durable resumes are handed back (RE-2;
+ * since M6 one `add_jobs` insert per 500, within 5 s, the counts logged),
  * in-flight messages get `stopWaitMs` (5 s) to
  * finish; a flow still running after that is HALTED at its next step
  * (`halted_on_stop`) — before C1's yield a flow could not outlive the wait by
@@ -131,6 +136,23 @@ export interface RuleEngineDeps {
   lifecyclePollMs: number;
   /** How long `stop()` waits for in-flight messages before halting them (5 s; tests shorten it). */
   stopWaitMs: number;
+  /**
+   * Hand waiting durable resumes back to graphile in ONE insert (M6; the default is
+   * `addDurableJobs`). `firstSequence` is the batch's first place in the whole hand-back
+   * (the jobs' order). Throws when that insert fails — nothing of the batch was added.
+   */
+  handBackDurable(items: readonly DurableHandBack[], firstSequence: number): Promise<void>;
+  /** How long `stop()` may spend handing durable resumes back (5 s), checked between batches. */
+  durableHandBackBudgetMs: number;
+}
+
+/** A waiting durable resume, as `stop()` hands it back to graphile (RE-2, M6). */
+export interface DurableHandBack {
+  msg: RuleMessage;
+  chainId: string;
+  nodeId: string;
+  relation: string;
+  reentryDepth: number;
 }
 
 export interface RuleEngineStats {
@@ -158,7 +180,7 @@ export interface RuleEngine {
    * is the depth of the flow that handed it over (the job's
    * `message._reentryDepth`; ruling RE-1). Once admitted it is the message's
    * only copy, so (RE-2) a full queue never evicts it and a graceful `stop()`
-   * hands it back to graphile (`services.durable.enqueue`); switching the
+   * hands it back to graphile (`addDurableJobs`, batched — M6); switching the
    * engine OFF drops it, as the worker drops a job while off. Only a CRASH
    * between admission and processing loses it (ruled 2026-11-04, review I5: a
    * job holding its graphile slot for the whole flow blocked the per-originator
@@ -254,6 +276,8 @@ export const FLOW_YIELD_AFTER_MS = 10;
 /** A flow ends after hopLimit × this many node runs over all its copies (C1). */
 export const STEP_LIMIT_PER_HOP = 10;
 export const STEP_LIMIT = 'STEP_LIMIT';
+/** Durable resumes per hand-back insert on stop (M6). */
+export const DURABLE_HANDBACK_BATCH = 500;
 const yieldToEventLoop = () => new Promise<void>((resolve) => { setImmediate(resolve); });
 /** A failed lifecycle start is retried after 5 s, 10 s, 20 s … at most 5 minutes apart (m3). */
 const INIT_RETRY_BASE_MS = 5_000;
@@ -418,19 +442,63 @@ class RuleEngineImpl implements RuleEngine {
   }
 
   /** Each waiting durable resume back to graphile with its relation and depth (RE-2). Never throws. */
+  /**
+   * Each waiting durable resume back to graphile with its relation and depth (RE-2). Never throws.
+   *
+   * M6 (whole-branch review A): batches of DURABLE_HANDBACK_BATCH, ONE insert each
+   * (`deps.handBackDurable` — graphile's `add_jobs`), within `durableHandBackBudgetMs`:
+   * one `addJob` per item, up to queueCapacity of them, could not finish inside the
+   * shutdown's 15 s force-exit, and what it had not sent was lost without a count. A
+   * batch that fails is retried ONE ITEM AT A TIME while time remains, so one bad item
+   * costs only itself (as before M6). Logged once: how many went back, how many did not.
+   */
   private async handBackDurable(items: QueueItem[]): Promise<void> {
+    const backs: DurableHandBack[] = [];
     for (const item of items) {
       if (!item.durable || item.entry.kind !== 'replay' || item.entry.replay.kind !== 'next') continue;
       const { chainId, nodeId, replay } = item.entry;
+      backs.push({ msg: item.msg, chainId, nodeId, relation: replay.relations[0] ?? 'Success', reentryDepth: item.reentryDepth });
+    }
+    if (backs.length === 0) return;
+    const deadline = Date.now() + this.deps.durableHandBackBudgetMs;
+    let handed = 0;
+    let lastErr: string | null = null;
+    // One insert, bounded by what is left of the budget: an insert still running then is not
+    // waited for (its batch counts as not handed back — it may still land; never sent twice).
+    const insert = async (batch: readonly DurableHandBack[], firstSequence: number): Promise<boolean> => {
+      const left = deadline - Date.now();
+      if (left <= 0) return false;
+      let timer: NodeJS.Timeout | undefined;
       try {
-        await this.servicesHandle.durable.enqueue(item.msg, chainId, nodeId, undefined,
-          { reentryDepth: item.reentryDepth, relation: replay.relations[0] ?? 'Success' });
-        this.inc('durable_requeued');
+        await Promise.race([
+          this.deps.handBackDurable(batch, firstSequence),
+          new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('the hand-back ran out of time')), left); timer.unref(); }),
+        ]);
+        return true;
       } catch (err) {
-        this.inc('durable_dropped');
-        logger.error({ err: errorText(err), msgId: item.msg.id, chainId, nodeId },
-          '[rule-engine] a durable (Delay / Checkpoint) message could not be handed back to the job queue on stop — it is LOST');
+        lastErr = errorText(err);
+        return false;
+      } finally {
+        if (timer) clearTimeout(timer);
       }
+    };
+    for (let at = 0; at < backs.length && Date.now() < deadline; at += DURABLE_HANDBACK_BATCH) {
+      const batch = backs.slice(at, at + DURABLE_HANDBACK_BATCH);
+      if (await insert(batch, at)) {
+        handed += batch.length;
+        continue;
+      }
+      for (let k = 0; k < batch.length; k++) if (await insert([batch[k]], at + k)) handed++;
+    }
+    const lost = backs.length - handed;
+    if (handed > 0) this.inc('durable_requeued', handed);
+    if (lost > 0) {
+      this.inc('durable_dropped', lost);
+      logger.error({ handedBack: handed, notHandedBack: lost, err: lastErr },
+        `[rule-engine] stop: ${handed} waiting durable (Delay / Checkpoint) message(s) handed back to the job queue, ${lost} NOT — those are LOST`);
+    } else {
+      logger.info({ handedBack: handed, notHandedBack: 0 },
+        `[rule-engine] stop: ${handed} waiting durable (Delay / Checkpoint) message(s) handed back to the job queue`);
     }
   }
 
@@ -1010,6 +1078,42 @@ export function clearInstrumentInfoCache(): void {
   infoCache.clear();
 }
 
+/**
+ * The production `handBackDurable` (M6): every item as a `rule_engine_message` job on its
+ * originator's queue — the same task, payload, queue and attempts `services.durable.enqueue`
+ * uses — in ONE `graphile_worker.add_jobs` call. graphile-worker 0.16's WorkerUtils has no
+ * `addJobs`, so the job specs go over as one JSON parameter. One statement: all or nothing.
+ *
+ * ORDER: graphile 0.16 picks a queue's next job by `priority, run_at` ONLY (getJob.js — no id
+ * tie-break), and every row of one statement gets the same `now()`; `add_jobs`'s join does not
+ * even insert in array order (measured on the test database). So each job's `run_at` is
+ * `now()` + its place in the WHOLE hand-back in microseconds (`firstSequence` = the batch's
+ * first place): strictly increasing within a batch, and across batches too, since a later
+ * statement's `now()` is never earlier. One originator's resumes keep their order; the last of
+ * a full queue (1 000 000) runs at most a second late.
+ */
+export async function addDurableJobs(items: readonly DurableHandBack[], firstSequence = 0): Promise<void> {
+  if (items.length === 0) return;
+  const specs = items.map((i) => ({
+    identifier: RULE_ENGINE_MESSAGE_TASK,
+    payload: durableJobPayload(i.msg, i.chainId, i.nodeId, { reentryDepth: i.reentryDepth, relation: i.relation }),
+    queue_name: ruleEngineQueueName(i.msg.originator.id),
+    max_attempts: DURABLE_JOB_MAX_ATTEMPTS,
+  }));
+  const producer = await getProducer();
+  await producer.withPgClient((client) => client.query(
+    `select count(*) from graphile_worker.add_jobs(array(
+       select row(
+         e.spec->>'identifier', e.spec->'payload', e.spec->>'queue_name',
+         now() + (($2::bigint + e.ord - 1) * interval '1 microsecond'),
+         (e.spec->>'max_attempts')::smallint, null, null, null
+       )::graphile_worker.job_spec
+       from json_array_elements($1::json) with ordinality as e(spec, ord)
+       order by e.ord))`,
+    [JSON.stringify(specs), firstSequence],
+  ));
+}
+
 export function defaultRuleEngineDeps(): RuleEngineDeps {
   const writer = new RuleDebugWriter();
   return {
@@ -1027,6 +1131,8 @@ export function defaultRuleEngineDeps(): RuleEngineDeps {
     configRefreshMs: 1_000,
     lifecyclePollMs: 5_000,
     stopWaitMs: 5_000,
+    handBackDurable: addDurableJobs,
+    durableHandBackBudgetMs: 5_000,
   };
 }
 

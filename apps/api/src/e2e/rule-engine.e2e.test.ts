@@ -58,7 +58,8 @@ import { hashPassword } from '../lib/password.js';
 import { fixtureProfileId } from '../test-support/fixture-profile.js';
 import { setFixtureMeasurements } from '../test-support/fixture-measurements.js';
 import { ensurePartitions } from '../workers/telemetry-partition.worker.js';
-import { ruleEngine } from '../modules/rule-engine/engine.js';
+import { ruleEngine, addDurableJobs } from '../modules/rule-engine/engine.js';
+import { ruleEngineMessageJobSchema } from '@digilog/queue';
 import { getHandler } from '../modules/rule-engine/registry.js';
 import { runInFlow } from '../modules/rule-engine/context.js';
 import { invalidateChainCache } from '../modules/rule-engine/service.js';
@@ -652,6 +653,45 @@ describe('the durable path', () => {
       JOIN graphile_worker._private_job_queues q ON q.id = j.job_queue_id
       WHERE q.queue_name = ${`rule-engine:${inst.id}`} AND j.payload -> 'message' ->> 'id' = ${msg.id}`;
     expect(job.payload.message._reentryDepth).toBe(1);
+  });
+
+  it('M6: the stop hand-back\'s ONE add_jobs insert, on the test database — each job on its originator\'s queue, in order, a payload the task parses', async () => {
+    const queuePrefix = `rule-engine:fwapi-m6-${STAMP}-`;
+    const msgs = [1, 2, 3].map((n) => ({
+      ...newMessage('POST_TELEMETRY_REQUEST', { type: 'INSTRUMENT', id: `fwapi-m6-${STAMP}-${n % 2}` }, { n }, { ts: String(n) }), _hops: n,
+    }));
+    try {
+      const backs = msgs.map((msg, i) => ({ msg, chainId: ROOT, nodeId: SAVE_TS, relation: i === 2 ? 'True' : 'Success', reentryDepth: i === 1 ? 1 : 0 }));
+      // Two batches, as stop() sends them: the second starts at place 2.
+      await addDurableJobs(backs.slice(0, 2), 0);
+      await addDurableJobs(backs.slice(2), 2);
+      // graphile 0.16 takes a queue's next job by run_at alone (no id tie-break): that order is the order.
+      const jobs = await prisma.$queryRaw<{ queue_name: string; task: string; max_attempts: number; payload: any; run_at: Date; late_ms: number }[]>`
+        SELECT q.queue_name, t.identifier AS task, j.max_attempts, j.payload, j.run_at,
+               EXTRACT(EPOCH FROM (j.run_at - now())) * 1000 AS late_ms
+        FROM graphile_worker._private_jobs j
+        JOIN graphile_worker._private_tasks t ON t.id = j.task_id
+        JOIN graphile_worker._private_job_queues q ON q.id = j.job_queue_id
+        WHERE starts_with(q.queue_name, ${queuePrefix})
+        ORDER BY j.run_at`;
+      expect(jobs.map((j) => [j.queue_name, j.payload.message.id])).toEqual(msgs.map((m) => [`rule-engine:${m.originator.id}`, m.id]));
+      // Three DISTINCT instants (microseconds; a JS Date would round them): no tie left to chance.
+      const [{ n }] = await prisma.$queryRaw<{ n: number }[]>`
+        SELECT count(DISTINCT j.run_at)::int AS n FROM graphile_worker._private_jobs j
+        JOIN graphile_worker._private_job_queues q ON q.id = j.job_queue_id WHERE starts_with(q.queue_name, ${queuePrefix})`;
+      expect(n).toBe(3);
+      expect(jobs.every((j) => Number(j.late_ms) < 1_000)).toBe(true);
+      expect(jobs.every((j) => j.task === 'rule_engine_message' && j.max_attempts === 5)).toBe(true);
+      expect(jobs.map((j) => j.payload.message._hops)).toEqual([1, 2, 3]);
+      expect(jobs[1].payload.message._reentryDepth).toBe(1);
+      expect(jobs[0].payload.relation).toBeUndefined();
+      expect(jobs[2].payload.relation).toBe('True');
+      for (const j of jobs) expect(ruleEngineMessageJobSchema.safeParse(j.payload).success, JSON.stringify(j.payload)).toBe(true);
+    } finally {
+      await prisma.$executeRaw`DELETE FROM graphile_worker._private_jobs j USING graphile_worker._private_job_queues q
+        WHERE j.job_queue_id = q.id AND starts_with(q.queue_name, ${queuePrefix})`;
+      await prisma.$executeRaw`DELETE FROM graphile_worker._private_job_queues WHERE starts_with(queue_name, ${queuePrefix})`;
+    }
   });
 });
 
