@@ -97,6 +97,8 @@ every route in `docs/recreation/06-api/endpoints.md`.
   Delete relation (relations beyond the gateway link), Device state (the activity tracker accepting an event), REST call reply
   (a synchronous REST request route), RPC call request / reply (device RPC), AI request (an AI provider).
 - [ ] Docs owed: `apps/web/CLAUDE.md` is over the 150k-char load limit (151,866 before this entry, 153,612 after) — split it
+  **[the split is DONE 2026-11-05 — the per-screen sections moved VERBATIM to `docs/web-feature-notes.md` (154,657 → 40,996
+  bytes, byte-checked); the counts audit of the other root docs below is still owed]**
   as root `CLAUDE.md` was (2026-10-07); README, PROJECT_SUMMARY, PROJECT_ARCHITECTURE, BACKEND_GUIDE, FRONTEND_GUIDE,
   `docs/index.md` and `future/` carry counts older than this feature (listed in the Task 8 report) — a doc audit pass.
 

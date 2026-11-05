@@ -379,6 +379,8 @@ points: tags `pre-domain-strip` and `pre-filter-domain-strip`.
   and this file's "Never" section before the move)
 - Per-package: `apps/{api,web}/{CLAUDE,DECISIONS}.md`, `packages/shared/CLAUDE.md`
 - `docs/feature-notes.md` — the per-feature decision notes moved out of this file 2026-10-07
+- `docs/web-feature-notes.md` — the per-screen web sections moved VERBATIM out of `apps/web/CLAUDE.md` on 2026-11-05
+  (it had passed the 150k load limit at 154,657 bytes; 40,996 after); add new web feature notes there
 - Reference: `docs/`, `future/`, `tasks/todo.md`, `PROJECT_HANDOVER/`
 - **NOT current, kept for the record:** `docs/archive/` — see its README. Archived rather
   than deleted because CONTRIBUTING's receipts show a bulk delete of `future/` was reverted
