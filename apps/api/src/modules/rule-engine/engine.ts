@@ -495,7 +495,7 @@ class RuleEngineImpl implements RuleEngine {
     if (lost > 0) {
       this.inc('durable_dropped', lost);
       logger.error({ handedBack: handed, notHandedBack: lost, err: lastErr },
-        `[rule-engine] stop: ${handed} waiting durable (Delay / Checkpoint) message(s) handed back to the job queue, ${lost} NOT — those are LOST`);
+        `[rule-engine] stop: ${handed} waiting durable (Delay / Checkpoint) message(s) handed back to the job queue, ${lost} NOT confirmed — LOST, unless an insert that ran out of time still completes`);
     } else {
       logger.info({ handedBack: handed, notHandedBack: 0 },
         `[rule-engine] stop: ${handed} waiting durable (Delay / Checkpoint) message(s) handed back to the job queue`);
