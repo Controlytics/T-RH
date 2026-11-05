@@ -550,6 +550,35 @@ describe('Save Timeseries: the timestamp window (TS-1), a string ts (M-2), a nul
       SELECT 1 FROM instrument_telemetry_history WHERE instrument_id = ${inst.id} AND key IN ('ts', 'values')`).toEqual([]);
   });
 
+  it('review A I2: a DEVICE re-send keeps its rewrite wording byte for byte — no user, the device and its transport named', async () => {
+    const key = `dev_${STAMP}`;
+    const ts = Date.now() - 25 * 60_000;
+    const since = new Date();
+    // Settled between the posts: with "Skip Save nodes" OFF (this run) the root's Save Timeseries writes each
+    // ingest reading back, and one that ran AFTER the second post would write the stale 1 over the newer 2.
+    expect((await ingest({ ts, [key]: 1 })).statusCode).toBe(200);
+    const until = Date.now() + 3_000;
+    while (!(await rows({ nodeId: SAVE_TS, originatorId: inst.id, direction: 'OUT' })).some((r) => r.data && key in r.data) && Date.now() < until) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    await settle();
+    expect((await ingest({ ts, [key]: 2 })).statusCode).toBe(200);
+    await settle();
+    await new Promise((r) => setTimeout(r, 300));
+    await settle();
+    const rewrites = await prisma.auditTrail.findMany({ where: { action: 'TELEMETRY_READING_REWRITTEN', targetId: inst.id, timestamp: { gte: since } } });
+    // The shipped Save Timeseries wrote each ingest reading back unchanged: the device's is the ONE rewrite.
+    expect(rewrites).toHaveLength(1);
+    const at = new Date(ts).toISOString();
+    expect(rewrites[0]).toMatchObject({
+      userId: null, userRole: null,
+      reason: `Re-sent with a different value by device "${inst.code}" over HTTP; the last arrival is kept`,
+      signatureMeaning: `Stored reading "${key}" at ${at} on instrument "${inst.code}" rewritten by a device re-send`,
+    });
+    expect(rewrites[0].afterValue).toEqual({ code: inst.code, attribute: key, ts: at, value: 2, rawValue: null, reportedBy: inst.code, transport: 'http' });
+    expect(rewrites[0].beforeValue).toEqual({ code: inst.code, attribute: key, ts: at, value: 1, rawValue: null });
+  });
+
   it('a null value fails with ThingsBoard\'s wording, the whole object named: Can\'t parse value: {"…":null}', async () => {
     const key = `nul_${STAMP}`;
     const out = await saveOut(await inject({ [key]: null }));
