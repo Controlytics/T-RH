@@ -10,6 +10,7 @@ import { clearRegistry, getHandler } from '../registry.js';
 import { registerEnrichmentNodes } from '../nodes/enrichment/index.js';
 import { clearDeltaCaches } from '../nodes/enrichment/calculate-delta.js';
 import { NO_RELATED_DEVICE } from '../nodes/enrichment/related-device-attributes.js';
+import { withFetched } from '../nodes/enrichment/fetch.js';
 import { newMessage, type RuleMessage } from '../message.js';
 import { fakeContext, testMessage } from '../../../test-support/rule-engine.js';
 import type { RuleServices } from '../services.js';
@@ -174,6 +175,16 @@ describe('Calculate delta', () => {
   });
 });
 
+// ─── where fetched values go (fetch.ts) ──────────────────────────────────────
+
+describe('withFetched', () => {
+  it('a JSON null VALUE fetched into the METADATA is the TEXT "null", never dropped (as ThingsBoard writes it; M-10); into the DATA it stays null', () => {
+    const msg = testMessage({ a: 1 });
+    expect(withFetched(msg, 'METADATA', [['gone', null], ['n', 2], ['o', { x: 1 }]], 'test').metadata).toMatchObject({ gone: 'null', n: '2', o: '{"x":1}' });
+    expect(withFetched(msg, 'DATA', [['gone', null]], 'test').data).toEqual({ a: 1, gone: null });
+  });
+});
+
 // ─── Originator attributes / Related device attributes ──────────────────────
 
 describe('Originator attributes', () => {
@@ -197,16 +208,42 @@ describe('Originator attributes', () => {
   it('to the data (top level); a reading with its ts on request; data that is not an object fails', async () => {
     const flat = await run(T, { serverAttributeNames: ['limit'], latestTsKeyNames: ['temp'], fetchTo: 'DATA', getLatestValueWithTs: true },
       testMessage({ a: 1 }), { attributes: { get }, telemetry: { latest } });
-    expect(flat.out!.data).toEqual({ a: 1, ss_limit: '25', temp: { ts: 5_000, value: 21.5 } });
+    expect(flat.out!.data).toEqual({ a: 1, ss_limit: 25, temp: { ts: 5_000, value: 21.5 } });
     const arr = await run(T, { serverAttributeNames: ['limit'], fetchTo: 'DATA' }, testMessage([1]), { attributes: { get }, telemetry: { latest } });
     expect(arr.thrown?.message).toMatch(/^DATA_NOT_OBJECT/);
   });
 
-  it('a missing key FAILS naming every missing key (the default), or is left out when that switch is off', async () => {
+  it('into the DATA an attribute value is typed as ThingsBoard adds it (JacksonUtil.addKvEntry): a number or boolean whose text is exactly how it prints; anything else stays text (M-3)', async () => {
+    const typed = { n: '25', d: '0.5', neg: '-3.25', tiny: '1e-7', t: 'true', f: 'false', zeros: '007', dec: '1.50', blank: ' 25', big: '12345678901234567890', word: 'Room 1', json: '{"a":1}', caps: 'TRUE' };
+    const getTyped = vi.fn(async () => typed);
+    const r = await run(T, { serverAttributeNames: Object.keys(typed), fetchTo: 'DATA' }, testMessage({}), { attributes: { get: getTyped } });
+    expect(r.out!.data).toEqual({
+      ss_n: 25, ss_d: 0.5, ss_neg: -3.25, ss_tiny: 1e-7, ss_t: true, ss_f: false,
+      ss_zeros: '007', ss_dec: '1.50', ss_blank: ' 25', ss_big: '12345678901234567890', ss_word: 'Room 1', ss_json: '{"a":1}', ss_caps: 'TRUE',
+    });
+    // To the METADATA every value stays its text.
+    const md = await run(T, { serverAttributeNames: ['n', 't'] }, testMessage({}), { attributes: { get: getTyped } });
+    expect(md.out!.metadata).toMatchObject({ ss_n: '25', ss_t: 'true' });
+  });
+
+  it('a missing key FAILS the ENRICHED message with ThingsBoard\u2019s per-scope wording (the default), or is left out when that switch is off', async () => {
     const cfg = { serverAttributeNames: ['limit', 'nope'], latestTsKeyNames: ['temp', 'hum'] };
     const fail = await run(T, cfg, testMessage({}), { attributes: { get }, telemetry: { latest } });
-    expect(fail.thrown?.message).toBe('The following attribute/telemetry keys could not be found: [ss_nope, hum]');
+    expect(fail.thrown).toBeNull();
     expect(fail.calls.next).toHaveLength(0);
+    expect(fail.calls.failures).toHaveLength(1);
+    // TbAbstractGetAttributesNode.reportFailures (master e48b5780): unprefixed keys per scope, LATEST_TS for readings.
+    expect(fail.calls.failures[0].error).toBe(
+      'The following attribute/telemetry keys is not present in the DB: \n\t[SERVER_SCOPE]:[nope]\n\t[LATEST_TS]:[hum]\n',
+    );
+    // The message that fails is the enriched one: what WAS found is on it.
+    expect(fail.calls.failures[0].msg.metadata).toMatchObject({ ss_limit: '25', temp: '21.5' });
+    const scopes = await run(T, { clientAttributeNames: ['c1'], sharedAttributeNames: ['s1', 'fw'], serverAttributeNames: ['x1', 'x2'], fetchTo: 'DATA' },
+      testMessage({ a: 1 }), { attributes: { get }, telemetry: { latest } });
+    expect(scopes.calls.failures[0].error).toBe(
+      'The following attribute/telemetry keys is not present in the DB: \n\t[CLIENT_SCOPE]:[c1]\n\t[SHARED_SCOPE]:[s1]\n\t[SERVER_SCOPE]:[x1, x2]\n',
+    );
+    expect(scopes.calls.failures[0].msg.data).toEqual({ a: 1, shared_fw: 1.2 });
     const pass = await run(T, { ...cfg, tellFailureIfAbsent: false }, testMessage({}), { attributes: { get }, telemetry: { latest } });
     expect(pass.out!.metadata).toMatchObject({ ss_limit: '25', temp: '21.5' });
     expect(pass.out!.metadata).not.toHaveProperty('ss_nope');
@@ -259,6 +296,15 @@ describe('Related device attributes (the gateway link)', () => {
     const r = await run(T, { serverAttributeNames: ['Site'], deviceRelationsQuery: { direction: 'FROM' } }, testMessage({}), { attributes: { get }, prisma });
     expect(findFirst).toHaveBeenCalledWith({ where: { gatewayId: 'instrument-1' }, orderBy: { code: 'asc' }, select: { id: true } });
     expect(r.out!.metadata.ss_Site).toBe('site of child-1');
+  });
+
+  it('a missing key fails the ENRICHED message here too (the shared fetch, M-11)', async () => {
+    const gatewayOf = vi.fn(async () => ({ id: 'gw-1' }) as never);
+    const r = await run(T, { serverAttributeNames: ['Site', 'nope'], deviceRelationsQuery: { direction: 'TO' } }, testMessage({}),
+      { attributes: { get }, instruments: { gatewayOf } });
+    expect(r.thrown).toBeNull();
+    expect(r.calls.failures.map((f) => f.error)).toEqual(['The following attribute/telemetry keys is not present in the DB: \n\t[SERVER_SCOPE]:[nope]\n']);
+    expect(r.calls.failures[0].msg.metadata.ss_Site).toBe('site of gw-1');
   });
 
   it('no related instrument fails with ThingsBoard\'s wording', async () => {

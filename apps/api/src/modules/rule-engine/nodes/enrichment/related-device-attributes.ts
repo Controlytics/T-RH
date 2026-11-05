@@ -1,7 +1,7 @@
 import type { RuleContext } from '../../context.js';
 import type { RuleMessage } from '../../message.js';
 import { instrumentIdOf, isPlainObject } from '../action/support.js';
-import { fetchAttributes, type AttributeFetchConfig } from './fetch.js';
+import { fetchAttributes, sendFetched, type AttributeFetchConfig } from './fetch.js';
 
 /**
  * RELATED DEVICE ATTRIBUTES — ThingsBoard's `TbGetDeviceAttrNode` (rule
@@ -39,5 +39,5 @@ export async function relatedDeviceAttributes(ctx: RuleContext<RelatedConfig>, m
     relatedId = child?.id ?? null;
   }
   if (!relatedId) throw new Error(NO_RELATED_DEVICE);
-  ctx.tellNext(await fetchAttributes(ctx, msg, relatedId, 'Related device attributes'), 'Success');
+  sendFetched(ctx, await fetchAttributes(ctx, msg, relatedId, 'Related device attributes'));
 }

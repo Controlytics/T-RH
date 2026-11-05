@@ -1,7 +1,7 @@
 import type { RuleContext } from '../../context.js';
 import type { RuleMessage } from '../../message.js';
 import { instrumentIdOf } from '../action/support.js';
-import { fetchAttributes, type AttributeFetchConfig } from './fetch.js';
+import { fetchAttributes, sendFetched, type AttributeFetchConfig } from './fetch.js';
 
 /**
  * ORIGINATOR ATTRIBUTES — ThingsBoard's `TbGetAttributesNode` (rule chains,
@@ -14,5 +14,5 @@ export const ORIGINATOR_ATTRIBUTES_TYPE = 'tb:enrichment:originator-attributes';
 
 export async function originatorAttributes(ctx: RuleContext<AttributeFetchConfig>, msg: RuleMessage): Promise<void> {
   const instrumentId = instrumentIdOf(msg, 'Originator attributes');
-  ctx.tellNext(await fetchAttributes(ctx, msg, instrumentId, 'Originator attributes'), 'Success');
+  sendFetched(ctx, await fetchAttributes(ctx, msg, instrumentId, 'Originator attributes'));
 }
