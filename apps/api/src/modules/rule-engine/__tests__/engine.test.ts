@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { createRuleEngine, type RuleEngine } from '../engine.js';
 import { registerNode, getHandler } from '../registry.js';
 import { registerAllNodes } from '../nodes/index.js';
-import { runRuleEngineMessage } from '../../../workers/rule-engine-message.worker.js';
+import { runRuleEngineMessage, ruleEngineMessageTask } from '../../../workers/rule-engine-message.worker.js';
 import { serialisableMessage, ruleNodeOrigin } from '../message.js';
 import { clearScriptStrikes } from '../script-vm.js';
 import { newMessage, type RuleMessage } from '../message.js';
@@ -732,6 +732,21 @@ describe('the durable path (rule_engine_message)', () => {
     } finally {
       await full.stop();
     }
+  });
+
+  it('RE-2: the TASK wires the reschedule to graphile\'s addJob — same task, payload + requeues, the originator\'s queue, the job\'s maxAttempts, ~5 s out', async () => {
+    // The process singleton is never started in a unit file: the ENGINE_NOT_STARTED path.
+    const added: { task: string; payload: Record<string, unknown>; spec: { queueName?: string; runAt?: Date; maxAttempts?: number } }[] = [];
+    const helpers = { addJob: async (task: string, payload: Record<string, unknown>, spec: never) => { added.push({ task, payload, spec }); }, job: { max_attempts: 7 } };
+    const payload = { message: serialisableMessage(testMessage({}, { originator: { id: 'inst-42' } })), chainId: '0f000000-0000-4000-8000-0000000000c1', resumeAfterNodeId: '0f000000-0000-4000-8000-0000000000c2' };
+    const t0 = Date.now();
+    await ruleEngineMessageTask(payload, helpers as never);
+    expect(added).toHaveLength(1);
+    expect(added[0].task).toBe('rule_engine_message');
+    expect(added[0].payload).toEqual({ ...payload, requeues: 1 });
+    expect(added[0].spec).toMatchObject({ queueName: 'rule-engine:inst-42', maxAttempts: 7 });
+    expect(added[0].spec.runAt!.getTime() - t0).toBeGreaterThanOrEqual(5_000);
+    expect(added[0].spec.runAt!.getTime() - t0).toBeLessThan(6_000);
   });
 
   it('the hop count travels through the durable path: a cycle through Delay still reaches the hop limit', async () => {
