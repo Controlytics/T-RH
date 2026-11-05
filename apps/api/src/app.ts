@@ -579,10 +579,13 @@ try {
   }
 
   // The RULE ENGINE (rule chains, 2026-11-03; spec §6) — after the job runner,
-  // whose durable rule_engine_message jobs need it (a job that runs first
-  // throws ENGINE_NOT_STARTED and is retried). Whether it processes anything is
-  // Configuration → Rule Engine → enabled, read every second. Not fatal: ingest,
-  // alarms and the routes never depend on it.
+  // whose durable rule_engine_message jobs need it: a job that runs before the
+  // engine has started — or before it has read Configuration → Rule Engine
+  // (review A M1) — is RESCHEDULED as a new job 5 s, 10 s, 20 s … later
+  // (ruling RE-2, 366f9b63; no graphile attempt is spent), never thrown or
+  // dropped. Whether it processes anything is Configuration → Rule Engine →
+  // enabled, read every second. Not fatal: ingest, alarms and the routes never
+  // depend on it.
   try {
     await ruleEngine.start();
     app.log.info('rule engine started');
