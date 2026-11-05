@@ -255,6 +255,52 @@ export interface RuleServices {
 export interface RuleServicesHooks {
   config(): RuleEngineConfig;
   inc(name: string): void;
+  /** Test seam: the audit-rate warning's threshold and clock (default 600 a minute, `Date.now`). */
+  auditRate?: { limit?: number; now?: () => number };
+}
+
+/** Review A I5: more rule-engine audit rows than this in one minute is said, once a minute. */
+export const RULE_AUDIT_WARN_PER_MINUTE = 600;
+
+export interface AuditRateMeter {
+  /** `rows` audit rows the rule engine has just COMMITTED. */
+  note(rows: number): void;
+}
+
+/**
+ * THE AUDIT-RATE WARNING (review A I5, ruled 2026-11-05): every changed attribute and
+ * every rewritten reading stays a hash-chained audit row — a record change is a record
+ * change — so nothing is ever throttled or dropped; the engine only SAYS when chains
+ * write a lot of them. Fixed one-minute windows, each starting at the first row after
+ * the last one ended; the first time a window passes `limit` rows, `warn` is called —
+ * at most once a minute.
+ */
+export function createAuditRateMeter(
+  warn: (rows: number, limit: number) => void,
+  opts: { limit?: number; windowMs?: number; now?: () => number } = {},
+): AuditRateMeter {
+  const limit = opts.limit ?? RULE_AUDIT_WARN_PER_MINUTE;
+  const windowMs = opts.windowMs ?? 60_000;
+  const now = opts.now ?? Date.now;
+  let start = Number.NEGATIVE_INFINITY;
+  let rows = 0;
+  let warned = false;
+  return {
+    note(n) {
+      if (!(n > 0)) return;
+      const t = now();
+      if (t - start >= windowMs) {
+        start = t;
+        rows = 0;
+        warned = false;
+      }
+      rows += n;
+      if (!warned && rows > limit) {
+        warned = true;
+        warn(rows, limit);
+      }
+    },
+  };
 }
 
 export interface RuleServicesHandle extends RuleServices {
@@ -457,6 +503,12 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
     warn: (t, m) => logger.warn(m ?? {}, `[rule-engine] ${t}`),
     error: (t, m) => logger.error(m ?? {}, `[rule-engine] ${t}`),
   };
+  const auditRate = createAuditRateMeter((rows, limit) => log.warn(
+    `rule chains wrote ${rows} audit rows within a minute (more than ${limit}): every changed attribute and every rewritten reading`
+      + ' is a lasting 21 CFR Part 11 audit record — a value that changes on most messages belongs in Save time series. Nothing was'
+      + ' throttled or dropped. (Said at most once a minute.)',
+    { auditRows: rows, perMinute: limit },
+  ), hooks.auditRate);
   /**
    * One per nodeKey, set BEFORE the broker is judged (the lookup awaits), so two messages racing to
    * a node's first publish share ONE client. `client` is null until the judged connect starts.
@@ -667,6 +719,7 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
             changed.push([key, value]);
           }
         }, { timeout: 30_000 });
+        auditRate.note(changed.length);
         if (changed.length === 0) return [];
         if (notifyDevice) await announce(instrument, changed);
         const updated = opts.updated ?? 'changed';
@@ -699,6 +752,7 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
             removed.push(key);
           }
         }, { timeout: 30_000 });
+        auditRate.note(removed.length);
         if (removed.length === 0) return [];
         if (opts.notifyDevice === true) await announce(instrument, removed.map((k) => [k, null]));
         if (opts.sendDeleted === true) await emitAttributesDeleted(instrumentId, removed, origin, scope ?? 'SERVER_SCOPE');

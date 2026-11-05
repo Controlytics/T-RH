@@ -48,7 +48,7 @@
  * beforeAll removes a crashed run's copy and puts the seeded root back first;
  * afterAll does the same. Owns its super admin, instrument and config rows.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_ROOT_CHAIN_NODE_IDS, defaultRootChainDocument, newRuleNodeConfig, type RuleChainDocument } from '@digilog/shared';
@@ -67,6 +67,8 @@ import { invalidateRuleEngineConfigCache } from '../modules/rule-engine/config.j
 import { insertDebugRows, toDebugRow, trimDebugNode } from '../modules/rule-engine/debug.js';
 import { newMessage, ruleNodeOrigin, type RuleMessage } from '../modules/rule-engine/message.js';
 import { runRuleEngineMessage } from '../workers/rule-engine-message.worker.js';
+import { createRuleServices } from '../modules/rule-engine/services.js';
+import { logger } from '../lib/logger.js';
 import { runRuleEngineDebugSweep, ruleEngineDebugSweepTask } from '../workers/rule-engine-debug-sweep.worker.js';
 import { invalidateOffsetConfigCache } from '../modules/instruments/load-offsets.js';
 import { invalidateReauthCache } from '../lib/reauth-check.js';
@@ -983,6 +985,35 @@ describe('services (what Tasks 4-6 call)', () => {
     await setFixtureMeasurements(profileId, (ms) => ms.map((m) => (m.code === 'TEMPERATURE' ? { ...m, deviceKeys: ['t'], offsetKeys: ['Temp Off set'] } : m)));
     await expect(ruleEngine.services.attributes.save(inst.id, { 'Temp Off set': '+9' }, origin(), false)).rejects.toThrow(/^OFFSET_KEY_REFUSED/);
     expect(await ruleEngine.services.attributes.get(inst.id, ['Temp Off set'])).toEqual({});
+  });
+
+  it('review A I5: the audit rows the services COMMIT are counted — past the limit within a minute it is SAID, once; every row is still written', async () => {
+    const warn = vi.spyOn(logger, 'warn');
+    const svc = createRuleServices({ config: () => ruleEngine.config(), inc: () => undefined, auditRate: { limit: 2 } });
+    try {
+      const key = (n: string) => `ar_${n}_${STAMP}`;
+      const said = () => warn.mock.calls.filter((c) => String(c[1]).includes('audit rows within a minute'));
+      expect((await svc.attributes.save(inst.id, { [key('a')]: '1', [key('b')]: '1' }, origin(), false)).sort()).toEqual([key('a'), key('b')]);
+      expect(said(), 'two rows: not more than the limit').toHaveLength(0);
+      // The same value again writes nothing, so counts nothing.
+      expect(await svc.attributes.save(inst.id, { [key('a')]: '1' }, origin(), false)).toEqual([]);
+      expect(said()).toHaveLength(0);
+      // A removal is an audit row too: the third row passes the limit.
+      expect(await svc.attributes.delete(inst.id, [key('a')], origin())).toEqual([key('a')]);
+      expect(said()).toHaveLength(1);
+      expect(said()[0][0]).toMatchObject({ auditRows: 3, perMinute: 2 });
+      // Once a minute: more rows in the same minute say nothing more — and nothing is held back.
+      expect(await svc.attributes.save(inst.id, { [key('c')]: '1' }, origin(), false)).toEqual([key('c')]);
+      expect(said()).toHaveLength(1);
+      const written = await prisma.auditTrail.count({ where: { targetId: inst.id, OR: [key('a'), key('b'), key('c')].flatMap((k) => [
+        { action: 'INSTRUMENT_ATTRIBUTE_SET', afterValue: { path: ['attribute'], equals: k } },
+        { action: 'INSTRUMENT_ATTRIBUTE_REMOVED', beforeValue: { path: ['attribute'], equals: k } },
+      ]) } });
+      expect(written, '3 set + 1 removed: every row written').toBe(4);
+    } finally {
+      warn.mockRestore();
+      await svc.dispose();
+    }
   });
 
   it('alarms: create = a RULE / CUSTOM alarm; the same type again UPDATES it; clear claims it once', async () => {
