@@ -27,8 +27,8 @@ import { sendToSlackHandler } from '../nodes/external/send-to-slack.js';
 
 /**
  * The six EXTERNAL rule nodes (rule chains Task 6; spec §6, §7 External, §12).
- * REST API call runs against a local Fastify stub through the REAL
- * `services.http.fetch`; MQTT through the REAL `services.mqtt` with `mqtt.connect`
+ * REST API call runs against a local Fastify stub through the REAL guarded
+ * transport (`ruleHttp.send`, nodes/external/http.ts); MQTT through the REAL `services.mqtt` with `mqtt.connect`
  * mocked; email / SMS / notification / Slack against stubbed services.
  *
  * ThingsBoard references (v3.6.4 / master source): TbHttpClient, TbMqttNode,
@@ -601,7 +601,8 @@ describe('MQTT', () => {
     await run(mqttHandler, ctx, telemetry());
     expect(calls.relations()).toEqual(['Success']);
     expect(mqttMock.clients[0].opts).toMatchObject({ protocol: 'mqtts', ca: 'CA', cert: 'CERT', key: 'KEY', passphrase: 'kp' });
-    // The service passes only protocol 5 on (concern: 3.1 connects as 3.1.1); 3 is what the node asks for.
+    // MQTT 3.1 connects as 3.1: protocol level 3 under the protocol name MQIsdp (fix round 3).
+    expect(mqttMock.clients[0].opts).toMatchObject({ protocolVersion: 3, protocolId: 'MQIsdp' });
     expect(mqttMock.clients[0].opts.username).toBeUndefined();
   });
 

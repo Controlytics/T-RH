@@ -8,7 +8,7 @@ import { targetNotAllowed, ruleTargetLookup } from './target-guard.js';
  * The HTTP transport of the REST API call and Send to Slack nodes (rule chains,
  * 2026-11-03; ruling S-6 2026-11-04).
  *
- * `node:http` / `node:https`, NOT `fetch` / `services.http.fetch`: the request
+ * `node:http` / `node:https`, NOT `fetch` (the services have no HTTP primitive at all since fix round 3): the request
  * must connect to the address the guard judged (`ruleTargetLookup`, one DNS
  * lookup, no rebinding window) while keeping the Host header and TLS SNI of the
  * NAME — fetch cannot be given a lookup without an undici dispatcher, and undici
