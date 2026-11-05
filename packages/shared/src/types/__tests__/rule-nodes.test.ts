@@ -366,6 +366,23 @@ describe('built nodes — descriptors, defaults and config schemas', () => {
     expect(help('tb:action:save-timeseries', 'skipLatestPersistence')).toMatch(/processing settings/);
   });
 
+  it('Save attributes SAYS every changed value is an audit row kept for good, and a changing value belongs in time series (review A I5)', () => {
+    const s = RULE_NODE_TYPE_BY_ID.get('tb:action:save-attributes')!;
+    const scopeHelp = s.fields.find((f) => f.key === 'scope')!.help ?? '';
+    for (const [where, text] of [['description', s.description], ['scope help', scopeHelp]] as const) {
+      expect(text, where).toMatch(/every changed value/i);
+      expect(text, where).toMatch(/audit trail/);
+      expect(text, where).toMatch(/kept for good/);
+      expect(text, where).toMatch(/Save time series/);
+    }
+    // Delete attributes keeps the plain scope help: it shares no such advice.
+    expect(RULE_NODE_TYPE_BY_ID.get('tb:action:delete-attributes')!.fields.find((f) => f.key === 'scope')!.help).not.toMatch(/Save time series/);
+  });
+
+  it('JSON path\'s example reads ThingsBoard\'s FLAT telemetry ($.temperature — no { ts, values } wrapper since ruling M-1)', () => {
+    expect(RULE_NODE_TYPE_BY_ID.get('tb:transformation:json-path')!.fields[0].help).toBe('e.g. $.temperature');
+  });
+
   it('both gateway-reaching defaults run TO the originator (the link runs gateway → instrument)', () => {
     // Change originator: RELATED is the gateway.
     const co = RULE_NODE_TYPE_BY_ID.get('tb:transformation:change-originator')!;

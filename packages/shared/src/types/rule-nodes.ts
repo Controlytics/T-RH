@@ -289,6 +289,9 @@ const SCOPE_OPTIONS = [
   { value: 'CLIENT_SCOPE', label: 'Client attributes' },
 ];
 const SCOPES_HELP = 'ThingsBoard\'s three scopes are one attribute table here; the scope is kept for export.';
+/** Review A I5 (ruled 2026-11-05): an attribute is a governed record, so a changing value is an audit row per change. */
+const SAVE_ATTRIBUTES_AUDIT_NOTE =
+  'Every changed value is written to the audit trail, which is kept for good (21 CFR Part 11) — send a value that changes often to Save time series instead.';
 const TIME_UNIT_OPTIONS = ['MILLISECONDS', 'SECONDS', 'MINUTES', 'HOURS', 'DAYS'].map((value) => ({ value, label: value.charAt(0) + value.slice(1).toLowerCase() }));
 const TIME_UNITS = z.enum(['MILLISECONDS', 'SECONDS', 'MINUTES', 'HOURS', 'DAYS']);
 const TEMPLATE_HELP = '${metadataKey} reads message metadata, $[dataKey] reads message data.';
@@ -718,7 +721,7 @@ const TRANSFORMATION: RuleNodeTypeSpec[] = [
     id: 'tb:transformation:json-path', tbClass: `${TB}transform.TbJsonPathNode`, group: 'transformation', label: 'JSON path',
     description: 'Replaces the message data with the result of a JSONPath expression.',
     relations: FS,
-    fields: [{ key: 'jsonPath', label: 'JSONPath', type: 'text', required: true, help: 'e.g. $.values.temperature' }],
+    fields: [{ key: 'jsonPath', label: 'JSONPath', type: 'text', required: true, help: 'e.g. $.temperature' }],
     defaultConfig: { jsonPath: '$' },
     configSchema: cfg({ jsonPath: nonBlank(RULE_TEMPLATE_MAX) }),
   }),
@@ -963,10 +966,10 @@ const ACTION: RuleNodeTypeSpec[] = [
   notBuilt('action', 'rpc-call-request', 'RPC call request', 'rpc.TbSendRPCRequestNode', 'later', `${LATER}needs device RPC; instruments here only report.`),
   built({
     id: 'tb:action:save-attributes', tbClass: `${TB}telemetry.TbMsgAttributesNode`, group: 'action', label: 'Save attributes',
-    description: 'Saves the message data as attributes of the originator instrument, through the writer the Settings page uses (audited).',
+    description: `Saves the message data as attributes of the originator instrument, through the writer the Settings page uses. ${SAVE_ATTRIBUTES_AUDIT_NOTE}`,
     relations: FS,
     fields: [
-      { key: 'scope', label: 'Scope', type: 'select', options: SCOPE_OPTIONS, help: SCOPES_HELP },
+      { key: 'scope', label: 'Scope', type: 'select', options: SCOPE_OPTIONS, help: `${SCOPES_HELP} ${SAVE_ATTRIBUTES_AUDIT_NOTE}` },
       // TB-P 7 (2026-11-05): both toggles DO something, said here (21 CFR Part 11 keeps the writer change-only).
       { key: 'updateAttributesOnlyOnValueChange', label: 'Write only a changed value', type: 'boolean',
         help: 'An unchanged value is never written or audited again here (21 CFR Part 11), whatever this says. Off: the Attributes Updated message lists every key of the message, not only the changed ones.' },
