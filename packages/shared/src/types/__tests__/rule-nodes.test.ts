@@ -7,6 +7,8 @@ import {
   RULE_NODE_NAME_MAX, RULE_CHAIN_NAME_MAX, RULE_CHAIN_NODES_MAX, RULE_MATH_OPERATIONS, toRuleNodeTypeDescriptor,
   visibleRuleNodeFields, coerceThingsboardScalars, upgradeThingsboardConfig, fromThingsboardConfig, toThingsboardConfig,
   RULE_SCRIPT_KEYS, ruleNodeScriptKey, ruleNodeScript,
+  RULE_ORIGINATOR_TB_ENTITY_TYPES, TB_ENTITY_TYPE_SWITCH_LABELS, toRuleOriginatorType, canonicalRuleNodeConfig,
+  entityTypeSwitchLabelFromThingsboard, entityTypeSwitchLabelToThingsboard,
 } from '../rule-nodes.js';
 
 /**
@@ -846,6 +848,74 @@ describe('scripts — ruling TB-L: ONE rule for which script a node runs', () =>
     for (const s of BUILT_RULE_NODE_TYPES) expect(s.fields.map((f) => f.key), s.id).not.toContain('scriptLang');
     // The catalogue entry itself is not changed by the lookup.
     expect(RULE_NODE_TYPE_BY_ID.get(LOG)!.fields[0].key).toBe('jsScript');
+  });
+});
+
+// ─── Ruling SW-1 (2026-11-05, refined by review B): ThingsBoard's entity-type vocabulary ───
+describe('entity types — ruling SW-1: configurations store ThingsBoard\'s values, the switch\'s labels map at the boundary', () => {
+  const FILTER = 'tb:filter:entity-type-filter';
+  const GEN = 'tb:action:generator';
+
+  it('each originator type stands for ONE ThingsBoard EntityType, and the switch names it as ThingsBoard\'s EntityType.getNormalName() does', () => {
+    expect(RULE_ORIGINATOR_TB_ENTITY_TYPES).toEqual({ INSTRUMENT: 'DEVICE', ALARM: 'ALARM', USER: 'USER', SYSTEM: 'TENANT', RULE_NODE: 'RULE_NODE' });
+    // EntityType.java (master e48b5780): capitalize(name().toLowerCase().replaceAll("_", " ")).
+    expect(TB_ENTITY_TYPE_SWITCH_LABELS).toEqual({ INSTRUMENT: 'Device', ALARM: 'Alarm', USER: 'User', SYSTEM: 'Tenant', RULE_NODE: 'Rule node' });
+    // Each ThingsBoard value reads back as the type it stands for (the handlers' toRuleOriginatorType).
+    for (const t of RULE_ORIGINATOR_TYPES) expect(toRuleOriginatorType(RULE_ORIGINATOR_TB_ENTITY_TYPES[t]), t).toBe(t);
+  });
+
+  it('Entity type filter OFFERS and DEFAULTS to ThingsBoard\'s values, labelled as here (Instrument / System …)', () => {
+    const s = RULE_NODE_TYPE_BY_ID.get(FILTER)!;
+    expect(s.fields[0].options).toEqual([
+      { value: 'DEVICE', label: 'Instrument' }, { value: 'ALARM', label: 'Alarm' }, { value: 'USER', label: 'User' },
+      { value: 'TENANT', label: 'System' }, { value: 'RULE_NODE', label: 'Rule node' },
+    ]);
+    expect(s.defaultConfig).toEqual({ originatorTypes: ['DEVICE'] });
+  });
+
+  it('Generator OFFERS ThingsBoard\'s DEVICE for "An instrument", and shows the instrument picker for it', () => {
+    const s = RULE_NODE_TYPE_BY_ID.get(GEN)!;
+    expect(s.fields.find((f) => f.key === 'originatorType')!.options).toEqual([
+      { value: 'RULE_NODE', label: 'This rule node' }, { value: 'DEVICE', label: 'An instrument' },
+    ]);
+    const picker = (originatorType: string) => visibleRuleNodeFields(GEN, { ...s.defaultConfig, originatorType }).some((f) => f.key === 'originatorId');
+    expect(picker('DEVICE')).toBe(true);
+    expect(picker('RULE_NODE')).toBe(false);
+    // A config stored before SW-1 still says INSTRUMENT: it is judged as DEVICE, so the picker does not vanish.
+    expect(picker('INSTRUMENT')).toBe(true);
+  });
+
+  it('canonicalRuleNodeConfig: a legacy INSTRUMENT / SYSTEM reads as DEVICE / TENANT; every other value and node is left alone', () => {
+    expect(canonicalRuleNodeConfig(FILTER, { originatorTypes: ['INSTRUMENT', 'SYSTEM', 'ALARM', 'ASSET'] })).toEqual({ originatorTypes: ['DEVICE', 'TENANT', 'ALARM', 'ASSET'] });
+    // The same type twice (INSTRUMENT beside DEVICE) is listed once.
+    expect(canonicalRuleNodeConfig(FILTER, { originatorTypes: ['DEVICE', 'INSTRUMENT'] })).toEqual({ originatorTypes: ['DEVICE'] });
+    expect(canonicalRuleNodeConfig(GEN, { originatorType: 'INSTRUMENT', originatorId: 'i1' })).toEqual({ originatorType: 'DEVICE', originatorId: 'i1' });
+    expect(canonicalRuleNodeConfig(GEN, { originatorType: 'SYSTEM' })).toEqual({ originatorType: 'TENANT' });
+    expect(canonicalRuleNodeConfig(GEN, { originatorType: 'RULE_NODE' })).toEqual({ originatorType: 'RULE_NODE' });
+    expect(canonicalRuleNodeConfig('tb:filter:check-relation-presence', { entityType: 'INSTRUMENT' })).toEqual({ entityType: 'INSTRUMENT' });
+    const given = { originatorTypes: ['INSTRUMENT'] };
+    canonicalRuleNodeConfig(FILTER, given);
+    expect(given).toEqual({ originatorTypes: ['INSTRUMENT'] });        // never in place
+  });
+
+  it('import and export both write ThingsBoard\'s values — a legacy INSTRUMENT / SYSTEM goes out as DEVICE / TENANT', () => {
+    expect(fromThingsboardConfig(FILTER, { originatorTypes: ['INSTRUMENT', 'TENANT'] })).toEqual({ config: { originatorTypes: ['DEVICE', 'TENANT'] }, notHonoured: null });
+    expect(toThingsboardConfig(FILTER, { originatorTypes: ['INSTRUMENT', 'SYSTEM'] })).toEqual({ originatorTypes: ['DEVICE', 'TENANT'] });
+    expect(toThingsboardConfig(GEN, { ...RULE_NODE_TYPE_BY_ID.get(GEN)!.defaultConfig, originatorType: 'INSTRUMENT', originatorId: 'i1' }))
+      .toMatchObject({ originatorType: 'DEVICE', originatorId: 'i1' });
+    expect(fromThingsboardConfig(GEN, { periodInSeconds: 1, originatorType: 'SYSTEM', scriptLang: 'JS', jsScript: 'return {};' }).config.originatorType).toBe('TENANT');
+  });
+
+  it('the Entity type switch\'s connection labels map at the boundary: Device ↔ Instrument, Tenant ↔ System; the rest are the same words', () => {
+    expect(entityTypeSwitchLabelFromThingsboard('Device')).toBe('Instrument');
+    expect(entityTypeSwitchLabelFromThingsboard('Tenant')).toBe('System');
+    for (const same of ['Alarm', 'User', 'Rule node', 'Asset', 'Customer', 'Failure', 'Instrument']) expect(entityTypeSwitchLabelFromThingsboard(same), same).toBe(same);
+    expect(entityTypeSwitchLabelToThingsboard('Instrument')).toBe('Device');
+    expect(entityTypeSwitchLabelToThingsboard('System')).toBe('Tenant');
+    for (const same of ['Alarm', 'User', 'Rule node', 'Failure', 'Device']) expect(entityTypeSwitchLabelToThingsboard(same), same).toBe(same);
+    expect(entityTypeSwitchLabelFromThingsboard('toString')).toBe('toString');
+    // The switch still EMITS this system's labels (its handler is unchanged).
+    expect(RULE_NODE_TYPE_BY_ID.get('tb:filter:entity-type-switch')!.relations).toEqual(['Instrument', 'Alarm', 'User', 'System', 'Rule node', 'Failure']);
   });
 });
 

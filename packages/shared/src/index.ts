@@ -333,6 +333,8 @@ export {
   toRuleNodeTypeDescriptor, newRuleNodeConfig, ruleNodeConfigWithDefaults, visibleRuleNodeFields, coerceThingsboardScalars,
   upgradeThingsboardConfig, fromThingsboardConfig, toThingsboardConfig,
   RULE_SCRIPT_KEYS, ruleNodeScriptKey, ruleNodeScript,
+  RULE_ORIGINATOR_TB_ENTITY_TYPES, TB_ENTITY_TYPE_SWITCH_LABELS, canonicalRuleNodeConfig,
+  entityTypeSwitchLabelFromThingsboard, entityTypeSwitchLabelToThingsboard,
 } from './types/rule-nodes.js';
 export type {
   RuleNodeGroup, RuleNodeStatus, RuleOriginatorType, RuleDebugMode, RuleMessageType,

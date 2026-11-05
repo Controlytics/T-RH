@@ -11,6 +11,7 @@ import { registerNode } from '../registry.js';
 import { DEVICE_PROFILE_TYPE, deviceProfile } from '../nodes/action/device-profile.js';
 import { LOG_TYPE, logNode } from '../nodes/action/log.js';
 import { MESSAGE_TYPE_SWITCH, messageTypeSwitch } from '../nodes/filter/message-type-switch.js';
+import { ENTITY_TYPE_SWITCH, entityTypeSwitch } from '../nodes/filter/entity-type-switch.js';
 import { logger } from '../../../lib/logger.js';
 import { newMessage } from '../message.js';
 import { chainOf, memoryDeps, fakeServices } from '../../../test-support/rule-engine.js';
@@ -321,6 +322,48 @@ describe('ThingsBoard\'s real root chain export (v4.2 fixture)', () => {
     const logged = info.mock.calls.map((c) => String(c[1]));
     expect(logged.find((t) => t.startsWith('[rule-chain Root Rule Chain/Log Other]'))).toContain('Incoming message:\n{"t":21.5}');
     expect(logged.find((t) => t.startsWith('[rule-chain Root Rule Chain/Log RPC from Device]'))).toContain('"method":"getTime"');
+  });
+});
+
+describe('ruling SW-1 — a ThingsBoard-shaped Entity type switch chain imports and ROUTES', () => {
+  const log = (name: string, x: number) => ({
+    type: 'org.thingsboard.rule.engine.action.TbLogNode', name, configuration: { scriptLang: 'JS', jsScript: `return '${name} got ' + msgType;` },
+    additionalInfo: { layoutX: x, layoutY: 0 },
+  });
+  const tbChain = () => ({
+    ruleChain: { name: 'By originator type', root: true },
+    metadata: {
+      firstNodeIndex: 0,
+      nodes: [
+        { type: 'org.thingsboard.rule.engine.filter.TbOriginatorTypeSwitchNode', name: 'Entity Type Switch', configuration: { version: 0 }, additionalInfo: { layoutX: 0, layoutY: 0 } },
+        log('Device branch', 1), log('Tenant branch', 2),
+      ],
+      // ThingsBoard names the switch's connections by EntityType.getNormalName(): "Device", "Tenant".
+      connections: [{ fromIndex: 0, toIndex: 1, type: 'Device' }, { fromIndex: 0, toIndex: 2, type: 'Tenant' }],
+    },
+  });
+
+  it('an instrument message takes the "Device" branch and a system message the "Tenant" one, on the REAL switch and Log handlers', async () => {
+    restores.push(registerNode(ENTITY_TYPE_SWITCH, entityTypeSwitch));
+    restores.push(registerNode(LOG_TYPE, logNode));
+    const info = vi.spyOn(logger, 'info');
+    const imported = importChain(tbChain());
+    expect(imported.warnings).toEqual([]);
+    const mem = memoryDeps([chainOf(imported.name, imported.document, { root: true, strict: true })]);
+    const engine = createRuleEngine({ ...mem.deps, services: () => Object.assign(fakeServices(), { dispose: async () => undefined }) });
+    await engine.processNow(newMessage('POST_TELEMETRY_REQUEST', { type: 'INSTRUMENT', id: 'i1' }, { t: 1 }));
+    await engine.processNow(newMessage('MY_SYSTEM_EVENT', { type: 'SYSTEM', id: 'SYSTEM' }, {}));
+    const logged = info.mock.calls.map((c) => String(c[1]));
+    expect(logged).toContain('[rule-chain By originator type/Device branch] Device branch got POST_TELEMETRY_REQUEST');
+    expect(logged).toContain('[rule-chain By originator type/Tenant branch] Tenant branch got MY_SYSTEM_EVENT');
+    // Before SW-1 the "Device" connection was never taken: the switch says "Instrument".
+    expect(engine.stats().counters.unhandled_failures ?? 0).toBe(0);
+  });
+
+  it('exports back with ThingsBoard\'s labels', () => {
+    const imported = importChain(tbChain());
+    expect(exportChain({ name: imported.name, root: true, debugMode: false, document: imported.document }).metadata.connections)
+      .toEqual(tbChain().metadata.connections);
   });
 });
 

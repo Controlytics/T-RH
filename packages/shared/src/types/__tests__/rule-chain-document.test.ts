@@ -545,6 +545,59 @@ describe('ThingsBoard export / import', () => {
     expect(r.document.nodes.slice(2, 4).map((n) => n.type)).toEqual(['tb:action:push-to-edge', 'tb:action:push-to-edge']);
   });
 
+  // ─── Ruling SW-1 (2026-11-05): ThingsBoard's entity-type vocabulary at the boundary ───
+  it('SW-1: an Entity type switch\'s ThingsBoard labels import as this system\'s (Device → Instrument, Tenant → System) and export back', () => {
+    const exp = {
+      ruleChain: { name: 'Types' },
+      metadata: {
+        firstNodeIndex: 0, connections: [
+          { fromIndex: 0, toIndex: 1, type: 'Device' }, { fromIndex: 0, toIndex: 2, type: 'Tenant' }, { fromIndex: 0, toIndex: 3, type: 'Alarm' },
+          { fromIndex: 1, toIndex: 3, type: 'Success' }, { fromIndex: 4, toIndex: 1, type: 'Device' },
+        ],
+        nodes: [
+          tbNode('filter.TbOriginatorTypeSwitchNode', 'By type', { version: 0 }),
+          tbNode('action.TbLogNode', 'Devices', { scriptLang: 'JS', jsScript: 'return "d";' }),
+          tbNode('action.TbLogNode', 'Tenant', { scriptLang: 'JS', jsScript: 'return "t";' }),
+          tbNode('action.TbLogNode', 'Alarms', { scriptLang: 'JS', jsScript: 'return "a";' }),
+          tbNode('filter.TbJsSwitchNode', 'Script switch', { scriptLang: 'JS', jsScript: 'return ["Device"];' }),
+        ],
+      },
+    };
+    const imported = fromThingsboardExport(exp);
+    expect(imported.warnings).toEqual([]);
+    const name = (id: string) => imported.document.nodes.find((n) => n.id === id)!.name;
+    expect(imported.document.connections.map((c) => [name(c.from), c.relation, name(c.to)])).toEqual([
+      ['By type', 'Instrument', 'Devices'], ['By type', 'System', 'Tenant'], ['By type', 'Alarm', 'Alarms'],
+      // Only the SWITCH's labels are mapped: a Log node's Success stays Success.
+      ['Devices', 'Success', 'Alarms'],
+      // … and a script Switch's own "Device" relation stays "Device" (it is the script's word, not an entity type).
+      ['Script switch', 'Device', 'Devices'],
+    ]);
+    const back = toThingsboardExport('Types', false, imported.document);
+    expect(back.metadata.connections.map((c) => c.type)).toEqual(['Device', 'Tenant', 'Alarm', 'Success', 'Device']);
+  });
+
+  it('SW-1: a chain authored HERE exports its switch labels and its filter / Generator values in ThingsBoard\'s words, legacy values included', () => {
+    const d = doc({
+      firstNodeId: A,
+      nodes: [
+        node(A, 'tb:filter:entity-type-switch'),
+        node(B, 'tb:filter:entity-type-filter', { config: { originatorTypes: ['INSTRUMENT', 'SYSTEM'] } }),
+        node(C, 'tb:action:generator', { config: { ...RULE_NODE_TYPE_BY_ID.get('tb:action:generator')!.defaultConfig, originatorType: 'INSTRUMENT', originatorId: 'i-1' } }),
+      ],
+      connections: [{ from: A, to: B, relation: 'Instrument' }, { from: A, to: C, relation: 'System' }, { from: B, to: C, relation: 'True' }],
+    });
+    const exp = toThingsboardExport('C', false, d);
+    expect(exp.metadata.connections.map((c) => c.type)).toEqual(['Device', 'Tenant', 'True']);
+    expect(exp.metadata.nodes[1].configuration).toEqual({ originatorTypes: ['DEVICE', 'TENANT'] });
+    expect(exp.metadata.nodes[2].configuration).toMatchObject({ originatorType: 'DEVICE', originatorId: 'i-1' });
+    // And back: ThingsBoard's values are what is stored now; the switch's labels are this system's again.
+    const again = fromThingsboardExport(JSON.parse(JSON.stringify(exp)));
+    expect(again.document.connections.map((c) => c.relation)).toEqual(['Instrument', 'System', 'True']);
+    expect(again.document.nodes[1].config).toEqual({ originatorTypes: ['DEVICE', 'TENANT'] });
+    expect(again.document.nodes[2].config.originatorType).toBe('DEVICE');
+  });
+
   it('reads ThingsBoard 3.x "debugMode: true" as debug all', () => {
     const tb = toThingsboardExport('C', false, doc()) as any;
     delete tb.metadata.nodes[0].debugAll;

@@ -91,6 +91,58 @@ export function toRuleOriginatorType(value: string): RuleOriginatorType | null {
   return Object.prototype.hasOwnProperty.call(TB_ENTITY_TYPE_ALIASES, value) ? TB_ENTITY_TYPE_ALIASES[value] : null;
 }
 
+/**
+ * The ThingsBoard `EntityType` each originator type stands for — the VALUE an
+ * Entity type filter / Generator configuration STORES (ruling SW-1, refined
+ * 2026-11-05), as Check relation and Change originator already store `DEVICE`.
+ * Only the labels read "Instrument" / "System".
+ */
+export const RULE_ORIGINATOR_TB_ENTITY_TYPES: Readonly<Record<RuleOriginatorType, string>> = Object.freeze({
+  INSTRUMENT: 'DEVICE',
+  ALARM: 'ALARM',
+  USER: 'USER',
+  SYSTEM: 'TENANT',
+  RULE_NODE: 'RULE_NODE',
+});
+
+/**
+ * What ThingsBoard's Entity type switch names each of those types: its
+ * `EntityType.getNormalName()` — `capitalize(name().toLowerCase().replaceAll("_", " "))`
+ * (`common/data/.../EntityType.java`, `TbOriginatorTypeSwitchNode.getRelationType`,
+ * master e48b5780). Only Device and Tenant differ from this system's labels.
+ */
+export const TB_ENTITY_TYPE_SWITCH_LABELS: Readonly<Record<RuleOriginatorType, string>> = Object.freeze({
+  INSTRUMENT: 'Device',
+  ALARM: 'Alarm',
+  USER: 'User',
+  SYSTEM: 'Tenant',
+  RULE_NODE: 'Rule node',
+});
+
+const SWITCH_LABEL_FROM_TB: ReadonlyMap<string, string> = new Map(
+  RULE_ORIGINATOR_TYPES.map((t) => [TB_ENTITY_TYPE_SWITCH_LABELS[t], RULE_ORIGINATOR_TYPE_LABELS[t]] as const),
+);
+const SWITCH_LABEL_TO_TB: ReadonlyMap<string, string> = new Map(
+  RULE_ORIGINATOR_TYPES.map((t) => [RULE_ORIGINATOR_TYPE_LABELS[t], TB_ENTITY_TYPE_SWITCH_LABELS[t]] as const),
+);
+
+/** An Entity type switch connection label from ThingsBoard → this system's ("Device" → "Instrument"); any other label as given. */
+export function entityTypeSwitchLabelFromThingsboard(label: string): string {
+  return SWITCH_LABEL_FROM_TB.get(label) ?? label;
+}
+
+/** An Entity type switch connection label from this system → ThingsBoard's ("Instrument" → "Device"); any other label as given. */
+export function entityTypeSwitchLabelToThingsboard(label: string): string {
+  return SWITCH_LABEL_TO_TB.get(label) ?? label;
+}
+
+/** A stored originator-type value in ThingsBoard's words: a legacy INSTRUMENT / SYSTEM → DEVICE / TENANT; anything else as given. */
+function asThingsboardEntityType(value: unknown): unknown {
+  return typeof value === 'string' && (RULE_ORIGINATOR_TYPES as readonly string[]).includes(value)
+    ? RULE_ORIGINATOR_TB_ENTITY_TYPES[value as RuleOriginatorType]
+    : value;
+}
+
 export const RULE_DEBUG_MODES = ['off', 'all', 'failures'] as const;
 export type RuleDebugMode = (typeof RULE_DEBUG_MODES)[number];
 
@@ -475,10 +527,11 @@ const FILTER: RuleNodeTypeSpec[] = [
     relations: TFF,
     fields: [{
       key: 'originatorTypes', label: 'Originator types', type: 'multiselect', required: true,
-      options: RULE_ORIGINATOR_TYPES.map((value) => ({ value, label: RULE_ORIGINATOR_TYPE_LABELS[value] })),
-      help: 'ThingsBoard\'s DEVICE and TENANT read as Instrument and System.',
+      // Ruling SW-1: ThingsBoard's EntityType values are stored (DEVICE = an instrument, TENANT = the system).
+      options: RULE_ORIGINATOR_TYPES.map((t) => ({ value: RULE_ORIGINATOR_TB_ENTITY_TYPES[t], label: RULE_ORIGINATOR_TYPE_LABELS[t] })),
+      help: 'Stored as ThingsBoard\'s entity types (Instrument = DEVICE, System = TENANT), so an export goes back into ThingsBoard.',
     }],
-    defaultConfig: { originatorTypes: ['INSTRUMENT'] },
+    defaultConfig: { originatorTypes: ['DEVICE'] },
     configSchema: cfg({ originatorTypes: z.array(z.string().min(1).max(64)).min(1, 'Pick at least one type') }),
   }),
   built({
@@ -885,8 +938,9 @@ const ACTION: RuleNodeTypeSpec[] = [
     fields: [
       { key: 'msgCount', label: 'Messages (0 = no limit)', type: 'number', min: 0 },
       { key: 'periodInSeconds', label: 'Period (seconds)', type: 'number', required: true, min: 1 },
-      { key: 'originatorType', label: 'Originator', type: 'select', options: [{ value: 'RULE_NODE', label: 'This rule node' }, { value: 'INSTRUMENT', label: 'An instrument' }] },
-      { key: 'originatorId', label: 'Instrument', type: 'instrument', showWhen: { key: 'originatorType', equals: 'INSTRUMENT' } },
+      // Ruling SW-1: ThingsBoard's EntityType values (DEVICE); a legacy stored INSTRUMENT is judged as DEVICE (canonicalRuleNodeConfig).
+      { key: 'originatorType', label: 'Originator', type: 'select', options: [{ value: 'RULE_NODE', label: 'This rule node' }, { value: 'DEVICE', label: 'An instrument' }] },
+      { key: 'originatorId', label: 'Instrument', type: 'instrument', showWhen: { key: 'originatorType', equals: 'DEVICE' } },
       scriptField('generator', 'Generator function', 'Return { msg, metadata, msgType }; prevMsg / prevMetadata / prevMsgType hold the last one.'),
     ],
     defaultConfig: { msgCount: 0, periodInSeconds: 1, originatorType: 'RULE_NODE', scriptLang: 'JS', jsScript: GENERATOR_JS },
@@ -1208,6 +1262,25 @@ export function ruleNodeConfigWithDefaults(type: string, config: Record<string, 
   return { ...newRuleNodeConfig(type), ...config };
 }
 
+/**
+ * A node's configuration in the ONE shape stored here (ruling SW-1): an Entity
+ * type filter's `originatorTypes` and a Generator's `originatorType` hold
+ * ThingsBoard's EntityType values; a value saved before SW-1 (INSTRUMENT /
+ * SYSTEM) reads as DEVICE / TENANT, and a type listed twice once. The import,
+ * the export and the editor's `showWhen` all read through it; the handlers read
+ * either spelling through `toRuleOriginatorType`. A copy; never in place.
+ */
+export function canonicalRuleNodeConfig(type: string, config: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...config };
+  if (type === 'tb:filter:entity-type-filter' && Array.isArray(out.originatorTypes)) {
+    out.originatorTypes = [...new Set(out.originatorTypes.map(asThingsboardEntityType))];
+  }
+  if (type === 'tb:action:generator' && out.originatorType !== undefined) {
+    out.originatorType = asThingsboardEntityType(out.originatorType);
+  }
+  return out;
+}
+
 // ─── Scripts (ruling TB-L, 2026-11-05): TBEL is not built here ───────────────
 
 /**
@@ -1278,7 +1351,8 @@ function scriptAsJavaScript(type: string, config: Record<string, unknown>): Reco
 export function visibleRuleNodeFields(type: string, config: Record<string, unknown>): RuleNodeConfigField[] {
   const spec = RULE_NODE_TYPE_BY_ID.get(type);
   if (!spec) return [];
-  const resolved = ruleNodeConfigWithDefaults(type, config);
+  // Judged in the stored shape: a legacy INSTRUMENT Generator still shows its instrument picker (ruling SW-1).
+  const resolved = ruleNodeConfigWithDefaults(type, canonicalRuleNodeConfig(type, config));
   const scriptKey = ruleNodeScriptKey(type, resolved);
   return spec.fields
     .filter((f) => !f.showWhen || resolved[f.showWhen.key] === f.showWhen.equals)
@@ -1689,7 +1763,8 @@ export interface ThingsboardConfigImport {
  *  - Every other node: a copy, unchanged.
  */
 export function fromThingsboardConfig(type: string, config: Record<string, unknown>): ThingsboardConfigImport {
-  const c = cloneJson(config);
+  // Ruling SW-1: ThingsBoard's EntityType values, both ways (a legacy INSTRUMENT / SYSTEM included).
+  const c = canonicalRuleNodeConfig(type, cloneJson(config));
   if (type === 'tb:action:save-timeseries') {
     const givenToggle = asText(c.skipLatestPersistence) === 'true';
     if (!isPlainObject(c.processingSettings)) {
@@ -1731,7 +1806,8 @@ export function fromThingsboardConfig(type: string, config: Record<string, unkno
  *  - Every other node: a copy, unchanged.
  */
 export function toThingsboardConfig(type: string, config: Record<string, unknown>): Record<string, unknown> {
-  const c = cloneJson(config);
+  // Ruling SW-1: ThingsBoard's EntityType values, both ways (a legacy INSTRUMENT / SYSTEM included).
+  const c = canonicalRuleNodeConfig(type, cloneJson(config));
   if (type === 'tb:action:save-timeseries') {
     const { skipLatestPersistence, ...rest } = c;
     const toggle = skipLatestPersistence === true;

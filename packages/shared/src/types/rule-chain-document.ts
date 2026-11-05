@@ -45,9 +45,12 @@ import {
   RULE_NODE_TYPE_BY_ID, RULE_NODE_TYPE_BY_TB_CLASS, UNSUPPORTED_NODE_TYPE, RULE_DEBUG_MODES,
   RULE_NODE_NAME_MAX, RULE_CHAIN_NAME_MAX, RULE_CHAIN_NODES_MAX, RULE_RELATION_MAX,
   RULE_RELATION_OTHER, newRuleNodeConfig, coerceThingsboardScalars, upgradeThingsboardConfig,
-  fromThingsboardConfig, toThingsboardConfig,
+  fromThingsboardConfig, toThingsboardConfig, entityTypeSwitchLabelFromThingsboard, entityTypeSwitchLabelToThingsboard,
   type RuleDebugMode,
 } from './rule-nodes.js';
+
+/** The one node whose connection LABELS are entity-type names (ruling SW-1). */
+const ENTITY_TYPE_SWITCH = 'tb:filter:entity-type-switch';
 
 export const RULE_CHAIN_DOCUMENT_VERSION = 1;
 /** Connections one chain may hold. */
@@ -367,9 +370,15 @@ export function toThingsboardExport(name: string, root: boolean, doc: RuleChainD
       additionalInfo: { layoutX: n.x, layoutY: n.y },
     };
   });
+  const typeOf = new Map(doc.nodes.map((n) => [n.id, n.type]));
   const connections = doc.connections
     .filter((c) => index.has(c.from) && index.has(c.to))
-    .map((c) => ({ fromIndex: index.get(c.from)!, toIndex: index.get(c.to)!, type: c.relation }));
+    .map((c) => ({
+      fromIndex: index.get(c.from)!,
+      toIndex: index.get(c.to)!,
+      // Ruling SW-1: ThingsBoard's Entity type switch says "Device" / "Tenant" where this one says "Instrument" / "System".
+      type: typeOf.get(c.from) === ENTITY_TYPE_SWITCH ? entityTypeSwitchLabelToThingsboard(c.relation) : c.relation,
+    }));
   return {
     ruleChain: { name, type: 'CORE', root, debugMode: false, configuration: null, additionalInfo: null },
     metadata: {
@@ -485,6 +494,7 @@ export function fromThingsboardExport(json: unknown, opts: { newId?: () => strin
   });
 
   const nameOf = (id: string) => nodes.find((n) => n.id === id)?.name ?? id;
+  const typeOfId = (id: string) => nodes.find((n) => n.id === id)?.type;
   const connections: RuleChainConnection[] = [];
   const seen = new Set<string>();
   for (const raw of Array.isArray(meta.connections) ? meta.connections : []) {
@@ -495,11 +505,13 @@ export function fromThingsboardExport(json: unknown, opts: { newId?: () => strin
       warnings.push(`A connection from node ${String(r.fromIndex)} to node ${String(r.toIndex)} names a node that is not in the chain; it was left out.`);
       continue;
     }
-    const relation = cleanRelation(r.type);
-    if (!relation) {
+    const label = cleanRelation(r.type);
+    if (!label) {
       warnings.push(`The connection from "${nameOf(from)}" to "${nameOf(to)}" has no usable relation label; it was left out.`);
       continue;
     }
+    // Ruling SW-1: the switch EMITS this system's labels, so ThingsBoard's "Device" / "Tenant" are read as them.
+    const relation = typeOfId(from) === ENTITY_TYPE_SWITCH ? entityTypeSwitchLabelFromThingsboard(label) : label;
     const key = `${from}|${to}|${relation}`;
     if (seen.has(key)) continue;
     if (connections.length >= RULE_CHAIN_CONNECTIONS_MAX) {
