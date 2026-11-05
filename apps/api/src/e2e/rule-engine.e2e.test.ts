@@ -587,6 +587,58 @@ describe('Save Timeseries: the timestamp window (TS-1), a string ts (M-2), a nul
     expect(rewrites[0].beforeValue).toEqual({ code: inst.code, attribute: key, ts: at, value: 1, rawValue: null });
   });
 
+  it('review A I2: an INJECTED rewrite is audited as the RULE ENGINE — SYSTEM, the chain, the node, the message and its origin — and names the injected msgId, the link to RULE_ENGINE_MESSAGE_INJECTED', async () => {
+    const key = `rw_${STAMP}`;
+    const ts = Date.now() - 15 * 60_000;
+    const since = new Date();
+    expect((await saveOut(await inject({ [key]: 1 }, { ts: String(ts) }))).relation).toBe('Success (unconnected)');
+    const msgId = await inject({ [key]: 2 }, { ts: String(ts) });
+    expect((await saveOut(msgId)).relation).toBe('Success (unconnected)');
+    const rewrites = await prisma.auditTrail.findMany({ where: { action: 'TELEMETRY_READING_REWRITTEN', targetId: inst.id, timestamp: { gte: since } } });
+    expect(rewrites).toHaveLength(1);
+    const chain = `${ROOT_NAME_PREFIX}${STAMP}`;
+    const at = new Date(ts).toISOString();
+    expect(rewrites[0]).toMatchObject({
+      userId: 'SYSTEM', userRole: 'SYSTEM',
+      reason: `Rewritten by rule chain "${chain}" node "Save Timeseries" (message ${msgId}, origin rest_api)`,
+      signatureMeaning: `Stored reading "${key}" at ${at} on instrument "${inst.code}" rewritten by rule chain "${chain}"`,
+    });
+    expect(rewrites[0].afterValue).toEqual({
+      code: inst.code, attribute: key, ts: at, value: 2, rawValue: null,
+      writtenBy: `rule chain "${chain}" node "Save Timeseries"`, msgId, origin: 'rest_api', transport: 'rule-engine',
+    });
+    expect(rewrites[0].beforeValue).toEqual({ code: inst.code, attribute: key, ts: at, value: 1, rawValue: null });
+    // The link: the inject route's row names the same message id, and the person who sent it.
+    const injected = await prisma.auditTrail.findMany({ where: { action: 'RULE_ENGINE_MESSAGE_INJECTED', targetId: msgId } });
+    expect(injected).toHaveLength(1);
+    expect(injected[0]).toMatchObject({ userId: SA, afterValue: expect.objectContaining({ msgId }) });
+  });
+
+  it('review A I2: a chain name at its 120-character limit and a long key still write the rewrite\'s audit row — the meaning clamped inside VARCHAR(255)', async () => {
+    const S = randomUUID();
+    const chainId = randomUUID();
+    const name = `RE long ${STAMP} `.padEnd(120, 'x');
+    await prisma.ruleChain.create({ data: { id: chainId, name, firstNodeId: S, document: {
+      version: 1, firstNodeId: S, connections: [],
+      nodes: [{ id: S, type: 'tb:action:save-timeseries', name: 'Save'.padEnd(60, 's'), debugMode: 'off', x: 0, y: 0, config: newRuleNodeConfig('tb:action:save-timeseries') }],
+    } as never } });
+    otherChains.push(chainId);
+    invalidateChainCache();
+    const key = `long_${STAMP}_`.padEnd(80, 'k');
+    const ts = Date.now() - 12 * 60_000;
+    const since = new Date();
+    const send = (v: number) => ruleEngine.processNow(newMessage('POST_TELEMETRY_REQUEST', { type: 'INSTRUMENT', id: inst.id, code: inst.code }, { [key]: v },
+      { ts: String(ts), rule_engine_origin: 'rest_api' }), { chainId });
+    await send(1);
+    await send(2);
+    const [row] = await prisma.auditTrail.findMany({ where: { action: 'TELEMETRY_READING_REWRITTEN', targetId: inst.id, timestamp: { gte: since } } });
+    expect(row, 'the rewrite was audited — no 22001 after the overwrite').toBeDefined();
+    expect(row.signatureMeaning!.length).toBeLessThanOrEqual(255);
+    expect(row.reason).toContain(`rule chain "${name}"`);
+    expect(await prisma.$queryRaw<{ value: unknown }[]>`
+      SELECT value FROM instrument_telemetry_history WHERE instrument_id = ${inst.id} AND key = ${key}`).toEqual([{ value: 2 }]);
+  });
+
   it('a null value fails with ThingsBoard\'s wording, the whole object named: Can\'t parse value: {"…":null}', async () => {
     const key = `nul_${STAMP}`;
     const out = await saveOut(await inject({ [key]: null }));
@@ -1068,6 +1120,27 @@ describe('services (what Tasks 4-6 call)', () => {
         { action: 'INSTRUMENT_ATTRIBUTE_REMOVED', beforeValue: { path: ['attribute'], equals: k } },
       ]) } });
       expect(written, '3 set + 1 removed: every row written').toBe(4);
+    } finally {
+      warn.mockRestore();
+      await svc.dispose();
+    }
+  });
+
+  it('review A I5: a REWRITTEN reading is a committed audit row too — counted from the write\'s own result (WriteResult.rewritten)', async () => {
+    const warn = vi.spyOn(logger, 'warn');
+    const svc = createRuleServices({ config: () => ruleEngine.config(), inc: () => undefined, auditRate: { limit: 1 } });
+    try {
+      const key = `arw_${STAMP}`;
+      const ts = new Date(Date.now() - 11 * 60_000);
+      const said = () => warn.mock.calls.filter((c) => String(c[1]).includes('audit rows within a minute'));
+      await svc.telemetry.write(inst.id, [{ key, value: 1, ts }], origin()); // new: no audit row
+      await svc.telemetry.write(inst.id, [{ key, value: 2, ts }], origin()); // the 1st rewrite
+      expect(said(), 'one rewrite: not more than the limit').toHaveLength(0);
+      await svc.telemetry.write(inst.id, [{ key, value: 2, ts }], origin()); // the same value: no row, nothing counted
+      expect(said()).toHaveLength(0);
+      await svc.telemetry.write(inst.id, [{ key, value: 3, ts }], origin()); // the 2nd rewrite passes the limit
+      expect(said()).toHaveLength(1);
+      expect(said()[0][0]).toMatchObject({ auditRows: 2, perMinute: 1 });
     } finally {
       warn.mockRestore();
       await svc.dispose();

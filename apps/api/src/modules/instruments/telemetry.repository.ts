@@ -13,7 +13,10 @@
  * one `TELEMETRY_READING_REWRITTEN` row per changed (instrument, key, ts) — old
  * and new value and raw value, the sender and the transport — in the SAME
  * transaction as the overwrite. An identical redelivery is a no-op and writes
- * nothing. Do not add auditLog() for anything else here.
+ * nothing. A RULE CHAIN's rewrite (`WriteSource.kind: 'rule-engine'`, review A I2,
+ * 2026-11-05) is the same row worded as the rule engine — user / role SYSTEM, the
+ * chain, node, message id and origin — never as a device re-send. Do not add
+ * auditLog() for anything else here.
  *
  * Ported from the pre-data-injection-drop tag's `data-injection/telemetry.repository.ts`
  * and adapted to the CURRENT schema (see apps/api/prisma/schema.prisma +
@@ -95,8 +98,29 @@ export function lastPerInstant<R extends { instrumentId: string; key: string; ts
   return [...byInstant.values()];
 }
 
-/** Who delivered a batch: the authenticated sender's code and the transport it arrived on. */
-export interface WriteSource { code: string; transport: string }
+/**
+ * Who delivered a batch: the authenticated sender's code and the transport it
+ * arrived on — a DEVICE (the default). Or the RULE ENGINE (review A I2 / review B
+ * M-6, 2026-11-05): a rule node's write, which a rewrite audits as the rule engine
+ * — never as "a device re-send" — naming the chain and node that wrote it, the
+ * message it was processing and that message's origin.
+ */
+export interface WriteSource {
+  code: string;
+  transport: string;
+  kind?: 'device' | 'rule-engine';
+  /** rule-engine: `rule chain "X" node "Y"` (services.ts `writerOf`). */
+  writer?: string;
+  /** rule-engine: the chain's name, for the signature meaning. */
+  chainName?: string;
+  /** rule-engine: the message the node was processing — the inject route's audit row names the same id. */
+  messageId?: string;
+  /** rule-engine: that message's `rule_engine_origin` (rest_api, ingest, system, user, rule_node:…). */
+  origin?: string;
+}
+
+/** What a write did beyond storing: the TELEMETRY_READING_REWRITTEN rows it wrote (each a committed audit row). */
+export interface WriteBatchResult { rewritten: number }
 
 export async function writeBatch(
   rows: (Reading & { instrumentId: string })[],
@@ -107,8 +131,8 @@ export async function writeBatch(
    * is not touched. Every other caller leaves it off.
    */
   opts: { skipLatest?: boolean } = {},
-): Promise<void> {
-  if (rows.length === 0) return;
+): Promise<WriteBatchResult> {
+  if (rows.length === 0) return { rewritten: 0 };
 
   // `raw_value` is what the device sent when a sensor offset corrected the
   // reading (2026-10-01) — kept for the record, NULL otherwise, never shown.
@@ -140,7 +164,7 @@ export async function writeBatch(
   const latestValues = Prisma.join([...newestPerKey.values()].map((r) => Prisma.sql`(
     ${r.instrumentId}, ${r.key}, ${JSON.stringify(r.value)}::jsonb, ${r.valueType}, ${r.ts})`));
 
-  await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx) => {
     // Same (instrument, key, ts) again → the LAST arrival wins (see
     // `lastPerInstant`) — and a rewrite that CHANGES the stored reading is
     // audited (operator, 2026-10-12). ONE statement, no per-row round trip:
@@ -197,11 +221,31 @@ export async function writeBatch(
     for (const c of changed) {
       const code = c.code ?? c.instrument_id;
       const at = c.ts.toISOString();
+      const before = { code, attribute: c.key, ts: at, value: c.old_value, rawValue: c.old_raw ?? null };
+      if (source?.kind === 'rule-engine') {
+        // A RULE ENGINE write (review A I2 / review B M-6): audited as the rule engine — user and role
+        // SYSTEM, as its attribute rows are (ruling T2-A) — naming the chain, the node, the message and
+        // its origin, so the row links to the inject route's RULE_ENGINE_MESSAGE_INJECTED (same msgId).
+        const messageId = source.messageId ?? 'unknown';
+        const origin = source.origin ?? 'unknown';
+        await auditLog({
+          action: 'TELEMETRY_READING_REWRITTEN', targetType: 'Instrument', targetId: c.instrument_id,
+          beforeValue: before,
+          afterValue: {
+            code, attribute: c.key, ts: at, value: c.new_value, rawValue: c.new_raw ?? null,
+            writtenBy: source.writer ?? null, msgId: source.messageId ?? null, origin: source.origin ?? null, transport: source.transport,
+          },
+          reason: `Rewritten by ${source.writer ?? 'the rule engine'} (message ${messageId}, origin ${origin})`,
+          signatureMeaning: `Stored reading "${clip(c.key)}" at ${at} on instrument "${clip(code)}" rewritten by rule chain "${clip(source.chainName ?? 'unknown')}"`,
+          userId: 'SYSTEM', userRole: 'SYSTEM',
+        }, tx);
+        continue;
+      }
       const by = source?.code ?? null;
       const via = source?.transport ?? null;
       await auditLog({
         action: 'TELEMETRY_READING_REWRITTEN', targetType: 'Instrument', targetId: c.instrument_id,
-        beforeValue: { code, attribute: c.key, ts: at, value: c.old_value, rawValue: c.old_raw ?? null },
+        beforeValue: before,
         afterValue: {
           code, attribute: c.key, ts: at, value: c.new_value, rawValue: c.new_raw ?? null,
           reportedBy: by, transport: via,
@@ -212,6 +256,7 @@ export async function writeBatch(
         signatureMeaning: `Stored reading "${clip(c.key)}" at ${at} on instrument "${clip(code)}" rewritten by a device re-send`,
       }, tx);
     }
+    return { rewritten: changed.length };
   });
 }
 

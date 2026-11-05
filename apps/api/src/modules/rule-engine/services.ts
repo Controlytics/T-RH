@@ -78,6 +78,13 @@ export interface RuleAttributeSaveOptions {
 
 export type RuleTelemetryAggregation = 'NONE' | 'AVG' | 'MIN' | 'MAX' | 'SUM' | 'COUNT';
 
+export interface RuleTelemetryWriteOptions {
+  /** History only, `instrument_telemetry_latest` untouched (TB's skipLatestPersistence). */
+  skipLatest?: boolean;
+  /** The message being processed: its id and its `rule_engine_origin` (review A I2's audit wording). */
+  message?: { id: string; origin?: string };
+}
+
 export interface RuleDurableOptions {
   /** Default: the running flow's depth (context.ts); 0 outside a flow. */
   reentryDepth?: number;
@@ -170,8 +177,11 @@ export interface RuleServices {
      * `skipLatest`: history only, `instrument_telemetry_latest` untouched (TB's skipLatestPersistence).
      * An instant before 2000 or more than 10 minutes ahead REFUSES the whole write
      * (`TIMESTAMP_OUT_OF_WINDOW`, ruling TS-1) — the node's Failure, nothing stored.
+     * `message`: the message the node is processing (its id and `rule_engine_origin`) — a stored
+     * reading this write CHANGES is audited as the rule engine naming them (review A I2), so the
+     * row links to the inject route's RULE_ENGINE_MESSAGE_INJECTED (the same msgId).
      */
-    write(instrumentId: string, readings: RuleTelemetryReading[], origin: string, opts?: { skipLatest?: boolean }): Promise<void>;
+    write(instrumentId: string, readings: RuleTelemetryReading[], origin: string, opts?: RuleTelemetryWriteOptions): Promise<void>;
     latest(instrumentId: string, keys: string[]): Promise<Record<string, { value: unknown; ts: Date }>>;
     /** Per key: NONE → the rows (ts ms + value), at most `limit` per key; an aggregation → one row `{ ts: to, value }`. */
     history(
@@ -630,8 +640,17 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
         });
         const writer = await writerOf(origin);
         const raw = Buffer.from(JSON.stringify({ source: writer.label, readings: rows.map((r) => ({ key: r.key, value: r.value, ts: r.ts.toISOString() })) }));
-        const result = await writeBatchOrDeadLetter(rows, { id: instrument.id, code: `rule-engine: ${writer.label}` }, 'rule-engine', raw,
-          { applyOffsets: false, skipLatest: opts.skipLatest === true });
+        const result = await writeBatchOrDeadLetter(rows, { id: instrument.id, code: `rule-engine: ${writer.label}` }, 'rule-engine', raw, {
+          applyOffsets: false, skipLatest: opts.skipLatest === true,
+          // Review A I2 / review B M-6: a stored reading this write changes is audited as the RULE ENGINE
+          // (SYSTEM, the chain, node, message id and origin), never as a device re-send.
+          source: {
+            kind: 'rule-engine', writer: writer.label, ...(writer.chainName ? { chainName: writer.chainName } : {}),
+            ...(opts.message ? { messageId: opts.message.id, ...(opts.message.origin ? { origin: opts.message.origin } : {}) } : {}),
+          },
+        });
+        // Review A I5: each rewrite is a committed audit row too.
+        auditRate.note(result.rewritten);
         if (result.failure !== null) throw new Error(`TELEMETRY_WRITE_FAILED: ${result.failure}`);
         if (result.unplaceable.length > 0 && result.stored.length === 0) {
           throw new Error('TIMESTAMP_OUT_OF_RANGE: every reading is older than the oldest telemetry partition');

@@ -23,7 +23,8 @@ const buf = (o: unknown) => Buffer.from(JSON.stringify(o));
 beforeEach(() => {
   writeBatch.mockReset(); writeDeadLetters.mockReset();
   childMapFor.mockReset(); stampLastSeen.mockReset();
-  writeBatch.mockResolvedValue(undefined); writeDeadLetters.mockResolvedValue(undefined);
+  // writeBatch resolves its WriteBatchResult (review A I2: the rewrite count the rule engine's audit-rate reads).
+  writeBatch.mockResolvedValue({ rewritten: 0 }); writeDeadLetters.mockResolvedValue(undefined);
   stampLastSeen.mockResolvedValue(undefined);
   earliestPartitionStart.mockReset(); enqueueAlarmEvaluation.mockReset();
   earliestPartitionStart.mockResolvedValue(null); enqueueAlarmEvaluation.mockResolvedValue(undefined);

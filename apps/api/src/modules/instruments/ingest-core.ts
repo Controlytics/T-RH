@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { parsePayload, toReadings, nullReadingKeys } from './payload-parser.js';
-import { writeBatch, writeDeadLetters, earliestPartitionStart } from './telemetry.repository.js';
+import { writeBatch, writeDeadLetters, earliestPartitionStart, type WriteSource } from './telemetry.repository.js';
 import { stampLastSeen } from './last-seen.js';
 import { enqueueAlarmEvaluation } from '../alarms/enqueue-evaluation.js';
 import { fanoutDevices } from './gateway-fanout.js';
@@ -92,6 +92,11 @@ export interface WriteResult {
    * WRITE_FAILED so the sender retries.
    */
   failure: string | null;
+  /**
+   * TELEMETRY_READING_REWRITTEN rows the write committed (one per stored instant it
+   * overwrote with a different value) — the rule engine's audit-rate count (review A I5).
+   */
+  rewritten: number;
 }
 
 /** Postgres's refusal of a row whose `ts` falls in no partition of the history table. */
@@ -116,15 +121,20 @@ function isNoPartitionError(e: unknown): boolean {
  * partition split and dead-lettering included — but WITHOUT the sensor-offset
  * pass: a chain's values are the chain's, and correcting a value ingest
  * already corrected would correct it twice.
+ *
+ * `source` (review A I2, 2026-11-05): who the write is FOR the audit — merged over
+ * the sender's code and transport. Ingest passes none (a device re-send keeps its
+ * wording); the rule engine names itself (`kind: 'rule-engine'`, the chain and node,
+ * the message id and origin), so a rewrite it makes is audited as the rule engine.
  */
 export async function writeBatchOrDeadLetter(
   readings: BatchReading[],
   sender: { id: string; code: string },
   transport: string,
   raw: Buffer,
-  opts: { applyOffsets?: boolean; skipLatest?: boolean } = {},
+  opts: { applyOffsets?: boolean; skipLatest?: boolean; source?: Partial<WriteSource> } = {},
 ): Promise<WriteResult> {
-  const source = { code: sender.code, transport };
+  const source: WriteSource = { code: sender.code, transport, ...(opts.source ?? {}) };
   const recordLoss = async (e: unknown, lost: number): Promise<string> => {
     const message = (e as { message?: string })?.message ?? String(e);
     logger.error({ err: e, instrumentId: sender.id, code: sender.code, readings: lost, transport },
@@ -140,10 +150,10 @@ export async function writeBatchOrDeadLetter(
   let corrected = readings;
   try {
     if (opts.applyOffsets !== false) corrected = await applySensorOffsets(readings);
-    await writeBatch(corrected, source, { skipLatest: opts.skipLatest === true });
-    return { stored: corrected, unplaceable: [], failure: null };
+    const { rewritten } = await writeBatch(corrected, source, { skipLatest: opts.skipLatest === true });
+    return { stored: corrected, unplaceable: [], failure: null, rewritten };
   } catch (e) {
-    if (!isNoPartitionError(e)) return { stored: [], unplaceable: [], failure: await recordLoss(e, readings.length) };
+    if (!isNoPartitionError(e)) return { stored: [], unplaceable: [], failure: await recordLoss(e, readings.length), rewritten: 0 };
 
     let earliest: Date | null = null;
     try {
@@ -154,14 +164,15 @@ export async function writeBatchOrDeadLetter(
     const doomed = earliest ? corrected.filter((r) => r.ts < earliest) : [];
     // Nothing is older than the oldest partition: the gap is maintenance
     // falling behind (or the bounds could not be read) — retryable, as before.
-    if (!earliest || doomed.length === 0) return { stored: [], unplaceable: [], failure: await recordLoss(e, readings.length) };
+    if (!earliest || doomed.length === 0) return { stored: [], unplaceable: [], failure: await recordLoss(e, readings.length), rewritten: 0 };
 
     const placeable = corrected.filter((r) => r.ts >= earliest);
     let stored: BatchReading[] = [];
     let failure: string | null = null;
+    let rewritten = 0;
     if (placeable.length > 0) {
       try {
-        await writeBatch(placeable, source, { skipLatest: opts.skipLatest === true });
+        ({ rewritten } = await writeBatch(placeable, source, { skipLatest: opts.skipLatest === true }));
         stored = placeable;
       } catch (e2) {
         failure = await recordLoss(e2, placeable.length);
@@ -177,7 +188,7 @@ export async function writeBatchOrDeadLetter(
         + `${instants.slice(0, 5).join(', ')}${instants.length > 5 ? ` and ${instants.length - 5} more` : ''}`,
       rawPayload: raw.toString('utf8').slice(0, 4000),
     }]);
-    return { stored, unplaceable: doomed, failure };
+    return { stored, unplaceable: doomed, failure, rewritten };
   }
 }
 
