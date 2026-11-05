@@ -184,6 +184,147 @@ describe('the hop limit', () => {
   });
 });
 
+/**
+ * C1 (whole-branch review A, 2026-11-05): a flow of SYNCHRONOUS nodes awaited only
+ * resolved promises, so it never gave the event loop back — and `_hops` is counted
+ * per copy, so a fan-out cycle never reached the hop limit: the probe held the loop
+ * for the whole 3 s budget. Now a flow yields (setImmediate) after ~10 ms of work, a
+ * flow ends after hopLimit × 10 node runs over ALL its copies (STEP_LIMIT), and the
+ * budget is Configuration → Rule Engine's `messageBudgetMs`.
+ */
+describe('no flow holds the event loop (C1)', () => {
+  const SWITCH_TYPE = 'tb:filter:message-type-switch';
+
+  /** S1 → S2 and S3, both back to S1, on 'Post telemetry': the review's probe, on the REAL Message Type Switch. */
+  function fanOutCycle(debugMode: 'off' | 'failures' = 'off') {
+    registerAllNodes();
+    const s1 = nodeOf(SWITCH_TYPE, 'S1', { debugMode });
+    const s2 = nodeOf(SWITCH_TYPE, 'S2', { debugMode });
+    const s3 = nodeOf(SWITCH_TYPE, 'S3', { debugMode });
+    return chainOf('fan', docOf([s1, s2, s3], [
+      [s1, 'Post telemetry', s2], [s1, 'Post telemetry', s3], [s2, 'Post telemetry', s1], [s3, 'Post telemetry', s1],
+    ]), { root: true });
+  }
+
+  it('a fan-out cycle from the root: a 5 ms timer fires WHILE the flow still runs, within ~50 ms', async () => {
+    // hopLimit 1000 → a 10 000-step flow (~0.65 s of switch work here): long enough that only a
+    // yield can let the timer in before it ends.
+    const { engine } = engineFor([fanOutCycle()], { hopLimit: 1_000, messageBudgetMs: 60_000 });
+    let flowDone = false;
+    let firedAfter = -1;
+    let firedWhileRunning = false;
+    const t0 = Date.now();
+    setTimeout(() => { firedAfter = Date.now() - t0; firedWhileRunning = !flowDone; }, 5);
+    await engine.processNow(testMessage({ t: 1 }));
+    flowDone = true;
+    const elapsed = Date.now() - t0;
+    await new Promise((r) => setTimeout(r, 20));
+    expect(firedWhileRunning, `the timer fired after ${firedAfter} ms; the flow took ${elapsed} ms`).toBe(true);
+    expect(firedAfter).toBeLessThan(50);
+    expect(elapsed).toBeGreaterThan(firedAfter);
+    expect(engine.stats().counters.step_limit).toBe(1);
+  });
+
+  it('… and with the default limits it ends at the STEP LIMIT long before the budget: debug IN + OUT "Failure (unhandled)" STEP_LIMIT', async () => {
+    const { engine, events } = engineFor([fanOutCycle('failures')]);
+    const t0 = Date.now();
+    await engine.processNow(testMessage({ t: 1 }));
+    expect(Date.now() - t0).toBeLessThan(5_000);
+    const c = engine.stats().counters;
+    expect(c.step_limit).toBe(1);
+    expect(c.timeouts ?? 0).toBe(0);
+    expect(c.hop_limit ?? 0).toBe(0);
+    expect(c.steps_abandoned).toBeGreaterThan(0);
+    expect(events.map((e) => `${e.direction} ${e.relation} ${e.error ?? ''}`.trim())).toEqual([
+      'IN Post telemetry', 'OUT Failure (unhandled) STEP_LIMIT',
+    ]);
+    expect(events[1].msg.metadata.error).toBe('STEP_LIMIT');
+  });
+
+  it('the step limit is hopLimit × 10 node runs, counted over EVERY copy of the message', async () => {
+    let runs = 0;
+    const fan = type('test:c1-fan', (ctx, msg) => { runs++; ctx.tellNext(msg, 'Success'); });
+    const a = nodeOf(fan, 'A');
+    const b = nodeOf(fan, 'B');
+    // A → A and B, B → A: every copy is a fresh lineage, far under the hop limit of 20.
+    const chain = chainOf('c', docOf([a, b], [[a, 'Success', a], [a, 'Success', b], [b, 'Success', a]]), { root: true });
+    const { engine } = engineFor([chain], { hopLimit: 20 });
+    await engine.processNow(testMessage({}));
+    expect(runs).toBe(200);
+    expect(engine.stats().counters.step_limit).toBe(1);
+  });
+
+  it('a plain cycle (no fan-out) still ends at the HOP limit, not the step limit', async () => {
+    let runs = 0;
+    const loop = type('test:c1-loop', (ctx, msg) => { runs++; ctx.tellNext(msg, 'Success'); });
+    const a = nodeOf(loop, 'A');
+    const { engine } = engineFor([chainOf('c', docOf([a], [[a, 'Success', a]]), { root: true })], { hopLimit: 20 });
+    await engine.processNow(testMessage({}));
+    expect(runs).toBe(20);
+    expect(engine.stats().counters.hop_limit).toBe(1);
+    expect(engine.stats().counters.step_limit ?? 0).toBe(0);
+  });
+
+  it('the message budget is Configuration → Rule Engine\'s messageBudgetMs', async () => {
+    const slow = type('test:c1-slow', () => new Promise<void>(() => undefined));
+    const a = nodeOf(slow, 'A', { debugMode: 'all' });
+    const mem = memoryDeps([chainOf('c', docOf([a], []), { root: true })], { messageBudgetMs: 150 });
+    const engine = createRuleEngine({ ...mem.deps, services: () => Object.assign(fakeServices(), { dispose: async () => undefined }) });
+    await engine.start();
+    try {
+      const t0 = Date.now();
+      expect(engine.enqueue(testMessage({}))).toBe(true);
+      await waitFor(() => mem.events.length === 2, 3_000);
+      expect(Date.now() - t0).toBeLessThan(1_500);
+      expect(mem.events[1].error).toBe('MESSAGE_TIMEOUT');
+    } finally {
+      await engine.stop();
+    }
+  });
+
+  it('the re-entry depth survives a yield: a depth-1 flow busy for > 10 ms before its write still emits nothing (loop_skipped)', async () => {
+    resetEmitCounters();
+    const seen: number[] = [];
+    const busy = type('test:c1-busy', (ctx, msg) => { const until = Date.now() + 15; while (Date.now() < until) { /* spin */ } ctx.tellNext(msg, 'Success'); });
+    const write = type('test:c1-write', async (ctx, msg) => {
+      seen.push(currentReentryDepth());
+      await emitTelemetry(msg.originator.id, [{ key: 't', value: 1, ts: new Date() }], 'rule-engine', ctx.origin);
+    });
+    const b = nodeOf(busy, 'Busy');
+    const b2 = nodeOf(busy, 'Busy2');
+    const w = nodeOf(write, 'W');
+    const chain = chainOf('c', docOf([b, b2, w], [[b, 'Success', b2], [b2, 'Success', w]]), { root: true, reEnterOnRuleNodeWrites: true });
+    const mem = memoryDeps([chain]);
+    const engine = createRuleEngine({ ...mem.deps, installSink: true, lifecyclePollMs: 3_600_000, services: () => Object.assign(fakeServices(), { dispose: async () => undefined }) });
+    await engine.start();
+    try {
+      engine.enqueue(testMessage({}, { originator: { id: 'X' }, metadata: { rule_engine_origin: ruleNodeOrigin(chain.id, w.id) } }));
+      await waitFor(() => seen.length >= 1);
+      await engine.drain();
+      expect(seen).toEqual([1]);
+      expect(emitCounters().loop_skipped).toBe(1);
+    } finally {
+      await engine.stop();
+    }
+  });
+
+  it('stop() halts a flow still running once its wait for in-flight messages is over: no node runs after stop() resolved', async () => {
+    let runs = 0;
+    const loop = type('test:c1-forever', (ctx, msg) => { runs++; const until = Date.now() + 2; while (Date.now() < until) { /* spin */ } ctx.tellNext(msg, 'Success'); });
+    const a = nodeOf(loop, 'A');
+    const mem = memoryDeps([chainOf('c', docOf([a], [[a, 'Success', a]]), { root: true })], { hopLimit: 10_000, messageBudgetMs: 60_000 });
+    const engine = createRuleEngine({ ...mem.deps, stopWaitMs: 50, services: () => Object.assign(fakeServices(), { dispose: async () => undefined }) });
+    await engine.start();
+    engine.enqueue(testMessage({}));
+    await waitFor(() => runs > 5);
+    await engine.stop();
+    const atStop = runs;
+    await new Promise((r) => setTimeout(r, 100));
+    expect(runs - atStop).toBe(0);
+    expect(engine.stats().counters.halted_on_stop).toBe(1);
+  });
+});
+
 describe('Rule chain and Output', () => {
   it('Output returns to the CALLER node\'s connections under the Output node\'s NAME', async () => {
     const log: { node: string; msg: RuleMessage }[] = [];

@@ -98,7 +98,7 @@ const otherChains: string[] = [];
 
 async function setEngineConfig(patch: Record<string, unknown>) {
   const base = { enabled: true, skipSaveNodesForIngestOrigin: false, scriptTimeoutMs: 2000, queueCapacity: 10000, concurrency: 8,
-    debugRetentionHours: 24, debugMaxEventsPerNode: 1000, httpTimeoutMs: 10000, hopLimit: 200 };
+    debugRetentionHours: 24, debugMaxEventsPerNode: 1000, httpTimeoutMs: 10000, hopLimit: 200, messageBudgetMs: 30000 };
   const value = { ...base, ...patch };
   await prisma.systemConfig.upsert({
     where: { configKey: 'rule-engine' },
@@ -571,11 +571,17 @@ describe('routes', () => {
   it('/stats: switched on, real counts', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/rule-chains/stats', headers: sa });
     expect(res.statusCode).toBe(200);
-    const s = res.json() as { enabled: boolean; queueDepth: number; dropped: number; processedLastMinute: number; chains: { id: string; processedLastMinute: number }[] };
+    const s = res.json() as {
+      enabled: boolean; queueDepth: number; dropped: number; processedLastMinute: number; chains: { id: string; processedLastMinute: number }[];
+      counters: Record<string, number>;
+    };
     expect(s.enabled).toBe(true);
     expect(s.processedLastMinute).toBeGreaterThan(0);
     expect(s.chains.find((c) => c.id === ROOT)?.processedLastMinute).toBeGreaterThan(0);
     expect(s.dropped).toBe(0);
+    // The engine's counters ride along (C1: step_limit, hop_limit, timeouts … once they happen) — declared, or stripped to {}.
+    expect(s.counters.processed).toBeGreaterThan(0);
+    expect(s.counters.step_limit ?? 0).toBe(0);
   });
 });
 
@@ -801,7 +807,7 @@ describe('services (what Tasks 4-6 call)', () => {
 describe('Configuration → Rule Engine and Application Attributes can ask for the password (ruling D8-1)', () => {
   /** The run's own engine settings (setEngineConfig({})), so a save here changes nothing the engine runs on. */
   const ENGINE_BODY = { enabled: true, skipSaveNodesForIngestOrigin: false, scriptTimeoutMs: 2000, queueCapacity: 10000, concurrency: 8,
-    debugRetentionHours: 24, debugMaxEventsPerNode: 1000, httpTimeoutMs: 10000, hopLimit: 200 };
+    debugRetentionHours: 24, debugMaxEventsPerNode: 1000, httpTimeoutMs: 10000, hopLimit: 200, messageBudgetMs: 30000 };
   const put = (key: string, payload: Record<string, unknown>) =>
     app.inject({ method: 'PUT', url: `/api/config/dynamic/${key}`, headers: sa, payload });
 

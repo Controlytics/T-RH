@@ -36,9 +36,24 @@ import { unsupportedNodeMessage } from './nodes/unsupported.js';
  *    a Rule chain → Output cycle counts — ENDS with `metadata.error =
  *    HOP_LIMIT` (recorded `Failure (unhandled)`, even if a Failure connection
  *    exists: routing it would spend more hops on the loop it is stopping).
- *  - BUDGET: 30 s per message. A handler still running at the deadline is
+ *  - STEP LIMIT (C1, 2026-11-05): `_hops` counts ONE lineage, and every copy
+ *    carries its own, so a node fanning out in a cycle doubles the live copies
+ *    each pass and never reaches the hop limit. A flow therefore also ends after
+ *    hopLimit × 10 node runs over ALL its copies: `STEP_LIMIT`, recorded like
+ *    HOP_LIMIT on the node it stopped at, counted `step_limit`, every step
+ *    still waiting abandoned (`steps_abandoned`).
+ *  - BUDGET: Configuration → Rule Engine → `messageBudgetMs` (30 s shipped;
+ *    hard-coded before C1). A handler still running at the deadline is
  *    abandoned: the message ends `MESSAGE_TIMEOUT`, and whatever that handler
  *    calls later is dropped (counted `late_dropped`).
+ *  - YIELD (C1): a flow of synchronous nodes awaits only resolved promises —
+ *    microtasks, which Node drains before it returns to the event loop — so it
+ *    held ingest, HTTP, the MQTT bridge and every timer (the budget's own
+ *    included) until it ended. After ~10 ms of continuous work a flow now
+ *    gives the loop a turn (`setImmediate`); its originator stays busy, so
+ *    per-originator order is unchanged. ONE handler call is not split: a
+ *    script node can still hold the loop up to `scriptTimeoutMs` (review A I1,
+ *    accepted).
  *  - Rule chain / Output: the Rule chain node pushes (its chain, itself) on
  *    the message's `_stack` and enters the target chain; an Output node pops
  *    it and the message leaves the CALLER node under the Output node's NAME.
@@ -66,6 +81,13 @@ import { unsupportedNodeMessage } from './nodes/unsupported.js';
  * Configuration → Rule Engine is read on a 1 s timer into a snapshot, so the
  * emit helpers decide "accepting?" without awaiting anything. Switching it
  * OFF empties the queue.
+ *
+ * STOP: the queue is paused, waiting durable resumes are handed back (RE-2),
+ * in-flight messages get `stopWaitMs` (5 s) to
+ * finish; a flow still running after that is HALTED at its next step
+ * (`halted_on_stop`) — before C1's yield a flow could not outlive the wait by
+ * running, only by awaiting, and now it could keep calling services the stop
+ * is disposing.
  *
  * RE-ENTRY (ruling RE-1): every flow runs in a flow context (context.ts)
  * carrying the re-entry depth decided when its message was admitted; a rule
@@ -96,9 +118,15 @@ export interface RuleEngineDeps {
   registerNodes: () => void;
   /** Install the engine as the emit helpers' sink on start (the singleton does; most unit tests do not). */
   installSink: boolean;
-  budgetMs: number;
+  /**
+   * Test seam: a fixed message budget instead of Configuration → Rule Engine's
+   * `messageBudgetMs`. The production deps leave it unset.
+   */
+  budgetMs?: number;
   configRefreshMs: number;
   lifecyclePollMs: number;
+  /** How long `stop()` waits for in-flight messages before halting them (5 s; tests shorten it). */
+  stopWaitMs: number;
 }
 
 export interface RuleEngineStats {
@@ -204,6 +232,8 @@ interface Flow {
   chainsEntered: Set<string>;
   /** The entering item's depth: what its late calls, tellSelf and durable hand-overs carry on. */
   reentryDepth: number;
+  /** Node runs so far, over every copy of the message (C1's step limit). */
+  entered: number;
 }
 
 interface LifecycleInstance {
@@ -215,6 +245,12 @@ interface LifecycleInstance {
 
 const BUDGET_EXCEEDED = Symbol('BUDGET_EXCEEDED');
 const WINDOW_SECONDS = 60;
+/** A flow gives the event loop a turn after this much continuous work (C1). */
+export const FLOW_YIELD_AFTER_MS = 10;
+/** A flow ends after hopLimit × this many node runs over all its copies (C1). */
+export const STEP_LIMIT_PER_HOP = 10;
+export const STEP_LIMIT = 'STEP_LIMIT';
+const yieldToEventLoop = () => new Promise<void>((resolve) => { setImmediate(resolve); });
 /** A failed lifecycle start is retried after 5 s, 10 s, 20 s … at most 5 minutes apart (m3). */
 const INIT_RETRY_BASE_MS = 5_000;
 const INIT_RETRY_MAX_MS = 300_000;
@@ -241,7 +277,10 @@ class RuleEngineImpl implements RuleEngine {
   private lifecycleBusy: Promise<void> | null = null;
   private configTimer: NodeJS.Timeout | null = null;
   private lifecycleTimer: NodeJS.Timeout | null = null;
+  /** Set by `stop()` once its wait for in-flight messages is over: a flow still running ends at its next step. */
+  private halted = false;
   private lastDropLogAt = 0;
+  private lastStepLimitLogAt = 0;
   private lastConfigErrorLogAt = 0;
   private readonly lastInitErrorLogAt = new Map<string, number>();
   private readonly servicesHandle: RuleServicesHandle;
@@ -286,6 +325,7 @@ class RuleEngineImpl implements RuleEngine {
   async start(): Promise<void> {
     if (this.isStarted) return;
     this.stopping = false;
+    this.halted = false;
     try {
       this.deps.registerNodes();
     } catch (err) {
@@ -330,7 +370,10 @@ class RuleEngineImpl implements RuleEngine {
     // RE-2: a waiting durable resume is the only copy of its message (its job completed) —
     // back to graphile while the database and the job runner are still up. The rest is dropped.
     await this.handBackDurable(this.queue.clear());
-    await Promise.race([this.queue.onIdle(), new Promise((r) => setTimeout(r, 5_000).unref())]);
+    await Promise.race([this.queue.onIdle(), new Promise((r) => setTimeout(r, this.deps.stopWaitMs).unref())]);
+    // C1: a flow now yields, so it can still be RUNNING here — it ends at its next step
+    // rather than go on calling the services disposed below.
+    this.halted = true;
     if (this.lifecycleBusy) await this.lifecycleBusy;
     for (const key of [...this.instances.keys()]) await this.destroyInstance(key);
     this.chainVersions.clear();
@@ -433,17 +476,40 @@ class RuleEngineImpl implements RuleEngine {
   }
 
   private async runFlowInContext(item: QueueItem): Promise<void> {
-    const flow: Flow = { deadline: Date.now() + this.deps.budgetMs, steps: [], abandoned: false, chainsEntered: new Set(), reentryDepth: item.reentryDepth };
+    const budgetMs = this.deps.budgetMs ?? this.cfg.messageBudgetMs;
+    const stepLimit = this.cfg.hopLimit * STEP_LIMIT_PER_HOP;
+    const flow: Flow = {
+      deadline: Date.now() + budgetMs, steps: [], abandoned: false, chainsEntered: new Set(), reentryDepth: item.reentryDepth, entered: 0,
+    };
     try {
       await this.hydrate(item.msg);
       await this.enter(flow, item.msg, item.entry);
+      let sliceStart = Date.now();
       while (flow.steps.length > 0 && !flow.abandoned) {
+        if (this.halted) {
+          flow.abandoned = true;
+          this.inc('halted_on_stop');
+          break;
+        }
         if (Date.now() > flow.deadline) {
           flow.abandoned = true;
           this.inc('timeouts');
           break;
         }
-        await this.runStep(flow, flow.steps.shift()!);
+        const step = flow.steps.shift()!;
+        if (flow.entered >= stepLimit) {
+          this.endAtStepLimit(flow, step, stepLimit);
+          break;
+        }
+        flow.entered++;
+        await this.runStep(flow, step);
+        // C1: give ingest, HTTP, the MQTT bridge and the timers a turn. Without this every await
+        // above can be a resolved promise, and the loop never runs until the flow ends. Only
+        // when there is more to do: a flow that has ended gives the loop back by ending.
+        if (flow.steps.length > 0 && !flow.abandoned && Date.now() - sliceStart >= FLOW_YIELD_AFTER_MS) {
+          await yieldToEventLoop();
+          sliceStart = Date.now();
+        }
       }
       if (flow.abandoned && flow.steps.length > 0) {
         this.inc('steps_abandoned', flow.steps.length);
@@ -451,6 +517,27 @@ class RuleEngineImpl implements RuleEngine {
       }
     } finally {
       this.countProcessed(flow);
+    }
+  }
+
+  /**
+   * The flow ran hopLimit × 10 nodes over all its copies (C1): it ends at `step`, recorded
+   * there as HOP_LIMIT is (IN + OUT "Failure (unhandled)", whatever is connected to Failure —
+   * routing it would feed the loop it is stopping), and every step still waiting is abandoned.
+   */
+  private endAtStepLimit(flow: Flow, step: Step, stepLimit: number): void {
+    flow.abandoned = true;
+    this.inc('step_limit');
+    const node = step.chain.nodesById.get(step.nodeId);
+    if (node && node.debugMode !== 'off') {
+      this.record(step.chain, node, 'IN', step.inRelation, step.msg);
+      this.record(step.chain, node, 'OUT', `Failure${UNHANDLED_SUFFIX}`, failureMessage(step.msg, STEP_LIMIT), STEP_LIMIT);
+    }
+    const now = Date.now();
+    if (now - this.lastStepLimitLogAt >= 60_000) {
+      this.lastStepLimitLogAt = now;
+      logger.warn({ chain: step.chain.name, node: node?.name ?? step.nodeId, msgId: step.msg.id, stepLimit },
+        `[rule-engine] a message and its copies ran ${stepLimit} nodes (hop limit × ${STEP_LIMIT_PER_HOP}) — it was ended (STEP_LIMIT). A loop that branches? (logged once a minute)`);
     }
   }
 
@@ -926,9 +1013,10 @@ export function defaultRuleEngineDeps(): RuleEngineDeps {
     services: (hooks) => createRuleServices(hooks),
     registerNodes: registerAllNodes,
     installSink: true,
-    budgetMs: 30_000,
+    // No `budgetMs`: the budget is Configuration → Rule Engine's messageBudgetMs (C1).
     configRefreshMs: 1_000,
     lifecyclePollMs: 5_000,
+    stopWaitMs: 5_000,
   };
 }
 

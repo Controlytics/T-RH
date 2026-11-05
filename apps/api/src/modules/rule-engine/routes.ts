@@ -145,7 +145,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Rule Chains'],
       summary: 'Rule engine statistics',
-      description: 'Whether the engine is switched on (Configuration → Rule Engine), the queue depth, messages dropped since the server started (the queue was full), messages processed in the last minute, and per chain. Zeros while the engine is not running.',
+      description: 'Whether the engine is switched on (Configuration → Rule Engine), the queue depth, messages dropped since the server started (the queue was full), messages processed in the last minute, and per chain, and the engine\'s counters since the server started (`step_limit`, `hop_limit`, `timeouts`, `steps_abandoned` …). Zeros while the engine is not running.',
       response: statsResponse,
     },
   }, async () => {
@@ -157,6 +157,7 @@ export default async function ruleChainRoutes(app: FastifyInstance) {
       dropped: s.dropped,
       processedLastMinute: s.processedLastMinute,
       chains: s.chains,
+      counters: s.counters,
     };
   });
 

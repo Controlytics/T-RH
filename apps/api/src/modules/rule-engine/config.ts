@@ -26,6 +26,12 @@ export interface RuleEngineConfig {
   debugMaxEventsPerNode: number;
   httpTimeoutMs: number;
   hopLimit: number;
+  /**
+   * The longest ONE message (with every copy it makes) may take through the chains (C1,
+   * 2026-11-05; was a hard-coded 30 s). A node still running then is abandoned and the
+   * message ends `MESSAGE_TIMEOUT`.
+   */
+  messageBudgetMs: number;
 }
 
 /**
@@ -33,9 +39,17 @@ export interface RuleEngineConfig {
  *
  * `scriptTimeoutMs` is at most 5 000 ms (ruling RE-3, 2026-11-05): a node script
  * runs synchronously on the API's one event loop (ingest, HTTP, the MQTT bridge),
- * and a script that keeps timing out is switched off only after THREE consecutive
- * time-outs (script-vm.ts) — so the worst case is 15 s of a blocked loop. The old
- * 30 000 allowed 90 s. A row stored before the cap reads as the cap (logged).
+ * so ONE call can hold it for up to that long. A script that keeps timing out is
+ * switched off after three consecutive time-outs (script-vm.ts); one that runs just
+ * UNDER the timeout never is, and holds the loop that long on every message (review
+ * A I1, accepted: ThingsBoard's TBEL runs in-process too). Between nodes a flow
+ * yields to the loop after ~10 ms of work (C1, engine.ts), so several script nodes
+ * no longer add up to one block. The old 30 000 allowed 30 s per call. A row stored
+ * before the cap reads as the cap (logged).
+ *
+ * `messageBudgetMs` (C1) bounds one message's wall time; `hopLimit` one lineage's
+ * length; hopLimit × 10 node runs over all of a message's copies ends a flow that
+ * fans out in a cycle (STEP_LIMIT, engine.ts).
  */
 export const RULE_ENGINE_NUMBER_SETTINGS = {
   scriptTimeoutMs: { default: 2_000, min: 100, max: 5_000 },
@@ -45,6 +59,8 @@ export const RULE_ENGINE_NUMBER_SETTINGS = {
   debugMaxEventsPerNode: { default: 1_000, min: 10, max: 100_000 },
   httpTimeoutMs: { default: 10_000, min: 1_000, max: 120_000 },
   hopLimit: { default: 200, min: 10, max: 10_000 },
+  // At least the HTTP timeout's maximum (a REST node may wait 120 s); 5 minutes at most.
+  messageBudgetMs: { default: 30_000, min: 1_000, max: 300_000 },
 } as const satisfies Record<string, { default: number; min: number; max: number }>;
 
 type NumberKey = keyof typeof RULE_ENGINE_NUMBER_SETTINGS;
@@ -110,6 +126,7 @@ export function coerceRuleEngineConfig(raw: unknown): RuleEngineConfig {
     debugMaxEventsPerNode: num('debugMaxEventsPerNode'),
     httpTimeoutMs: num('httpTimeoutMs'),
     hopLimit: num('hopLimit'),
+    messageBudgetMs: num('messageBudgetMs'),
   };
 }
 

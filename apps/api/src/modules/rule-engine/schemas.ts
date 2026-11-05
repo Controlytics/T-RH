@@ -154,6 +154,9 @@ export const statsResponse = {
         type: 'array',
         items: { type: 'object', properties: { id: { type: 'string' }, processedLastMinute: { type: 'integer' } } },
       },
+      // The engine's counters since the server started (C1): step_limit, hop_limit, timeouts,
+      // steps_abandoned, durable_requeued … — DECLARED, or Fastify strips the map to {}.
+      counters: { type: 'object', additionalProperties: { type: 'integer' } },
     },
   },
   ...errorResponses,

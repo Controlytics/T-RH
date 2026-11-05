@@ -9,7 +9,7 @@ import {
  *
  * How the rule engine runs: on or off, whether Save nodes skip a message ingest
  * already stored, and its limits (script time-box, queue, concurrency, debug
- * retention, HTTP timeout, hop limit). Read ONLY through `getRuleEngineConfig()`
+ * retention, HTTP timeout, hop limit, time per message). Read ONLY through `getRuleEngineConfig()`
  * (`modules/rule-engine/config.ts`), which applies each default key by key and
  * clamps a hand-edited number to its bounds; `afterUpdate` drops its 10 s cache
  * so a save applies at once.
@@ -50,7 +50,11 @@ const NUMBER_LABELS: Record<keyof typeof RULE_ENGINE_NUMBER_SETTINGS, { label: s
   },
   hopLimit: {
     label: 'Hop limit',
-    description: 'The most nodes one message may pass through (across chains). A message that reaches it goes out on Failure — this is what ends a loop.',
+    description: 'The most nodes one message may pass through in a row (across chains). A message that reaches it ends there (recorded as a Failure with no connection, HOP_LIMIT) — this ends a loop. A message and all the copies it makes may run at most ten times this many nodes in total (STEP_LIMIT), which ends a loop that branches.',
+  },
+  messageBudgetMs: {
+    label: 'Time per message (ms)',
+    description: 'The longest one message, with every copy it makes, may take through the chains. A node still running then is abandoned and the message ends (MESSAGE_TIMEOUT). The engine gives the rest of the server a turn every 10 ms, so a long message does not stop it.',
   },
 };
 
@@ -77,7 +81,7 @@ const int = (key: keyof typeof RULE_ENGINE_NUMBER_SETTINGS) => {
 export const ruleEngineDef: ModuleConfigDefinition = {
   moduleKey: RULE_ENGINE_CONFIG_KEY,
   moduleName: 'Rule Engine',
-  description: 'Whether rule chains run, and the rule engine\'s limits: script timeout, queue, concurrency, debug retention, HTTP timeout and hop limit.',
+  description: 'Whether rule chains run, and the rule engine\'s limits: script timeout, queue, concurrency, debug retention, HTTP timeout, hop limit and time per message.',
   icon: 'git-branch',
   category: 'system',
   sortOrder: 17,
@@ -120,6 +124,7 @@ export const ruleEngineDef: ModuleConfigDefinition = {
     debugMaxEventsPerNode: int('debugMaxEventsPerNode'),
     httpTimeoutMs: int('httpTimeoutMs'),
     hopLimit: int('hopLimit'),
+    messageBudgetMs: int('messageBudgetMs'),
   }),
   hooks: {
     afterUpdate: async () => { invalidateRuleEngineConfigCache(); },

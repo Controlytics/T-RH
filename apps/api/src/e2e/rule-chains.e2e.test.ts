@@ -638,7 +638,12 @@ describe('catalogue, stats, stubs', () => {
     cfg.invalidateRuleEngineConfigCache();
     const stats = await get('/api/rule-chains/stats', rd);
     expect(stats.statusCode, stats.body).toBe(200);
-    expect(stats.json()).toEqual({ enabled: true, queueDepth: 0, dropped: 0, processedLastMinute: 0, chains: [] });
+    expect(stats.json()).toEqual({ enabled: true, queueDepth: 0, dropped: 0, processedLastMinute: 0, chains: [], counters: expect.any(Object) });
+    // C1: the engine's counters ride along — none counted by an engine that never ran.
+    const counters = stats.json().counters as Record<string, number>;
+    expect(counters.processed ?? 0).toBe(0);
+    expect(counters.step_limit ?? 0).toBe(0);
+    expect(Object.values(counters).every((n) => Number.isInteger(n))).toBe(true);
 
     // Task 3 wired it to the engine's script VM (src/e2e/rule-engine.e2e.test.ts covers it with the engine running).
     const script = await send('POST', '/api/rule-chains/test-script', { scriptType: 'filter', script: 'return true;', msg: {}, metadata: {}, msgType: 'POST_TELEMETRY_REQUEST' });
@@ -707,7 +712,7 @@ describe('Configuration → Rule Engine', () => {
     expect(engine.statusCode, engine.body).toBe(200);
     expect(engine.json()).toEqual({
       enabled: true, skipSaveNodesForIngestOrigin: true, scriptTimeoutMs: 2000, queueCapacity: 10000, concurrency: 8,
-      debugRetentionHours: 24, debugMaxEventsPerNode: 1000, httpTimeoutMs: 10000, hopLimit: 200,
+      debugRetentionHours: 24, debugMaxEventsPerNode: 1000, httpTimeoutMs: 10000, hopLimit: 200, messageBudgetMs: 30000,
     });
     const attrs = await get('/api/config/dynamic/rule-engine-attributes');
     expect(attrs.statusCode, attrs.body).toBe(200);
@@ -720,7 +725,7 @@ describe('Configuration → Rule Engine', () => {
     const cfg = await import('../modules/rule-engine/config.js');
     const body = {
       enabled: false, skipSaveNodesForIngestOrigin: false, scriptTimeoutMs: 500, queueCapacity: 2000, concurrency: 2,
-      debugRetentionHours: 6, debugMaxEventsPerNode: 50, httpTimeoutMs: 3000, hopLimit: 50,
+      debugRetentionHours: 6, debugMaxEventsPerNode: 50, httpTimeoutMs: 3000, hopLimit: 50, messageBudgetMs: 20000,
     };
     expect((await cfg.getRuleEngineConfig()).enabled).toBe(true); // primes the 10 s cache
     const put = await send('PUT', '/api/config/dynamic/rule-engine', body);
