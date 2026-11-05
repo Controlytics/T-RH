@@ -19,10 +19,23 @@ import { skipsIngestOrigin } from './attributes.js';
  *
  * The data: ThingsBoard's three telemetry shapes — flat `{ key: value }` at
  * `metadata.ts` (or the server time with `useServerTs`; ingest's shape here),
- * `{ ts, values }` at its own ts, or an array of either. A null value
- * fails with ThingsBoard's wording, and so does a body with no reading at all
- * ("Msg body is empty: {}"). Only POST_TELEMETRY_REQUEST is accepted, as in
- * ThingsBoard.
+ * `{ ts, values }` at its own ts, or an array of either — read as ThingsBoard's
+ * `JsonConverter.convertToTelemetry` reads them (master e48b5780):
+ *  - an object holding BOTH `ts` and `values` is the timed shape, whatever their
+ *    types (`jo.has("ts") && jo.has("values")`). Its `ts` is Gson's `getAsLong`
+ *    (Gson 65df6e5a): a JSON number toward zero, a STRING by `Long.parseLong` — so
+ *    `"1699999999999"` is an instant (review B M-2) — and anything else, or a
+ *    `values` that is not an object, fails. Never two junk readings named `ts` /
+ *    `values`;
+ *  - every failure inside one object — a null value, a bad `ts` — is
+ *    ThingsBoard's `Can't parse value: <that object>` (`parseObject` wraps the
+ *    error with the WHOLE object, per array element): `{"t":null}` fails with
+ *    `Can't parse value: {"t":null}`. A body that is not an object or an array of
+ *    objects is `Can't parse value: <it>`; nothing is written for any of them;
+ *  - a body with no reading at all is "Msg body is empty: {}".
+ * The instant is then judged by the write path (ruling TS-1, `services.telemetry.write`):
+ * before 2000 or more than 10 minutes ahead FAILS, nothing stored.
+ * Only POST_TELEMETRY_REQUEST is accepted, as in ThingsBoard.
  *
  * `skipLatestPersistence` writes history only (the write path's `skipLatest`):
  * `instrument_telemetry_latest` is left as it was. It is the ONE source of truth
@@ -40,17 +53,44 @@ interface SaveTimeseriesConfig extends JsonObject {
   skipLatestPersistence?: boolean;
 }
 
+/** ThingsBoard's `JsonConverter.CAN_T_PARSE_VALUE` + the JSON it could not read. */
+const cantParse = (json: unknown) => new Error(`Can't parse value: ${JSON.stringify(json)}`);
+
+const LONG_MIN = -9223372036854775808n;
+const LONG_MAX = 9223372036854775807n;
+
+/**
+ * Gson's `JsonPrimitive.getAsLong()` for a `ts` (Gson 65df6e5a): a number → its
+ * `longValue()` (toward zero); a string → `Long.parseLong` (an optional sign, digits
+ * only, within a long); anything else throws — null here.
+ */
+export function telemetryTsOf(raw: unknown): number | null {
+  if (typeof raw === 'number') return Number.isFinite(raw) ? Math.trunc(raw) : null;
+  if (typeof raw !== 'string' || !/^[+-]?\d+$/.test(raw)) return null;
+  const n = BigInt(raw);
+  return n < LONG_MIN || n > LONG_MAX ? null : Number(n);
+}
+
 export function telemetryReadings(msg: RuleMessage, useServerTs: boolean): RuleTelemetryReading[] {
   const defaultTs = useServerTs ? Date.now() : metadataTs(msg);
   const out: RuleTelemetryReading[] = [];
-  for (const item of Array.isArray(msg.data) ? msg.data : [msg.data]) {
-    if (!isPlainObject(item)) throw new Error('TELEMETRY_DATA_INVALID: the message data is not telemetry ({ key: value }, { ts, values } or an array of them)');
-    const hasTs = typeof item.ts === 'number' && Number.isFinite(item.ts) && isPlainObject(item.values);
-    const ts = new Date(hasTs ? (item.ts as number) : defaultTs);
-    for (const [key, value] of Object.entries(hasTs ? (item.values as JsonObject) : item)) {
+  const items = Array.isArray(msg.data) ? msg.data : isPlainObject(msg.data) ? [msg.data] : null;
+  if (!items) throw cantParse(msg.data);
+  for (const item of items) {
+    if (!isPlainObject(item)) throw cantParse(item);
+    const own = (k: string) => Object.prototype.hasOwnProperty.call(item, k);
+    let values: JsonObject = item;
+    let ts = defaultTs;
+    if (own('ts') && own('values')) {
+      const at = telemetryTsOf(item.ts);
+      if (at === null || !isPlainObject(item.values)) throw cantParse(item);
+      values = item.values;
+      ts = at;
+    }
+    for (const [key, value] of Object.entries(values)) {
       if (value === undefined) continue;
-      if (value === null) throw new Error("Can't parse value: null");
-      out.push({ key, value, ts });
+      if (value === null) throw cantParse(item);
+      out.push({ key, value, ts: new Date(ts) });
     }
   }
   return out;

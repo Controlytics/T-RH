@@ -9,7 +9,7 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { logger } from '../../lib/logger.js';
 import { writeBatchOrDeadLetter } from '../instruments/ingest-core.js';
-import { classifyValue } from '../instruments/payload-parser.js';
+import { classifyValue, DEVICE_TS_MAX_AHEAD_MS, DEVICE_TS_MIN } from '../instruments/payload-parser.js';
 import { NUMERIC_READING } from '../instruments/telemetry.repository.js';
 import { offsetKeyTest } from '../instruments/load-offsets.js';
 import { publishAttributeDownlink } from '../instruments/attribute-downlink.js';
@@ -167,6 +167,8 @@ export interface RuleServices {
      * transform adding 1) is new every time. What ends it is the re-entry depth (ruling RE-1,
      * context.ts): the emit of a write made by a message that itself re-entered is skipped.
      * `skipLatest`: history only, `instrument_telemetry_latest` untouched (TB's skipLatestPersistence).
+     * An instant before 2000 or more than 10 minutes ahead REFUSES the whole write
+     * (`TIMESTAMP_OUT_OF_WINDOW`, ruling TS-1) — the node's Failure, nothing stored.
      */
     write(instrumentId: string, readings: RuleTelemetryReading[], origin: string, opts?: { skipLatest?: boolean }): Promise<void>;
     latest(instrumentId: string, keys: string[]): Promise<Record<string, { value: unknown; ts: Date }>>;
@@ -311,6 +313,27 @@ function canonical(value: unknown): string {
   return JSON.stringify(value, (_k, v) => (v && typeof v === 'object' && !Array.isArray(v)
     ? Object.fromEntries(Object.keys(v as object).sort().map((k) => [k, (v as Record<string, unknown>)[k]]))
     : v));
+}
+
+/**
+ * THE TIMESTAMP WINDOW of a rule-engine write (ruling TS-1, 2026-11-05; review B I-4):
+ * ingest's plausibility window (`instruments/payload-parser.ts` — the SAME constants,
+ * the same comparisons), but a rule write REFUSES where ingest replaces. An instant
+ * before 2000-01-01 or more than 10 minutes ahead of the server fails the whole
+ * write, naming it — nothing stored: an explicit instant a chain wrote is never
+ * silently restamped, and a future one would pin `instrument_telemetry_latest` (the
+ * reason ingest has the window, INGEST-6). An in-window BACKDATED reading is stored
+ * as ingest stores one, unaudited (a new reading is process data, spec D5).
+ * Returns the refusal, or null.
+ */
+export function timestampOutOfWindow(ts: Date, now: number = Date.now()): string | null {
+  const t = ts.getTime();
+  if (Number.isNaN(t)) return 'TIMESTAMP_OUT_OF_WINDOW: a reading has no valid instant; nothing was stored';
+  if (t > now + DEVICE_TS_MAX_AHEAD_MS) {
+    return `TIMESTAMP_OUT_OF_WINDOW: ${ts.toISOString()} is more than ${DEVICE_TS_MAX_AHEAD_MS / 60_000} minutes ahead of the server's time (${new Date(now).toISOString()}); nothing was stored`;
+  }
+  if (t < DEVICE_TS_MIN.getTime()) return `TIMESTAMP_OUT_OF_WINDOW: ${ts.toISOString()} is before ${DEVICE_TS_MIN.toISOString()}; nothing was stored`;
+  return null;
 }
 
 /** The history rows already stored at these (key, instant) pairs, by `key\0ms`. */
@@ -498,6 +521,12 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
     telemetry: {
       async write(instrumentId, readings, origin, opts = {}) {
         if (readings.length === 0) return;
+        // TS-1: judged before anything is read or written — one refused instant fails the whole write.
+        const now = Date.now();
+        for (const r of readings) {
+          const refused = timestampOutOfWindow(r.ts, now);
+          if (refused) throw new Error(refused);
+        }
         const instrument = await instrumentOrThrow(instrumentId);
         // THE SAME READING WRITTEN BACK IS A NO-OP (found by the e2e, 2026-11-03).
         // A chain carries no `rawValue`, so writing back an offset-corrected

@@ -132,11 +132,11 @@ async function restoreSeededRoot() {
   invalidateChainCache();
 }
 
-type DebugRow = { node_id: string; direction: string; relation: string | null; msg_id: string; msg_type: string; originator_id: string; data: any; metadata: any; ts: Date };
+type DebugRow = { node_id: string; direction: string; relation: string | null; msg_id: string; msg_type: string; originator_id: string; data: any; metadata: any; ts: Date; error: string | null };
 
 /** `alarmId`: an alarm message's `metadata.alarmId` — since ruling AL-1 its ORIGINATOR is the alarm's instrument. */
 const rows = (where: { nodeId?: string; msgType?: string; originatorId?: string; msgId?: string; direction?: 'IN' | 'OUT'; alarmId?: string } = {}) => prisma.$queryRaw<DebugRow[]>`
-  SELECT node_id::text, direction, relation, msg_id, msg_type, originator_id, data, metadata, ts
+  SELECT node_id::text, direction, relation, msg_id, msg_type, originator_id, data, metadata, ts, error
   FROM rule_node_debug_events
   WHERE chain_id = ${ROOT}::uuid AND ts >= ${startedAt}
     AND (${where.nodeId ?? null}::text IS NULL OR node_id = ${where.nodeId ?? null}::uuid)
@@ -483,6 +483,77 @@ describe('the re-entry depth on the REAL nodes (ruling RE-1) — each chain here
     });
     // Leave no open alarm behind for the cases below (Re-enter is OFF again: the clear does not re-enter).
     expect(await ruleEngine.services.alarms.clear(inst.id, alarmType, undefined, ruleNodeOrigin(ROOT, C))).not.toBeNull();
+  });
+});
+
+/**
+ * The shipped Save Timeseries on the inject route (origin rest_api, not skipped): ruling TS-1 —
+ * ingest's timestamp window, REFUSED not replaced; review B M-2 — a whole-number STRING ts in
+ * `{ ts, values }`; and ThingsBoard's null-value wording. Every case is the REAL node in the run's
+ * root (the shipped document), so a refusal is its Failure — unconnected there, recorded with its error.
+ */
+describe('Save Timeseries: the timestamp window (TS-1), a string ts (M-2), a null value — through the shipped root', () => {
+  async function inject(data: unknown, metadata: Record<string, string> = {}): Promise<string> {
+    const res = await app.inject({ method: 'POST', url: '/api/rule-engine/v1/messages', headers: sa,
+      payload: { type: 'POST_TELEMETRY_REQUEST', originatorCode: inst.code, data, metadata } });
+    expect(res.json(), res.body).toMatchObject({ accepted: true });
+    return (res.json() as { msgId: string }).msgId;
+  }
+  const saveOut = async (msgId: string) => (await waitForRows({ nodeId: SAVE_TS, msgId, direction: 'OUT' }, 1))[0];
+  const stored = (key: string) => prisma.$queryRaw<{ value: unknown; ts: Date }[]>`
+    SELECT value, ts FROM instrument_telemetry_history WHERE instrument_id = ${inst.id} AND key = ${key}`;
+  const instrumentAudits = (since: Date) => prisma.auditTrail.count({ where: { targetId: inst.id, timestamp: { gte: since } } });
+  const deadLetters = () => prisma.deadLetter.count({ where: { instrumentId: inst.id } });
+
+  it('an instant more than 10 minutes AHEAD fails the write, naming it — nothing stored, no dead letter', async () => {
+    const key = `fut_${STAMP}`;
+    const at = Date.now() + 3_600_000;
+    const letters = await deadLetters();
+    const out = await saveOut(await inject({ [key]: 1 }, { ts: String(at) }));
+    expect(out.relation).toBe('Failure (unhandled)');
+    const iso = new Date(at).toISOString().replace(/\./g, '\\.');
+    expect(out.error).toMatch(new RegExp(`^TIMESTAMP_OUT_OF_WINDOW: ${iso} is more than 10 minutes ahead of the server's time \\(\\S+\\); nothing was stored$`));
+    expect(await stored(key)).toEqual([]);
+    expect(await deadLetters()).toBe(letters);
+  });
+
+  it('an instant BEFORE 2000 fails the write, naming it — refused before the partition split, so no dead letter either', async () => {
+    const key = `old_${STAMP}`;
+    const at = Date.UTC(1999, 11, 31, 23, 0, 0);
+    const letters = await deadLetters();
+    const out = await saveOut(await inject({ [key]: 1 }, { ts: String(at) }));
+    expect(out.relation).toBe('Failure (unhandled)');
+    expect(out.error).toBe('TIMESTAMP_OUT_OF_WINDOW: 1999-12-31T23:00:00.000Z is before 2000-01-01T00:00:00.000Z; nothing was stored');
+    expect(await stored(key)).toEqual([]);
+    expect(await deadLetters()).toBe(letters);
+  });
+
+  it('an in-window BACKDATED instant is stored as ingest stores one — no audit row of any kind on the instrument', async () => {
+    const key = `back_${STAMP}`;
+    const at = Date.now() - 30 * 60_000;
+    const since = new Date();
+    const out = await saveOut(await inject({ [key]: 7 }, { ts: String(at) }));
+    expect(out.relation).toBe('Success (unconnected)');
+    expect(await stored(key)).toEqual([{ value: 7, ts: new Date(at) }]);
+    expect(await instrumentAudits(since)).toBe(0);
+  });
+
+  it('M-2: { ts: "<whole number>", values } is stored at THAT instant — never as readings named ts / values', async () => {
+    const key = `m2_${STAMP}`;
+    const at = Date.now() - 20 * 60_000;
+    const out = await saveOut(await inject({ ts: String(at), values: { [key]: 4 } }, { ts: '1000' }));
+    expect(out.relation).toBe('Success (unconnected)');
+    expect(await stored(key)).toEqual([{ value: 4, ts: new Date(at) }]);
+    expect(await prisma.$queryRaw<unknown[]>`
+      SELECT 1 FROM instrument_telemetry_history WHERE instrument_id = ${inst.id} AND key IN ('ts', 'values')`).toEqual([]);
+  });
+
+  it('a null value fails with ThingsBoard\'s wording, the whole object named: Can\'t parse value: {"…":null}', async () => {
+    const key = `nul_${STAMP}`;
+    const out = await saveOut(await inject({ [key]: null }));
+    expect(out.relation).toBe('Failure (unhandled)');
+    expect(out.error).toBe(`Can't parse value: {"${key}":null}`);
+    expect(await stored(key)).toEqual([]);
   });
 });
 

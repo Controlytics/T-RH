@@ -12,6 +12,7 @@ import { clearRegistry, getHandler } from '../registry.js';
 import { registerActionNodes } from '../nodes/action/index.js';
 import { metadataTs, processPattern, roundHalfUp } from '../nodes/action/support.js';
 import { compileExpression, evaluateExpression } from '../nodes/action/math-expression.js';
+import { telemetryTsOf } from '../nodes/action/save-timeseries.js';
 import { newMessage, newMessageId, type RuleMessage } from '../message.js';
 import { alarmMessageData, emitAlarm, setRuleEngineSink } from '../emit.js';
 import { fakeContext, testMessage } from '../../../test-support/rule-engine.js';
@@ -592,15 +593,42 @@ describe('Save time series', () => {
     expect(write).toHaveBeenCalledTimes(2);
   });
 
-  it('another type, a null value, a body that is not telemetry and a non-instrument originator fail', async () => {
+  it('another type, a null value, a body that is not telemetry and a non-instrument originator fail — the null / body with ThingsBoard\'s JsonConverter wording', async () => {
     const write = vi.fn(async () => undefined);
-    expect((await run(T, {}, testMessage({ t: 1 }, { type: 'POST_ATTRIBUTES_REQUEST' }), { telemetry: { write } })).thrown?.message)
-      .toBe('Unsupported msg type: POST_ATTRIBUTES_REQUEST');
-    expect((await run(T, {}, testMessage({ t: null }), { telemetry: { write } })).thrown?.message).toBe("Can't parse value: null");
-    expect((await run(T, {}, testMessage('21.5'), { telemetry: { write } })).thrown?.message).toMatch(/^TELEMETRY_DATA_INVALID/);
-    expect((await run(T, {}, newMessage('POST_TELEMETRY_REQUEST', { type: 'SYSTEM', id: 'SYSTEM' }, { t: 1 }), { telemetry: { write } })).thrown?.message)
-      .toMatch(/^ORIGINATOR_NOT_INSTRUMENT/);
+    const failed = async (msg: RuleMessage) => (await run(T, {}, msg, { telemetry: { write } })).thrown?.message;
+    expect(await failed(testMessage({ t: 1 }, { type: 'POST_ATTRIBUTES_REQUEST' }))).toBe('Unsupported msg type: POST_ATTRIBUTES_REQUEST');
+    // parseObject wraps the error with the WHOLE object it was reading (per array element), not the value.
+    expect(await failed(testMessage({ t: null }))).toBe('Can\'t parse value: {"t":null}');
+    expect(await failed(testMessage({ h: 40, t: null }))).toBe('Can\'t parse value: {"h":40,"t":null}');
+    expect(await failed(testMessage({ ts: 1000, values: { t: null } }))).toBe('Can\'t parse value: {"ts":1000,"values":{"t":null}}');
+    expect(await failed(testMessage([{ t: 1 }, { u: null }]))).toBe('Can\'t parse value: {"u":null}');
+    expect(await failed(testMessage('21.5'))).toBe('Can\'t parse value: "21.5"');
+    expect(await failed(testMessage([{ t: 1 }, 7]))).toBe('Can\'t parse value: 7');
+    expect(await failed(newMessage('POST_TELEMETRY_REQUEST', { type: 'SYSTEM', id: 'SYSTEM' }, { t: 1 }))).toMatch(/^ORIGINATOR_NOT_INSTRUMENT/);
     expect(write).not.toHaveBeenCalled();
+  });
+
+  it('M-2: an object with BOTH ts and values is the timed shape whatever their types — a whole-number STRING ts is an instant (Gson getAsLong); anything else fails, never junk readings named ts / values', async () => {
+    const write = vi.fn(async () => undefined);
+    const readings = async (data: unknown) => {
+      write.mockClear();
+      const r = await run(T, {}, testMessage(data, { metadata: { ts: '5' } }), { telemetry: { write } });
+      return r.thrown ? r.thrown.message : (write.mock.calls[0] as unknown[])[1];
+    };
+    expect(await readings({ ts: '1699999999999', values: { t: 1 } })).toEqual([{ key: 't', value: 1, ts: new Date(1699999999999) }]);
+    expect(await readings({ ts: '+1699999999999', values: { t: 1 } })).toEqual([{ key: 't', value: 1, ts: new Date(1699999999999) }]);
+    // A JSON number with a fraction: Java's longValue(), toward zero.
+    expect(await readings({ ts: 1699999999999.9, values: { t: 1 } })).toEqual([{ key: 't', value: 1, ts: new Date(1699999999999) }]);
+    // Long.parseLong refuses a space, a fraction, an exponent, a blank; Gson refuses a boolean, null, an array, an object.
+    for (const ts of [' 1699999999999', '1699999999999.0', '1.7e12', '', 'soon', true, null, [1], { at: 1 }, '9223372036854775808']) {
+      expect(await readings({ ts, values: { t: 1 } }), JSON.stringify(ts)).toBe(`Can't parse value: ${JSON.stringify({ ts, values: { t: 1 } })}`);
+    }
+    // `values` must be an object.
+    expect(await readings({ ts: 1000, values: 5 })).toBe('Can\'t parse value: {"ts":1000,"values":5}');
+    // The reader itself is Gson's getAsLong: a whole long (toward zero), never a fraction.
+    expect([telemetryTsOf(1699999999999.9), telemetryTsOf(-2.7), telemetryTsOf('-12'), telemetryTsOf('12x')]).toEqual([1699999999999, -2, -12, null]);
+    // Only BOTH keys make the timed shape: `ts` alone is an ordinary reading at metadata.ts.
+    expect(await readings({ ts: 'soon', t: 1 })).toEqual([{ key: 'ts', value: 'soon', ts: new Date(5) }, { key: 't', value: 1, ts: new Date(5) }]);
   });
 
   it('TB-P 3: an EMPTY body fails with ThingsBoard\'s wording, "Msg body is empty: " + the data', async () => {
