@@ -46,7 +46,13 @@ export interface RuleContextNode<C> {
 
 export interface RuleContext<C = Record<string, unknown>> {
   node: RuleContextNode<C>;
-  chain: { id: string; name: string };
+  /**
+   * `version` is the chain version `runScript` keys a node's script switch-off on (`<chainId>:<nodeId>:<version>`),
+   * and Copy / Delete keys their key-pattern switch-off: ONE value, read through one function in the engine. A
+   * flow's is the chain it runs on; a LIFECYCLE context (a Generator's) outlives saves that do not restart its node,
+   * so its version is the one the last sync saw — read it when needed, never keep a copy (FW-N3 follow-up c).
+   */
+  chain: { readonly id: string; readonly name: string; readonly version: number };
   /** The same object as `node.config`. */
   config: C;
   services: RuleServices;

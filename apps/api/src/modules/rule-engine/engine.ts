@@ -815,6 +815,11 @@ class RuleEngineImpl implements RuleEngine {
     const config = ruleNodeConfigWithDefaults(node.type, node.config);
     // RE-1: what this node sends later belongs to the flow it came from; a lifecycle node's message (a Generator tick) starts at 0.
     const reentryDepth = flow?.reentryDepth ?? 0;
+    // THE chain version of this context — ONE function that `ctx.chain.version` and the runScript key both read, so
+    // the script switch-off and Copy / Delete keys' pattern switch-off can never key on different versions. A
+    // handler's chain is the one just loaded; a lifecycle context (a Generator) outlives saves that do not touch its
+    // node, so it reads the version the last sync saw (m1), not the one it started with — hence a getter, not a copy.
+    const versionNow = (): number => (flow ? chain.updatedAt.getTime() : (this.liveVersions.get(chain.id) ?? chain.updatedAt.getTime()));
     const late = (replay: Replay, msg: RuleMessage) => {
       if (flow?.abandoned || !this.accepting()) {
         this.inc('late_dropped');
@@ -824,7 +829,7 @@ class RuleEngineImpl implements RuleEngine {
     };
     const ctx: RuleContext = {
       node: { id: node.id, name: node.name, type: node.type, config, debugMode: node.debugMode },
-      chain: { id: chain.id, name: chain.name },
+      chain: { id: chain.id, name: chain.name, get version() { return versionNow(); } },
       config,
       services: this.servicesHandle,
       origin: ruleNodeOrigin(chain.id, node.id),
@@ -867,11 +872,10 @@ class RuleEngineImpl implements RuleEngine {
       log: (level: RuleLogLevel, text: string) => {
         logger[level]({ chainId: chain.id, nodeId: node.id }, `[rule-chain ${chain.name}/${node.name}] ${text}`);
       },
-      // Keyed to this node AND the chain's CURRENT version: a save (a new updatedAt) re-enables a disabled
-      // script. A handler's chain is the one just loaded; a lifecycle context (a Generator) outlives saves
-      // that do not touch its node, so it reads the version the last sync saw (m1), not the one it started with.
+      // Keyed to this node AND the chain's CURRENT version (`versionNow`, the one `ctx.chain.version` reads):
+      // a save (a new updatedAt) re-enables a disabled script.
       runScript: (kind, script, msg) => runVmScript(kind, script, msg.data, msg.metadata, msg.type, this.cfg.scriptTimeoutMs, {
-        key: `${ruleNodeKey(chain.id, node.id)}:${flow ? chain.updatedAt.getTime() : (this.liveVersions.get(chain.id) ?? chain.updatedAt.getTime())}`,
+        key: `${ruleNodeKey(chain.id, node.id)}:${versionNow()}`,
       }) as never,
     };
     return { ctx, close: () => { open = false; } };

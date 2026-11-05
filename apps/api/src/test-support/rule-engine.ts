@@ -78,6 +78,8 @@ export interface FakeContextOptions {
   nodeId?: string;
   chainId?: string;
   chainName?: string;
+  /** `ctx.chain.version` — and the version the fake runScript keys its switch-off on; 0 when not given. */
+  chainVersion?: number;
   debugMode?: RuleDebugMode;
   services?: ServiceOverrides | RuleServices;
 }
@@ -87,6 +89,7 @@ export function fakeContext<C = Record<string, unknown>>(opts: FakeContextOption
   const config = ruleNodeConfigWithDefaults(type, opts.config ?? {}) as C;
   const nodeId = opts.nodeId ?? randomUUID();
   const chainId = opts.chainId ?? randomUUID();
+  const chainVersion = opts.chainVersion ?? 0;
   const order: string[] = [];
   const calls: FakeContextCalls = {
     next: [], failures: [], self: [], chains: [], outputs: [], logs: [],
@@ -98,7 +101,7 @@ export function fakeContext<C = Record<string, unknown>>(opts: FakeContextOption
     : fakeServices((opts.services ?? {}) as ServiceOverrides);
   const ctx: RuleContext<C> = {
     node: { id: nodeId, name: opts.name ?? type, type, config, debugMode: opts.debugMode ?? 'off' },
-    chain: { id: chainId, name: opts.chainName ?? 'Test chain' },
+    chain: { id: chainId, name: opts.chainName ?? 'Test chain', version: chainVersion },
     config,
     services,
     origin: ruleNodeOrigin(chainId, nodeId),
@@ -125,9 +128,9 @@ export function fakeContext<C = Record<string, unknown>>(opts: FakeContextOption
     log(level, text) {
       calls.logs.push({ level, text });
     },
-    // As the engine's: keyed to this node (version 0), so three consecutive time-outs disable the script.
+    // As the engine's: keyed to this node and ctx.chain.version, so three consecutive time-outs disable the script.
     runScript: (kind, script, msg) => runVmScript(kind, script, msg.data, msg.metadata, msg.type, services.config().scriptTimeoutMs,
-      { key: `${ruleNodeKey(chainId, nodeId)}:0` }) as never,
+      { key: `${ruleNodeKey(chainId, nodeId)}:${chainVersion}` }) as never,
   };
   return { ctx, calls };
 }

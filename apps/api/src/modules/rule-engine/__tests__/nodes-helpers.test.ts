@@ -7,6 +7,19 @@
  * engine finds it — never a stand-in under a shipped type id.
  */
 import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
+
+// Follow-up (c): the key each runScript call is given — the real script-vm runs every time.
+const scriptKeys = vi.hoisted(() => ({ seen: [] as (string | undefined)[] }));
+vi.mock('../script-vm.js', async (importActual) => {
+  const real = await importActual<typeof import('../script-vm.js')>();
+  return {
+    ...real,
+    runScript: ((...args: unknown[]) => {
+      scriptKeys.seen.push((args[6] as { key?: string } | undefined)?.key);
+      return (real.runScript as (...a: unknown[]) => unknown)(...args);
+    }) as typeof real.runScript,
+  };
+});
 import { readFileSync } from 'node:fs';
 import { RULE_SCRIPT_KEYS } from '@digilog/shared';
 import { clearRegistry, getHandler } from '../registry.js';
@@ -17,10 +30,13 @@ import { registerEnrichmentNodes } from '../nodes/enrichment/index.js';
 import { registerExternalNodes } from '../nodes/external/index.js';
 import { jsScriptOf, metadataTs, nodeScriptOf, processPattern } from '../nodes/action/support.js';
 import { importChain } from '../import-export.js';
+import { createRuleEngine } from '../engine.js';
+import { registerNode } from '../registry.js';
+import type { RuleContext } from '../context.js';
 import { compileExpression, evaluateExpression } from '../nodes/action/math-expression.js';
 import { newMessageId, type RuleMessage } from '../message.js';
 import type { RuleServices } from '../services.js';
-import { fakeContext, testMessage } from '../../../test-support/rule-engine.js';
+import { fakeContext, testMessage, chainOf, docOf, nodeOf, memoryDeps, fakeServices } from '../../../test-support/rule-engine.js';
 
 type Overrides = Parameters<typeof fakeContext>[0] extends infer O ? O extends { services?: infer S } ? S : never : never;
 
@@ -303,5 +319,62 @@ describe('contract C2 — the Generator reads ThingsBoard’s DEVICE / TENANT an
         await getHandler(T)!.onDestroy!(ctx);
       }
     }
+  });
+});
+
+// ─── follow-up (c): ONE chain version for a node's switch-offs ───────────────
+
+describe('ctx.chain.version is the version runScript keys on — in a flow AND in a lifecycle context, also after a save that does not restart the node', () => {
+  it('both read ONE version: the flow\'s chain, and for a lifecycle context the version the last sync saw', async () => {
+    const T = 'test:version-probe';
+    let flowCtx: RuleContext | null = null;
+    let lifeCtx: RuleContext | null = null;
+    let inits = 0;
+    const restore = registerNode(T, (ctx, msg) => {
+      flowCtx = ctx;
+      ctx.runScript('log', 'return 1;', msg);
+      ctx.tellNext(msg, 'Success');
+    }, { onInit: (ctx) => { lifeCtx = ctx; inits++; } });
+    const node = nodeOf(T, 'Probe', { id: '0f000000-0000-4000-8000-0000000d0101' });
+    const v1 = chainOf('Versions', docOf([node], []), { root: true, id: '0f000000-0000-4000-8000-0000000d0102' });
+    const mem = memoryDeps([v1]);
+    const engine = createRuleEngine({ ...mem.deps, services: () => Object.assign(fakeServices(), { dispose: async () => undefined }) });
+    try {
+      await engine.start();
+      await engine.syncLifecycles({ force: true });
+      const base = `${v1.id}:${node.id}`;
+      // A flow context: the chain it ran on.
+      scriptKeys.seen.length = 0;
+      await engine.processNow(testMessage({ t: 1 }));
+      expect(flowCtx!.chain.version).toBe(v1.updatedAt.getTime());
+      expect(scriptKeys.seen).toEqual([`${base}:${flowCtx!.chain.version}`]);
+      // A lifecycle context: the same version while nothing changed …
+      expect(inits).toBe(1);
+      scriptKeys.seen.length = 0;
+      lifeCtx!.runScript('log', 'return 1;', testMessage({}));
+      expect(lifeCtx!.chain.version).toBe(v1.updatedAt.getTime());
+      expect(scriptKeys.seen).toEqual([`${base}:${lifeCtx!.chain.version}`]);
+      // … and after a save that leaves this node as it was (no restart), the version the sync saw, on BOTH.
+      const v2 = { ...v1, updatedAt: new Date(v1.updatedAt.getTime() + 60_000) };
+      mem.chains.set(v1.id, v2);
+      await engine.syncLifecycles();
+      expect(inits).toBe(1);
+      scriptKeys.seen.length = 0;
+      lifeCtx!.runScript('log', 'return 1;', testMessage({}));
+      expect(lifeCtx!.chain.version).toBe(v2.updatedAt.getTime());
+      expect(scriptKeys.seen).toEqual([`${base}:${v2.updatedAt.getTime()}`]);
+    } finally {
+      await engine.stop();
+      restore();
+    }
+  });
+
+  it('fakeContext carries version 0 by default, or the one a test gives, and keys its runScript on it', () => {
+    expect(fakeContext({ type: 'tb:action:log' }).ctx.chain.version).toBe(0);
+    const { ctx } = fakeContext({ type: 'tb:action:log', chainVersion: 42, nodeId: 'n1', chainId: 'c1', config: { jsScript: 'return 1;' } });
+    expect(ctx.chain.version).toBe(42);
+    scriptKeys.seen.length = 0;
+    ctx.runScript('log', 'return 1;', testMessage({}));
+    expect(scriptKeys.seen).toEqual(['c1:n1:42']);
   });
 });
