@@ -85,6 +85,68 @@ describe('capacity', () => {
   });
 });
 
+describe('items the queue may never drop (isDroppable; ruling RE-2)', () => {
+  /** Ids with a K are KEPT (a durable resume in the engine). */
+  const keptQueue = (capacity: number, processed: string[] = [], dropped: string[] = []) => new OriginatorQueue<Item>({
+    capacity, concurrency: 1, keyOf: (i) => i.key,
+    isDroppable: (i) => !i.id.includes('K'),
+    process: async (i) => { processed.push(i.id); },
+    onDrop: (i) => dropped.push(i.id),
+  });
+  const kept = (key: string, n: number): Item => ({ key, id: `${key}K${n}` });
+
+  it('a kept item is never evicted: the oldest DROPPABLE item of the largest backlog goes, even behind a kept one', async () => {
+    const processed: string[] = [];
+    const dropped: string[] = [];
+    const q = keptQueue(5, processed, dropped);
+    for (const i of [kept('A', 1), item('A', 2), item('A', 3), item('A', 4), item('B', 1), item('B', 2), item('B', 3)]) {
+      expect(q.push(i)).toBe(true);
+    }
+    expect(dropped).toEqual(['A2', 'A3']);
+    expect(q.size).toBe(5);
+    await q.onIdle();
+    expect(processed.sort()).toEqual(['A4', 'AK1', 'B1', 'B2', 'B3']);
+  });
+
+  it('"largest" counts what may be dropped: a backlog of kept items is passed over', () => {
+    const dropped: string[] = [];
+    const q = keptQueue(4, [], dropped);
+    for (const i of [kept('A', 1), kept('A', 2), kept('A', 3), item('B', 1)]) q.push(i);
+    expect(q.push(item('B', 2))).toBe(true);
+    expect(dropped).toEqual(['B1']);
+    q.clear();
+  });
+
+  it('full of kept items: a newcomer is REFUSED (push false) and capacity holds — a droppable one counted as dropped, a kept one not', () => {
+    const dropped: string[] = [];
+    const q = keptQueue(3, [], dropped);
+    for (const i of [kept('A', 1), kept('A', 2), kept('B', 1)]) expect(q.push(i)).toBe(true);
+    expect(q.push(item('C', 1))).toBe(false);
+    expect(dropped).toEqual(['C1']);
+    expect(q.dropped).toBe(1);
+    expect(q.push(kept('C', 2))).toBe(false);
+    expect(q.dropped).toBe(1);
+    expect(q.size).toBe(3);
+    q.clear();
+  });
+
+  it('the kept count follows dispatch and clear: once the kept items are gone, eviction works again', async () => {
+    const dropped: string[] = [];
+    const q = keptQueue(2, [], dropped);
+    q.push(kept('A', 1));
+    q.push(kept('A', 2));
+    await q.onIdle();
+    for (const i of [item('A', 3), item('A', 4), item('A', 5)]) expect(q.push(i)).toBe(true);
+    expect(dropped).toEqual(['A3']);
+    expect(q.clear().map((i) => i.id)).toEqual(['A4', 'A5']);
+    q.push(item('B', 1));
+    q.push(item('B', 2));
+    expect(q.push(item('B', 3))).toBe(true);
+    expect(dropped).toEqual(['A3', 'B1']);
+    q.clear();
+  });
+});
+
 describe('push never throws', () => {
   it('a processor that throws (sync or async) is reported, and the queue carries on', async () => {
     const errors: string[] = [];

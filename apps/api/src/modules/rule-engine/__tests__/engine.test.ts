@@ -466,6 +466,161 @@ describe('the durable path (rule_engine_message)', () => {
     await stopped;
   });
 
+  it('RE-2: a full queue never evicts an ADMITTED durable resume — it is processed after 200 more messages of its originator', async () => {
+    let release!: () => void;
+    const gateOpen = new Promise<void>((r) => { release = r; });
+    const resumed: string[] = [];
+    const hold = type('test:re2-hold', async () => { await gateOpen; });
+    const from = type('test:re2-delay', () => undefined);
+    const after = type('test:re2-after', (_ctx, msg) => { resumed.push(msg.id); });
+    const h = nodeOf(hold, 'Hold');
+    const d = nodeOf(from, 'Delay');
+    const r = nodeOf(after, 'After');
+    const chain = chainOf('c', docOf([h, d, r], [[d, 'Success', r]], h), { root: true });
+    const mem = memoryDeps([chain], { queueCapacity: 100 });
+    const engine = createRuleEngine({ ...mem.deps, budgetMs: 60_000, services: () => Object.assign(fakeServices(), { dispose: async () => undefined }) });
+    await engine.start();
+    try {
+      engine.enqueue(testMessage({ i: 0 }, { originator: { id: 'A' } }));
+      await waitFor(() => engine.stats().inFlight === 1);
+      for (let i = 1; i < 99; i++) engine.enqueue(testMessage({ i }, { originator: { id: 'A' } }));
+      const durable = testMessage({ durable: true }, { originator: { id: 'A' } });
+      expect(engine.resumeAfter(durable, chain.id, d.id)).toBe(true);
+      for (let i = 0; i < 200; i++) engine.enqueue(testMessage({ more: i }, { originator: { id: 'A' } }));
+      expect(engine.stats().queueDepth).toBe(100);
+      expect(engine.stats().dropped).toBe(199);
+      release();
+      await engine.drain();
+      expect(resumed).toEqual([durable.id]);
+    } finally {
+      await engine.stop();
+    }
+  });
+
+  it('RE-2: at capacity resumeAfter REFUSES (durable_refused) — graphile keeps the job, nothing is evicted for it', async () => {
+    const hold = type('test:re2-hold2', () => new Promise<void>(() => undefined));
+    const h = nodeOf(hold, 'Hold');
+    const chain = chainOf('c', docOf([h], []), { root: true });
+    const mem = memoryDeps([chain], { queueCapacity: 100 });
+    const engine = createRuleEngine({ ...mem.deps, budgetMs: 60_000, services: () => Object.assign(fakeServices(), { dispose: async () => undefined }) });
+    await engine.start();
+    try {
+      engine.enqueue(testMessage({ i: 0 }, { originator: { id: 'A' } }));
+      await waitFor(() => engine.stats().inFlight === 1);
+      for (let i = 1; i <= 100; i++) engine.enqueue(testMessage({ i }, { originator: { id: 'A' } }));
+      expect(engine.stats().queueDepth).toBe(100);
+      expect(engine.resumeAfter(testMessage({}, { originator: { id: 'A' } }), chain.id, h.id)).toBe(false);
+      expect(engine.stats().counters.durable_refused).toBe(1);
+      expect(engine.stats().dropped).toBe(0);
+    } finally {
+      await engine.stop();
+    }
+  });
+
+  it('RE-2: stop() hands every WAITING durable resume back to graphile — its message, node, relation and depth (durable_requeued)', async () => {
+    const handed: { msgId: string; chainId: string; nodeId: string; runAt: Date | undefined; opts: unknown }[] = [];
+    const hold = type('test:re2-hold3', () => new Promise<void>(() => undefined));
+    const h = nodeOf(hold, 'Hold');
+    const d = nodeOf(type('test:re2-d3', () => undefined), 'Delay');
+    const chain = chainOf('c', docOf([h, d], [], h), { root: true });
+    const mem = memoryDeps([chain]);
+    const services = Object.assign(fakeServices({
+      durable: { enqueue: async (msg, chainId, nodeId, runAt, opts) => { handed.push({ msgId: msg.id, chainId, nodeId, runAt, opts }); } },
+    }), { dispose: async () => undefined });
+    const engine = createRuleEngine({ ...mem.deps, budgetMs: 60_000, services: () => services });
+    await engine.start();
+    engine.enqueue(testMessage({}, { originator: { id: 'A' } }));
+    await waitFor(() => engine.stats().inFlight === 1);
+    const deep = { ...testMessage({ n: 1 }, { originator: { id: 'A' } }), _hops: 9 };
+    const plain = testMessage({ n: 2 }, { originator: { id: 'A' } });
+    expect(engine.resumeAfter(deep, chain.id, d.id, ['True'], { reentryDepth: 1 })).toBe(true);
+    expect(engine.resumeAfter(plain, chain.id, d.id)).toBe(true);
+    engine.enqueue(testMessage({ ordinary: true }, { originator: { id: 'A' } }));
+    const counters = () => engine.stats().counters;
+    await engine.stop();
+    expect(handed).toEqual([
+      { msgId: deep.id, chainId: chain.id, nodeId: d.id, runAt: undefined, opts: { reentryDepth: 1, relation: 'True' } },
+      { msgId: plain.id, chainId: chain.id, nodeId: d.id, runAt: undefined, opts: { reentryDepth: 0, relation: 'Success' } },
+    ]);
+    expect(counters()).toMatchObject({ durable_requeued: 2 });
+    expect(counters().durable_dropped ?? 0).toBe(0);
+  });
+
+  it('RE-2: a hand-back that fails is counted durable_dropped (and logged), the others still go back', async () => {
+    let calls = 0;
+    const hold = type('test:re2-hold4', () => new Promise<void>(() => undefined));
+    const h = nodeOf(hold, 'Hold');
+    const d = nodeOf(type('test:re2-d4', () => undefined), 'Delay');
+    const chain = chainOf('c', docOf([h, d], [], h), { root: true });
+    const services = Object.assign(fakeServices({
+      durable: { enqueue: async () => { calls++; if (calls === 1) throw new Error('database gone'); } },
+    }), { dispose: async () => undefined });
+    const engine = createRuleEngine({ ...memoryDeps([chain]).deps, budgetMs: 60_000, services: () => services });
+    await engine.start();
+    engine.enqueue(testMessage({}, { originator: { id: 'A' } }));
+    await waitFor(() => engine.stats().inFlight === 1);
+    engine.resumeAfter(testMessage({ n: 1 }, { originator: { id: 'A' } }), chain.id, d.id);
+    engine.resumeAfter(testMessage({ n: 2 }, { originator: { id: 'A' } }), chain.id, d.id);
+    await engine.stop();
+    expect(calls).toBe(2);
+    expect(engine.stats().counters).toMatchObject({ durable_dropped: 1, durable_requeued: 1 });
+  });
+
+  it('RE-2: switching the engine OFF drops waiting durable resumes — counted durable_dropped (the worker drops them too when off)', async () => {
+    const hold = type('test:re2-hold5', () => new Promise<void>(() => undefined));
+    const h = nodeOf(hold, 'Hold');
+    const d = nodeOf(type('test:re2-d5', () => undefined), 'Delay');
+    const chain = chainOf('c', docOf([h, d], [], h), { root: true });
+    const config: { enabled?: boolean } = {};
+    const engine = createRuleEngine({ ...memoryDeps([chain], config).deps, budgetMs: 60_000, services: () => Object.assign(fakeServices(), { dispose: async () => undefined }) });
+    await engine.start();
+    try {
+      engine.enqueue(testMessage({}, { originator: { id: 'A' } }));
+      await waitFor(() => engine.stats().inFlight === 1);
+      engine.resumeAfter(testMessage({ n: 1 }, { originator: { id: 'A' } }), chain.id, d.id);
+      engine.enqueue(testMessage({ ordinary: true }, { originator: { id: 'A' } }));
+      config.enabled = false;
+      await engine.refreshConfig();
+      expect(engine.stats().counters).toMatchObject({ cleared_on_disable: 2, durable_dropped: 1 });
+    } finally {
+      await engine.stop();
+    }
+  });
+
+  it('RE-2: a refused or early job is RESCHEDULED (no graphile attempt spent), backing off 5 s, 10 s, 20 s … up to 5 min', async () => {
+    const calls: { payload: Record<string, unknown>; runAt: Date; originatorId: string }[] = [];
+    const reschedule = async (payload: Record<string, unknown>, runAt: Date, originatorId: string) => { calls.push({ payload, runAt, originatorId }); };
+    const payload = { message: serialisableMessage(testMessage({}, { originator: { id: 'inst-7' } })), chainId: '0f000000-0000-4000-8000-0000000000c1', resumeAfterNodeId: '0f000000-0000-4000-8000-0000000000c2' };
+    // Not started: rescheduled, not thrown.
+    const idle = createRuleEngine({ ...memoryDeps([]).deps, services: () => Object.assign(fakeServices(), { dispose: async () => undefined }) });
+    const t0 = Date.now();
+    expect(await runRuleEngineMessage(payload, idle, { reschedule })).toBe('rescheduled');
+    expect(calls[0].originatorId).toBe('inst-7');
+    expect(calls[0].payload).toEqual({ ...payload, requeues: 1 });
+    expect(calls[0].runAt.getTime() - t0).toBeGreaterThanOrEqual(5_000);
+    expect(calls[0].runAt.getTime() - t0).toBeLessThan(6_000);
+    // The tenth time: 5 s × 2^9 = 2560 s, capped at 300 s.
+    expect(await runRuleEngineMessage({ ...payload, requeues: 9 }, idle, { reschedule })).toBe('rescheduled');
+    expect(calls[1].payload.requeues).toBe(10);
+    expect(calls[1].runAt.getTime() - Date.now()).toBeGreaterThan(299_000);
+    expect(calls[1].runAt.getTime() - Date.now()).toBeLessThanOrEqual(300_000);
+    // Refused by a full queue: rescheduled too.
+    const hold = type('test:re2-hold6', () => new Promise<void>(() => undefined));
+    const h = nodeOf(hold, 'Hold');
+    const chain = chainOf('c', docOf([h], []), { root: true });
+    const full = createRuleEngine({ ...memoryDeps([chain], { queueCapacity: 100 }).deps, budgetMs: 60_000, services: () => Object.assign(fakeServices(), { dispose: async () => undefined }) });
+    await full.start();
+    try {
+      full.enqueue(testMessage({ i: 0 }, { originator: { id: 'A' } }));
+      await waitFor(() => full.stats().inFlight === 1);
+      for (let i = 1; i <= 100; i++) full.enqueue(testMessage({ i }, { originator: { id: 'A' } }));
+      expect(await runRuleEngineMessage({ ...payload, chainId: chain.id, resumeAfterNodeId: h.id }, full, { reschedule })).toBe('rescheduled');
+      expect(calls).toHaveLength(3);
+    } finally {
+      await full.stop();
+    }
+  });
+
   it('the hop count travels through the durable path: a cycle through Delay still reaches the hop limit', async () => {
     const from = type('test:delay-like2', () => undefined);
     const next = type('test:next2', (ctx, msg) => ctx.tellNext(msg, 'Success'));

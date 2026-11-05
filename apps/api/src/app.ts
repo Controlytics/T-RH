@@ -688,10 +688,14 @@ const shutdown = async (signal: string) => {
   shutdownTimeout.unref();
 
   try {
-    // The rule engine FIRST: it finishes the messages in flight, writes its
-    // buffered debug rows and closes its MQTT node connections while the
-    // database and the job runner are still up. Pending durable jobs stay in
-    // graphile and run after the next start.
+    // The rule engine FIRST, while the database and the job runner are still
+    // up: it hands every Delay / Checkpoint message still WAITING in its queue
+    // back to graphile as a new job (their own jobs completed when the queue
+    // admitted them — ruling RE-2), waits up to 5 s for the messages in
+    // flight, writes its buffered debug rows and closes its MQTT node
+    // connections. Durable jobs not yet admitted stay in graphile; both run
+    // after the next start. Ordinary queued messages, and a flow still running
+    // after the 5 s, are lost as on a crash.
     try {
       await ruleEngine.stop();
     } catch (engineErr) {

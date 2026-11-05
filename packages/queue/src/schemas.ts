@@ -102,6 +102,13 @@ export const ruleEngineMessageJobSchema = z.object({
   chainId: ruleId,
   resumeAfterNodeId: ruleId,
   relation: z.string().min(1).max(128).default('Success'),
+  /**
+   * How many times this message was RESCHEDULED because the engine could not
+   * take it (not started, stopping, queue full — ruling RE-2): the task adds the
+   * payload again as a new job with this + 1, waiting 5 s × 2^requeues (at most
+   * 5 min), instead of failing and spending one of the job's attempts. Absent = 0.
+   */
+  requeues: z.number().int().min(0).max(1_000_000).optional(),
 });
 export type RuleEngineMessageJob = z.infer<typeof ruleEngineMessageJobSchema>;
 

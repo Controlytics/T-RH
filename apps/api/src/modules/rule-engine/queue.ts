@@ -14,12 +14,21 @@
  * Processing starts on the next turn of the event loop (`setImmediate`), so a
  * synchronous burst of pushes is admitted (and, past capacity, trimmed) before
  * the first item runs.
+ *
+ * KEPT ITEMS (ruling RE-2, 2026-11-05): an item `isDroppable` says no to (the
+ * engine's durable resumes — a Delay / Checkpoint message whose graphile job
+ * already completed) is NEVER evicted. "Largest" then counts the items that may
+ * be dropped, and the oldest of THOSE goes, wherever it sits behind a kept
+ * one. A queue full of kept items refuses the newcomer (`push` false; counted
+ * as dropped when it is droppable) rather than grow past its capacity.
  */
 export interface OriginatorQueueOptions<T> {
   capacity: number;
   concurrency: number;
   keyOf: (item: T) => string;
   process: (item: T) => Promise<void>;
+  /** May this item be evicted when the queue is full? Default: every item may. */
+  isDroppable?: (item: T) => boolean;
   /** A dropped item (capacity). Never allowed to throw into `push`. */
   onDrop?: (item: T, key: string) => void;
   /** A processor that threw — the queue carries on. */
@@ -28,6 +37,8 @@ export interface OriginatorQueueOptions<T> {
 
 export class OriginatorQueue<T> {
   private readonly backlogs = new Map<string, T[]>();
+  /** Per key: how many of its waiting items may NOT be dropped. Absent = 0. */
+  private readonly kept = new Map<string, number>();
   /** Keys with a pending item and nothing in flight, in the order they became ready. */
   private readonly ready = new Set<string>();
   /** Keys with an item in flight. */
@@ -59,13 +70,23 @@ export class OriginatorQueue<T> {
     this.schedule();
   }
 
-  /** Admit one item. Returns false only when the queue is paused. Never throws. */
+  /**
+   * Admit one item. Returns false when the queue is paused, or full of items
+   * that may not be dropped (a refused droppable newcomer counts as dropped).
+   * Never throws.
+   */
   push(item: T): boolean {
     try {
       if (this.paused) return false;
       const key = this.opts.keyOf(item);
       while (this.pending >= this.capacity) {
-        if (!this.dropOldestOfLargest()) break;
+        if (!this.dropOldestOfLargest()) {
+          if (this.droppable(item)) {
+            this.droppedCount++;
+            try { this.opts.onDrop?.(item, key); } catch { /* never into push */ }
+          }
+          return false;
+        }
       }
       let backlog = this.backlogs.get(key);
       if (!backlog) {
@@ -73,6 +94,7 @@ export class OriginatorQueue<T> {
         this.backlogs.set(key, backlog);
       }
       backlog.push(item);
+      if (!this.droppable(item)) this.kept.set(key, (this.kept.get(key) ?? 0) + 1);
       this.pending++;
       if (!this.active.has(key)) this.ready.add(key);
       this.schedule();
@@ -88,6 +110,7 @@ export class OriginatorQueue<T> {
     const removed: T[] = [];
     for (const backlog of this.backlogs.values()) removed.push(...backlog);
     this.backlogs.clear();
+    this.kept.clear();
     this.ready.clear();
     this.pending = 0;
     this.notifyIdle();
@@ -108,18 +131,26 @@ export class OriginatorQueue<T> {
     return new Promise((resolve) => this.idleWaiters.push(resolve));
   }
 
+  private droppable(item: T): boolean {
+    return this.opts.isDroppable ? this.opts.isDroppable(item) : true;
+  }
+
+  /** The largest backlog by the items it may LOSE, and its oldest such item. False when nothing may be dropped. */
   private dropOldestOfLargest(): boolean {
     let largestKey: string | null = null;
     let largest = 0;
     for (const [key, backlog] of this.backlogs) {
-      if (backlog.length > largest) {
-        largest = backlog.length;
+      const losable = backlog.length - (this.kept.get(key) ?? 0);
+      if (losable > largest) {
+        largest = losable;
         largestKey = key;
       }
     }
     if (largestKey === null) return false;
     const backlog = this.backlogs.get(largestKey)!;
-    const item = backlog.shift() as T;
+    const at = backlog.findIndex((i) => this.droppable(i));
+    if (at < 0) return false; // the count says otherwise; never evict a kept item to make it true
+    const [item] = backlog.splice(at, 1) as [T];
     this.pending--;
     this.droppedCount++;
     if (backlog.length === 0) {
@@ -150,6 +181,11 @@ export class OriginatorQueue<T> {
       }
       const item = backlog.shift() as T;
       this.pending--;
+      if (!this.droppable(item)) {
+        const left = (this.kept.get(key) ?? 1) - 1;
+        if (left > 0) this.kept.set(key, left);
+        else this.kept.delete(key);
+      }
       if (backlog.length === 0) this.backlogs.delete(key);
       this.active.add(key);
       let run: Promise<void>;

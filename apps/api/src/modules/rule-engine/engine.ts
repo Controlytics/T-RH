@@ -63,6 +63,17 @@ import { unsupportedNodeMessage } from './nodes/unsupported.js';
  * Configuration → Rule Engine is read on a 1 s timer into a snapshot, so the
  * emit helpers decide "accepting?" without awaiting anything. Switching it
  * OFF empties the queue.
+ *
+ * RE-ENTRY (ruling RE-1): every flow runs in a flow context (context.ts)
+ * carrying the re-entry depth decided when its message was admitted; a rule
+ * node's write inside a re-entered flow emits nothing (emit.ts).
+ *
+ * DURABLE RESUMES (ruling RE-2): a Delay / Checkpoint message the durable
+ * worker re-injects (`resumeAfter`) is the only copy once admitted — the full
+ * queue never evicts it (it refuses a new one instead), and `stop()` hands
+ * every one still waiting back to graphile (`durable_requeued`; a failed hand-
+ * back is `durable_dropped`, logged). Ordinary messages still waiting at stop
+ * are dropped, as before.
  */
 export interface InstrumentInfo {
   code: string;
@@ -108,11 +119,15 @@ export interface RuleEngine {
    * Re-inject a message AFTER `nodeId` of `chainId`, out on `relations`
    * (default `Success`) — the durable task's path. True once the Main queue
    * ADMITTED it (the job then completes); false when it was refused (engine
-   * stopping or not accepting). `reentryDepth` is the depth of the flow that
-   * handed it over (the job's `message._reentryDepth`; ruling RE-1). A CRASH
-   * between admission and processing loses it, as it loses any Main-queue
-   * message (ruled 2026-11-04, review I5: a job holding its graphile slot for
-   * the whole flow blocked the per-originator queue behind a slow chain).
+   * stopping or not accepting, or the queue FULL — ruling RE-2). `reentryDepth`
+   * is the depth of the flow that handed it over (the job's
+   * `message._reentryDepth`; ruling RE-1). Once admitted it is the message's
+   * only copy, so (RE-2) a full queue never evicts it and a graceful `stop()`
+   * hands it back to graphile (`services.durable.enqueue`); switching the
+   * engine OFF drops it, as the worker drops a job while off. Only a CRASH
+   * between admission and processing loses it (ruled 2026-11-04, review I5: a
+   * job holding its graphile slot for the whole flow blocked the per-originator
+   * queue behind a slow chain).
    */
   resumeAfter(msg: RuleMessage, chainId: string, nodeId: string, relations?: string[], opts?: { reentryDepth?: number }): boolean;
   /** Run one message to completion now, bypassing the queue (tests). Into the root chain, or `chainId`'s first node. */
@@ -161,6 +176,12 @@ interface QueueItem {
    * durable resume — and never re-read from metadata, which a script can rewrite.
    */
   reentryDepth: number;
+  /**
+   * A resume from the durable worker (ruling RE-2): its graphile job already
+   * COMPLETED when the queue admitted it, so this is its only copy — the queue
+   * never evicts it, `stop()` hands it back to graphile.
+   */
+  durable?: true;
 }
 
 /** A message admitted with a rule node's origin re-entered: depth 1. Anything else: 0. */
@@ -219,6 +240,7 @@ class RuleEngineImpl implements RuleEngine {
       capacity: this.cfg.queueCapacity,
       concurrency: this.cfg.concurrency,
       keyOf: (item) => `${item.msg.originator.type}:${item.msg.originator.id}`,
+      isDroppable: (item) => item.durable !== true,
       process: (item) => this.processItem(item),
       onDrop: (item) => this.onDrop(item),
       onError: (err) => {
@@ -294,7 +316,9 @@ class RuleEngineImpl implements RuleEngine {
     for (const t of this.selfTimers) clearTimeout(t);
     this.selfTimers.clear();
     this.queue.pause();
-    this.queue.clear();
+    // RE-2: a waiting durable resume is the only copy of its message (its job completed) —
+    // back to graphile while the database and the job runner are still up. The rest is dropped.
+    await this.handBackDurable(this.queue.clear());
     await Promise.race([this.queue.onIdle(), new Promise((r) => setTimeout(r, 5_000).unref())]);
     if (this.lifecycleBusy) await this.lifecycleBusy;
     for (const key of [...this.instances.keys()]) await this.destroyInstance(key);
@@ -319,8 +343,28 @@ class RuleEngineImpl implements RuleEngine {
     if (wasEnabled && !next.enabled) {
       const cleared = this.queue.clear();
       if (cleared.length > 0) this.inc('cleared_on_disable', cleared.length);
+      // Switched OFF drops them, as the worker drops a durable job while off (dropped_disabled).
+      const durable = cleared.filter((i) => i.durable).length;
+      if (durable > 0) this.inc('durable_dropped', durable);
     }
     return next;
+  }
+
+  /** Each waiting durable resume back to graphile with its relation and depth (RE-2). Never throws. */
+  private async handBackDurable(items: QueueItem[]): Promise<void> {
+    for (const item of items) {
+      if (!item.durable || item.entry.kind !== 'replay' || item.entry.replay.kind !== 'next') continue;
+      const { chainId, nodeId, replay } = item.entry;
+      try {
+        await this.servicesHandle.durable.enqueue(item.msg, chainId, nodeId, undefined,
+          { reentryDepth: item.reentryDepth, relation: replay.relations[0] ?? 'Success' });
+        this.inc('durable_requeued');
+      } catch (err) {
+        this.inc('durable_dropped');
+        logger.error({ err: errorText(err), msgId: item.msg.id, chainId, nodeId },
+          '[rule-engine] a durable (Delay / Checkpoint) message could not be handed back to the job queue on stop — it is LOST');
+      }
+    }
   }
 
   private async ensureConfig(): Promise<void> {
@@ -336,8 +380,13 @@ class RuleEngineImpl implements RuleEngine {
 
   resumeAfter(msg: RuleMessage, chainId: string, nodeId: string, relations: string[] = ['Success'], opts: { reentryDepth?: number } = {}): boolean {
     if (!this.accepting()) return false;
+    // RE-2: a full queue REFUSES a resume (graphile keeps the job and tries again) — it never evicts for one.
+    if (this.queue.size >= this.cfg.queueCapacity) {
+      this.inc('durable_refused');
+      return false;
+    }
     const depth = Math.min(REENTRY_DEPTH_MAX, Math.max(0, Math.floor(Number(opts.reentryDepth) || 0)));
-    return this.queue.push({ msg, entry: { kind: 'replay', chainId, nodeId, replay: { kind: 'next', relations } }, reentryDepth: depth });
+    return this.queue.push({ msg, entry: { kind: 'replay', chainId, nodeId, replay: { kind: 'next', relations } }, reentryDepth: depth, durable: true });
   }
 
   async processNow(msg: RuleMessage, opts: { chainId?: string } = {}): Promise<void> {
