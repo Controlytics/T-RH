@@ -30,7 +30,7 @@ const NUMBER_LABELS: Record<keyof typeof RULE_ENGINE_NUMBER_SETTINGS, { label: s
   },
   queueCapacity: {
     label: 'Queue capacity (messages)',
-    description: 'How many messages wait for processing. When it is full, the oldest message of the instrument with the most waiting is dropped and counted.',
+    description: 'How many messages wait for processing. When it is full, the oldest message of the instrument with the most waiting is dropped and counted. It also caps each instrument\'s Delay / Checkpoint queue: a Delay or Checkpoint node that finds this many of that instrument\'s messages already waiting there sends the message out on Failure instead of queueing it, so a cycle through those nodes stops.',
   },
   concurrency: {
     label: 'Concurrency',

@@ -23,7 +23,7 @@ import { resolveTemplate } from '../notification-delivery/template-engine.js';
 import { getApplicationAttributes, type RuleEngineConfig } from './config.js';
 import { getChain } from './service.js';
 import { emitTelemetry, emitAttributes, emitAttributesDeleted, emitAlarm } from './emit.js';
-import { parseRuleNodeOrigin, ruleNodeOrigin, serialisableMessage, type RuleMessage } from './message.js';
+import { DURABLE_JOB_MAX_ATTEMPTS, durableJobPayload, parseRuleNodeOrigin, ruleNodeOrigin, type RuleMessage } from './message.js';
 import { currentReentryDepth } from './context.js';
 import { targetNotAllowed } from './nodes/external/target-guard.js';
 
@@ -266,6 +266,27 @@ export interface RuleServicesHandle extends RuleServices {
 export const RULE_ENGINE_MESSAGE_TASK = 'rule_engine_message';
 /** Per-originator order in graphile-worker: jobs sharing a queue run one at a time. */
 export const ruleEngineQueueName = (originatorId: string) => `rule-engine:${originatorId}`;
+
+/**
+ * How many jobs wait on one durable queue, counted no further than `limit` — read from
+ * graphile's tables as delay.ts reads them. Only jobs with attempts left count: graphile
+ * keeps a permanently failed job, which would otherwise hold a place for good.
+ * The plan (graphile 0.16, EXPLAINed on the test database 2026-11-05): the queue row is
+ * found by its unique name; `_private_jobs` has NO index leading on `job_queue_id` (it is
+ * only an INCLUDE column of the partial `jobs_main_index`), so the jobs are a scan of the
+ * pending-jobs table — completed jobs are deleted, so it holds only what waits — stopped
+ * at `limit` matches. delay.ts's `pendingAt` reads the same table the same way.
+ */
+export async function durableQueueDepth(queueName: string, limit: number): Promise<number> {
+  const rows = await prisma.$queryRaw<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM (
+      SELECT 1 FROM graphile_worker._private_jobs j
+      JOIN graphile_worker._private_job_queues q ON q.id = j.job_queue_id
+      WHERE q.queue_name = ${queueName} AND j.attempts < j.max_attempts
+      LIMIT ${limit}::int
+    ) waiting`;
+  return rows[0]?.n ?? 0;
+}
 
 const ATTRIBUTE_LOCK_CLASS = 20260807; // the instrument routes' lock: one key space with them
 
@@ -954,15 +975,23 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
     durable: {
       async enqueue(msg, chainId, nodeId, runAt, opts = {}) {
         const depth = opts.reentryDepth ?? currentReentryDepth();
+        const queueName = ruleEngineQueueName(msg.originator.id);
+        // THE DURABLE CAP (fw-api open item 3, 2026-11-05): a fan-out cycle through Delay /
+        // Checkpoint restarts its step count at every durable resume, so the engine's STEP_LIMIT
+        // never ends it; this does. `queueCapacity` waiting jobs on this originator's queue →
+        // refused, nothing enqueued (the node's Failure). Count, then add: two hand-overs of ONE
+        // originator racing in the same instant can each see room and overshoot by one apiece.
+        const capacity = hooks.config().queueCapacity;
+        const waiting = await durableQueueDepth(queueName, capacity);
+        if (waiting >= capacity) {
+          throw new Error(`DURABLE_QUEUE_FULL: ${waiting} messages of this originator already wait in the Delay / Checkpoint queue (${queueName}) — the queue capacity (Configuration → Rule Engine); this message was not queued`);
+        }
         const producer = await getProducer();
-        await producer.addJob(RULE_ENGINE_MESSAGE_TASK, {
-          message: { ...serialisableMessage(msg), ...(depth > 0 ? { _reentryDepth: depth } : {}) },
-          chainId, resumeAfterNodeId: nodeId,
-          ...(opts.relation && opts.relation !== 'Success' ? { relation: opts.relation } : {}),
-        }, {
-          queueName: ruleEngineQueueName(msg.originator.id),
+        // The ONE job shape (message.ts): the engine's stop hands its backlog back through the same builder (M6).
+        await producer.addJob(RULE_ENGINE_MESSAGE_TASK, durableJobPayload(msg, chainId, nodeId, { reentryDepth: depth, relation: opts.relation }), {
+          queueName,
           ...(runAt ? { runAt } : {}),
-          maxAttempts: 5,
+          maxAttempts: DURABLE_JOB_MAX_ATTEMPTS,
         });
       },
     },

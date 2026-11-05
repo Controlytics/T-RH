@@ -794,6 +794,69 @@ describe('the durable path', () => {
     expect(job.payload.message._reentryDepth).toBe(1);
   });
 
+  it('fw-api open 3: a Checkpoint FAN-OUT cycle stops at the queue capacity — the waiting jobs counted, never more; _hops survives every durable resume', async () => {
+    // Checkpoint → (Success) itself AND a script → itself: every resume hands TWO messages over, so the
+    // originator's durable queue grows by one per resume. The step limit restarts at each resume
+    // (a new flow), so only the durable cap ends this. No job runner in the e2e app: each resume is
+    // the durable task's own function, fed the job read back from graphile's table.
+    const C = randomUUID();
+    const T = randomUUID();
+    const chainId = randomUUID();
+    const originator = `fanout-${STAMP}`;
+    const queue = `rule-engine:${originator}`;
+    const CAP = 100; // queueCapacity's minimum — the Main queue shares it for the duration
+    const doc: RuleChainDocument = {
+      version: 1, firstNodeId: C,
+      nodes: [
+        { id: C, type: 'tb:flow:checkpoint', name: 'Checkpoint', debugMode: 'failures', x: 0, y: 0, config: newRuleNodeConfig('tb:flow:checkpoint') },
+        { id: T, type: 'tb:transformation:script', name: 'Pass', debugMode: 'off', x: 0, y: 0,
+          config: { ...newRuleNodeConfig('tb:transformation:script'), jsScript: 'return { msg: msg, metadata: metadata, msgType: msgType };' } },
+      ],
+      connections: [{ from: C, to: C, relation: 'Success' }, { from: C, to: T, relation: 'Success' }, { from: T, to: C, relation: 'Success' }],
+    };
+    await prisma.ruleChain.create({ data: { id: chainId, name: `RE fan-out ${STAMP}`, firstNodeId: C, document: doc as never } });
+    otherChains.push(chainId);
+    invalidateChainCache();
+    const waitingJobs = () => prisma.$queryRaw<{ id: bigint; payload: any }[]>`
+      SELECT j.id, j.payload FROM graphile_worker._private_jobs j
+      JOIN graphile_worker._private_job_queues q ON q.id = j.job_queue_id
+      WHERE q.queue_name = ${queue} AND j.attempts < j.max_attempts ORDER BY j.run_at, j.id`;
+    await setEngineConfig({ queueCapacity: CAP });
+    try {
+      await ruleEngine.processNow(newMessage('POST_TELEMETRY_REQUEST', { type: 'INSTRUMENT', id: originator }, { n: 1 }, { ts: String(Date.now()) }), { chainId });
+      expect(await waitingJobs()).toHaveLength(1);
+      const firstHops = (await waitingJobs())[0].payload.message._hops;
+      let most = 0;
+      let refused: DebugRow | undefined;
+      for (let i = 0; i < 3 * CAP && !refused; i++) {
+        const [next] = await waitingJobs();
+        expect(next, 'the queue never empties: every resume hands two messages over').toBeDefined();
+        await prisma.$executeRaw`DELETE FROM graphile_worker._private_jobs WHERE id = ${next.id}`;
+        expect(await runRuleEngineMessage(next.payload)).toBe('admitted');
+        await ruleEngine.drain();
+        most = Math.max(most, (await waitingJobs()).length);
+        [refused] = (await prisma.$queryRaw<DebugRow[]>`
+          SELECT node_id::text, direction, relation, msg_id, msg_type, originator_id, data, metadata, ts, error
+          FROM rule_node_debug_events WHERE chain_id = ${chainId}::uuid AND node_id = ${C}::uuid AND relation = 'Failure (unhandled)' LIMIT 1`);
+        if (!refused) await new Promise((r) => setTimeout(r, 0));
+      }
+      // The debug writer flushes on a timer: let the refusal's row land if the loop ended on the cap itself.
+      await new Promise((r) => setTimeout(r, 300));
+      expect(refused, 'the Checkpoint was refused at the cap').toBeDefined();
+      expect(refused!.error).toBe(`DURABLE_QUEUE_FULL: ${CAP} messages of this originator already wait in the Delay / Checkpoint queue (${queue}) — the queue capacity (Configuration → Rule Engine); this message was not queued`);
+      const left = await waitingJobs();
+      expect(left, 'the waiting jobs are counted: exactly the capacity').toHaveLength(CAP);
+      expect(most, 'never more than the capacity at any point').toBe(CAP);
+      // The hop count rode every resume: the deepest waiting job is many hops past the first one.
+      expect(Math.max(...left.map((j) => j.payload.message._hops as number))).toBeGreaterThan(firstHops + 4);
+    } finally {
+      await setEngineConfig({});
+      await prisma.$executeRaw`DELETE FROM graphile_worker._private_jobs j USING graphile_worker._private_job_queues q
+        WHERE j.job_queue_id = q.id AND q.queue_name = ${queue}`;
+      await prisma.$executeRaw`DELETE FROM graphile_worker._private_job_queues WHERE queue_name = ${queue}`;
+    }
+  });
+
   it('M6: the stop hand-back\'s ONE add_jobs insert, on the test database — each job on its originator\'s queue, in order, a payload the task parses', async () => {
     const queuePrefix = `rule-engine:fwapi-m6-${STAMP}-`;
     const msgs = [1, 2, 3].map((n) => ({

@@ -20,6 +20,13 @@ export interface RuleEngineConfig {
   /** Save time series / Save attributes skip a message ingest already stored (ruling S-3). */
   skipSaveNodesForIngestOrigin: boolean;
   scriptTimeoutMs: number;
+  /**
+   * The Main queue's size AND (2026-11-05, fw-api open item 3) each originator's durable
+   * queue's: `services.durable.enqueue` refuses — the Delay / Checkpoint node's Failure,
+   * nothing queued — when `rule-engine:<originatorId>` already holds this many waiting jobs,
+   * so a fan-out cycle through Delay / Checkpoint (whose step count restarts at every durable
+   * resume) stops there.
+   */
   queueCapacity: number;
   concurrency: number;
   debugRetentionHours: number;

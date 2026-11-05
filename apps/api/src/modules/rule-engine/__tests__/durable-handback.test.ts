@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 /**
  * M6 (whole-branch review A): the engine's stop hands every waiting durable resume
@@ -29,11 +29,18 @@ const { addDurableJobs } = await import('../engine.js');
 const { RULE_ENGINE_CONFIG_DEFAULTS } = await import('../config.js');
 const { newMessage } = await import('../message.js');
 const { ruleEngineMessageJobSchema } = await import('@digilog/queue');
+const { prisma } = await import('../../../lib/prisma.js');
 
 const CHAIN = '0f000000-0000-4000-8000-00000000001c';
 const NODE = '0f000000-0000-4000-8000-00000000001d';
 
-beforeEach(() => { added.length = 0; queries.length = 0; });
+beforeEach(() => {
+  added.length = 0;
+  queries.length = 0;
+  // enqueue counts the originator's waiting jobs first (the durable cap): an empty queue here.
+  vi.spyOn(prisma, '$queryRaw').mockResolvedValue([{ n: 0 }] as never);
+});
+afterEach(() => { vi.restoreAllMocks(); });
 
 type Spec = { identifier: string; payload: unknown; queue_name: string; max_attempts: number };
 const specsOf = (q: { params: unknown[] }) => JSON.parse(q.params[0] as string) as Spec[];
