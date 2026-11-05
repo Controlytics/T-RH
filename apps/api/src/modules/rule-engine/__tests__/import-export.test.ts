@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   defaultRootChainDocument, messageTypeSwitchLabel, toThingsboardExport, fromThingsboardExport, parseRuleChainDocument, ruleChainsEqual,
   newRuleNodeConfig, RULE_NODE_TYPE_BY_TB_CLASS, UNSUPPORTED_NODE_TYPE, DEFAULT_ROOT_CHAIN_NODE_IDS, type RuleChainDocument,
+  RULE_SCRIPT_KEYS, ruleNodeScriptKey, ruleNodeScript,
 } from '@digilog/shared';
 import { importChain, exportChain, MASKED_SECRET } from '../import-export.js';
 import { createRuleEngine } from '../engine.js';
@@ -294,6 +295,15 @@ describe('ThingsBoard\'s real root chain export (v4.2 fixture)', () => {
     const again = importChain(JSON.parse(JSON.stringify(toThingsboardExport('Root Rule Chain', true, first.document))));
     expect(ruleChainsEqual(again.document, first.document)).toBe(true);
     expect(again.warnings).toEqual([RPC_WARNING]);
+  });
+
+  it('the TB-L script rule reaches the API through @digilog/shared (the handlers\' contract): a stored TBEL config runs its TBEL text', () => {
+    expect(RULE_SCRIPT_KEYS['tb:action:log']).toEqual(['jsScript', 'tbelScript']);
+    expect(ruleNodeScriptKey('tb:action:log', { scriptLang: 'TBEL', jsScript: 'a', tbelScript: 'b' })).toBe('tbelScript');
+    expect(ruleNodeScript('tb:action:create-alarm', { scriptLang: 'TBEL', alarmDetailsBuildJs: 'j', alarmDetailsBuildTbel: 't' })).toBe('t');
+    // After an import there is nothing left to choose: the Log nodes are JavaScript.
+    const log = importChain(fixture42()).document.nodes.find((n) => n.name === 'Log Other')!;
+    expect(ruleNodeScriptKey(log.type, log.config)).toBe('jsScript');
   });
 
   it('imported as the ROOT chain, its TBEL "Log Other" RUNS on the REAL Log handler (review B C-1 acceptance — no stand-in)', async () => {

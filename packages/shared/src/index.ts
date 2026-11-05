@@ -332,6 +332,7 @@ export {
   RULE_NODE_TYPES, RULE_NODE_TYPE_BY_ID, RULE_NODE_TYPE_BY_TB_CLASS, BUILT_RULE_NODE_TYPES,
   toRuleNodeTypeDescriptor, newRuleNodeConfig, ruleNodeConfigWithDefaults, visibleRuleNodeFields, coerceThingsboardScalars,
   upgradeThingsboardConfig, fromThingsboardConfig, toThingsboardConfig,
+  RULE_SCRIPT_KEYS, ruleNodeScriptKey, ruleNodeScript,
 } from './types/rule-nodes.js';
 export type {
   RuleNodeGroup, RuleNodeStatus, RuleOriginatorType, RuleDebugMode, RuleMessageType,
