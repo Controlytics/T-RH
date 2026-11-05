@@ -12,8 +12,10 @@ import {
 import { setRuleEngineSink, emitCounters, type RuleEngineSink } from './emit.js';
 import { createRuleServices, type RuleServices, type RuleServicesHandle, type RuleServicesHooks } from './services.js';
 import { runScript as runVmScript, type RuleScriptKind } from './script-vm.js';
-import { copyMessage, failureMessage, errorText, ruleNodeOrigin, ruleNodeKey, type RuleMessage } from './message.js';
-import type { RuleContext, RuleLogLevel } from './context.js';
+import {
+  copyMessage, failureMessage, errorText, ruleNodeOrigin, ruleNodeKey, isRuleNodeOrigin, RULE_ENGINE_ORIGIN_KEY, type RuleMessage,
+} from './message.js';
+import { runInFlow, REENTRY_DEPTH_MAX, type RuleContext, type RuleLogLevel } from './context.js';
 import { registerAllNodes } from './nodes/index.js';
 import { unsupportedNodeMessage } from './nodes/unsupported.js';
 
@@ -106,12 +108,13 @@ export interface RuleEngine {
    * Re-inject a message AFTER `nodeId` of `chainId`, out on `relations`
    * (default `Success`) — the durable task's path. True once the Main queue
    * ADMITTED it (the job then completes); false when it was refused (engine
-   * stopping or not accepting). A restart between admission and processing
-   * loses it, as it loses any Main-queue message (ruled 2026-11-04, review I5:
-   * a job holding its graphile slot for the whole flow blocked the per-
-   * originator queue behind a slow chain).
+   * stopping or not accepting). `reentryDepth` is the depth of the flow that
+   * handed it over (the job's `message._reentryDepth`; ruling RE-1). A CRASH
+   * between admission and processing loses it, as it loses any Main-queue
+   * message (ruled 2026-11-04, review I5: a job holding its graphile slot for
+   * the whole flow blocked the per-originator queue behind a slow chain).
    */
-  resumeAfter(msg: RuleMessage, chainId: string, nodeId: string, relations?: string[]): boolean;
+  resumeAfter(msg: RuleMessage, chainId: string, nodeId: string, relations?: string[], opts?: { reentryDepth?: number }): boolean;
   /** Run one message to completion now, bypassing the queue (tests). Into the root chain, or `chainId`'s first node. */
   processNow(msg: RuleMessage, opts?: { chainId?: string }): Promise<void>;
   stats(): RuleEngineStats;
@@ -151,7 +154,17 @@ type Entry =
 interface QueueItem {
   msg: RuleMessage;
   entry: Entry;
+  /**
+   * The flow's re-entry depth (ruling RE-1; context.ts), decided at ADMISSION —
+   * from the origin an emit helper stamped a moment earlier for a root entry,
+   * from the flow it came from for a late call / tellSelf, from the job for a
+   * durable resume — and never re-read from metadata, which a script can rewrite.
+   */
+  reentryDepth: number;
 }
+
+/** A message admitted with a rule node's origin re-entered: depth 1. Anything else: 0. */
+const admittedDepth = (msg: RuleMessage): number => (isRuleNodeOrigin(msg.metadata[RULE_ENGINE_ORIGIN_KEY]) ? 1 : 0);
 
 interface Step {
   chain: LoadedRuleChain;
@@ -165,6 +178,8 @@ interface Flow {
   steps: Step[];
   abandoned: boolean;
   chainsEntered: Set<string>;
+  /** The entering item's depth: what its late calls, tellSelf and durable hand-overs carry on. */
+  reentryDepth: number;
 }
 
 interface LifecycleInstance {
@@ -316,17 +331,18 @@ class RuleEngineImpl implements RuleEngine {
 
   enqueue(msg: RuleMessage): boolean {
     if (!this.accepting()) return false;
-    return this.queue.push({ msg, entry: { kind: 'root' } });
+    return this.queue.push({ msg, entry: { kind: 'root' }, reentryDepth: admittedDepth(msg) });
   }
 
-  resumeAfter(msg: RuleMessage, chainId: string, nodeId: string, relations: string[] = ['Success']): boolean {
+  resumeAfter(msg: RuleMessage, chainId: string, nodeId: string, relations: string[] = ['Success'], opts: { reentryDepth?: number } = {}): boolean {
     if (!this.accepting()) return false;
-    return this.queue.push({ msg, entry: { kind: 'replay', chainId, nodeId, replay: { kind: 'next', relations } } });
+    const depth = Math.min(REENTRY_DEPTH_MAX, Math.max(0, Math.floor(Number(opts.reentryDepth) || 0)));
+    return this.queue.push({ msg, entry: { kind: 'replay', chainId, nodeId, replay: { kind: 'next', relations } }, reentryDepth: depth });
   }
 
   async processNow(msg: RuleMessage, opts: { chainId?: string } = {}): Promise<void> {
     await this.ensureConfig();
-    await this.runFlow({ msg, entry: opts.chainId ? { kind: 'chain', chainId: opts.chainId } : { kind: 'root' } });
+    await this.runFlow({ msg, entry: opts.chainId ? { kind: 'chain', chainId: opts.chainId } : { kind: 'root' }, reentryDepth: admittedDepth(msg) });
   }
 
   private onDrop(_item: QueueItem): void {
@@ -344,8 +360,17 @@ class RuleEngineImpl implements RuleEngine {
 
   // ── one message ───────────────────────────────────────────────────────────
 
-  private async runFlow(item: QueueItem): Promise<void> {
-    const flow: Flow = { deadline: Date.now() + this.deps.budgetMs, steps: [], abandoned: false, chainsEntered: new Set() };
+  /**
+   * ALWAYS inside its own flow context (RE-1): the queue dispatches from a
+   * `setImmediate` / `.finally` that inherits whichever flow pushed or finished
+   * last, so a flow must never take its depth from the context it starts in.
+   */
+  private runFlow(item: QueueItem): Promise<void> {
+    return runInFlow({ reentryDepth: item.reentryDepth }, () => this.runFlowInContext(item));
+  }
+
+  private async runFlowInContext(item: QueueItem): Promise<void> {
+    const flow: Flow = { deadline: Date.now() + this.deps.budgetMs, steps: [], abandoned: false, chainsEntered: new Set(), reentryDepth: item.reentryDepth };
     try {
       await this.hydrate(item.msg);
       await this.enter(flow, item.msg, item.entry);
@@ -560,12 +585,14 @@ class RuleEngineImpl implements RuleEngine {
   private contextFor(chain: LoadedRuleChain, node: RuleChainNode, flow: Flow | null, emissions: Emission[] | null): { ctx: RuleContext; close(): void } {
     let open = emissions !== null;
     const config = ruleNodeConfigWithDefaults(node.type, node.config);
+    // RE-1: what this node sends later belongs to the flow it came from; a lifecycle node's message (a Generator tick) starts at 0.
+    const reentryDepth = flow?.reentryDepth ?? 0;
     const late = (replay: Replay, msg: RuleMessage) => {
       if (flow?.abandoned || !this.accepting()) {
         this.inc('late_dropped');
         return;
       }
-      if (!this.queue.push({ msg, entry: { kind: 'replay', chainId: chain.id, nodeId: node.id, replay } })) this.inc('late_dropped');
+      if (!this.queue.push({ msg, entry: { kind: 'replay', chainId: chain.id, nodeId: node.id, replay }, reentryDepth })) this.inc('late_dropped');
     };
     const ctx: RuleContext = {
       node: { id: node.id, name: node.name, type: node.type, config, debugMode: node.debugMode },
@@ -591,7 +618,7 @@ class RuleEngineImpl implements RuleEngine {
         }
         const timer = setTimeout(() => {
           this.selfTimers.delete(timer);
-          if (!this.accepting() || !this.queue.push({ msg, entry: { kind: 'node', chainId: chain.id, nodeId: node.id } })) this.inc('late_dropped');
+          if (!this.accepting() || !this.queue.push({ msg, entry: { kind: 'node', chainId: chain.id, nodeId: node.id }, reentryDepth })) this.inc('late_dropped');
         }, Math.max(0, delayMs));
         timer.unref();
         this.selfTimers.add(timer);

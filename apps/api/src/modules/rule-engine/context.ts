@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { RuleDebugMode } from '@digilog/shared';
 import type { RuleMessage } from './message.js';
 import type { RuleServices } from './services.js';
@@ -71,3 +72,47 @@ export interface RuleContext<C = Record<string, unknown>> {
 }
 
 export type RuleNodeHandler<C = Record<string, unknown>> = (ctx: RuleContext<C>, msg: RuleMessage) => Promise<void> | void;
+
+// ─── the flow context (ruling RE-1) ─────────────────────────────────────────
+
+/**
+ * THE FLOW CONTEXT (ruling RE-1, 2026-11-05): what the engine knows about the
+ * message whose flow is running, carried by `AsyncLocalStorage` from
+ * `runFlow` (engine.ts) through every await of every handler and service —
+ * the write path, a promise another context resolves, a timer — down to the
+ * emit helpers' `deliver()` (emit.ts).
+ *
+ * It is decided ONCE, when the message is ADMITTED, and carried on the queue
+ * item — never read from metadata, which a script can rewrite:
+ *  - a message an emit helper admits with a `rule_node:` origin has depth 1
+ *    (it RE-ENTERED); any other origin (a device, a person, the system, the
+ *    REST API) depth 0;
+ *  - a late call, a `tellSelf` and a Delay / Checkpoint resume keep the depth
+ *    of the flow they came from (the durable job carries it as
+ *    `message._reentryDepth`); a lifecycle node's message (a Generator tick)
+ *    starts at 0.
+ *
+ * A rule node's write made while the depth is ≥ `REENTRY_DEPTH_MAX` emits
+ * nothing (`loop_skipped`): re-entry goes ONE generation deep, so a chain
+ * whose writes change on every pass (Save time series with `useServerTs`, a
+ * transform adding 1, a Create alarm fed its own ALARM) still ends. Stricter
+ * than ThingsBoard, which has no re-enter switch at all.
+ */
+export interface RuleFlowContext {
+  readonly reentryDepth: number;
+}
+
+/** A rule node's write re-enters only from a flow whose depth is below this. */
+export const REENTRY_DEPTH_MAX = 1;
+
+const flowStorage = new AsyncLocalStorage<RuleFlowContext>();
+
+/** Run `fn` as one flow: everything it awaits sees `flow` (engine.ts `runFlow` — and tests). */
+export function runInFlow<T>(flow: RuleFlowContext, fn: () => T): T {
+  return flowStorage.run(flow, fn);
+}
+
+/** The running flow's re-entry depth; 0 outside any flow (ingest, a route, a test calling a service). */
+export function currentReentryDepth(): number {
+  return flowStorage.getStore()?.reentryDepth ?? 0;
+}

@@ -92,6 +92,12 @@ export const ruleEngineMessageJobSchema = z.object({
     _stack: z.array(z.object({ chainId: ruleId, nodeId: ruleId })).optional(),
     /** The hop count, restored on resume so a cycle through Delay / Checkpoint still reaches the hop limit. */
     _hops: z.number().int().min(0).max(1_000_000).optional(),
+    /**
+     * The re-entry depth of the flow that handed the message over (ruling RE-1,
+     * 2026-11-05): 1 when that flow had itself re-entered, so the resumed
+     * message's rule-node writes do not re-enter again. Absent = 0.
+     */
+    _reentryDepth: z.number().int().min(0).max(1_000).optional(),
   }),
   chainId: ruleId,
   resumeAfterNodeId: ruleId,

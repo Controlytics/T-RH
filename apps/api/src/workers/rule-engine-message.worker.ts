@@ -55,7 +55,7 @@ export async function runRuleEngineMessage(payload: unknown, engine: RuleEngine 
     logger.info({ msgId: msg.id, chainId }, '[rule-engine] switched off — a durable message was dropped');
     return 'dropped_disabled';
   }
-  if (!engine.resumeAfter(msg, chainId, resumeAfterNodeId, [relation])) {
+  if (!engine.resumeAfter(msg, chainId, resumeAfterNodeId, [relation], { reentryDepth: message._reentryDepth ?? 0 })) {
     throw new Error('QUEUE_REFUSED: the rule engine did not admit the message; graphile will retry this job');
   }
   return 'admitted';

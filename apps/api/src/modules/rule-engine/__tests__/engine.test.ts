@@ -1,11 +1,13 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import { createRuleEngine, type RuleEngine } from '../engine.js';
 import { registerNode, getHandler } from '../registry.js';
 import { registerAllNodes } from '../nodes/index.js';
 import { runRuleEngineMessage } from '../../../workers/rule-engine-message.worker.js';
-import { serialisableMessage } from '../message.js';
+import { serialisableMessage, ruleNodeOrigin } from '../message.js';
 import { clearScriptStrikes } from '../script-vm.js';
 import { newMessage, type RuleMessage } from '../message.js';
+import { currentReentryDepth } from '../context.js';
+import { emitTelemetry, emitCounters, resetEmitCounters } from '../emit.js';
 import { chainOf, docOf, nodeOf, memoryDeps, fakeServices, fakeContext, testMessage } from '../../../test-support/rule-engine.js';
 import type { LoadedRuleChain } from '../service.js';
 
@@ -486,6 +488,147 @@ describe('the durable path (rule_engine_message)', () => {
     }
   });
 });
+
+describe('the re-entry depth (ruling RE-1)', () => {
+  beforeEach(() => resetEmitCounters());
+
+  /** An engine installed as the emit helpers' SINK (as the singleton is), every chain's Re-enter ON. */
+  async function sinkEngine(chains: LoadedRuleChain[]) {
+    const mem = memoryDeps(chains);
+    const engine = createRuleEngine({ ...mem.deps, installSink: true, lifecyclePollMs: 3_600_000, services: () => Object.assign(fakeServices(), { dispose: async () => undefined }) });
+    await engine.start();
+    return { engine, mem };
+  }
+
+  /**
+   * A node that WRITES what reaches it, as Save time series does: a rule node's
+   * telemetry, through the emit path under its own origin — after a few awaits of
+   * the kinds a real write makes. Records the flow's depth. Stops writing after 10
+   * runs, so a missing cap fails the assertion instead of looping forever.
+   */
+  function writerType(id: string, seen: { originator: string; depth: number }[]) {
+    return type(id, async (ctx, msg) => {
+      seen.push({ originator: msg.originator.id, depth: currentReentryDepth() });
+      if (seen.length > 10) return;
+      await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setTimeout(r, 1));
+      await emitTelemetry(msg.originator.id, [{ key: 't', value: seen.length, ts: new Date() }], 'rule-engine', ctx.origin);
+    });
+  }
+
+  const from = (origin: string, data: unknown = {}, originatorId = 'X') =>
+    testMessage(data, { originator: { id: originatorId }, metadata: { rule_engine_origin: origin } });
+
+  it('a write re-enters ONCE: the re-entered message (depth 1) writes, and that write emits nothing (loop_skipped)', async () => {
+    const seen: { originator: string; depth: number }[] = [];
+    const w = nodeOf(writerType('test:re-writer', seen), 'W');
+    const { engine } = await sinkEngine([chainOf('c', docOf([w], []), { root: true, reEnterOnRuleNodeWrites: true })]);
+    try {
+      expect(engine.enqueue(from('rest_api'))).toBe(true);
+      await waitFor(() => seen.length >= 2);
+      await settleEngine(engine);
+      expect(seen.map((s) => s.depth)).toEqual([0, 1]);
+      expect(emitCounters()).toMatchObject({ emitted: 1, loop_skipped: 1 });
+    } finally {
+      await engine.stop();
+    }
+  });
+
+  it('each flow runs at ITS OWN depth: a depth-0 message admitted from inside a depth-1 flow still re-enters', async () => {
+    const seen: { originator: string; depth: number }[] = [];
+    let engineRef: RuleEngine | null = null;
+    const spawner = type('test:re-spawner', async (ctx, msg) => {
+      seen.push({ originator: msg.originator.id, depth: currentReentryDepth() });
+      if (seen.length > 10) return;
+      // A REST-API message pushed from inside this flow: the queue's setImmediate would hand it THIS flow's context.
+      if ((msg.data as { spawn?: boolean }).spawn) engineRef!.enqueue(from('rest_api', {}, 'Y'));
+      await new Promise((r) => setTimeout(r, 2));
+      await emitTelemetry(msg.originator.id, [{ key: 't', value: 1, ts: new Date() }], 'rule-engine', ctx.origin);
+    });
+    const s = nodeOf(spawner, 'S');
+    const chain = chainOf('c', docOf([s], []), { root: true, reEnterOnRuleNodeWrites: true });
+    const { engine } = await sinkEngine([chain]);
+    engineRef = engine;
+    try {
+      expect(engine.enqueue(from(ruleNodeOrigin(chain.id, s.id), { spawn: true }, 'X'))).toBe(true);
+      await waitFor(() => seen.length >= 3);
+      await settleEngine(engine);
+      expect(seen.map((r) => `${r.originator}:${r.depth}`).sort()).toEqual(['X:1', 'Y:0', 'Y:1']);
+      expect(emitCounters().loop_skipped).toBe(2);
+    } finally {
+      await engine.stop();
+    }
+  });
+
+  it('a late call keeps the depth of the flow it came from — not what the metadata says by then', async () => {
+    const seen: { originator: string; depth: number }[] = [];
+    const late = type('test:re-late', (ctx, msg) => {
+      // A script could rewrite the origin; the depth must not follow it.
+      setTimeout(() => ctx.tellNext({ ...msg, metadata: { ...msg.metadata, rule_engine_origin: 'rest_api' } }, 'Success'), 5);
+    });
+    const l = nodeOf(late, 'L');
+    const w = nodeOf(writerType('test:re-writer-late', seen), 'W');
+    const chain = chainOf('c', docOf([l, w], [[l, 'Success', w]]), { root: true, reEnterOnRuleNodeWrites: true });
+    const { engine } = await sinkEngine([chain]);
+    try {
+      engine.enqueue(from(ruleNodeOrigin(chain.id, w.id)));
+      await waitFor(() => seen.length >= 1);
+      await settleEngine(engine);
+      expect(seen.map((r) => r.depth)).toEqual([1]);
+      expect(emitCounters()).toMatchObject({ emitted: 0, loop_skipped: 1 });
+      // A first-generation message through the same late path: its write re-enters once, then ends.
+      engine.enqueue(from('rest_api'));
+      await waitFor(() => seen.length >= 3);
+      await settleEngine(engine);
+      expect(seen.map((r) => r.depth)).toEqual([1, 0, 1]);
+      expect(emitCounters()).toMatchObject({ emitted: 1, loop_skipped: 2 });
+    } finally {
+      await engine.stop();
+    }
+  });
+
+  it('a durable resume keeps the depth the job carries (message._reentryDepth); a job without one is depth 0', async () => {
+    const seen: { originator: string; depth: number }[] = [];
+    const d = nodeOf(type('test:re-delay', () => undefined), 'Delay');
+    const w = nodeOf(writerType('test:re-writer-durable', seen), 'W');
+    const chain = chainOf('c', docOf([d, w], [[d, 'Success', w]]), { root: true, reEnterOnRuleNodeWrites: true });
+    const { engine } = await sinkEngine([chain]);
+    try {
+      const deep = { message: { ...serialisableMessage(from('rest_api')), _reentryDepth: 1 }, chainId: chain.id, resumeAfterNodeId: d.id };
+      expect(await runRuleEngineMessage(JSON.parse(JSON.stringify(deep)), engine)).toBe('admitted');
+      await waitFor(() => seen.length >= 1);
+      await settleEngine(engine);
+      expect(seen.map((r) => r.depth)).toEqual([1]);
+      expect(emitCounters().loop_skipped).toBe(1);
+      const plain = { message: serialisableMessage(from('rest_api')), chainId: chain.id, resumeAfterNodeId: d.id };
+      expect(await runRuleEngineMessage(plain, engine)).toBe('admitted');
+      await waitFor(() => seen.length >= 2);
+      await settleEngine(engine);
+      expect(seen.map((r) => r.depth)).toEqual([1, 0]);
+      expect(emitCounters().emitted).toBe(1);
+    } finally {
+      await engine.stop();
+    }
+  });
+
+  it('processNow decides the depth from the origin it was given, as admission does', async () => {
+    const depths: number[] = [];
+    const rec = type('test:re-depth', () => { depths.push(currentReentryDepth()); });
+    const r = nodeOf(rec, 'R');
+    const chain = chainOf('c', docOf([r], []), { root: true });
+    const { engine } = engineFor([chain]);
+    await engine.processNow(from('ingest'));
+    await engine.processNow(from(ruleNodeOrigin(chain.id, r.id)));
+    expect(depths).toEqual([0, 1]);
+  });
+});
+
+/** The queue empty and idle, a beat for late timers, and idle again. */
+async function settleEngine(engine: RuleEngine): Promise<void> {
+  await engine.drain();
+  await new Promise((r) => setTimeout(r, 30));
+  await engine.drain();
+}
 
 describe('ctx.runScript', () => {
   it('runs on the message; three time-outs disable it until the chain is saved (a new version)', async () => {

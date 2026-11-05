@@ -8,6 +8,7 @@ import {
   type RuleEngineSink,
 } from '../emit.js';
 import { ruleNodeOrigin, type RuleMessage } from '../message.js';
+import { runInFlow } from '../context.js';
 
 /**
  * The emit helpers (spec §5): the message each event becomes, the loop guard,
@@ -114,6 +115,62 @@ describe('the loop guard (spec §5, ruling S-2)', () => {
 
   it('a malformed rule_node origin is skipped, not let through', async () => {
     expect(await emitTelemetry('i1', [{ key: 't', value: 1, ts: new Date() }], 'rule-engine', 'rule_node:nonsense')).toBe(0);
+  });
+});
+
+describe('the re-entry depth (ruling RE-1)', () => {
+  const origin = ruleNodeOrigin(CHAIN, NODE);
+  const reading = () => [{ key: 't', value: 1, ts: new Date() }];
+
+  it('inside a flow that itself re-entered (depth 1), a rule node\'s write emits NOTHING — even with Re-enter ON, and without asking the chain', async () => {
+    reEnter = true;
+    let asked = 0;
+    const counting: RuleEngineSink = { ...sink, reEnterAllowed: async (id) => { asked++; return sink.reEnterAllowed(id); } };
+    setRuleEngineSink(counting);
+    await runInFlow({ reentryDepth: 1 }, async () => {
+      expect(await emitTelemetry('i1', reading(), 'rule-engine', origin)).toBe(0);
+      expect(await emitAttributes('i1', { k: 'v' }, origin)).toBe(0);
+      expect(await emitAttributesDeleted('i1', ['k'], origin)).toBe(0);
+      expect(await emitAlarm('ALARM', alarm(), { isExistingAlarm: true, origin })).toBe(0);
+      expect(await emitAlarm('ALARM_CLEAR', alarm(), { isClearedAlarm: true, origin })).toBe(0);
+    });
+    expect(queued).toEqual([]);
+    expect(emitCounters().loop_skipped).toBe(5);
+    expect(asked).toBe(0);
+  });
+
+  it('at depth 0 (a first-generation message, or outside any flow) the chain\'s switch decides, as before', async () => {
+    reEnter = true;
+    expect(await runInFlow({ reentryDepth: 0 }, () => emitTelemetry('i1', reading(), 'rule-engine', origin))).toBe(1);
+    expect(await emitTelemetry('i1', reading(), 'rule-engine', origin)).toBe(1);
+    expect(emitCounters().loop_skipped).toBe(0);
+  });
+
+  it('the depth limits rule-node writes only: ingest, system and user events inside a depth-1 flow still enter', async () => {
+    await runInFlow({ reentryDepth: 1 }, async () => {
+      expect(await emitTelemetry('i1', reading(), 'http')).toBe(1);
+      expect(await emitAlarm('ALARM', alarm(), { isNewAlarm: true })).toBe(1);
+      expect(await emitEntity('ENTITY_UPDATED', { id: 'i1', code: 'C' })).toBe(1);
+    });
+    expect(emitCounters().loop_skipped).toBe(0);
+  });
+
+  it('the depth survives the awaits between a handler and the emit: a timer, setImmediate, a promise ANOTHER context resolves', async () => {
+    reEnter = true;
+    // Resolved from a timer armed OUTSIDE the flow, as a batch writer would resolve a caller's promise.
+    let release!: () => void;
+    const elsewhere = new Promise<void>((r) => { release = r; });
+    const outside = setTimeout(() => release(), 5);
+    const n = await runInFlow({ reentryDepth: 1 }, async () => {
+      await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setTimeout(r, 1));
+      await elsewhere;
+      await Promise.resolve();
+      return emitTelemetry('i1', reading(), 'rule-engine', origin);
+    });
+    clearTimeout(outside);
+    expect(n).toBe(0);
+    expect(emitCounters().loop_skipped).toBe(1);
   });
 });
 

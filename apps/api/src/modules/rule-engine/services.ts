@@ -22,6 +22,7 @@ import { getApplicationAttributes, type RuleEngineConfig } from './config.js';
 import { getChain } from './service.js';
 import { emitTelemetry, emitAttributes, emitAttributesDeleted, emitAlarm } from './emit.js';
 import { parseRuleNodeOrigin, ruleNodeOrigin, serialisableMessage, type RuleMessage } from './message.js';
+import { currentReentryDepth } from './context.js';
 
 /**
  * THE SERVICES a rule node may use (rule chains, 2026-11-03; spec §6, §7) —
@@ -68,6 +69,13 @@ export interface RuleAttributeSaveOptions {
 }
 
 export type RuleTelemetryAggregation = 'NONE' | 'AVG' | 'MIN' | 'MAX' | 'SUM' | 'COUNT';
+
+export interface RuleDurableOptions {
+  /** Default: the running flow's depth (context.ts); 0 outside a flow. */
+  reentryDepth?: number;
+  /** The relation the message resumes on; default `Success` (Delay and Checkpoint). */
+  relation?: string;
+}
 
 export interface RuleAlarmInput {
   instrumentId: string;
@@ -147,7 +155,10 @@ export interface RuleServices {
   telemetry: {
     /**
      * Only readings that are NEW, or whose stored value at that instant DIFFERS, are judged
-     * and emitted; the same value written back is a no-op that emits nothing.
+     * and emitted; the same value written back is a no-op that emits nothing. That alone does
+     * NOT bound re-entry: a write that changes something on every pass (useServerTs, a
+     * transform adding 1) is new every time. What ends it is the re-entry depth (ruling RE-1,
+     * context.ts): the emit of a write made by a message that itself re-entered is skipped.
      * `skipLatest`: history only, `instrument_telemetry_latest` untouched (TB's skipLatestPersistence).
      */
     write(instrumentId: string, readings: RuleTelemetryReading[], origin: string, opts?: { skipLatest?: boolean }): Promise<void>;
@@ -179,6 +190,11 @@ export interface RuleServices {
     fields(id: string): Promise<Record<string, string> | null>;
   };
   alarms: {
+    /**
+     * Opens the RULE alarm of that type, or updates the open one. An update that changes neither
+     * the severity nor the details (by content) writes nothing and emits nothing (ruling RE-1) —
+     * it still returns `{ alarm, created: false }`, so the node answers `Updated`.
+     */
     createOrUpdate(input: RuleAlarmInput): Promise<{ alarm: Alarm; created: boolean }>;
     /** Clears the ACTIVE RULE alarm of that type; null when there is none. */
     /** `origin` REQUIRED (`ctx.origin`): the ALARM_CLEAR it emits goes through the loop guard. */
@@ -210,8 +226,13 @@ export interface RuleServices {
   appDetails(): Promise<Record<string, string>>;
   config(): RuleEngineConfig;
   durable: {
-    /** Hand the message to graphile-worker (`rule_engine_message`); it resumes AFTER `nodeId` on `Success` (at `runAt`). */
-    enqueue(msg: RuleMessage, chainId: string, nodeId: string, runAt?: Date): Promise<void>;
+    /**
+     * Hand the message to graphile-worker (`rule_engine_message`); it resumes AFTER `nodeId` on `Success`
+     * (or `opts.relation`) at `runAt`, with its hop count, call stack and RE-ENTRY DEPTH (ruling RE-1) —
+     * the running flow's, unless `opts.reentryDepth` says otherwise (the engine's stop hands a waiting
+     * resume back with the depth it was admitted at).
+     */
+    enqueue(msg: RuleMessage, chainId: string, nodeId: string, runAt?: Date, opts?: RuleDurableOptions): Promise<void>;
   };
   stats: { inc(name: string): void };
   log: RuleLogger;
@@ -451,9 +472,10 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
         if (result.unplaceable.length > 0 && result.stored.length === 0) {
           throw new Error('TIMESTAMP_OUT_OF_RANGE: every reading is older than the oldest telemetry partition');
         }
-        // ONLY what is new or changed is judged and emitted (ruled 2026-11-04): a chain
-        // that writes back what is already stored (Save Timeseries after Save
-        // Timeseries) would otherwise re-enter forever with re-entry ON.
+        // ONLY what is new or changed is judged and emitted (ruled 2026-11-04): a write
+        // back of what is already stored (an ingest reading through Save Timeseries) is
+        // quiet. A write that CHANGES something re-enters once with Re-enter ON, and its
+        // re-entered message's write is stopped by the depth check in emit.ts (RE-1).
         const changed = result.stored.filter((r) => !unchanged.has(instantOf(r.key, r.ts)));
         if (changed.length === 0) return;
         await enqueueAlarmEvaluation();
@@ -643,6 +665,14 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
         const existing = await prisma.alarm.findUniqueOrThrow({ where: { id } });
         const prior = existing.ruleSnapshot && typeof existing.ruleSnapshot === 'object' && !Array.isArray(existing.ruleSnapshot)
           ? existing.ruleSnapshot as Record<string, unknown> : {};
+        // CHANGED-ONLY (ruling RE-1, 2026-11-05): the same severity and the same details
+        // (by content — jsonb reorders keys) are no change — no UPDATE, no ALARM message. A
+        // Create alarm node fires on EVERY message while its condition holds; re-announcing an
+        // unchanged alarm pushed an extra ALARM into the root chain each time, and looped a
+        // chain that feeds Create alarm its own ALARM. The node still answers `Updated`.
+        if (existing.severity === severity && canonical(prior.details ?? {}) === canonical(input.details ?? {})) {
+          return { alarm: existing, created: false };
+        }
         const alarm = await prisma.alarm.update({
           where: { id: existing.id },
           data: {
@@ -809,10 +839,13 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
     config: () => hooks.config(),
 
     durable: {
-      async enqueue(msg, chainId, nodeId, runAt) {
+      async enqueue(msg, chainId, nodeId, runAt, opts = {}) {
+        const depth = opts.reentryDepth ?? currentReentryDepth();
         const producer = await getProducer();
         await producer.addJob(RULE_ENGINE_MESSAGE_TASK, {
-          message: serialisableMessage(msg), chainId, resumeAfterNodeId: nodeId,
+          message: { ...serialisableMessage(msg), ...(depth > 0 ? { _reentryDepth: depth } : {}) },
+          chainId, resumeAfterNodeId: nodeId,
+          ...(opts.relation && opts.relation !== 'Success' ? { relation: opts.relation } : {}),
         }, {
           queueName: ruleEngineQueueName(msg.originator.id),
           ...(runAt ? { runAt } : {}),

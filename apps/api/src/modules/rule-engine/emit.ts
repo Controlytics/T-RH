@@ -4,6 +4,7 @@ import {
   RULE_ENGINE_ORIGIN_KEY, INGEST_ORIGIN, SYSTEM_ORIGIN, USER_ORIGIN,
   type RuleMessage,
 } from './message.js';
+import { currentReentryDepth, REENTRY_DEPTH_MAX } from './context.js';
 
 /**
  * EMIT HELPERS (rule chains, 2026-11-03; spec §5) — where every event enters
@@ -20,7 +21,13 @@ import {
  *  - enqueueing is O(1) (engine.ts / queue.ts);
  *  - THE LOOP GUARD (spec §5, ruling S-2): a write made BY a rule node carries
  *    `rule_engine_origin = rule_node:<chainId>:<nodeId>`; its event is skipped
- *    unless THAT chain's "Re-enter on rule-node writes" is on.
+ *    unless THAT chain's "Re-enter on rule-node writes" is on;
+ *  - THE RE-ENTRY DEPTH (ruling RE-1, 2026-11-05): even with it on, a rule
+ *    node's write made by a message that ITSELF re-entered is skipped — the
+ *    flow context (context.ts, set by the engine at admission) says so. So
+ *    re-entry is one generation deep: telemetry, attributes (an
+ *    ATTRIBUTES_UPDATED a Save attributes flag sends included), deletions and
+ *    alarms alike. Both skips count `loop_skipped`.
  *
  * No static import of the engine: the engine installs itself here as the SINK
  * when it starts (`setRuleEngineSink`), which keeps ingest-core → emit free of
@@ -62,8 +69,8 @@ function logError(err: unknown, what: string): void {
 }
 
 /**
- * The one path every helper takes: accepting? → loop guard → build → stamp
- * the origin → enqueue. Returns how many messages were admitted.
+ * The one path every helper takes: accepting? → re-entry depth → loop guard →
+ * build → stamp the origin → enqueue. Returns how many messages were admitted.
  */
 async function deliver(what: string, origin: string, build: () => RuleMessage[]): Promise<number> {
   const s = sink;
@@ -71,6 +78,11 @@ async function deliver(what: string, origin: string, build: () => RuleMessage[])
   try {
     if (!s.accepting()) return 0;
     if (isRuleNodeOrigin(origin)) {
+      // RE-1: written by a message that re-entered → nothing, whatever the chain's switch says.
+      if (currentReentryDepth() >= REENTRY_DEPTH_MAX) {
+        counters.loop_skipped++;
+        return 0;
+      }
       const frame = parseRuleNodeOrigin(origin);
       if (!frame || !(await s.reEnterAllowed(frame.chainId))) {
         counters.loop_skipped++;
