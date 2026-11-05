@@ -1,7 +1,7 @@
 import { useId, useMemo, useState, type ReactNode } from 'react';
 import {
-  MESSAGE_TYPE_SWITCH_LABELS, RULE_KEY_MAX, RULE_MESSAGE_TYPES, newRuleNodeConfig, visibleRuleNodeFields,
-  type RuleNodeConfigField,
+  MESSAGE_TYPE_SWITCH_LABELS, RULE_KEY_MAX, RULE_MESSAGE_TYPES, canonicalRuleNodeConfig, newRuleNodeConfig,
+  visibleRuleNodeFields, type RuleNodeConfigField,
 } from '@digilog/shared';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -162,6 +162,14 @@ export function ConfigForm({ nodeType, fields, value, onChange, context = {}, re
 }) {
   // Memoized: a field compares its value by identity, and an omitted key shows this default.
   const defaults = useMemo(() => newRuleNodeConfig(nodeType), [nodeType]);
+  // What the form SHOWS is the shared canonical spelling (ruling SW-1): an
+  // Entity type filter / Generator saved before it holds INSTRUMENT / SYSTEM,
+  // which the server reads as DEVICE / TENANT (toRuleOriginatorType) — so it
+  // shows as "Instrument", never as "not in this list". The draft is NOT
+  // rewritten: an untouched form changes nothing, and the first edit of the
+  // field writes the canonical spelling. The same function the import, the
+  // export and `showWhen` read through — never a copy of its rule.
+  const canonical = useMemo(() => canonicalRuleNodeConfig(nodeType, value), [nodeType, value]);
   const set = (key: string, v: unknown) => onChange({ ...value, [key]: v });
   const unset = (key: string) => {
     const { [key]: _gone, ...rest } = value;
@@ -175,7 +183,7 @@ export function ConfigForm({ nodeType, fields, value, onChange, context = {}, re
   return (
     <div className="space-y-4">
       {fields.map((field) => {
-        const raw = value[field.key];
+        const raw = canonical[field.key];
         // What the form SHOWS for a key the config omits (or holds null for):
         // ThingsBoard's default, which is what the node will use.
         const shown = raw === undefined || raw === null ? defaults[field.key] : raw;

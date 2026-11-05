@@ -52,14 +52,14 @@ function context(over: Partial<ConfigFormContext> = {}): ConfigFormContext {
 }
 
 /** The form as the settings dialog holds it: the latest value comes back in. */
-function Harness({ fields = FIELDS, initial = VALUE, ctx = context(), readOnly = false, onValue }: {
+function Harness({ fields = FIELDS, initial = VALUE, ctx = context(), readOnly = false, onValue, nodeType = 'tb:test:fixture' }: {
   fields?: RuleNodeConfigField[]; initial?: Record<string, unknown>; ctx?: ConfigFormContext; readOnly?: boolean;
-  onValue?: (v: Record<string, unknown>) => void;
+  onValue?: (v: Record<string, unknown>) => void; nodeType?: string;
 }) {
   const [value, setValue] = useState(initial);
   return (
     <ConfigForm
-      nodeType="tb:test:fixture"
+      nodeType={nodeType}
       fields={fields}
       value={value}
       context={ctx}
@@ -486,6 +486,34 @@ describe('ConfigForm — read only', () => {
     for (const el of screen.queryAllByRole('combobox')) expect(el).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Test script' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Add key' })).toBeNull();
+  });
+});
+
+describe('ConfigForm — a value stored before SW-1 (INSTRUMENT / SYSTEM)', () => {
+  // The server reads either spelling (toRuleOriginatorType); the form SHOWS the
+  // shared canonical spelling (canonicalRuleNodeConfig) and writes it on the
+  // first edit — an untouched form changes nothing.
+  it('an Entity type filter stored as INSTRUMENT shows "Instrument" ticked, never "(not in this list)", and writes nothing until edited', () => {
+    const type = 'tb:filter:entity-type-filter';
+    const initial = { originatorTypes: ['INSTRUMENT'] };
+    const { last } = setup({ nodeType: type, fields: visibleFieldsFor(type, initial), initial });
+    const r = row('originatorTypes', 'multiselect');
+    expect(within(r).getByRole('checkbox', { name: 'Instrument' })).toBeChecked();
+    expect(within(r).queryByText(/not in this list/)).toBeNull();
+    expect(last()).toBeUndefined();
+    fireEvent.click(within(r).getByRole('checkbox', { name: 'System' }));
+    expect(last()).toEqual({ originatorTypes: ['DEVICE', 'TENANT'] });
+  });
+
+  it('a Generator stored as INSTRUMENT selects "An instrument" and offers its instrument picker', () => {
+    const type = 'tb:action:generator';
+    const initial = { originatorType: 'INSTRUMENT', originatorId: 'i-2' };
+    const { last } = setup({ nodeType: type, fields: visibleFieldsFor(type, initial), initial });
+    const select = within(row('originatorType', 'select')).getByRole('combobox') as HTMLSelectElement;
+    expect(select.value).toBe('DEVICE');
+    expect(within(select).queryByText(/not in this list/)).toBeNull();
+    expect((within(row('originatorId', 'instrument')).getByRole('combobox') as HTMLSelectElement).value).toBe('i-2');
+    expect(last()).toBeUndefined();
   });
 });
 
