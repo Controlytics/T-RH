@@ -6,7 +6,9 @@ import {
   toThingsboardExport, fromThingsboardExport, ruleChainsEqual,
   type RuleChainDocument,
 } from '../rule-chain-document.js';
-import { RULE_NODE_TYPES, RULE_NODE_TYPE_BY_ID, UNSUPPORTED_NODE_TYPE, RULE_CHAIN_NODES_MAX } from '../rule-nodes.js';
+import {
+  RULE_NODE_TYPES, RULE_NODE_TYPE_BY_ID, RULE_NODE_TYPE_BY_TB_CLASS, UNSUPPORTED_NODE_TYPE, RULE_CHAIN_NODES_MAX, RULE_SCRIPT_KEYS,
+} from '../rule-nodes.js';
 
 /**
  * The rule chain DOCUMENT (rule chains, 2026-11-03; spec §4, §5, §8).
@@ -295,11 +297,14 @@ describe('ThingsBoard export / import', () => {
   }
 
   const NO_COUNTERPART = 'has no counterpart here and will send every message to Failure';
+  /** Ruling TB-L (2026-11-05): a TBEL node imports as JavaScript running its TBEL script — one warning per node. */
+  const tbelWarning = (name: string, label = 'Log') => `Node "${name}" (${label}): its TBEL script now runs as JavaScript — check it.`;
+  const LOG_TBEL_WARNINGS = [tbelWarning('Log RPC from Device'), tbelWarning('Log Other')];
 
-  it('imports ThingsBoard\'s own default root chain: six nodes mapped, 4.x debug flags read, ONE warning — the RPC Call Request (later)', () => {
+  it('imports ThingsBoard\'s own default root chain: six nodes mapped, 4.x debug flags read, THREE warnings — its two TBEL Log nodes, and RPC Call Request (later)', () => {
     const tb = tbCeRootChain();
     const r = fromThingsboardExport(tb);
-    expect(r.warnings).toEqual([`Node "RPC Call Request": RPC call request ${NO_COUNTERPART}.`]);
+    expect(r.warnings).toEqual([...LOG_TBEL_WARNINGS, `Node "RPC Call Request": RPC call request ${NO_COUNTERPART}.`]);
     expect(r.document.nodes.map((n) => n.type)).toEqual([
       'tb:action:save-timeseries', 'tb:action:save-attributes', 'tb:filter:message-type-switch',
       'tb:action:log', 'tb:action:log', 'tb:action:rpc-call-request',
@@ -312,16 +317,16 @@ describe('ThingsBoard export / import', () => {
     expect(parseRuleChainDocument(r.document)).toEqual(r.document);
   });
 
-  it('the same chain with only its built nodes imports with no warnings', () => {
+  it('the same chain with only its built nodes imports with only the two TBEL notes', () => {
     const tb = tbCeRootChain();
     tb.metadata.nodes = tb.metadata.nodes.filter((n) => n.name !== 'RPC Call Request');
     tb.metadata.connections = tb.metadata.connections.filter((c) => c.toIndex !== 5);
     const r = fromThingsboardExport(tb);
-    expect(r.warnings).toEqual([]);
+    expect(r.warnings).toEqual(LOG_TBEL_WARNINGS);
     expect(r.document.nodes).toHaveLength(5);
   });
 
-  it('a ThingsBoard root chain ENTERED by the Device Profile node imports live: the entry is built, no warning (2026-11-04)', () => {
+  it('a ThingsBoard root chain ENTERED by the Device Profile node imports live: the entry is built, no warning of its own (2026-11-04)', () => {
     // Every ThingsBoard release v3.6–v4.2 ships its root chain this way.
     const tb = tbCeRootChain() as any;
     tb.metadata.nodes = tb.metadata.nodes.filter((n: { name: string }) => n.name !== 'RPC Call Request');
@@ -334,7 +339,7 @@ describe('ThingsBoard export / import', () => {
     tb.metadata.connections.push({ fromIndex: 5, toIndex: 2, type: 'Success' });
     tb.metadata.firstNodeIndex = 5;
     const r = fromThingsboardExport(tb);
-    expect(r.warnings).toEqual([]);
+    expect(r.warnings).toEqual(LOG_TBEL_WARNINGS);
     const entry = r.document.nodes.find((n) => n.id === r.document.firstNodeId)!;
     expect(entry).toMatchObject({ type: 'tb:action:device-profile', name: 'Device Profile Node' });
     expect(entry.config).toEqual({ persistAlarmRulesState: false, fetchAlarmRulesStateOnStart: false });
@@ -553,13 +558,51 @@ describe('ThingsBoard export / import', () => {
     expect(ruleChainsEqual(fromThingsboardExport(toThingsboardExport('C', false, d)).document, d)).toBe(true);
   });
 
-  it('warns when a TBEL script differs from the JavaScript one that will run', () => {
+  it('TB-L: a TBEL node imports as JavaScript running its TBEL script, with ONE warning; its export is JavaScript and re-imports silently', () => {
     const tb = toThingsboardExport('C', false, doc()) as any;
     tb.metadata.nodes[1].configuration = { scriptLang: 'TBEL', jsScript: 'return "js";', tbelScript: 'return "tbel" + 1;' };
     const r = fromThingsboardExport(tb);
-    expect(r.warnings).toHaveLength(1);
-    expect(r.warnings[0]).toContain('TBEL');
-    expect(r.document.nodes[1].type).toBe('tb:action:log');
+    expect(r.warnings).toEqual([tbelWarning('Log')]);
+    expect(r.document.nodes[1]).toMatchObject({ type: 'tb:action:log', config: { scriptLang: 'JS', jsScript: 'return "tbel" + 1;' } });
+    expect(r.document.nodes[1].config).not.toHaveProperty('tbelScript');
+    const out = toThingsboardExport('C', false, r.document).metadata.nodes[1].configuration;
+    expect(out).toEqual({ scriptLang: 'JS', jsScript: 'return "tbel" + 1;' });
+    const again = fromThingsboardExport(JSON.parse(JSON.stringify(toThingsboardExport('C', false, r.document))));
+    expect(again.warnings).toEqual([]);
+    expect(ruleChainsEqual(again.document, r.document)).toBe(true);
+  });
+
+  it('TB-L: every one of the seven script nodes, at ThingsBoard\'s TBEL default, imports as JavaScript with one warning each', () => {
+    const scripted: [string, string, Record<string, unknown>][] = [
+      ['filter.TbJsFilterNode', 'Script', {}],
+      ['filter.TbJsSwitchNode', 'Switch', {}],
+      ['transform.TbTransformMsgNode', 'Script', {}],
+      ['action.TbLogNode', 'Log', {}],
+      ['debug.TbMsgGeneratorNode', 'Generator', { msgCount: 0, periodInSeconds: 1, originatorType: 'RULE_NODE' }],
+      ['action.TbCreateAlarmNode', 'Create alarm', { alarmType: 'General Alarm', severity: 'CRITICAL' }],
+      ['action.TbClearAlarmNode', 'Clear alarm', { alarmType: 'General Alarm' }],
+    ];
+    const nodes = scripted.map(([cls, , extra], i) => {
+      const alarm = cls.includes('Alarm');
+      const scripts = alarm
+        ? { alarmDetailsBuildJs: 'return {js: 1};', alarmDetailsBuildTbel: `return {n: ${i}};` }
+        : { jsScript: 'return {};', tbelScript: `return {n: ${i}};` };
+      return tbNode(cls, `N${i}`, { ...extra, scriptLang: 'TBEL', ...scripts },
+        RULE_NODE_TYPE_BY_TB_CLASS.get(`org.thingsboard.rule.engine.${cls}`)!.tbConfigurationVersion ?? 0);
+    });
+    const r = importNodes(...nodes);
+    expect(r.warnings).toEqual(scripted.map(([, label], i) => tbelWarning(`N${i}`, label)));
+    r.document.nodes.forEach((n, i) => {
+      const [jsKey, tbelKey] = RULE_SCRIPT_KEYS[n.type];
+      expect(n.config.scriptLang, n.name).toBe('JS');
+      expect(n.config[jsKey], n.name).toBe(`return {n: ${i}};`);
+      expect(n.config, n.name).not.toHaveProperty(tbelKey);
+    });
+  });
+
+  it('TB-L: a document stored BEFORE the rule (still TBEL) exports its TBEL script as the JavaScript one — what runs is what goes out', () => {
+    const legacy = doc({ nodes: [node(A, 'tb:action:log', { config: { scriptLang: 'TBEL', jsScript: 'old', tbelScript: 'ran' } }), node(B, 'tb:action:log')] });
+    expect(toThingsboardExport('C', false, legacy).metadata.nodes[0].configuration).toEqual({ scriptLang: 'JS', jsScript: 'ran' });
   });
 
   it('a known class whose configuration does not fit imports as Unsupported with a warning (never refuses the file)', () => {

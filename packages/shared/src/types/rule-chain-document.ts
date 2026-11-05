@@ -36,8 +36,9 @@
  * Between the upgrade and the coercion, `fromThingsboardConfig` turns
  * ThingsBoard's exchange form into the ONE shape stored here (ruling CV-3 —
  * Save time series' `processingSettings` sets its toggle; a strategy not built
- * here warns once, naming it); the export writes it back with
- * `toThingsboardConfig`.
+ * here warns once, naming it; ruling TB-L — a TBEL script node becomes
+ * JavaScript running its TBEL script, one warning per node); the export writes
+ * it back with `toThingsboardConfig`.
  */
 import { z, ZodError, type ZodIssue } from 'zod';
 import {
@@ -338,17 +339,6 @@ export interface ThingsboardImportResult {
   warnings: string[];
 }
 
-/** Built nodes carrying a script: [the JavaScript key that runs, ThingsBoard's TBEL twin]. */
-const SCRIPT_KEYS: Readonly<Record<string, readonly [string, string]>> = {
-  'tb:filter:script': ['jsScript', 'tbelScript'],
-  'tb:filter:switch': ['jsScript', 'tbelScript'],
-  'tb:transformation:script': ['jsScript', 'tbelScript'],
-  'tb:action:log': ['jsScript', 'tbelScript'],
-  'tb:action:generator': ['jsScript', 'tbelScript'],
-  'tb:action:create-alarm': ['alarmDetailsBuildJs', 'alarmDetailsBuildTbel'],
-  'tb:action:clear-alarm': ['alarmDetailsBuildJs', 'alarmDetailsBuildTbel'],
-};
-
 /** ThingsBoard's export JSON for a document. */
 export function toThingsboardExport(name: string, root: boolean, doc: RuleChainDocument): ThingsboardRuleChainExport {
   const index = new Map(doc.nodes.map((n, i) => [n.id, i]));
@@ -484,11 +474,8 @@ export function fromThingsboardExport(json: unknown, opts: { newId?: () => strin
       } else {
         type = spec.id;
         config = coerced;
+        // Save time series / attributes: a strategy not built here; a script node: its TBEL script now runs as JavaScript (TB-L).
         if (boundary.notHonoured) warnings.push(`Node "${nodeName}" (${spec.label}): ${boundary.notHonoured}`);
-        const keys = SCRIPT_KEYS[spec.id];
-        if (keys && config.scriptLang === 'TBEL' && typeof config[keys[1]] === 'string' && config[keys[1]] !== config[keys[0]]) {
-          warnings.push(`Node "${nodeName}" (${spec.label}): its TBEL script differs from its JavaScript one; only JavaScript runs here, so the JavaScript script will run.`);
-        }
       }
     }
     const info = isPlainObject(raw.additionalInfo) ? raw.additionalInfo : {};

@@ -6,6 +6,7 @@ import {
   RULE_ORIGINATOR_TYPES, RULE_ORIGINATOR_TYPE_LABELS, TB_ENTITY_TYPE_ALIASES, RULE_DEBUG_MODES,
   RULE_NODE_NAME_MAX, RULE_CHAIN_NAME_MAX, RULE_CHAIN_NODES_MAX, RULE_MATH_OPERATIONS, toRuleNodeTypeDescriptor,
   visibleRuleNodeFields, coerceThingsboardScalars, upgradeThingsboardConfig, fromThingsboardConfig, toThingsboardConfig,
+  RULE_SCRIPT_KEYS, ruleNodeScriptKey, ruleNodeScript,
 } from '../rule-nodes.js';
 
 /**
@@ -705,11 +706,12 @@ describe('fromThingsboardConfig / toThingsboardConfig — CV-3: ONE source of tr
   });
 
   it('any other node passes both ways unchanged — as a copy; the input is never touched', () => {
-    const cfg = { jsScript: 'return true;', nested: { a: 1 } };
-    const imp = fromThingsboardConfig('tb:filter:script', cfg);
+    // (A script node is no longer "any other node": ruling TB-L writes its scriptLang — see the TB-L block.)
+    const cfg = { jsonPath: '$.temperature', nested: { a: 1 } };
+    const imp = fromThingsboardConfig('tb:transformation:json-path', cfg);
     expect(imp).toEqual({ config: cfg, notHonoured: null });
     expect(imp.config).not.toBe(cfg);
-    const exp = toThingsboardConfig('tb:filter:script', cfg);
+    const exp = toThingsboardConfig('tb:transformation:json-path', cfg);
     expect(exp).toEqual(cfg);
     (exp.nested as { a: number }).a = 2;
     expect(cfg.nested.a).toBe(1);
@@ -763,6 +765,87 @@ describe('message types and the Message Type Switch labels', () => {
     expect(messageTypeSwitchLabel('CUSTOM:anything')).toBe('Other');
     expect(messageTypeSwitchLabel('toString')).toBe('Other');
     expect(MESSAGE_TYPE_SWITCH_LABELS.GENERATOR_NODE_SELF_MSG).toBeUndefined();
+  });
+});
+
+// ─── Ruling TB-L (2026-11-05): TBEL is not built here — every script runs as JavaScript ───
+describe('scripts — ruling TB-L: ONE rule for which script a node runs', () => {
+  const LOG = 'tb:action:log';
+  const ALARM = 'tb:action:create-alarm';
+
+  it('RULE_SCRIPT_KEYS names every built node with a script field, keyed by that field — and nothing else', () => {
+    const withScript = BUILT_RULE_NODE_TYPES.filter((s) => s.fields.some((f) => f.type === 'script'));
+    expect(Object.keys(RULE_SCRIPT_KEYS).sort()).toEqual(withScript.map((s) => s.id).sort());
+    expect(withScript).toHaveLength(7);
+    for (const s of withScript) {
+      const scriptKeys = new Set(s.fields.filter((f) => f.type === 'script').map((f) => f.key));
+      expect([...scriptKeys], s.id).toEqual([RULE_SCRIPT_KEYS[s.id][0]]);
+      // Every catalogue default runs JavaScript.
+      expect(s.defaultConfig.scriptLang, s.id).toBe('JS');
+      expect(s.defaultConfig[RULE_SCRIPT_KEYS[s.id][1]], s.id).toBeUndefined();
+    }
+    expect(RULE_SCRIPT_KEYS[ALARM]).toEqual(['alarmDetailsBuildJs', 'alarmDetailsBuildTbel']);
+    expect(RULE_SCRIPT_KEYS['tb:action:clear-alarm']).toEqual(['alarmDetailsBuildJs', 'alarmDetailsBuildTbel']);
+  });
+
+  it('ruleNodeScriptKey: TBEL with a TBEL script runs THAT script; anything else runs the JavaScript key', () => {
+    expect(ruleNodeScriptKey(LOG, { scriptLang: 'JS', jsScript: 'a', tbelScript: 'b' })).toBe('jsScript');
+    expect(ruleNodeScriptKey(LOG, { jsScript: 'a', tbelScript: 'b' })).toBe('jsScript');                    // absent = JS, as ThingsBoard reads it
+    expect(ruleNodeScriptKey(LOG, { scriptLang: 'TBEL', jsScript: 'a', tbelScript: 'b' })).toBe('tbelScript');
+    expect(ruleNodeScriptKey(LOG, { scriptLang: 'TBEL', jsScript: 'a', tbelScript: '  ' })).toBe('jsScript'); // nothing to run there
+    expect(ruleNodeScriptKey(LOG, { scriptLang: 'TBEL', jsScript: 'a', tbelScript: null })).toBe('jsScript');
+    expect(ruleNodeScriptKey(ALARM, { scriptLang: 'TBEL', alarmDetailsBuildTbel: 'return {};' })).toBe('alarmDetailsBuildTbel');
+    expect(ruleNodeScriptKey('tb:filter:message-type-switch', { scriptLang: 'TBEL' })).toBeNull();
+    expect(ruleNodeScript(LOG, { scriptLang: 'TBEL', jsScript: 'a', tbelScript: 'b' })).toBe('b');
+    expect(ruleNodeScript(LOG, { scriptLang: 'JS', jsScript: 'a', tbelScript: 'b' })).toBe('a');
+    expect(ruleNodeScript(LOG, {})).toBeUndefined();
+    expect(ruleNodeScript('tb:filter:message-type-switch', { jsScript: 'a' })).toBeUndefined();
+  });
+
+  it('import (fromThingsboardConfig): TBEL becomes JavaScript running the TBEL script the author ran — the TBEL twin dropped, ONE note', () => {
+    const r = fromThingsboardConfig(LOG, { scriptLang: 'TBEL', jsScript: 'return "js";', tbelScript: 'return "tbel";' });
+    expect(r).toEqual({ config: { scriptLang: 'JS', jsScript: 'return "tbel";' }, notHonoured: 'its TBEL script now runs as JavaScript — check it.' });
+    // Identical texts are still a language change: the author ran it as TBEL.
+    expect(fromThingsboardConfig(LOG, { scriptLang: 'TBEL', jsScript: 'x', tbelScript: 'x' }).notHonoured).toBe('its TBEL script now runs as JavaScript — check it.');
+    // Create / Clear alarm: their own two keys.
+    expect(fromThingsboardConfig(ALARM, { alarmType: 'A', severity: 'MAJOR', scriptLang: 'TBEL', alarmDetailsBuildJs: 'return {js: 1};', alarmDetailsBuildTbel: 'return {tbel: 1};' }).config)
+      .toEqual({ alarmType: 'A', severity: 'MAJOR', scriptLang: 'JS', alarmDetailsBuildJs: 'return {tbel: 1};' });
+  });
+
+  it('import: JavaScript keeps its script and loses a stale TBEL twin, with no note; an absent language reads as JavaScript', () => {
+    expect(fromThingsboardConfig(LOG, { scriptLang: 'JS', jsScript: 'a', tbelScript: 'b' })).toEqual({ config: { scriptLang: 'JS', jsScript: 'a' }, notHonoured: null });
+    expect(fromThingsboardConfig(LOG, { jsScript: 'a' })).toEqual({ config: { scriptLang: 'JS', jsScript: 'a' }, notHonoured: null });
+  });
+
+  it('import: TBEL with NO TBEL script (ThingsBoard could not start it) runs the JavaScript one, and says so', () => {
+    expect(fromThingsboardConfig(LOG, { scriptLang: 'TBEL', jsScript: 'a', tbelScript: '' })).toEqual({
+      config: { scriptLang: 'JS', jsScript: 'a' },
+      notHonoured: 'it was set to TBEL with no TBEL script (ThingsBoard could not start it); its JavaScript script runs here — check it.',
+    });
+  });
+
+  it('export (toThingsboardConfig): scriptLang JS and the script that RUNS, never a stale TBEL script', () => {
+    expect(toThingsboardConfig(LOG, { scriptLang: 'JS', jsScript: 'a', tbelScript: 'stale' })).toEqual({ scriptLang: 'JS', jsScript: 'a' });
+    // A document stored before TB-L may still say TBEL: its TBEL script is what runs, so it goes out as the JavaScript.
+    expect(toThingsboardConfig(LOG, { scriptLang: 'TBEL', jsScript: 'old js', tbelScript: 'ran' })).toEqual({ scriptLang: 'JS', jsScript: 'ran' });
+    expect(toThingsboardConfig('tb:action:clear-alarm', { alarmType: 'A', scriptLang: 'TBEL', alarmDetailsBuildJs: 'j', alarmDetailsBuildTbel: 't' }))
+      .toEqual({ alarmType: 'A', scriptLang: 'JS', alarmDetailsBuildJs: 't' });
+    expect(toThingsboardConfig(LOG, { jsScript: 'a' })).toEqual({ scriptLang: 'JS', jsScript: 'a' });
+    // A node with no script is not touched.
+    expect(toThingsboardConfig('tb:filter:message-type-switch', { version: 0, scriptLang: 'TBEL' })).toEqual({ version: 0, scriptLang: 'TBEL' });
+  });
+
+  it('the editor shows ONE script field, and it is the one that runs (a legacy stored TBEL config edits its TBEL script)', () => {
+    const scriptFields = (type: string, config: Record<string, unknown>) =>
+      visibleRuleNodeFields(type, config).filter((f) => f.type === 'script').map((f) => f.key);
+    expect(scriptFields(LOG, { scriptLang: 'JS', jsScript: 'a' })).toEqual(['jsScript']);
+    expect(scriptFields(LOG, { scriptLang: 'TBEL', jsScript: 'a', tbelScript: 'b' })).toEqual(['tbelScript']);
+    expect(scriptFields(LOG, { scriptLang: 'TBEL', jsScript: 'a', tbelScript: '' })).toEqual(['jsScript']);
+    expect(scriptFields(ALARM, { ...RULE_NODE_TYPE_BY_ID.get(ALARM)!.defaultConfig, scriptLang: 'TBEL', alarmDetailsBuildTbel: 'return {};' })).toEqual(['alarmDetailsBuildTbel']);
+    // No scriptLang selector anywhere.
+    for (const s of BUILT_RULE_NODE_TYPES) expect(s.fields.map((f) => f.key), s.id).not.toContain('scriptLang');
+    // The catalogue entry itself is not changed by the lookup.
+    expect(RULE_NODE_TYPE_BY_ID.get(LOG)!.fields[0].key).toBe('jsScript');
   });
 });
 

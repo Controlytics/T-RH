@@ -37,6 +37,8 @@
  * where ThingsBoard says DEVICE …) so an export goes back into ThingsBoard; the
  * LABELS read "instrument". A key a schema does not model is KEPT (`passthrough`)
  * — real exports carry `scriptLang: 'TBEL'`, `tbelScript`, `processingSettings`.
+ * TBEL is not built: a script node runs JavaScript (ruling TB-L, `RULE_SCRIPT_KEYS`,
+ * `ruleNodeScriptKey`); the import turns a TBEL node into one.
  * A key the schema marks optional and the config omits means ThingsBoard's
  * default: read a node's config through `ruleNodeConfigWithDefaults`.
  */
@@ -1206,6 +1208,62 @@ export function ruleNodeConfigWithDefaults(type: string, config: Record<string, 
   return { ...newRuleNodeConfig(type), ...config };
 }
 
+// ─── Scripts (ruling TB-L, 2026-11-05): TBEL is not built here ───────────────
+
+/**
+ * The built nodes that carry a script: [the JavaScript key, ThingsBoard's TBEL
+ * twin]. ThingsBoard keeps both and runs the one `scriptLang` names; here every
+ * script runs as JavaScript (spec §3, ruling TB-L), so a node keeps ONE.
+ */
+export const RULE_SCRIPT_KEYS: Readonly<Record<string, readonly [string, string]>> = Object.freeze({
+  'tb:filter:script': ['jsScript', 'tbelScript'],
+  'tb:filter:switch': ['jsScript', 'tbelScript'],
+  'tb:transformation:script': ['jsScript', 'tbelScript'],
+  'tb:action:log': ['jsScript', 'tbelScript'],
+  'tb:action:generator': ['jsScript', 'tbelScript'],
+  'tb:action:create-alarm': ['alarmDetailsBuildJs', 'alarmDetailsBuildTbel'],
+  'tb:action:clear-alarm': ['alarmDetailsBuildJs', 'alarmDetailsBuildTbel'],
+});
+
+/**
+ * The configuration key of the script a node RUNS — the ONE rule (ruling TB-L)
+ * for the handlers, the editor's script field, the import and the export.
+ * `scriptLang: 'TBEL'` with a non-blank TBEL script (a document stored before
+ * TB-L, or written through the API) runs that TBEL script AS JAVASCRIPT;
+ * anything else — JS, or no `scriptLang` (ThingsBoard reads absent as JS) —
+ * runs the JavaScript key. ThingsBoard runs the TBEL key whenever `scriptLang`
+ * is TBEL (`ScriptLanguage.TBEL.equals(scriptLang) ? tbel : js` in TbLogNode,
+ * TbAbstractAlarmNode, TbMsgGeneratorNode …, master e48b5780); with no TBEL
+ * script it cannot start the node, and here the JavaScript one runs instead.
+ * `null` for a type without a script.
+ */
+export function ruleNodeScriptKey(type: string, config: Record<string, unknown>): string | null {
+  const keys = Object.prototype.hasOwnProperty.call(RULE_SCRIPT_KEYS, type) ? RULE_SCRIPT_KEYS[type] : undefined;
+  if (!keys) return null;
+  const tbel = config[keys[1]];
+  return config.scriptLang === 'TBEL' && typeof tbel === 'string' && tbel.trim() !== '' ? keys[1] : keys[0];
+}
+
+/** The script text a node runs (see `ruleNodeScriptKey`); `undefined` when it has none. */
+export function ruleNodeScript(type: string, config: Record<string, unknown>): string | undefined {
+  const key = ruleNodeScriptKey(type, config);
+  const value = key === null ? undefined : config[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * A script node's configuration in the ONE shape stored and exported (ruling
+ * TB-L): `scriptLang: 'JS'`, the script that RUNS under the JavaScript key, no
+ * TBEL twin. A copy; any other node comes back as given.
+ */
+function scriptAsJavaScript(type: string, config: Record<string, unknown>): Record<string, unknown> {
+  const keys = Object.prototype.hasOwnProperty.call(RULE_SCRIPT_KEYS, type) ? RULE_SCRIPT_KEYS[type] : undefined;
+  if (!keys) return config;
+  const runs = ruleNodeScriptKey(type, config);
+  const { [keys[1]]: tbel, ...rest } = config;
+  return runs === keys[1] ? { ...rest, scriptLang: 'JS', [keys[0]]: tbel } : { ...rest, scriptLang: 'JS' };
+}
+
 /**
  * The fields a settings form shows for a node's configuration right now: each
  * `showWhen` judged against the config WITH ThingsBoard's defaults (an imported
@@ -1213,12 +1271,18 @@ export function ruleNodeConfigWithDefaults(type: string, config: Record<string, 
  * renders by. Two fields may share a key — Create alarm's `severity` is a
  * select, or a template while `dynamicSeverity` is on — and are never visible
  * together, so a form keyed by the field's KEY plus its TYPE stays unique.
+ * A script field is keyed to the script the node RUNS (`ruleNodeScriptKey`): a
+ * document stored before ruling TB-L that still says TBEL edits its TBEL script,
+ * never a JavaScript one nothing runs.
  */
 export function visibleRuleNodeFields(type: string, config: Record<string, unknown>): RuleNodeConfigField[] {
   const spec = RULE_NODE_TYPE_BY_ID.get(type);
   if (!spec) return [];
   const resolved = ruleNodeConfigWithDefaults(type, config);
-  return spec.fields.filter((f) => !f.showWhen || resolved[f.showWhen.key] === f.showWhen.equals);
+  const scriptKey = ruleNodeScriptKey(type, resolved);
+  return spec.fields
+    .filter((f) => !f.showWhen || resolved[f.showWhen.key] === f.showWhen.equals)
+    .map((f) => (f.type === 'script' && scriptKey !== null && f.key !== scriptKey ? { ...f, key: scriptKey } : f));
 }
 
 /** A zod type with optional / nullable / default / refinement wrappers taken off. */
@@ -1618,6 +1682,10 @@ export interface ThingsboardConfigImport {
  *    (`asText` "true") and ThingsBoard's own v0 → v1 form is stored beside it.
  *  - Save attributes: a strategy not built here is named; no `processingSettings`
  *    → ThingsBoard's default (On every message).
+ *  - The seven script nodes (ruling TB-L): `scriptLang: 'JS'` with the script the
+ *    author RAN under the JavaScript key (`ruleNodeScriptKey`), the TBEL twin
+ *    dropped; a TBEL node is named in `notHonoured` ("its TBEL script now runs as
+ *    JavaScript — check it."), whether or not its two texts were equal.
  *  - Every other node: a copy, unchanged.
  */
 export function fromThingsboardConfig(type: string, config: Record<string, unknown>): ThingsboardConfigImport {
@@ -1636,6 +1704,14 @@ export function fromThingsboardConfig(type: string, config: Record<string, unkno
     if (!isPlainObject(c.processingSettings)) return { config: { ...c, processingSettings: cloneJson(ON_EVERY_MESSAGE_SETTINGS) }, notHonoured: null };
     return { config: c, notHonoured: notBuiltNote(attributesSettingsNotBuilt(c.processingSettings), 'it saves the attributes of every message') };
   }
+  if (Object.prototype.hasOwnProperty.call(RULE_SCRIPT_KEYS, type)) {
+    // Ruling TB-L: the code the author RAN, as JavaScript — even an identical text changes language.
+    const runsTbel = ruleNodeScriptKey(type, c) === RULE_SCRIPT_KEYS[type][1];
+    const note = c.scriptLang !== 'TBEL' ? null
+      : runsTbel ? 'its TBEL script now runs as JavaScript — check it.'
+        : 'it was set to TBEL with no TBEL script (ThingsBoard could not start it); its JavaScript script runs here — check it.';
+    return { config: scriptAsJavaScript(type, c), notHonoured: note };
+  }
   return { config: c, notHonoured: null };
 }
 
@@ -1649,6 +1725,9 @@ export function fromThingsboardConfig(type: string, config: Record<string, unkno
  *    v0 → v1 upgrade writes for the toggle's value.
  *  - Save attributes: `processingSettings` kept; none → On every message
  *    (ThingsBoard's `@NotNull` refuses a chain without one).
+ *  - The seven script nodes (ruling TB-L): `scriptLang: 'JS'` and the script that
+ *    runs under the JavaScript key — a document stored before TB-L that still says
+ *    TBEL exports its TBEL script there — and never a TBEL script.
  *  - Every other node: a copy, unchanged.
  */
 export function toThingsboardConfig(type: string, config: Record<string, unknown>): Record<string, unknown> {
@@ -1662,5 +1741,7 @@ export function toThingsboardConfig(type: string, config: Record<string, unknown
   if (type === 'tb:action:save-attributes') {
     return isPlainObject(c.processingSettings) ? c : { ...c, processingSettings: cloneJson(ON_EVERY_MESSAGE_SETTINGS) };
   }
-  return c;
+  // Ruling TB-L: `scriptLang: 'JS'` with the script that runs; a stale TBEL script never goes out
+  // (ThingsBoard would run it over the edited JavaScript the moment someone picked TBEL there).
+  return scriptAsJavaScript(type, c);
 }
