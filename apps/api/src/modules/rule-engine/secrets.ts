@@ -22,7 +22,16 @@
  *     (`isSecretValue`; ruling N1-6 — a `-----BEGIN CERTIFICATE-----` is public
  *     and stays readable, as `caCert` / `cert` always did) — EXCEPT under a
  *     script key (`jsScript` …, from the catalogue's `RULE_SCRIPT_KEYS`): a
- *     script is code, and the record of what ran must stay readable (N1-13).
+ *     script is code, and the record of what ran must stay readable (N1-13);
+ *     and under a TEMPLATE field of the node's type only the PEM block counts,
+ *     never the `"private_key"` text: a body template that NAMES that field
+ *     (`{"private_key": "$[key]"}`) is configuration, while a key pasted into
+ *     a template is still a key (FW-N3 follow-up b, 2026-11-05). Which keys
+ *     are templates is the catalogue's: the fields of the node's type whose
+ *     field type is `template` (`RULE_NODE_TYPES`), at the top level of the
+ *     configuration, where the catalogue's fields live. Without a node type
+ *     (an Unsupported node, a message the inject route masks) the full rule
+ *     applies.
  * Objects and arrays are WALKED, never replaced: replacing `credentials` with
  * the string "***" would make the node fail its schema and re-import as
  * Unsupported.
@@ -35,15 +44,17 @@
  * nothing stored a key-named secret stays "***" and is reported as unresolved
  * (the node refuses it at run time — Task 6).
  */
-import { RULE_SCRIPT_KEYS, type RuleChainDocument, type RuleChainNode } from '@digilog/shared';
+import { RULE_NODE_TYPES, RULE_SCRIPT_KEYS, type RuleChainDocument, type RuleChainNode } from '@digilog/shared';
 
 export const MASKED_SECRET = '***';
 
 const SECRET_KEY = /password|passphrase|secret|token|private[-_]?key|api[-_]?key|account[-_]?key$|auth[-_]?key|access[-_]?key|session[-_]?id|jaas|authorization|credentials/i;
 const CREDENTIAL_PUBLIC_KEYS = new Set(['type', 'username', 'cacert', 'cert']);
 const isCredentials = (key: string) => /^credentials$/i.test(key);
-/** A PEM PRIVATE KEY block of any algorithm (PKCS#8, RSA, EC, ENCRYPTED, OPENSSH, PGP …), or a service-account file's `"private_key"`. */
-const SECRET_VALUE = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY|"private_key"/;
+/** A PEM PRIVATE KEY block of any algorithm (PKCS#8, RSA, EC, ENCRYPTED, OPENSSH, PGP …). */
+const PEM_PRIVATE_KEY = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY/;
+/** A service-account key file's `"private_key"` field. */
+const PRIVATE_KEY_FIELD = /"private_key"/;
 
 /** Is the string under `key` a secret, by its key name? */
 export function isSecretLeaf(key: string, insideCredentials: boolean): boolean {
@@ -52,8 +63,20 @@ export function isSecretLeaf(key: string, insideCredentials: boolean): boolean {
 
 /** Is this string a secret whatever its key — a private key or a service-account key file (ruling N1-6)? */
 export function isSecretValue(value: string): boolean {
-  return SECRET_VALUE.test(value);
+  return PEM_PRIVATE_KEY.test(value) || PRIVATE_KEY_FIELD.test(value);
 }
+
+/**
+ * The TEMPLATE fields of each node type — the catalogue's own field type
+ * (`type: 'template'` in `RULE_NODE_TYPES`), never a list kept here.
+ */
+const TEMPLATE_KEYS_BY_TYPE: ReadonlyMap<string, ReadonlySet<string>> = new Map(
+  RULE_NODE_TYPES.map((spec) => [spec.id, new Set(spec.fields.filter((f) => f.type === 'template').map((f) => f.key))]),
+);
+const NO_KEYS: ReadonlySet<string> = new Set();
+/** The top-level configuration keys of `type` that hold a template; none for an unknown type or none given. */
+const templateKeysOf = (type: string | undefined): ReadonlySet<string> =>
+  (type === undefined ? undefined : TEMPLATE_KEYS_BY_TYPE.get(type)) ?? NO_KEYS;
 
 /**
  * The script keys (`jsScript`, `tbelScript`, `alarmDetailsBuild…`) — the catalogue's ONE list. A script is
@@ -65,37 +88,48 @@ const SCRIPT_KEYS: ReadonlySet<string> = new Set(Object.values(RULE_SCRIPT_KEYS)
 /** May this string be a secret by its VALUE — anywhere but under a script key? */
 const valueMayBeSecret = (key: string | null): boolean => key === null || !SCRIPT_KEYS.has(key);
 
+/**
+ * Is this string a secret by its VALUE? Never under a script key; under a template key (`template` is true
+ * only for a top-level key the node type's catalogue calls a template) only a PEM PRIVATE KEY block.
+ */
+const isSecretByValue = (key: string | null, value: string, template: boolean): boolean =>
+  valueMayBeSecret(key) && (template ? PEM_PRIVATE_KEY.test(value) : isSecretValue(value));
+
 /** A string leaf is a secret by its key (`null` for an array element: no key) or by its value. */
-const isSecret = (key: string | null, inside: boolean, value: string): boolean =>
-  (key !== null && isSecretLeaf(key, inside)) || (valueMayBeSecret(key) && isSecretValue(value));
+const isSecret = (key: string | null, inside: boolean, value: string, template = false): boolean =>
+  (key !== null && isSecretLeaf(key, inside)) || isSecretByValue(key, value, template);
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
-const maskString = (key: string | null, inside: boolean, v: string): string =>
-  (v.length > 0 && isSecret(key, inside, v) ? MASKED_SECRET : v);
+const maskString = (key: string | null, inside: boolean, v: string, template = false): string =>
+  (v.length > 0 && isSecret(key, inside, v, template) ? MASKED_SECRET : v);
 
-function maskValue(value: unknown, inside: boolean): unknown {
+/** `templates`: the node type's template keys — they apply to the TOP level only, where the catalogue's fields are. */
+function maskValue(value: unknown, inside: boolean, templates: ReadonlySet<string> = NO_KEYS): unknown {
   if (Array.isArray(value)) return value.map((v) => (typeof v === 'string' ? maskString(null, inside, v) : maskValue(v, inside)));
   if (!isPlainObject(value)) return value;
   const out: Record<string, unknown> = {};
   for (const [key, v] of Object.entries(value)) {
-    out[key] = typeof v === 'string' ? maskString(key, inside, v) : maskValue(v, inside || isCredentials(key));
+    out[key] = typeof v === 'string' ? maskString(key, inside, v, templates.has(key)) : maskValue(v, inside || isCredentials(key));
   }
   return out;
 }
 
-/** A deep copy of a configuration with every non-empty secret leaf as "***". */
-export function maskSecrets<T>(config: T): T {
-  return maskValue(config, false) as T;
+/**
+ * A deep copy of a configuration with every non-empty secret leaf as "***". `type` is the node type the
+ * configuration belongs to (its template fields are judged by the PEM rule alone); without one, the full rule.
+ */
+export function maskSecrets<T>(config: T, type?: string): T {
+  return maskValue(config, false, templateKeysOf(type)) as T;
 }
 
 /** The document with every node's configuration masked — what every response carries (ruling T2-D). */
 export function maskDocumentSecrets(doc: RuleChainDocument): RuleChainDocument {
-  return { ...doc, nodes: doc.nodes.map((n) => ({ ...n, config: maskSecrets(n.config) })) };
+  return { ...doc, nodes: doc.nodes.map((n) => ({ ...n, config: maskSecrets(n.config, n.type) })) };
 }
 
-/** Every secret leaf of a configuration: path → value. */
-function secretLeaves(value: unknown, inside: boolean, path: string, out: Map<string, string>): void {
+/** Every secret leaf of a configuration: path → value. `templates` as for `maskValue` (top level only). */
+function secretLeaves(value: unknown, inside: boolean, path: string, out: Map<string, string>, templates: ReadonlySet<string> = NO_KEYS): void {
   if (Array.isArray(value)) {
     value.forEach((v, i) => {
       const p = `${path}[${i}]`;
@@ -111,7 +145,7 @@ function secretLeaves(value: unknown, inside: boolean, path: string, out: Map<st
   for (const [key, v] of Object.entries(value)) {
     const p = path ? `${path}.${key}` : key;
     if (typeof v === 'string') {
-      if (isSecret(key, inside, v)) out.set(p, v);
+      if (isSecret(key, inside, v, templates.has(key))) out.set(p, v);
     } else {
       secretLeaves(v, inside || isCredentials(key), p, out);
     }
@@ -128,7 +162,7 @@ export function changedSecrets(before: RuleChainDocument, after: RuleChainDocume
     const out = new Map<string, { name: string; value: string }>();
     for (const n of doc.nodes) {
       const m = new Map<string, string>();
-      secretLeaves(n.config, false, '', m);
+      secretLeaves(n.config, false, '', m, templateKeysOf(n.type));
       for (const [p, v] of m) out.set(`${n.id}\u0000${p}`, { name: n.name, value: v });
     }
     return out;
@@ -148,7 +182,9 @@ export function changedSecrets(before: RuleChainDocument, after: RuleChainDocume
 /** A stored string that "***" may stand for: a non-empty real value. */
 const restorable = (s: unknown): s is string => typeof s === 'string' && s.length > 0 && s !== MASKED_SECRET;
 
-function mergeValue(incoming: unknown, stored: unknown, inside: boolean, path: string, unresolved: string[]): unknown {
+function mergeValue(
+  incoming: unknown, stored: unknown, inside: boolean, path: string, unresolved: string[], templates: ReadonlySet<string> = NO_KEYS,
+): unknown {
   if (Array.isArray(incoming)) {
     return incoming.map((v, i) => {
       const s = Array.isArray(stored) ? stored[i] : undefined;
@@ -167,7 +203,7 @@ function mergeValue(incoming: unknown, stored: unknown, inside: boolean, path: s
       const byKey = isSecretLeaf(key, inside);
       // A leaf masked for its VALUE comes back as "***", which no longer looks like a
       // private key: the value STORED at this path says it was one.
-      const byStoredValue = valueMayBeSecret(key) && typeof s === 'string' && isSecretValue(s);
+      const byStoredValue = typeof s === 'string' && isSecretByValue(key, s, templates.has(key));
       if (v === MASKED_SECRET && (byKey || byStoredValue)) {
         if (restorable(s)) {
           out[key] = s;
@@ -210,7 +246,7 @@ export function mergeMaskedSecrets(incoming: unknown, stored: RuleChainDocument 
     const prior = storedById.get(id);
     const inherit = prior && prior.type === node.type ? prior.config : undefined;
     const paths: string[] = [];
-    const config = mergeValue(node.config, inherit, false, '', paths);
+    const config = mergeValue(node.config, inherit, false, '', paths, templateKeysOf(typeof node.type === 'string' ? node.type : undefined));
     if (paths.length > 0) {
       const name = typeof node.name === 'string' && node.name.trim() ? node.name.trim() : id || 'Unnamed node';
       unresolved.push({ nodeId: id, nodeName: name, paths });

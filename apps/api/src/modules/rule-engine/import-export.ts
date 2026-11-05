@@ -29,8 +29,9 @@ export { MASKED_SECRET, maskSecrets } from './secrets.js';
 export function exportChain(chain: { name: string; root: boolean; debugMode: boolean; document: RuleChainDocument }): ThingsboardRuleChainExport {
   const exp = toThingsboardExport(chain.name, chain.root, chain.document);
   const credentialNotes: string[] = [];
-  const nodes = exp.metadata.nodes.map((n) => {
-    const configuration = maskSecrets(n.configuration);
+  const nodes = exp.metadata.nodes.map((n, i) => {
+    // The export lists the document's nodes in order: the node TYPE decides which keys are templates (secrets.ts).
+    const configuration = maskSecrets(n.configuration, chain.document.nodes[i]?.type);
     const paths: string[] = [];
     maskedPaths(n.configuration, configuration, '', paths);
     if (paths.length > 0) {

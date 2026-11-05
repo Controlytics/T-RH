@@ -185,6 +185,59 @@ describe('a SCRIPT is code, never a secret value (ruling N1-13)', () => {
   });
 });
 
+describe('a TEMPLATE field is configuration: the "private_key" text rule does not apply to it, a pasted PEM key does (lead follow-up b)', () => {
+  const N = 'c0de0000-0000-4000-8000-0000000000cc';
+  const TEMPLATE = '{"private_key": "$[key]", "client_email": "${email}"}';
+  const rest = (requestBodyTemplate: string, extra: Record<string, unknown> = {}): RuleChainDocument => ({
+    version: 1, firstNodeId: N, connections: [],
+    nodes: [{
+      id: N, type: 'tb:external:rest-api-call', name: 'Push key', debugMode: 'off', x: 0, y: 0,
+      config: { restEndpointUrlPattern: 'https://vault.plant.test/v1', requestMethod: 'POST', requestBodyTemplate, ...extra },
+    }],
+  });
+
+  it('a body template that NAMES "private_key" stays readable in GET / audit (maskDocumentSecrets) and in the export, and the export names no credential for it', () => {
+    const stored = rest(TEMPLATE);
+    expect(maskDocumentSecrets(stored).nodes[0].config.requestBodyTemplate).toBe(TEMPLATE);
+    expect(maskSecrets(stored.nodes[0].config, stored.nodes[0].type)).toMatchObject({ requestBodyTemplate: TEMPLATE });
+    const exp = exportChain({ name: 'T', root: false, debugMode: false, document: stored });
+    expect((exp.metadata.nodes[0].configuration as Record<string, unknown>).requestBodyTemplate).toBe(TEMPLATE);
+    expect(exp.ruleChain.additionalInfo?.description ?? '').not.toContain('requestBodyTemplate');
+    // Editing it is a change of configuration, not of a secret: the audit's secretsChanged lists nothing.
+    expect(changedSecrets(stored, rest(`${TEMPLATE} `))).toEqual([]);
+    // A template typed as "***" is that text — nothing stored is put back, nothing is "unresolved".
+    const merged = mergeMaskedSecrets(rest(MASKED_SECRET), stored);
+    expect((merged.document as RuleChainDocument).nodes[0].config.requestBodyTemplate).toBe(MASKED_SECRET);
+    expect(merged.unresolved).toEqual([]);
+  });
+
+  it('a template holding a real PEM PRIVATE KEY block is masked everywhere, named by the export, kept on the merge, and counted as a secret change', () => {
+    const pasted = `{"key": "${PRIVATE_KEY_PEM.replace(/\n/g, '\\n')}"}`;
+    const stored = rest(pasted);
+    expect(maskDocumentSecrets(stored).nodes[0].config.requestBodyTemplate).toBe(MASKED_SECRET);
+    const exp = exportChain({ name: 'T', root: false, debugMode: false, document: stored });
+    expect((exp.metadata.nodes[0].configuration as Record<string, unknown>).requestBodyTemplate).toBe(MASKED_SECRET);
+    expect(exp.ruleChain.additionalInfo?.description).toContain('- Node "Push key" (REST API call): set requestBodyTemplate after import');
+    const merged = mergeMaskedSecrets(JSON.parse(JSON.stringify(maskDocumentSecrets(stored))), stored);
+    expect((merged.document as RuleChainDocument).nodes[0].config.requestBodyTemplate).toBe(pasted);
+    expect(changedSecrets(stored, rest(`{"key": "${RSA_KEY_PEM.replace(/\n/g, '\\n')}"}`))).toEqual(['Node "Push key": requestBodyTemplate']);
+  });
+
+  it('only the catalogue\'s TEMPLATE fields of THAT node type are exempt: the same text under a non-template key, or an Unsupported node, still masks', () => {
+    // `notes` is not a field of REST API call; an Unsupported node has no catalogue fields at all.
+    expect(maskDocumentSecrets(rest(TEMPLATE, { notes: TEMPLATE })).nodes[0].config.notes).toBe(MASKED_SECRET);
+    // Only at the TOP level, where the catalogue's fields are: the same key name nested deeper is no template field.
+    expect((maskDocumentSecrets(rest(TEMPLATE, { extra: { requestBodyTemplate: TEMPLATE } })).nodes[0].config.extra as Record<string, unknown>).requestBodyTemplate).toBe(MASKED_SECRET);
+    const unsupported: RuleChainDocument = {
+      version: 1, firstNodeId: N, connections: [],
+      nodes: [{ id: N, type: 'tb:unsupported', name: 'PE', debugMode: 'off', x: 0, y: 0, config: { tbClass: 'x.Y', configuration: { requestBodyTemplate: TEMPLATE } } }],
+    };
+    expect((maskDocumentSecrets(unsupported).nodes[0].config.configuration as Record<string, unknown>).requestBodyTemplate).toBe(MASKED_SECRET);
+    // With no node type at all (the inject route masks a message), the full value rule applies.
+    expect(maskSecrets({ requestBodyTemplate: TEMPLATE })).toEqual({ requestBodyTemplate: MASKED_SECRET });
+  });
+});
+
 describe('the merge on a save / import keeps a value-masked secret', () => {
   const N = 'c0de0000-0000-4000-8000-0000000000aa';
   const doc = (config: Record<string, unknown>): RuleChainDocument => ({
