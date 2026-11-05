@@ -1,4 +1,4 @@
-import { toRuleOriginatorType } from '@digilog/shared';
+import { RULE_RELATION_SUCCESS, toRuleOriginatorType } from '@digilog/shared';
 import type { RuleContext } from '../../context.js';
 import { newMessage, type RuleMessage, type RuleOriginator } from '../../message.js';
 import { coerceMetadata } from '../../script-vm.js';
@@ -110,7 +110,7 @@ export function startGenerator(ctx: RuleContext<GeneratorConfig>): void {
       const raw = ctx.runScript('generator', script, newMessage(prev.msgType, originator, prev.msg, prev.metadata));
       const out = shapeOutput(raw, prev);
       prev = out;
-      ctx.tellNext(newMessage(out.msgType, originator, out.msg, out.metadata), 'Success');
+      ctx.tellNext(newMessage(out.msgType, originator, out.msg, out.metadata), RULE_RELATION_SUCCESS);
     } catch (err) {
       ctx.tellFailure(newMessage(GENERATOR_MSG_TYPE, originator, {}), err);
     }

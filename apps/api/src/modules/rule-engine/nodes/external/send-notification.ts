@@ -1,4 +1,4 @@
-import { RULE_ORIGINATOR_TYPE_LABELS, type RuleOriginatorType } from '@digilog/shared';
+import { RULE_ORIGINATOR_TYPE_LABELS, RULE_RELATION_SUCCESS, type RuleOriginatorType } from '@digilog/shared';
 import type { RuleNodeHandler } from '../../context.js';
 import type { RuleSendResult } from '../../services.js';
 import { toFlatMap } from './template.js';
@@ -58,5 +58,5 @@ export const sendNotificationHandler: RuleNodeHandler<SendNotificationConfig> = 
   } catch (err) {
     return ctx.tellFailure(msg, err);
   }
-  ctx.tellNext({ ...msg, metadata: { ...msg.metadata, notificationRequestResult: JSON.stringify(result) } }, 'Success');
+  ctx.tellNext({ ...msg, metadata: { ...msg.metadata, notificationRequestResult: JSON.stringify(result) } }, RULE_RELATION_SUCCESS);
 };

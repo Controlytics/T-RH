@@ -1,3 +1,4 @@
+import { RULE_RELATION_SUCCESS } from '@digilog/shared';
 import type { RuleContext } from '../../context.js';
 import type { RuleMessage } from '../../message.js';
 import { nodeScriptOf, type JsonObject } from './support.js';
@@ -16,5 +17,5 @@ export function logNode(ctx: RuleContext<JsonObject>, msg: RuleMessage): void {
   const script = nodeScriptOf(ctx.node.type, ctx.config);
   const result = ctx.runScript('log', script, msg);
   ctx.log('info', typeof result === 'string' ? result : (JSON.stringify(result) ?? 'undefined'));
-  ctx.tellNext(msg, 'Success');
+  ctx.tellNext(msg, RULE_RELATION_SUCCESS);
 }

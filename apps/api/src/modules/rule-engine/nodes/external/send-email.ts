@@ -1,3 +1,4 @@
+import { RULE_RELATION_SUCCESS } from '@digilog/shared';
 import type { RuleNodeHandler } from '../../context.js';
 import type { RuleSendResult } from '../../services.js';
 
@@ -77,5 +78,5 @@ export const sendEmailHandler: RuleNodeHandler<SendEmailConfig> = async (ctx, ms
     return ctx.tellFailure(msg, err);
   }
   if (result.failed.length > 0) return ctx.tellFailure(msg, new Error(sendFailureText('EMAIL_SEND_FAILED', 'recipient(s)', total, result)));
-  ctx.tellNext(msg, 'Success');
+  ctx.tellNext(msg, RULE_RELATION_SUCCESS);
 };

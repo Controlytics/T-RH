@@ -1,3 +1,4 @@
+import { RULE_RELATION_SUCCESS } from '@digilog/shared';
 import type { RuleNodeHandler } from '../../context.js';
 import { processPattern } from '../action/support.js';
 import { maskedSecretPaths, credentialNotSetError } from './credentials.js';
@@ -76,5 +77,5 @@ export const sendToSlackHandler: RuleNodeHandler<SendToSlackConfig> = async (ctx
   if (!answer || answer.ok !== true) {
     return ctx.tellFailure(msg, new Error(`SLACK_ERROR: ${typeof answer?.error === 'string' ? answer.error : 'Slack did not confirm the message'}`));
   }
-  ctx.tellNext(msg, 'Success');
+  ctx.tellNext(msg, RULE_RELATION_SUCCESS);
 };

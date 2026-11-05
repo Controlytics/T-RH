@@ -1,4 +1,4 @@
-import { RULE_ORIGINATOR_FIELDS } from '@digilog/shared';
+import { RULE_ORIGINATOR_FIELDS, RULE_RELATION_SUCCESS } from '@digilog/shared';
 import type { RuleContext } from '../../context.js';
 import type { RuleMessage } from '../../message.js';
 import { instrumentIdOf, isPlainObject, processPattern, type JsonObject } from '../action/support.js';
@@ -45,5 +45,5 @@ export async function originatorFields(ctx: RuleContext<OriginatorFieldsConfig>,
     if (!key || (cfg.ignoreNullStrings === true && value === '')) continue;
     entries.push([key, value]);
   }
-  ctx.tellNext(withFetched(msg, fetchToOf(cfg.fetchTo, 'METADATA'), entries, 'Originator fields'), 'Success');
+  ctx.tellNext(withFetched(msg, fetchToOf(cfg.fetchTo, 'METADATA'), entries, 'Originator fields'), RULE_RELATION_SUCCESS);
 }

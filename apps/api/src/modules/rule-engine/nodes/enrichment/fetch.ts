@@ -1,3 +1,4 @@
+import { RULE_RELATION_SUCCESS } from '@digilog/shared';
 import type { RuleContext } from '../../context.js';
 import { copyMessage, type RuleMessage } from '../../message.js';
 import { bodyFields, metadataText, processPatterns, type JsonObject } from '../action/support.js';
@@ -128,5 +129,5 @@ export async function fetchAttributes(
 /** Send what `fetchAttributes` made: the enriched message on Success, or to Failure with what was missing. */
 export function sendFetched(ctx: RuleContext<AttributeFetchConfig>, r: AttributeFetchResult): void {
   if (r.missing) ctx.tellFailure(r.msg, r.missing);
-  else ctx.tellNext(r.msg, 'Success');
+  else ctx.tellNext(r.msg, RULE_RELATION_SUCCESS);
 }

@@ -1,3 +1,4 @@
+import { RULE_RELATION_SUCCESS } from '@digilog/shared';
 import type { RuleNodeHandler } from '../../context.js';
 import type { RuleSendResult } from '../../services.js';
 import { processPattern } from '../action/support.js';
@@ -33,5 +34,5 @@ export const sendSmsHandler: RuleNodeHandler<SendSmsConfig> = async (ctx, msg) =
     return ctx.tellFailure(msg, err);
   }
   if (result.failed.length > 0) return ctx.tellFailure(msg, new Error(sendFailureText('SMS_SEND_FAILED', 'number(s)', new Set(numbers).size, result)));
-  ctx.tellNext(msg, 'Success');
+  ctx.tellNext(msg, RULE_RELATION_SUCCESS);
 };

@@ -1,3 +1,4 @@
+import { RULE_RELATION_SUCCESS } from '@digilog/shared';
 import type { RuleContext } from '../../context.js';
 import type { RuleMessage } from '../../message.js';
 import { isPlainObject, processPattern, type JsonObject } from '../action/support.js';
@@ -35,5 +36,5 @@ export async function tenantAttributes(ctx: RuleContext<TenantAttributesConfig>,
     if (!from || !to || !Object.prototype.hasOwnProperty.call(attributes, from)) continue;
     entries.push([to, attributes[from]]);
   }
-  ctx.tellNext(withFetched(msg, fetchToOf(cfg.fetchTo, 'METADATA'), entries, 'Tenant attributes'), 'Success');
+  ctx.tellNext(withFetched(msg, fetchToOf(cfg.fetchTo, 'METADATA'), entries, 'Tenant attributes'), RULE_RELATION_SUCCESS);
 }

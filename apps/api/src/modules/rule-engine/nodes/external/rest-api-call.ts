@@ -1,3 +1,4 @@
+import { RULE_RELATION_SUCCESS } from '@digilog/shared';
 import { isSecretLeaf, MASKED_SECRET } from '../../secrets.js';
 import type { RuleNodeHandler } from '../../context.js';
 import type { RuleMessage } from '../../message.js';
@@ -137,7 +138,7 @@ export const restApiCallHandler: RuleNodeHandler<RestApiCallConfig> = async (ctx
     metadata.statusCode = String(code);
     metadata.statusReason = httpStatusReason(code, res.statusText);
     copyHeaders(res.headers, metadata);
-    return ctx.tellNext(withResult(msg, metadata, responseData(text)), 'Success');
+    return ctx.tellNext(withResult(msg, metadata, responseData(text)), RULE_RELATION_SUCCESS);
   }
   const reason = res.statusText || httpStatusReason(code, '');
   if (code >= 400) {

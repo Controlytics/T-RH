@@ -1,3 +1,4 @@
+import { RULE_RELATION_SUCCESS } from '@digilog/shared';
 import type { RuleContext } from '../../context.js';
 import type { RuleMessage } from '../../message.js';
 import type { RuleTelemetryAggregation } from '../../services.js';
@@ -74,7 +75,7 @@ export async function originatorTelemetry(ctx: RuleContext<OriginatorTelemetryCo
   const { from, to } = windowOf(cfg, msg, Date.now());
   if (from > to) throw new Error('Interval start should be less than Interval end');
   if (keys.length === 0) {
-    ctx.tellNext(msg, 'Success');
+    ctx.tellNext(msg, RULE_RELATION_SUCCESS);
     return;
   }
   const mode = cfg.fetchMode ?? 'FIRST';
@@ -99,5 +100,5 @@ export async function originatorTelemetry(ctx: RuleContext<OriginatorTelemetryCo
       entries.push([key, fetchTo === 'METADATA' ? JSON.stringify(text) : text]);
     }
   }
-  ctx.tellNext(withFetched(msg, fetchTo, entries, 'Originator telemetry'), 'Success');
+  ctx.tellNext(withFetched(msg, fetchTo, entries, 'Originator telemetry'), RULE_RELATION_SUCCESS);
 }

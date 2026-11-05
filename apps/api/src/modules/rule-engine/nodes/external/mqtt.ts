@@ -1,3 +1,4 @@
+import { RULE_RELATION_SUCCESS } from '@digilog/shared';
 import type { RuleNodeHandler } from '../../context.js';
 import type { RuleNodeLifecycle } from '../../registry.js';
 import type { RuleMqttConfig } from '../../services.js';
@@ -75,7 +76,7 @@ export const mqttHandler: RuleNodeHandler<MqttNodeConfig> = async (ctx, msg) => 
   } catch (err) {
     return ctx.tellFailure(msg, err);
   }
-  ctx.tellNext(msg, 'Success');
+  ctx.tellNext(msg, RULE_RELATION_SUCCESS);
 };
 
 /** The client is the node's for as long as the node exists. */

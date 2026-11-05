@@ -1,3 +1,4 @@
+import { RULE_RELATION_OTHER, RULE_RELATION_SUCCESS } from '@digilog/shared';
 import type { RuleContext } from '../../context.js';
 import { copyMessage, type RuleMessage } from '../../message.js';
 import { bodyFields, javaAsDouble, javaParseDouble, metadataTs, roundHalfUp, type JsonObject } from '../action/support.js';
@@ -87,7 +88,7 @@ export async function calculateDelta(ctx: RuleContext<CalculateDeltaConfig>, msg
   const cfg = ctx.config;
   const fields = msg.type === 'POST_TELEMETRY_REQUEST' ? bodyFields(msg.data) : null;
   if (!fields || !Object.prototype.hasOwnProperty.call(fields, cfg.inputValueKey)) {
-    ctx.tellNext(msg, 'Other');
+    ctx.tellNext(msg, RULE_RELATION_OTHER);
     return;
   }
   // TB-P 6: ThingsBoard reads `json.get(inputValueKey).asDouble()` — text that is not a number
@@ -114,7 +115,7 @@ export async function calculateDelta(ctx: RuleContext<CalculateDeltaConfig>, msg
   if (!Number.isFinite(delta)) throw new Error(`DELTA_NOT_FINITE: the delta of "${cfg.inputValueKey}" came out as ${delta}`);
   if (cfg.tellFailureIfDeltaIsNegative !== false && delta < 0) throw new Error('Delta value is negative!');
   if (cfg.excludeZeroDeltas === true && delta === 0) {
-    ctx.tellNext(msg, 'Success');
+    ctx.tellNext(msg, RULE_RELATION_SUCCESS);
     return;
   }
   if (typeof cfg.round === 'number') delta = roundHalfUp(delta, cfg.round);
@@ -125,5 +126,5 @@ export async function calculateDelta(ctx: RuleContext<CalculateDeltaConfig>, msg
   if (cfg.addPeriodBetweenMsgs === true) {
     outFields[typeof cfg.periodValueKey === 'string' && cfg.periodValueKey ? cfg.periodValueKey : 'periodInMs'] = previous ? ts - previous.ts : 0;
   }
-  ctx.tellNext(out, 'Success');
+  ctx.tellNext(out, RULE_RELATION_SUCCESS);
 }
