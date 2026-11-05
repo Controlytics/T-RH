@@ -603,7 +603,9 @@ const ENRICHMENT: RuleNodeTypeSpec[] = [
     relations: FS, fields: ATTRIBUTE_FETCH_FIELDS,
     defaultConfig: {
       ...ATTRIBUTE_FETCH_DEFAULT,
-      deviceRelationsQuery: { direction: 'FROM', maxLevel: 1, relationType: 'Contains', deviceTypes: ['default'], fetchLastLevelOnly: false },
+      // TO the originator = its GATEWAY (the link runs gateway → instrument), as the
+      // description says; ThingsBoard's default is FROM (ruled 2026-11-04).
+      deviceRelationsQuery: { direction: 'TO', maxLevel: 1, relationType: 'Contains', deviceTypes: ['default'], fetchLastLevelOnly: false },
     },
     configSchema: cfg({ ...attributeFetchShape, deviceRelationsQuery: anyObject.nullable().optional() }),
   }),

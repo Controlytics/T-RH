@@ -8,7 +8,8 @@ import { fetchAttributes, type AttributeFetchConfig } from './fetch.js';
  * chains, Task 5), narrowed to the ONE relation this system has: the gateway
  * link. `deviceRelationsQuery.direction` keeps ThingsBoard's meaning, the same
  * one Check relation presence reads:
- *  - `TO` the originator — the GATEWAY the originator instrument is on;
+ *  - `TO` the originator — the GATEWAY the originator instrument is on. The
+ *    catalogue default (ruling CV-2), and what a query naming no direction reads;
  *  - `FROM` the originator (a gateway) — the first instrument on it, by code
  *    (ThingsBoard also takes the first related device it finds).
  * `relationType`, `maxLevel` and `deviceTypes` are kept for export and not
@@ -27,7 +28,7 @@ export const NO_RELATED_DEVICE = 'Failed to find related device to message origi
 export async function relatedDeviceAttributes(ctx: RuleContext<RelatedConfig>, msg: RuleMessage): Promise<void> {
   const originatorId = instrumentIdOf(msg, 'Related device attributes');
   const query = isPlainObject(ctx.config.deviceRelationsQuery) ? ctx.config.deviceRelationsQuery : {};
-  const direction = query.direction === 'TO' ? 'TO' : 'FROM';
+  const direction = query.direction === 'FROM' ? 'FROM' : 'TO';
   let relatedId: string | null = null;
   if (direction === 'TO') {
     relatedId = (await ctx.services.instruments.gatewayOf(originatorId))?.id ?? null;

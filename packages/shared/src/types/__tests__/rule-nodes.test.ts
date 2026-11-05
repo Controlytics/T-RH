@@ -354,9 +354,14 @@ describe('built nodes — descriptors, defaults and config schemas', () => {
     }
   });
 
-  it('Change originator: RELATED reaches the gateway, so its default relation query runs TO the originator', () => {
-    const s = RULE_NODE_TYPE_BY_ID.get('tb:transformation:change-originator')!;
-    expect((s.defaultConfig.relationsQuery as { direction: string }).direction).toBe('TO');
+  it('both gateway-reaching defaults run TO the originator (the link runs gateway → instrument)', () => {
+    // Change originator: RELATED is the gateway.
+    const co = RULE_NODE_TYPE_BY_ID.get('tb:transformation:change-originator')!;
+    expect((co.defaultConfig.relationsQuery as { direction: string }).direction).toBe('TO');
+    // Related device attributes: "the gateway's attributes" — ruled 2026-11-04 (ThingsBoard's default is FROM).
+    const rd = RULE_NODE_TYPE_BY_ID.get('tb:enrichment:related-device-attributes')!;
+    expect((rd.defaultConfig.deviceRelationsQuery as { direction: string }).direction).toBe('TO');
+    expect(rd.description).toMatch(/GATEWAY/);
   });
 
   it('the math operations and their argument counts are ThingsBoard\'s', () => {

@@ -5,7 +5,7 @@
  * throws is the engine's `Failure` (engine.ts) — recorded here as `thrown`.
  */
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
-import { RULE_NODE_TYPES } from '@digilog/shared';
+import { RULE_NODE_TYPES, newRuleNodeConfig } from '@digilog/shared';
 import { clearRegistry, getHandler } from '../registry.js';
 import { registerEnrichmentNodes } from '../nodes/enrichment/index.js';
 import { clearDeltaCaches } from '../nodes/enrichment/calculate-delta.js';
@@ -201,10 +201,24 @@ describe('Related device attributes (the gateway link)', () => {
     expect(r.out!.metadata.ss_Site).toBe('site of gw-1');
   });
 
-  it('FROM (the default): the first instrument on the originator gateway, by code', async () => {
+  it('TO is the catalogue default (ruling CV-2): with the shipped config the GATEWAY is read', async () => {
+    expect((newRuleNodeConfig(T).deviceRelationsQuery as { direction: string }).direction).toBe('TO');
+    const gatewayOf = vi.fn(async () => ({ id: 'gw-2' }) as never);
     const findFirst = vi.fn(async () => ({ id: 'child-1' }));
     const prisma = { instrument: { findFirst } } as unknown as RuleServices['prisma'];
-    const r = await run(T, { serverAttributeNames: ['Site'] }, testMessage({}), { attributes: { get }, prisma });
+    const r = await run(T, { serverAttributeNames: ['Site'] }, testMessage({}), { attributes: { get }, instruments: { gatewayOf }, prisma });
+    expect(gatewayOf).toHaveBeenCalledWith('instrument-1');
+    expect(findFirst).not.toHaveBeenCalled();
+    expect(r.out!.metadata.ss_Site).toBe('site of gw-2');
+    // An imported query without a direction reads the gateway too.
+    const bare = await run(T, { serverAttributeNames: ['Site'], deviceRelationsQuery: { maxLevel: 1 } }, testMessage({}), { attributes: { get }, instruments: { gatewayOf }, prisma });
+    expect(bare.out!.metadata.ss_Site).toBe('site of gw-2');
+  });
+
+  it('FROM (chosen): the first instrument on the originator gateway, by code', async () => {
+    const findFirst = vi.fn(async () => ({ id: 'child-1' }));
+    const prisma = { instrument: { findFirst } } as unknown as RuleServices['prisma'];
+    const r = await run(T, { serverAttributeNames: ['Site'], deviceRelationsQuery: { direction: 'FROM' } }, testMessage({}), { attributes: { get }, prisma });
     expect(findFirst).toHaveBeenCalledWith({ where: { gatewayId: 'instrument-1' }, orderBy: { code: 'asc' }, select: { id: true } });
     expect(r.out!.metadata.ss_Site).toBe('site of child-1');
   });
