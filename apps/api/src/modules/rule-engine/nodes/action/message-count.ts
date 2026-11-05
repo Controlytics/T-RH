@@ -1,3 +1,4 @@
+import { RULE_RELATION_SUCCESS } from '@digilog/shared';
 import type { RuleContext } from '../../context.js';
 import { newMessage, type RuleMessage } from '../../message.js';
 import type { JsonObject } from './support.js';
@@ -66,7 +67,7 @@ export function startMessageCount(ctx: RuleContext<MessageCountConfig>): void {
     const now = Date.now();
     const delta = now - lastTickAt;
     lastTickAt = now;
-    ctx.tellNext(newMessage('POST_TELEMETRY_REQUEST', { type: 'SYSTEM', id: 'SYSTEM' }, { [dataKey]: n }, { delta: String(delta) }), 'Success');
+    ctx.tellNext(newMessage('POST_TELEMETRY_REQUEST', { type: 'SYSTEM', id: 'SYSTEM' }, { [dataKey]: n }, { delta: String(delta) }), RULE_RELATION_SUCCESS);
     schedule();
   };
   schedule();

@@ -1,3 +1,4 @@
+import { RULE_RELATION_SUCCESS } from '@digilog/shared';
 import type { RuleContext } from '../../context.js';
 import { INGEST_ORIGIN, RULE_ENGINE_ORIGIN_KEY, type RuleMessage } from '../../message.js';
 import { instrumentIdOf, isPlainObject, processPatterns, scopeOf, type JsonObject } from './support.js';
@@ -55,7 +56,7 @@ interface SaveAttributesConfig extends JsonObject {
 export async function saveAttributes(ctx: RuleContext<SaveAttributesConfig>, msg: RuleMessage): Promise<void> {
   if (msg.type !== 'POST_ATTRIBUTES_REQUEST') throw new Error(`Unsupported msg type: ${msg.type}`);
   if (skipsIngestOrigin(ctx, msg)) {
-    ctx.tellNext(msg, 'Success');
+    ctx.tellNext(msg, RULE_RELATION_SUCCESS);
     return;
   }
   const instrumentId = instrumentIdOf(msg, 'Save attributes');
@@ -69,7 +70,7 @@ export async function saveAttributes(ctx: RuleContext<SaveAttributesConfig>, msg
   const notify = ctx.config.sendAttributesUpdatedNotification === true && scope !== 'CLIENT_SCOPE';
   const updated = !notify ? 'none' : ctx.config.updateAttributesOnlyOnValueChange === false ? 'all' : 'changed';
   await ctx.services.attributes.save(instrumentId, kv, ctx.origin, ctx.config.notifyDevice === true, scope, { updated });
-  ctx.tellNext(msg, 'Success');
+  ctx.tellNext(msg, RULE_RELATION_SUCCESS);
 }
 
 interface DeleteAttributesConfig extends JsonObject {
@@ -81,5 +82,5 @@ export async function deleteAttributes(ctx: RuleContext<DeleteAttributesConfig>,
   const instrumentId = instrumentIdOf(msg, 'Delete attributes');
   const keys = processPatterns(ctx.config.keys, msg);
   if (keys.length > 0) await ctx.services.attributes.delete(instrumentId, keys, ctx.origin, scopeOf(msg, ctx.config.scope));
-  ctx.tellNext(msg, 'Success');
+  ctx.tellNext(msg, RULE_RELATION_SUCCESS);
 }

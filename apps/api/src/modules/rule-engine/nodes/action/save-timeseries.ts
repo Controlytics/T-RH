@@ -1,3 +1,4 @@
+import { RULE_RELATION_SUCCESS } from '@digilog/shared';
 import type { RuleContext } from '../../context.js';
 import type { RuleMessage } from '../../message.js';
 import type { RuleTelemetryReading } from '../../services.js';
@@ -58,7 +59,7 @@ export function telemetryReadings(msg: RuleMessage, useServerTs: boolean): RuleT
 export async function saveTimeseries(ctx: RuleContext<SaveTimeseriesConfig>, msg: RuleMessage): Promise<void> {
   if (msg.type !== 'POST_TELEMETRY_REQUEST') throw new Error(`Unsupported msg type: ${msg.type}`);
   if (skipsIngestOrigin(ctx, msg)) {
-    ctx.tellNext(msg, 'Success');
+    ctx.tellNext(msg, RULE_RELATION_SUCCESS);
     return;
   }
   const instrumentId = instrumentIdOf(msg, 'Save time series');
@@ -66,5 +67,5 @@ export async function saveTimeseries(ctx: RuleContext<SaveTimeseriesConfig>, msg
   // TbMsgTimeseriesNode: `if (tsKvMap.isEmpty()) tellFailure("Msg body is empty: " + src)` (TB-P 3).
   if (readings.length === 0) throw new Error(`Msg body is empty: ${JSON.stringify(msg.data)}`);
   await ctx.services.telemetry.write(instrumentId, readings, ctx.origin, { skipLatest: ctx.config.skipLatestPersistence === true });
-  ctx.tellNext(msg, 'Success');
+  ctx.tellNext(msg, RULE_RELATION_SUCCESS);
 }

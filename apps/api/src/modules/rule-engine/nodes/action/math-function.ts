@@ -1,4 +1,4 @@
-import { RULE_MATH_OPERATIONS } from '@digilog/shared';
+import { RULE_MATH_OPERATIONS, RULE_RELATION_SUCCESS } from '@digilog/shared';
 import type { RuleContext } from '../../context.js';
 import { copyMessage, type RuleMessage } from '../../message.js';
 import { compileExpression, evaluateExpression } from './math-expression.js';
@@ -220,5 +220,5 @@ export async function mathFunction(ctx: RuleContext<MathConfig>, msg: RuleMessag
     default:
       throw new Error(`MATH_RESULT_INVALID: unknown result type "${String((res as { type: unknown }).type)}"`);
   }
-  ctx.tellNext(out, 'Success');
+  ctx.tellNext(out, RULE_RELATION_SUCCESS);
 }

@@ -1,4 +1,4 @@
-import { ruleAlarmTypeName } from '@digilog/shared';
+import { RULE_RELATION_FALSE, ruleAlarmTypeName } from '@digilog/shared';
 import type { RuleContext } from '../../context.js';
 import { copyMessage, type RuleMessage } from '../../message.js';
 import { alarmMessageData } from '../../emit.js';
@@ -41,7 +41,7 @@ export async function clearAlarm(ctx: RuleContext<ClearAlarmConfig>, msg: RuleMe
     const alarm = await ctx.services.alarms.byId(msg.originator.id);
     const name = alarm ? ruleAlarmTypeName(alarm.source, alarm.ruleSnapshot) : null;
     if (!alarm || alarm.state !== 'ACTIVE' || !name) {
-      ctx.tellNext(msg, 'False');
+      ctx.tellNext(msg, RULE_RELATION_FALSE);
       return;
     }
     instrumentId = alarm.instrumentId;
@@ -53,19 +53,19 @@ export async function clearAlarm(ctx: RuleContext<ClearAlarmConfig>, msg: RuleMe
     instrumentId = msg.originator.id;
     const open = await openRuleAlarm(ctx, instrumentId, alarmType);
     if (!open) {
-      ctx.tellNext(msg, 'False');
+      ctx.tellNext(msg, RULE_RELATION_FALSE);
       return;
     }
     previous = snapshotDetails(open.ruleSnapshot);
   } else {
-    ctx.tellNext(msg, 'False');
+    ctx.tellNext(msg, RULE_RELATION_FALSE);
     return;
   }
 
   const details = buildAlarmDetails(ctx, msg, previous);
   const closed = await ctx.services.alarms.clear(instrumentId, alarmType, details, ctx.origin);
   if (!closed) {
-    ctx.tellNext(msg, 'False');
+    ctx.tellNext(msg, RULE_RELATION_FALSE);
     return;
   }
   const out = copyMessage(msg, { type: 'ALARM', data: alarmMessageData(closed) });
