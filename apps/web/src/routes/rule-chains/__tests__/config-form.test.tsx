@@ -304,6 +304,74 @@ describe('ConfigForm — a credential the server masked', () => {
   });
 });
 
+describe('ConfigForm — a list the role may not read (review C, I-1)', () => {
+  it('an unreadable instrument or chain list says so and keeps the stored value; nothing is called "not found"', () => {
+    setup({ ctx: context({ instruments: null, chains: null }) });
+    const inst = row('entityId', 'instrument');
+    expect(within(inst).getByRole('status')).toHaveTextContent('The instruments could not be read');
+    expect(within(inst).getByRole('status')).toHaveTextContent('i-2');
+    expect(within(inst).queryByRole('combobox')).toBeNull();
+    expect(within(row('ruleChainId', 'chain')).getByRole('status')).toHaveTextContent('The rule chains could not be read');
+    expect(screen.queryByText(/not found|no such chain/)).toBeNull();
+  });
+
+  it('unreadable roles and users say so; the stored ones stay ticked, never "not found"', () => {
+    setup({ ctx: context({ roles: null, users: null }), initial: { ...VALUE, targets: { roles: ['QA'], userIds: ['u-9'] } } });
+    const r = row('targets', 'targets');
+    expect(within(r).getByText(/The roles could not be read/)).toBeInTheDocument();
+    expect(within(r).getByText(/The users could not be read/)).toBeInTheDocument();
+    expect(within(r).getByRole('checkbox', { name: 'QA' })).toBeChecked();
+    expect(within(r).getByRole('checkbox', { name: 'u-9' })).toBeChecked();
+    expect(within(r).queryByText(/not found/)).toBeNull();
+  });
+
+  it('while a list is LOADING the picker waits: disabled, the stored value bare, never "not found"', () => {
+    setup({ ctx: context({ instruments: undefined, users: undefined }), initial: { ...VALUE, targets: { roles: [], userIds: ['u-9'] } } });
+    const select = within(row('entityId', 'instrument')).getByRole('combobox') as HTMLSelectElement;
+    expect(select).toBeDisabled();
+    expect(within(select).getByRole('option', { name: 'i-2' })).toBeInTheDocument();
+    const r = row('targets', 'targets');
+    expect(within(r).getByText('Loading…')).toBeInTheDocument();
+    expect(within(r).getByRole('checkbox', { name: 'u-9' })).toBeChecked();
+    expect(screen.queryByText(/not found/)).toBeNull();
+  });
+
+  it('a list that LOADED still names a stored value it does not hold', () => {
+    setup({ initial: { ...VALUE, entityId: 'i-gone' } });
+    expect(within(row('entityId', 'instrument')).getByRole('option', { name: 'i-gone (not found)' })).toBeInTheDocument();
+  });
+});
+
+describe('ConfigForm — editing a stored secret (review C, M-4 / M-5 / M-6)', () => {
+  it('Change, type, then empty the box: the stored value is KEPT ("***"), never blanked', () => {
+    const { last } = setup({ fields: [{ key: 'botToken', label: 'Bot token', type: 'text', required: true }], initial: { botToken: '***' } });
+    const r = row('botToken', 'text');
+    fireEvent.click(within(r).getByRole('button', { name: 'Change' }));
+    expect(within(r).getByText('Type the new value. Left empty, the stored value is kept.')).toBeInTheDocument();
+    const box = within(r).getByRole('textbox') as HTMLInputElement;
+    fireEvent.change(box, { target: { value: 'x' } });
+    expect(last()?.botToken).toBe('x');
+    fireEvent.change(box, { target: { value: '' } });
+    expect(last()?.botToken).toBe('***');
+  });
+
+  it('focusing a masked map value selects it, so typing replaces the marker', () => {
+    setup({ fields: [{ key: 'headers', label: 'Headers', type: 'map' }], initial: { headers: { Authorization: '***' } } });
+    const v = within(row('headers', 'map')).getByLabelText('Value 1') as HTMLInputElement;
+    fireEvent.focus(v);
+    expect([v.selectionStart, v.selectionEnd]).toEqual([0, '•••• (stored)'.length]);
+  });
+
+  it('a row with a value and no key is marked and said not to be saved', () => {
+    setup({ fields: [{ key: 'headers', label: 'Headers', type: 'map' }], initial: { headers: {} } });
+    const r = row('headers', 'map');
+    fireEvent.click(within(r).getByRole('button', { name: 'Add row' }));
+    fireEvent.change(within(r).getByLabelText('Value 1'), { target: { value: 'v' } });
+    expect(within(r).getByLabelText('Key 1')).toHaveAttribute('aria-invalid', 'true');
+    expect(within(r).getByRole('alert')).toHaveTextContent('A row without a key is not saved.');
+  });
+});
+
 describe('ConfigForm — a stored secret never moves (review I1 / M2)', () => {
   it('a masked map row\'s key is locked until a new value is typed', () => {
     const { last } = setup({

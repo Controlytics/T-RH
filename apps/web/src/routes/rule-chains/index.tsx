@@ -66,13 +66,20 @@ export function RuleChainsPage() {
   const open = (d: Dialogs) => { writes.setError(null); setName(''); setDialog(d); };
   const close = () => { if (!writes.busy) setDialog(null); };
 
+  // A list refresh AFTER a write that succeeded: its failure is told on its own
+  // (the write's dialog is closed by then) and never reported as the write's
+  // (whole-branch review C, M-2).
+  const refreshList = () => {
+    mutate().catch((e: unknown) => toast.errorToast('Could not refresh the list', refusalText(e)));
+  };
+
   const create = (reason: string) => writes.run(
     (pw) => createRuleChain({ name: name.trim() }, reason, pw),
     {
       done: async (created) => {
         const { id } = created as { id: string };
         setDialog(null);
-        await mutate();
+        refreshList();
         toast.success('Rule chain created', `"${name.trim()}" is empty. Drag nodes onto it.`);
         navigate(`/rule-chains/${id}`);
       },
@@ -84,7 +91,7 @@ export function RuleChainsPage() {
     {
       done: async () => {
         setDialog(null);
-        await mutate();
+        refreshList();
         toast.success('Root chain changed', `Every message now enters "${row.name}".`);
       },
     },
@@ -95,7 +102,7 @@ export function RuleChainsPage() {
     {
       done: async () => {
         setDialog(null);
-        await mutate();
+        refreshList();
         toast.success('Rule chain deleted', `"${row.name}" removed.`);
       },
     },

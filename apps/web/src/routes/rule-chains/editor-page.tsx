@@ -144,7 +144,11 @@ export function EditorView({ chain, mutate }: {
   // adoption: its Apply would write them over the newer version, and the save
   // after it would pass the version check (review I2, 2026-11-05).
   useEffect(() => {
-    if (chain.updatedAt === base.updatedAt || dirty) return;
+    // Only a STRICTLY NEWER version: the `chain` prop can lag behind a version
+    // this page already adopted (its own save, a Reload), and adopting the prop
+    // then would put the older chain back. A chain's updatedAt only moves
+    // forward (the server stamps max(now, expected + 1 ms)).
+    if (dirty || Date.parse(chain.updatedAt) <= Date.parse(base.updatedAt)) return;
     adopt(chain);
     if (settingsFor !== null || picker !== null || dialog === 'chain') {
       setSettingsFor(null);
@@ -152,9 +156,10 @@ export function EditorView({ chain, mutate }: {
       if (dialog === 'chain') setDialog(null);
       toast.info('This rule chain was saved by someone else', 'Your open settings were closed. Open them again to edit the chain as it is now.');
     }
-    // `chain` is a new object per fetch; its version is the event.
+    // `chain` is a new object per fetch; its version is the event — and a draft
+    // that Undo makes clean again adopts what arrived meanwhile (review C, M-1).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chain.updatedAt]);
+  }, [chain.updatedAt, dirty]);
 
   const openDialog = (d: Dialogs) => { writes.setError(null); setDialog(d); };
 
@@ -270,7 +275,10 @@ export function EditorView({ chain, mutate }: {
   }, [canEdit, undo, redo]);
 
   const toolbarBtn = 'font-semibold';
-  const gridCols = [canEdit ? '15rem' : null, 'minmax(0,1fr)', debugOpen ? '24rem' : null].filter(Boolean).join(' ');
+  // The Debug drawer LIES OVER the canvas's right edge instead of taking a
+  // column: at 1240 px with the sidebar open a third column left the canvas
+  // ~312 px wide (whole-branch review C, I-2).
+  const gridCols = [canEdit ? '15rem' : null, 'minmax(0,1fr)'].filter(Boolean).join(' ');
 
   return (
     <div className="space-y-3" style={ruleGroupTokens()}>
@@ -348,23 +356,26 @@ export function EditorView({ chain, mutate }: {
             onEditEdge={(from, to) => setPicker({ from, to, editing: true })}
             onOpenNode={openSettings}
             onSelectNode={(id) => { setSelected(id); if (id) setDebugNode(id); }}
+            miniMap={!debugOpen}
           />
           {doc.nodes.length === 0 && (
             <p className="pointer-events-none absolute inset-x-0 top-1/3 text-center text-sm text-slate-500">
               {canEdit ? 'Drag a node from the palette, then connect the Input to it.' : 'This chain has no nodes.'}
             </p>
           )}
+          {debugOpen && (
+            <div data-testid="debug-drawer" className="absolute inset-y-0 right-0 z-10 w-[min(24rem,85%)] shadow-[var(--elev-3)]">
+              <DebugPanel
+                chainId={chain.id}
+                nodes={base.state.document.nodes}
+                nodeId={debugNode}
+                onNodeChange={setDebugNode}
+                canClear={canEdit}
+                onClose={() => setDebugOpen(false)}
+              />
+            </div>
+          )}
         </div>
-        {debugOpen && (
-          <DebugPanel
-            chainId={chain.id}
-            nodes={base.state.document.nodes}
-            nodeId={debugNode}
-            onNodeChange={setDebugNode}
-            canClear={canEdit}
-            onClose={() => setDebugOpen(false)}
-          />
-        )}
       </div>
 
       <RelationPicker

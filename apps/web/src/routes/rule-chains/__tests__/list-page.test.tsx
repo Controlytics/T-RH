@@ -29,7 +29,7 @@ vi.mock('swr', () => ({
   },
 }));
 vi.mock('@/hooks/use-auth', () => ({ useAuth: () => ({ user: { role: state.role, permissions: state.permissions } }) }));
-const toast = { success: vi.fn(), error: vi.fn() };
+const toast = { success: vi.fn(), error: vi.fn(), errorToast: vi.fn() };
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast }) }));
 vi.mock('@/hooks/use-datetime-format', () => ({
   useDatetimeFormat: () => ({ formatDate: (d: string) => d.slice(0, 10), formatTime: (d: string) => d.slice(11, 16) }),
@@ -47,11 +47,14 @@ vi.mock('@/lib/api-client', () => ({
   },
 }));
 const reauthActions: string[] = [];
+const reauthMode = { cancel: false };
 vi.mock('@/hooks/use-reauth', () => ({
   reauthActionLabel: () => 'Update Rule Chain',
   useReauth: () => ({
     execute: async (action: string, cb: (p?: string) => Promise<void>, opts?: { onSuccess?: () => void; onError?: (e: unknown) => void; onCancel?: () => void }) => {
       reauthActions.push(action);
+      // `reauthMode.cancel`: the password prompt was dismissed — the callback never runs.
+      if (reauthMode.cancel) { opts?.onCancel?.(); return; }
       try { await cb(); opts?.onSuccess?.(); } catch (e) { opts?.onError?.(e); }
     },
     isOpen: false, password: '', error: '', isVerifying: false,
@@ -85,7 +88,51 @@ beforeEach(() => {
   state.role = 'SUPER_ADMIN';
   state.permissions = [];
   reauthActions.length = 0;
-  post.mockReset(); del.mockReset(); getRaw.mockReset(); mutate.mockClear(); toast.success.mockClear(); toast.error.mockClear();
+  reauthMode.cancel = false;
+  post.mockReset(); del.mockReset(); getRaw.mockReset(); mutate.mockReset(); mutate.mockResolvedValue(undefined);
+  toast.success.mockClear(); toast.error.mockClear(); toast.errorToast.mockClear();
+});
+
+describe('Rule Chains list — the other outcomes of a write (review C, I-3 / M-2)', () => {
+  it('a dismissed password prompt writes nothing, keeps the dialog open and gives its button back — New, Make root, Delete', () => {
+    reauthMode.cancel = true;
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: /New rule chain/ }));
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Cold room' } });
+    reason('try');
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+    expect(screen.getByRole('button', { name: 'Create' })).toBeEnabled();
+    expect(screen.getByLabelText('Name')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    fireEvent.click(within(rows()[1]).getByRole('button', { name: 'Make root' }));
+    reason('try');
+    fireEvent.click(screen.getByRole('button', { name: 'Make root chain' }));
+    expect(screen.getByRole('button', { name: 'Make root chain' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    fireEvent.click(within(rows()[1]).getByRole('button', { name: 'Delete' }));
+    reason('try');
+    fireEvent.click(screen.getByRole('button', { name: 'Delete rule chain' }));
+    expect(screen.getByRole('button', { name: 'Delete rule chain' })).toBeEnabled();
+
+    expect(post).not.toHaveBeenCalled();
+    expect(del).not.toHaveBeenCalled();
+    expect(reauthActions).toEqual(['UPDATE_RULE_CHAIN', 'UPDATE_RULE_CHAIN', 'UPDATE_RULE_CHAIN']);
+  });
+
+  it('a list refresh that fails AFTER a create is told on its own, and the new chain still opens', async () => {
+    post.mockResolvedValue({ id: 'new-1', name: 'Cold room' });
+    mutate.mockRejectedValueOnce(new Error('Network down'));
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: /New rule chain/ }));
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Cold room' } });
+    reason('Cold room alarms');
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/rule-chains/new-1'));
+    await waitFor(() => expect(toast.errorToast).toHaveBeenCalledWith('Could not refresh the list', expect.stringContaining('Network down')));
+    expect(toast.success).toHaveBeenCalledWith('Rule chain created', expect.any(String));
+  });
 });
 
 describe('Rule Chains list', () => {

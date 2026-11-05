@@ -41,15 +41,19 @@ import { MASKED_SECRET } from './types';
  *   kept, never silently dropped.
  */
 
+/**
+ * The lists the pickers offer. For each: an array = loaded; `null` = it could
+ * not be read (a 403 for a role that may not list it); `undefined` = not read
+ * yet. A stored value is called "not found" only against a list that LOADED.
+ */
 export interface ConfigFormContext {
-  chains?: readonly { id: string; name: string }[];
+  chains?: readonly { id: string; name: string }[] | null;
   /** The chain being edited — a Rule chain node does not offer it. */
   currentChainId?: string;
-  instruments?: readonly { id: string; code: string; name?: string | null }[];
-  /** `null` = the list could not be read (a 403 for a holder who is not SUPER_ADMIN). */
+  instruments?: readonly { id: string; code: string; name?: string | null }[] | null;
   templates?: readonly { id: string; name: string }[] | null;
-  roles?: readonly { name: string; displayName?: string | null }[];
-  users?: readonly { id: string; username: string; fullName?: string | null }[];
+  roles?: readonly { name: string; displayName?: string | null }[] | null;
+  users?: readonly { id: string; username: string; fullName?: string | null }[] | null;
   /** `POST /api/rule-chains/test-script`; resolves the script's result, rejects with `{ code, message }`. */
   testScript?: (body: TestScriptBody) => Promise<unknown>;
 }
@@ -233,33 +237,25 @@ function FieldControl({ field, raw, shown, fallback, readOnly, context, set, uns
     case 'script':
       return <ScriptField field={field} value={typeof shown === 'string' ? shown : ''} readOnly={readOnly} onChange={set} testScript={context.testScript} />;
     case 'instrument': {
+      if (context.instruments === null) return <><Label field={field} /><UnreadableList what="instruments" stored={shown} /></>;
       const options = [...(context.instruments ?? [])]
         .sort((a, b) => a.code.localeCompare(b.code))
         .map((i) => ({ value: i.id, label: i.name && i.name !== i.code ? `${i.code} — ${i.name}` : i.code }));
       return (
         <>
           <Label htmlFor={id} field={field} />
-          <OptionSelect id={id} value={shown} options={options} readOnly={readOnly} onPick={(v) => set(v === '' ? null : v)} none="No instrument" missing="not found" />
+          <OptionSelect id={id} value={shown} options={options} readOnly={readOnly} loading={context.instruments === undefined} onPick={(v) => set(v === '' ? null : v)} none="No instrument" missing="not found" />
           <Help field={field} />
         </>
       );
     }
     case 'notification-template': {
-      if (context.templates === null) {
-        return (
-          <>
-            <Label field={field} />
-            <p className="rounded-[var(--radius-control)] border border-amber-200 bg-amber-50 px-3 py-2 text-[0.8125rem] text-amber-900">
-              The notification templates could not be read. Stored: <span className="font-mono">{typeof shown === 'string' && shown ? shown : 'none'}</span>
-            </p>
-          </>
-        );
-      }
+      if (context.templates === null) return <><Label field={field} /><UnreadableList what="notification templates" stored={shown} /></>;
       const options = (context.templates ?? []).map((t) => ({ value: t.id, label: t.name }));
       return (
         <>
           <Label htmlFor={id} field={field} />
-          <OptionSelect id={id} value={shown} options={options} readOnly={readOnly} onPick={(v) => set(v === '' ? null : v)} none="No template" missing="not found" />
+          <OptionSelect id={id} value={shown} options={options} readOnly={readOnly} loading={context.templates === undefined} onPick={(v) => set(v === '' ? null : v)} none="No template" missing="not found" />
           <Help field={field} />
         </>
       );
@@ -269,13 +265,14 @@ function FieldControl({ field, raw, shown, fallback, readOnly, context, set, uns
     case 'message-types':
       return <MessageTypesField field={field} shown={shown} readOnly={readOnly} set={set} />;
     case 'chain': {
+      if (context.chains === null) return <><Label field={field} /><UnreadableList what="rule chains" stored={shown} /></>;
       const options = (context.chains ?? [])
         .filter((c) => c.id !== context.currentChainId)
         .map((c) => ({ value: c.id, label: c.name }));
       return (
         <>
           <Label htmlFor={id} field={field} />
-          <OptionSelect id={id} value={shown} options={options} readOnly={readOnly} onPick={(v) => set(v === '' ? null : v)} none="Choose a rule chain" missing="no such chain" />
+          <OptionSelect id={id} value={shown} options={options} readOnly={readOnly} loading={context.chains === undefined} onPick={(v) => set(v === '' ? null : v)} none="Choose a rule chain" missing="no such chain" />
           <Help field={field} />
         </>
       );
@@ -293,6 +290,9 @@ function TextField({ id, field, raw, fallback, readOnly, set, multiline }: {
   const masked = isMasked(raw) && !changing;
   const text = isMasked(raw) ? '' : typeof raw === 'string' ? raw : raw === undefined || raw === null ? '' : String(raw);
   const placeholder = typeof fallback === 'string' && fallback !== '' ? fallback : undefined;
+  // Replacing a stored secret: an EMPTY box keeps the stored value ("***"), so
+  // typing and then deleting a new one can never blank the secret (review C, M-4).
+  const write = (v: string) => set(changing && v === '' ? MASKED_SECRET : v);
   return (
     <>
       <Label htmlFor={masked ? undefined : id} field={field} />
@@ -306,15 +306,16 @@ function TextField({ id, field, raw, fallback, readOnly, set, multiline }: {
       ) : (
         <div className="flex items-start gap-2">
           {multiline ? (
-            <textarea id={id} rows={3} value={text} placeholder={placeholder} disabled={readOnly} onChange={(e) => set(e.target.value)} className="ctl w-full font-mono text-[0.8125rem]" />
+            <textarea id={id} rows={3} value={text} placeholder={placeholder} disabled={readOnly} onChange={(e) => write(e.target.value)} className="ctl w-full font-mono text-[0.8125rem]" />
           ) : (
-            <Input id={id} value={text} placeholder={placeholder} disabled={readOnly} onChange={(e) => set(e.target.value)} />
+            <Input id={id} value={text} placeholder={placeholder} disabled={readOnly} onChange={(e) => write(e.target.value)} />
           )}
           {changing && !readOnly && (
             <Button type="button" variant="outline" onClick={() => { setChanging(false); set(MASKED_SECRET); }}>Keep stored</Button>
           )}
         </div>
       )}
+      {changing && !readOnly && <p className={helpCls}>Type the new value. Left empty, the stored value is kept.</p>}
       <Help field={field} />
     </>
   );
@@ -349,8 +350,22 @@ function NumberField({ id, field, raw, fallback, readOnly, set, unset }: {
   );
 }
 
-/** A native select; a stored value that is not an option is shown and kept. */
-function OptionSelect({ id, value, options, readOnly, onPick, none, missing = 'not in this list' }: {
+/** What a picker says when its list could not be read: the stored value, kept, and why nothing is offered. */
+function UnreadableList({ what, stored }: { what: string; stored: unknown }) {
+  const text = typeof stored === 'string' && stored ? stored : stored === undefined || stored === null || stored === '' ? 'none' : JSON.stringify(stored);
+  return (
+    <p role="status" className="rounded-[var(--radius-control)] border border-amber-200 bg-amber-50 px-3 py-2 text-[0.8125rem] text-amber-900">
+      The {what} could not be read — your role may not be allowed to list them. The stored value is kept: <span className="font-mono">{text}</span>
+    </p>
+  );
+}
+
+/**
+ * A native select; a stored value that is not an option is shown and kept.
+ * While the list is still LOADING it is disabled and the stored value is
+ * shown bare — never "not found" before the list has been read.
+ */
+function OptionSelect({ id, value, options, readOnly, onPick, none, missing = 'not in this list', loading = false }: {
   id: string;
   value: unknown;
   options: readonly { value: string; label: string }[];
@@ -358,13 +373,14 @@ function OptionSelect({ id, value, options, readOnly, onPick, none, missing = 'n
   onPick: (v: string) => void;
   none?: string;
   missing?: string;
+  loading?: boolean;
 }) {
   const current = typeof value === 'string' ? value : value === undefined || value === null ? '' : String(value);
   const known = options.some((o) => o.value === current);
   return (
-    <Select id={id} value={current} disabled={readOnly} onChange={(e) => onPick(e.target.value)}>
-      {(none !== undefined || current === '') && <option value="">{none ?? 'Choose…'}</option>}
-      {!known && current !== '' && <option value={current}>{current} ({missing})</option>}
+    <Select id={id} value={current} disabled={readOnly || loading} aria-busy={loading || undefined} onChange={(e) => onPick(e.target.value)}>
+      {(none !== undefined || current === '') && <option value="">{loading && current === '' ? 'Loading…' : none ?? 'Choose…'}</option>}
+      {!known && current !== '' && <option value={current}>{loading ? current : `${current} (${missing})`}</option>}
       {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
     </Select>
   );
@@ -475,7 +491,7 @@ function MapField({ field, raw, shown, readOnly, set }: { field: RuleNodeConfigF
             maxLength={RULE_KEY_MAX}
             disabled={readOnly || r.v === MASK_DISPLAY}
             title={r.v === MASK_DISPLAY ? MASK_KEY_NOTE : undefined}
-            aria-invalid={repeated.includes(r.k.trim()) || undefined}
+            aria-invalid={repeated.includes(r.k.trim()) || (r.k.trim() === '' && r.v !== '') || undefined}
             onChange={(e) => commit(rows.map((x, j) => (j === i ? { ...x, k: e.target.value } : x)))}
           />
           <span aria-hidden className="text-slate-400">→</span>
@@ -483,6 +499,8 @@ function MapField({ field, raw, shown, readOnly, set }: { field: RuleNodeConfigF
             aria-label={`Value ${i + 1}`}
             value={r.v}
             disabled={readOnly}
+            // A stored secret is REPLACED, not appended to: focusing selects the marker (review C, M-5).
+            onFocus={(e) => { if (r.v === MASK_DISPLAY) e.currentTarget.select(); }}
             onChange={(e) => commit(rows.map((x, j) => (j === i ? { ...x, v: e.target.value } : x)))}
           />
           {!readOnly && (
@@ -494,6 +512,7 @@ function MapField({ field, raw, shown, readOnly, set }: { field: RuleNodeConfigF
         </div>
       ))}
       {repeated.length > 0 && <p role="alert" className="text-[0.75rem] text-rose-700">Repeated key: {repeated.join(', ')} — the last one is kept.</p>}
+      {rows.some((r) => r.k.trim() === '' && r.v !== '') && <p role="alert" className="text-[0.75rem] text-rose-700">A row without a key is not saved.</p>}
       {!readOnly && <Button type="button" variant="outline" size="sm" onClick={() => setRows([...rows, { k: '', v: '' }])}>Add row</Button>}
       <Help field={field} extra={holdsMask(shown) ? `${MASK_NOTE} ${MASK_KEY_NOTE}` : undefined} />
     </div>
@@ -570,26 +589,41 @@ function TargetsField({ field, shown, readOnly, context, set }: {
       <div className="grid gap-3 md:grid-cols-2">
         <div className="space-y-2 rounded-[var(--radius-control)] border border-slate-200 p-3">
           <p className="text-[0.75rem] font-semibold uppercase tracking-wide text-slate-500">Roles</p>
+          <ListState list={context.roles} what="roles" />
           {(context.roles ?? []).map((r) => (
             <Checkbox key={r.name} label={r.displayName || r.name} checked={roles.includes(r.name)} disabled={readOnly} onChange={() => write(flip(roles, r.name), userIds)} />
           ))}
           {roles.filter((r) => !(context.roles ?? []).some((x) => x.name === r)).map((r) => (
-            <Checkbox key={`x-${r}`} label={`${r} (not found)`} checked disabled={readOnly} onChange={() => write(flip(roles, r), userIds)} />
+            <Checkbox key={`x-${r}`} label={Array.isArray(context.roles) ? `${r} (not found)` : r} checked disabled={readOnly} onChange={() => write(flip(roles, r), userIds)} />
           ))}
         </div>
         <div className="max-h-56 space-y-2 overflow-y-auto rounded-[var(--radius-control)] border border-slate-200 p-3">
           <p className="text-[0.75rem] font-semibold uppercase tracking-wide text-slate-500">Users</p>
+          <ListState list={context.users} what="users" />
           {(context.users ?? []).map((u) => (
             <Checkbox key={u.id} label={u.fullName || u.username} checked={userIds.includes(u.id)} disabled={readOnly} onChange={() => write(roles, flip(userIds, u.id))} />
           ))}
           {userIds.filter((id) => !(context.users ?? []).some((x) => x.id === id)).map((id) => (
-            <Checkbox key={`x-${id}`} label={`${id} (not found)`} checked disabled={readOnly} onChange={() => write(roles, flip(userIds, id))} />
+            <Checkbox key={`x-${id}`} label={Array.isArray(context.users) ? `${id} (not found)` : id} checked disabled={readOnly} onChange={() => write(roles, flip(userIds, id))} />
           ))}
         </div>
       </div>
       <Help field={field} />
     </fieldset>
   );
+}
+
+/** Under a targets box: "Loading…" while unread, the reason when unreadable, nothing once loaded. */
+function ListState({ list, what }: { list: readonly unknown[] | null | undefined; what: string }) {
+  if (list === undefined) return <p className="text-[0.75rem] text-slate-500">Loading…</p>;
+  if (list === null) {
+    return (
+      <p role="status" className="text-[0.75rem] text-amber-900">
+        The {what} could not be read — your role may not be allowed to list them. What is stored is kept.
+      </p>
+    );
+  }
+  return null;
 }
 
 function MessageTypesField({ field, shown, readOnly, set }: { field: RuleNodeConfigField; shown: unknown; readOnly: boolean; set: (v: unknown) => void }) {

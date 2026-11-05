@@ -4,6 +4,7 @@ import { MemoryRouter, Routes, Route, Link } from 'react-router-dom';
 import { installXyflowStubs } from '@/test-support/xyflow-stubs';
 import { newRuleNodeConfig } from '@digilog/shared';
 import { INPUT_NODE_ID } from '../types';
+import { pairEdgeId } from '../flow-mapping';
 
 /**
  * The rule chain editor (rule chains, 2026-11-04), on the REAL React Flow:
@@ -69,11 +70,14 @@ vi.mock('@/lib/api-client', () => ({
   },
 }));
 const reauthActions: string[] = [];
+const reauthMode = { cancel: false };
 vi.mock('@/hooks/use-reauth', () => ({
   reauthActionLabel: () => 'Update Rule Chain',
   useReauth: () => ({
     execute: async (action: string, cb: (p?: string) => Promise<void>, opts?: { onSuccess?: () => void; onError?: (e: unknown) => void; onCancel?: () => void }) => {
       reauthActions.push(action);
+      // `reauthMode.cancel`: the password prompt was dismissed — the callback never runs.
+      if (reauthMode.cancel) { opts?.onCancel?.(); return; }
       try { await cb(); opts?.onSuccess?.(); } catch (e) { opts?.onError?.(e); }
     },
     isOpen: false, password: '', error: '', isVerifying: false,
@@ -124,6 +128,7 @@ beforeEach(() => {
   state.role = 'SUPER_ADMIN';
   state.permissions = [];
   state.chain = CHAIN;
+  reauthMode.cancel = false;
   put.mockReset();
   chainMutate.mockClear();
   reauthActions.length = 0;
@@ -364,6 +369,87 @@ describe('a newer version saved by someone else while settings are open (review 
     state.chain = { ...REST_CHAIN, updatedAt: '2026-11-04T11:00:00.000Z' } as typeof CHAIN;
     view.rerender(tree());
     expect(toast.info).not.toHaveBeenCalled();
+  });
+});
+
+describe('the other outcomes of a save (review C, I-3)', () => {
+  it('a dismissed password prompt writes nothing, keeps the dialog open and gives Save chain back', () => {
+    reauthMode.cancel = true;
+    mount();
+    drop('tb:action:log');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'try' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save chain' }));
+    expect(put).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Save chain' })).toBeEnabled();
+    expect(screen.getByLabelText('Reason')).toBeInTheDocument();
+    expect(screen.getByTestId('unsaved')).toBeInTheDocument();
+    expect(reauthActions).toEqual(['UPDATE_RULE_CHAIN']);
+  });
+
+  it('after a 409, Reload re-reads the chain and adopts it: the draft goes, nothing is unsaved', async () => {
+    put.mockRejectedValue(Object.assign(new Error('This rule chain was changed by someone else.'), { code: 'STALE', status: 409 }));
+    mount();
+    drop('tb:action:log');
+    await saveWith('mine');
+    expect(await screen.findByText('This rule chain was changed by someone else.')).toBeInTheDocument();
+    // The server now holds a newer version with a renamed node.
+    const doc = CHAIN.document as unknown as { nodes: { id: string; name: string }[] };
+    state.chain = {
+      ...CHAIN,
+      updatedAt: '2026-11-04T11:00:00.000Z',
+      document: { ...CHAIN.document, nodes: doc.nodes.map((n) => (n.id === L ? { ...n, name: 'Log Everything' } : n)) },
+    } as unknown as typeof CHAIN;
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Reload' })); });
+    expect(chainMutate).toHaveBeenCalledWith();
+    await waitFor(() => expect(screen.queryByTestId('unsaved')).toBeNull());
+    expect(cards()).toHaveLength(4);
+    expect(within(card(L)).getByText('Log Everything')).toBeInTheDocument();
+  });
+
+  it('a newer version that arrived while the draft was dirty is adopted once Undo makes it clean (review C, M-1)', () => {
+    const view = mount();
+    drop('tb:action:log');
+    const doc = CHAIN.document as unknown as { nodes: { id: string; name: string }[] };
+    state.chain = {
+      ...CHAIN,
+      updatedAt: '2026-11-04T11:00:00.000Z',
+      document: { ...CHAIN.document, nodes: doc.nodes.map((n) => (n.id === L ? { ...n, name: 'Log Everything' } : n)) },
+    } as unknown as typeof CHAIN;
+    view.rerender(tree());
+    expect(within(card(L)).getByText('Log Other')).toBeInTheDocument(); // dirty: kept
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(within(card(L)).getByText('Log Everything')).toBeInTheDocument();
+    expect(screen.queryByTestId('unsaved')).toBeNull();
+  });
+});
+
+describe('the Debug drawer lies over the canvas (review C, I-2)', () => {
+  it('takes no grid column, sits inside the canvas cell, and the MiniMap steps aside while it is open', () => {
+    const { container } = mount();
+    const grid = screen.getByTestId('rule-chain-canvas').closest('div.grid') as HTMLElement;
+    expect(container.querySelector('.react-flow__minimap')).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Debug' }));
+    const drawer = screen.getByTestId('debug-drawer');
+    expect(grid.style.gridTemplateColumns).not.toContain('24rem');
+    expect(grid.style.gridTemplateColumns.split(' ').filter(Boolean)).toHaveLength(2);
+    expect(drawer.className).toMatch(/absolute/);
+    expect(drawer.parentElement?.contains(screen.getByTestId('rule-chain-canvas'))).toBe(true);
+    expect(container.querySelector('.react-flow__minimap')).toBeNull();
+  });
+});
+
+describe('a link by keyboard (review C, M-3)', () => {
+  it('Enter on a focused link opens its labels for editing; the Input\'s link has none', () => {
+    const { container } = mount();
+    const inputEdge = container.querySelector(`.react-flow__edge[data-id="${pairEdgeId(INPUT_NODE_ID, S)}"]`) as HTMLElement | null;
+    expect(inputEdge).not.toBeNull();
+    fireEvent.keyDown(inputEdge!, { key: 'Enter' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    const edge = container.querySelector(`.react-flow__edge[data-id="${pairEdgeId(S, T)}"]`) as HTMLElement;
+    fireEvent.keyDown(edge, { key: 'Enter' });
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByRole('checkbox', { name: 'Post telemetry' })).toBeChecked();
   });
 });
 

@@ -44,6 +44,8 @@ export interface CanvasProps {
   onEditEdge: (from: string, to: string) => void;
   onOpenNode: (id: string) => void;
   onSelectNode: (id: string | null) => void;
+  /** Off while the Debug drawer lies over the canvas's right edge, where the MiniMap sits. */
+  miniMap?: boolean;
 }
 
 const FIT_OPTIONS = { padding: 0.12, maxZoom: 1 };
@@ -61,7 +63,7 @@ function minimapColour(n: Node): string {
 }
 
 function Flow(props: CanvasProps) {
-  const { document: doc, canEdit, inspectedId = null } = props;
+  const { document: doc, canEdit, inspectedId = null, miniMap = true } = props;
   const rf = useReactFlow();
   const wrapper = useRef<HTMLDivElement>(null);
   const [nodes, setNodes] = useState<ChainFlowNode[]>(() => buildFlowNodes(doc, [], { canEdit, inspectedId }));
@@ -139,6 +141,16 @@ function Flow(props: CanvasProps) {
       onKeyDown={(e) => {
         if (e.key !== 'Enter' || e.repeat) return; // a held Enter would reopen the dialog it just opened
         const el = e.target as HTMLElement;
+        // Enter on a focused LINK edits its labels — the keyboard's double-click
+        // on a link (whole-branch review C, M-3). The Input's link has no labels.
+        if (el.classList?.contains('react-flow__edge')) {
+          const edgeId = el.getAttribute('data-id');
+          const d = edgeId ? (rf.getEdge(edgeId)?.data as PairEdgeData | undefined) : undefined;
+          if (!d || d.input) return;
+          e.preventDefault();
+          onEditEdge(d.from, d.to);
+          return;
+        }
         const id = el.classList?.contains('react-flow__node') ? el.getAttribute('data-id') : null;
         if (!id || id === INPUT_NODE_ID) return;
         e.preventDefault();
@@ -174,7 +186,7 @@ function Flow(props: CanvasProps) {
       >
         <Background variant={BackgroundVariant.Dots} gap={18} size={1.2} color="#cbd5e1" />
         <Controls showInteractive={false} position="bottom-left" fitViewOptions={FIT_OPTIONS} />
-        <MiniMap pannable zoomable nodeColor={minimapColour} nodeStrokeColor="#94a3b8" position="bottom-right" />
+        {miniMap && <MiniMap pannable zoomable nodeColor={minimapColour} nodeStrokeColor="#94a3b8" position="bottom-right" />}
       </ReactFlow>
     </div>
   );

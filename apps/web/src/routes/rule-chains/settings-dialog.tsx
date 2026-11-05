@@ -52,12 +52,15 @@ export function useNodeFormContext(node: RuleChainNode | null, chainId: string):
     types.has('targets') ? `/api/users?${ALL_RECORDS_PARAM}&status=ENABLED` : null,
   );
   const chains = useSWR<{ data: RuleChainSummary[] }>(types.has('chain') ? RULE_CHAINS_KEY : null);
+  // `null` = the list could not be read (a role that may not list it — a 403);
+  // `undefined` = not read yet. A picker never calls a stored value "not found"
+  // unless its list actually loaded (whole-branch review C, I-1).
   return {
-    instruments: instruments.data?.data,
+    instruments: instruments.error ? null : instruments.data?.data,
     templates: templates.error ? null : templates.data,
-    roles: roles.data,
-    users: users.data?.data,
-    chains: chains.data?.data,
+    roles: roles.error ? null : roles.data,
+    users: users.error ? null : users.data?.data,
+    chains: chains.error ? null : chains.data?.data,
     currentChainId: chainId,
     testScript: testRuleScript,
   };

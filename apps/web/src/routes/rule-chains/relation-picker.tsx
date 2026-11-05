@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { RULE_NODE_TYPE_BY_ID, RULE_RELATION_FAILURE, RULE_RELATION_MAX } from '@digilog/shared';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { DialogBanner } from '@/components/ui/dialog-banner';
@@ -60,6 +60,7 @@ export function RelationPicker({
   open, sourceType, sourceName, targetName, existing, suggestions = [], editing = false, readOnly = false, onPick, onClose,
 }: RelationPickerProps) {
   const choices = useMemo(() => relationChoicesFor(sourceType), [sourceType]);
+  const customId = useId();
   const [chosen, setChosen] = useState<string[]>([]);
   const [filter, setFilter] = useState('');
   const [custom, setCustom] = useState('');
@@ -126,10 +127,10 @@ export function RelationPicker({
 
           {choices.free && (
             <div className="space-y-2">
-              <label htmlFor="relation-custom" className="block text-[0.8125rem] font-semibold text-slate-700">Custom label</label>
+              <label htmlFor={customId} className="block text-[0.8125rem] font-semibold text-slate-700">Custom label</label>
               <div className="flex gap-2">
                 <Input
-                  id="relation-custom"
+                  id={customId}
                   value={custom}
                   maxLength={RULE_RELATION_MAX}
                   disabled={readOnly}

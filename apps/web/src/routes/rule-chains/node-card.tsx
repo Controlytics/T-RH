@@ -55,7 +55,7 @@ export const RuleNodeCard = memo(function RuleNodeCard({ data, selected }: NodeP
             title={node.debugMode === 'all' ? 'Debug: every message in and out' : 'Debug: failures only'}
             className="shrink-0 rounded bg-black/10 px-1 text-[0.625rem] font-bold uppercase"
           >
-            {node.debugMode === 'all' ? 'Debug' : 'Debug ✕'}
+            {node.debugMode === 'all' ? 'Debug' : 'Debug: failures'}
           </span>
         )}
       </div>

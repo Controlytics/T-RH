@@ -90,7 +90,7 @@ export const RULE_CHAIN_REAUTH_ACTION = 'UPDATE_RULE_CHAIN';
  * ThingsBoard's group colours, as TOKENS (`--rc-group-<group>`), set once on
  * the editor's root and read by the palette, the node cards and the minimap.
  * Each carries DARK ink (`--rc-ink`): every pair is at least 6:1, pinned by
- * `__tests__/group-colors.test.ts`.
+ * `__tests__/flow-mapping.test.ts` (group colours).
  */
 export const RULE_GROUP_COLORS: Readonly<Record<RuleNodeGroup, string>> = {
   filter: '#f1e861',
