@@ -8,7 +8,9 @@ import { keyMatcher } from './pattern.js';
  * Copy key-value pairs — ThingsBoard's `TbCopyKeysNode` (spec §7).
  *
  *  - `copyFrom: DATA` — every data key matching `keys` is copied into the
- *    metadata: a string as it is, anything else as its JSON text.
+ *    metadata: a string as it is, anything else as its JSON text — a JSON
+ *    null is the TEXT `null` (ThingsBoard `JacksonUtil.toString(NullNode)`,
+ *    TbCopyKeysNode master e48b5780; M-10), never dropped.
  *  - `copyFrom: METADATA` — every metadata key matching `keys` is copied into
  *    the data AS A STRING (ThingsBoard `ObjectNode.put(String, String)`; "42"
  *    stays "42").

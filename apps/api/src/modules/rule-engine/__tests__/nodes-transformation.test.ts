@@ -141,6 +141,13 @@ describe('Copy key-value pairs (TbCopyKeysNode)', () => {
     expect(out.id).toBe(msg.id);
   });
 
+  it('DATA → METADATA: a JSON null VALUE goes in as the TEXT "null", never dropped (TbCopyKeysNode: JacksonUtil.toString(NullNode); M-10)', async () => {
+    const msg = testMessage({ gone: null, kept: 1 });
+    const { calls } = await run(T, msg, { config: { copyFrom: 'DATA', keys: ['gone'] } });
+    expect(calls.next[0].msg.metadata.gone).toBe('null');
+    expect(Object.prototype.hasOwnProperty.call(calls.next[0].msg.metadata, 'gone')).toBe(true);
+  });
+
   it('METADATA → DATA: the value is copied as a STRING, never parsed', async () => {
     const msg = testMessage({ t: 1 }, { metadata: { limit: '42', flag: 'true' } });
     const { calls } = await run(T, msg, { config: { copyFrom: 'METADATA', keys: ['limit', 'flag'] } });
@@ -158,6 +165,42 @@ describe('Copy key-value pairs (TbCopyKeysNode)', () => {
     const { calls } = await run(T, testMessage({ t: 1 }), { config: { copyFrom: 'DATA', keys: ['t('] } });
     expect(calls.relations()).toEqual(['Failure']);
     expect(calls.failures[0].error).toMatch(/^CONFIG_INVALID: /);
+  });
+});
+
+describe('M-5 — a key pattern runs against a device-chosen key name under lib/regex-budget.ts', () => {
+  // `(a+)+` backtracks exponentially on "aaa…ab": ~4 s unbudgeted on this laptop at 28 a's.
+  const slowKey = `${'a'.repeat(28)}b`;
+
+  it('Copy keys: a catastrophic pattern is cut off by the budget — the key does not match (fail closed) and the message goes on', async () => {
+    const msg = testMessage({ [slowKey]: 1, temp: 2 });
+    const started = Date.now();
+    const { calls } = await run('tb:transformation:copy-key-value-pairs', msg, { config: { copyFrom: 'DATA', keys: ['(a+)+', 'temp'] } });
+    expect(Date.now() - started).toBeLessThan(1_500);
+    expect(calls.relations()).toEqual(['Success']);
+    expect(calls.next[0].msg.metadata.temp).toBe('2');
+    expect(calls.next[0].msg.metadata).not.toHaveProperty(slowKey);
+  });
+
+  it('Delete keys: the same cut-off keeps the key (fail closed — documented), and a key judged once is not judged again', async () => {
+    const msg = testMessage({ [slowKey]: 1, temp: 2 });
+    const first = await run('tb:transformation:delete-key-value-pairs', msg, { config: { deleteFrom: 'DATA', keys: ['(a+)+', 'temp'] } });
+    expect(first.calls.next[0].msg.data).toEqual({ [slowKey]: 1 });
+    // The same key name again: the remembered answer, no second budget spent.
+    const started = Date.now();
+    const again = await run('tb:transformation:delete-key-value-pairs', testMessage({ [slowKey]: 3 }), { config: { deleteFrom: 'DATA', keys: ['(a+)+'] } });
+    expect(Date.now() - started).toBeLessThan(60);
+    expect(again.calls.next[0].msg.data).toEqual({ [slowKey]: 3 });
+  });
+
+  it('a key longer than the budget judges (1,000 characters) never matches a pattern — it cannot be judged whole; a plain name beside it still applies', async () => {
+    const long = 'a'.repeat(1_001);
+    const ok = 'a'.repeat(1_000);
+    const msg = testMessage({ [long]: 1, [ok]: 2 });
+    const { calls } = await run('tb:transformation:delete-key-value-pairs', msg, { config: { deleteFrom: 'DATA', keys: ['a+'] } });
+    expect(calls.next[0].msg.data).toEqual({ [long]: 1 });
+    const literal = await run('tb:transformation:delete-key-value-pairs', testMessage({ [long]: 1, temp: 2 }), { config: { deleteFrom: 'DATA', keys: ['a+', 'temp'] } });
+    expect(literal.calls.next[0].msg.data).toEqual({ [long]: 1 });
   });
 });
 
