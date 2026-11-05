@@ -301,6 +301,12 @@ describe('Create alarm and Clear alarm', () => {
     expect(cleared).toMatchObject({ relation: 'Cleared (unconnected)', msg_type: 'ALARM' });
     expect(cleared.metadata.isClearedAlarm).toBe('true');
     expect(cleared.data).toMatchObject({ id: before.id, cleared: true, status: 'CLEARED_UNACK' });
+    // Re-enter is OFF for this chain: its ALARM_CLEAR carries the node's origin (REQUIRED, review item 5)
+    // and the loop guard holds it back — with a system origin it would enter the root regardless.
+    // (The ON half is the TB-P 2 case below: CLEAR_2's ALARM_CLEAR does enter.)
+    await new Promise((r) => setTimeout(r, 500));
+    await ruleEngine.drain();
+    expect(await rows(ROOT.chainId, { msgType: 'ALARM_CLEAR', originatorId: before.id })).toEqual([]);
     await ruleEngine.processNow(instMsg('POST_TELEMETRY_REQUEST', { t: 19 }), { chainId: CLEAR.chainId });
     const out = await waitForRows(CLEAR.chainId, { direction: 'OUT' }, 2);
     expect(out[1].relation).toBe('False (unconnected)');

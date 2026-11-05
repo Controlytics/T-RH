@@ -8,13 +8,19 @@
  *   - a telemetry post enters the ROOT chain — the shipped document
  *     (`defaultRootChainDocument()`, the seeded chain's node ids) with debug
  *     ON on its switch and Save Timeseries: within 2 s the Message Type Switch
- *     has an IN row POST_TELEMETRY_REQUEST carrying `data.values.temp` and
- *     `metadata.instrumentCode`;
+ *     has an IN row POST_TELEMETRY_REQUEST carrying the FLAT data (`data.temp`,
+ *     ruling M-1), `metadata.ts` and `metadata.instrumentCode`;
  *   - THE LOOP GUARD: Save Timeseries' write of a NEW reading does NOT come
  *     back as a second POST_TELEMETRY_REQUEST — until the chain's "Re-enter on
- *     rule-node writes" is ON, when it comes back exactly ONCE and the loop
- *     ENDS (the services emit only what changed); an ingest reading written
- *     back unchanged emits nothing either way;
+ *     rule-node writes" is ON, when it comes back exactly ONCE: the re-entered
+ *     message's own write emits nothing (the re-entry depth, ruling RE-1). An
+ *     ingest reading written back unchanged emits nothing at all (changed-only);
+ *   - RE-1 on the REAL nodes, each a chain that would never end without the
+ *     depth: Save Timeseries with `useServerTs` (2 switch IN rows, 2 stored
+ *     rows); a transform adding 1 at the same instant (exactly ONE
+ *     TELEMETRY_READING_REWRITTEN); a Create alarm fed its own ALARM (it ends
+ *     at the second pass); and, outside any flow, `alarms.createOrUpdate` with
+ *     nothing changed emits no ALARM (changed-only);
  *   - the rule write is the ingest write path: no offset pass, an identical
  *     reading is an upsert no-op (no TELEMETRY_READING_REWRITTEN row);
  *   - a device attribute report enters as POST_ATTRIBUTES_REQUEST, an
@@ -28,11 +34,12 @@
  *   - the debug writer skips a chain that no longer exists; the hourly sweep
  *     applies the age and the per-node cap.
  *
- * The shipped chain's four node types get STAND-INS under the REAL type ids,
- * registered AFTER `ruleEngine.start()` (which registers every group's real
- * handlers) and restored after the engine stops. The Save Timeseries stand-in
- * writes whatever reaches it through `services.telemetry.write`, as the real
- * node does.
+ * Every node runs its REAL handler, registered by `ruleEngine.start()` — no
+ * stand-ins (review I2, 2026-11-05: the loop-guard pins had run on a stand-in
+ * Save Timeseries that ignored `useServerTs`, which is how an unbounded
+ * re-entry went unseen). Configuration → Rule Engine's "Skip Save nodes for
+ * readings already stored" is OFF for the run, so the real Save Timeseries
+ * writes an ingest reading back (a no-op) rather than passing it on.
  *
  * The run's root chain is its OWN copy of the shipped document, made root for
  * the run (raw SQL, as `setRoot` does) — the seeded chain is never edited, so
@@ -44,7 +51,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
-import { DEFAULT_ROOT_CHAIN_NODE_IDS, defaultRootChainDocument, messageTypeSwitchLabel, type RuleChainDocument } from '@digilog/shared';
+import { DEFAULT_ROOT_CHAIN_NODE_IDS, defaultRootChainDocument, newRuleNodeConfig, type RuleChainDocument } from '@digilog/shared';
 import { buildApp, loginAs } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 import { hashPassword } from '../lib/password.js';
@@ -52,7 +59,8 @@ import { fixtureProfileId } from '../test-support/fixture-profile.js';
 import { setFixtureMeasurements } from '../test-support/fixture-measurements.js';
 import { ensurePartitions } from '../workers/telemetry-partition.worker.js';
 import { ruleEngine } from '../modules/rule-engine/engine.js';
-import { registerNode } from '../modules/rule-engine/registry.js';
+import { getHandler } from '../modules/rule-engine/registry.js';
+import { runInFlow } from '../modules/rule-engine/context.js';
 import { invalidateChainCache } from '../modules/rule-engine/service.js';
 import { invalidateRuleEngineConfigCache } from '../modules/rule-engine/config.js';
 import { insertDebugRows, toDebugRow, trimDebugNode } from '../modules/rule-engine/debug.js';
@@ -77,7 +85,6 @@ let userId: string;
 let inst: { id: string; code: string; token: string };
 let engineCfgBefore: { configValue: unknown; configType: string; requiresReauth: boolean } | null | undefined;
 const startedAt = new Date();
-const restores: (() => void)[] = [];
 const createdInstruments: string[] = [];
 const createdAlarms: string[] = [];
 const otherChains: string[] = [];
@@ -181,23 +188,10 @@ beforeAll(async () => {
   invalidateChainCache();
   await setEngineConfig({});
   await ruleEngine.start();
-
-  // The stand-ins (see the header), under the real type ids — AFTER start(), which
-  // registers every group's handlers; afterAll stops the engine, then each restore
-  // puts back the handler that was registered when the stand-in replaced it.
-  // Save Timeseries writes whatever reaches it (the skip applies to ingest-origin
-  // messages only, and is OFF here): the services emit only what CHANGED, so a
-  // re-entered message's write of the same values ends the loop.
-  restores.push(registerNode('tb:filter:message-type-switch', (ctx, msg) => ctx.tellNext(msg, messageTypeSwitchLabel(msg.type))));
-  restores.push(registerNode('tb:action:save-timeseries', async (ctx, msg) => {
-    if (ctx.services.config().skipSaveNodesForIngestOrigin && msg.metadata.rule_engine_origin === 'ingest') return;
-    const ts = new Date(Number(msg.metadata.ts) || Date.now());
-    await ctx.services.telemetry.write(msg.originator.id,
-      Object.entries(msg.data as Record<string, unknown>).map(([key, value]) => ({ key, value, ts })), ctx.origin);
-    ctx.tellNext(msg, 'Success');
-  }));
-  restores.push(registerNode('tb:action:save-attributes', () => undefined));
-  restores.push(registerNode('tb:action:log', () => undefined));
+  // The REAL handlers of the shipped document's four types, nothing standing in for them.
+  for (const t of ['tb:filter:message-type-switch', 'tb:action:save-timeseries', 'tb:action:save-attributes', 'tb:action:log', 'tb:transformation:script', 'tb:action:create-alarm']) {
+    expect(getHandler(t), `${t} must be registered by ruleEngine.start()`).toBeDefined();
+  }
 
   const res = await app.inject({ method: 'POST', url: '/api/instruments', headers: sa,
     payload: { profileId: await fixtureProfileId('fixture:rule-engine'), name: `RE ${STAMP}`, code: `RE-${STAMP}` } });
@@ -208,14 +202,14 @@ beforeAll(async () => {
 
 afterAll(async () => {
   try { await ruleEngine.stop(); } catch (e) { console.error('engine stop', e); }
-  while (restores.length) restores.pop()!();
-  // The seeded root back, this run's copy deleted (its debug rows cascade with it).
-  try { await restoreSeededRoot(); } catch (e) { console.error('restore seeded root', e); }
+  // Configuration → Rule Engine back FIRST, whatever else fails.
   try {
     if (engineCfgBefore) await prisma.systemConfig.update({ where: { configKey: 'rule-engine' }, data: engineCfgBefore as never });
     else if (engineCfgBefore === null) await prisma.systemConfig.deleteMany({ where: { configKey: 'rule-engine' } });
   } catch (e) { console.error('restore rule-engine config', e); }
   invalidateRuleEngineConfigCache();
+  // The seeded root back, this run's copy deleted (its debug rows cascade with it).
+  try { await restoreSeededRoot(); } catch (e) { console.error('restore seeded root', e); }
   try { await prisma.ruleChain.deleteMany({ where: { id: { in: otherChains } } }); } catch (e) { console.error('chain cleanup', e); }
   try {
     await prisma.$executeRaw`DELETE FROM graphile_worker._private_jobs j USING graphile_worker._private_job_queues q
@@ -244,7 +238,7 @@ afterAll(async () => {
 // ─── cases ───────────────────────────────────────────────────────────────────
 
 describe('telemetry enters the root chain', () => {
-  it('an IN row on the switch within 2 s: POST_TELEMETRY_REQUEST, data.values.temp, metadata.instrumentCode — ONCE (written back unchanged, it emits nothing)', async () => {
+  it('an IN row on the switch within 2 s: POST_TELEMETRY_REQUEST, flat data.temp, metadata.ts and instrumentCode — ONCE (written back unchanged, it emits nothing)', async () => {
     const ts = Date.now() - 5_000;
     const posted = Date.now();
     expect((await ingest({ ts, temp: 21.5, hum: 40 })).statusCode).toBe(200);
@@ -340,7 +334,7 @@ describe('telemetry enters the root chain', () => {
     expect(stored).toEqual([{ value: 31.5 }]);
   });
 
-  it('re-entry ON: a NEW reading comes back exactly once, and the loop ENDS (the same value written again emits nothing)', async () => {
+  it('re-entry ON: a NEW reading comes back exactly once — the re-entered message\'s write emits nothing (RE-1); an ingest reading written back unchanged emits nothing at all', async () => {
     await setReEnter(true);
     try {
       const ts = Date.now() - 3_000;
@@ -355,6 +349,116 @@ describe('telemetry enters the root chain', () => {
       await setReEnter(false);
       await settle();
     }
+  });
+});
+
+describe('the re-entry depth on the REAL nodes (ruling RE-1) — each chain here would never end without it', () => {
+  /**
+   * `doc` as this run's ROOT document with Re-enter ON for `fn` — a re-entered
+   * message always enters the root chain — then the shipped copy back, Re-enter OFF.
+   */
+  async function withRoot(doc: RuleChainDocument, fn: () => Promise<void>) {
+    await prisma.ruleChain.update({ where: { id: ROOT }, data: { document: doc as never, firstNodeId: doc.firstNodeId } });
+    invalidateChainCache();
+    await setReEnter(true);
+    try {
+      await fn();
+    } finally {
+      await setReEnter(false);
+      await settle();
+      await prisma.ruleChain.update({ where: { id: ROOT }, data: { document: rootDocument() as never, firstNodeId: SWITCH } });
+      invalidateChainCache();
+    }
+  }
+
+  /** Debug rows of one node matching `pred`, once the engine has gone quiet (a loop would keep adding rows). */
+  async function settledRows(where: Parameters<typeof rows>[0], pred: (r: DebugRow) => boolean, atLeast: number): Promise<DebugRow[]> {
+    const until = Date.now() + 3_000;
+    while ((await rows(where)).filter(pred).length < atLeast && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+    await settle();
+    await new Promise((r) => setTimeout(r, 800));
+    await settle();
+    return (await rows(where)).filter(pred);
+  }
+
+  const loopSkipped = () => ruleEngine.stats().counters.loop_skipped ?? 0;
+
+  async function injectMessage(payload: Record<string, unknown>) {
+    const res = await app.inject({ method: 'POST', url: '/api/rule-engine/v1/messages', headers: sa, payload: { originatorCode: inst.code, ...payload } });
+    expect(res.json(), res.body).toMatchObject({ accepted: true });
+  }
+
+  it('Save Timeseries with useServerTs: every pass is a NEW instant — the reading comes back ONCE and ends: 2 switch IN rows, 2 stored rows', async () => {
+    const key = `srv_${STAMP}`;
+    const base = rootDocument();
+    const doc = { ...base, nodes: base.nodes.map((n) => (n.id === SAVE_TS ? { ...n, config: { ...n.config, useServerTs: true } } : n)) };
+    await withRoot(doc, async () => {
+      const skipped = loopSkipped();
+      await injectMessage({ type: 'POST_TELEMETRY_REQUEST', data: { [key]: 5 }, metadata: { ts: String(Date.now() - 4_000) } });
+      const found = await settledRows({ nodeId: SWITCH, msgType: 'POST_TELEMETRY_REQUEST', originatorId: inst.id, direction: 'IN' },
+        (r) => !!r.data && key in r.data, 2);
+      expect(found.map((r) => r.metadata.rule_engine_origin)).toEqual(['rest_api', ruleNodeOrigin(ROOT, SAVE_TS)]);
+      const stored = await prisma.$queryRaw<{ ts: Date }[]>`
+        SELECT ts FROM instrument_telemetry_history WHERE instrument_id = ${inst.id} AND key = ${key}`;
+      expect(stored, 'one row per pass: the first write and the re-entered one').toHaveLength(2);
+      expect(loopSkipped() - skipped, 'the depth ended it, not something else').toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  it('a transform adding 1 at the SAME instant: exactly ONE TELEMETRY_READING_REWRITTEN (one re-entry), the stored value 12', async () => {
+    const key = `plus_${STAMP}`;
+    const T = randomUUID();
+    const base = rootDocument();
+    const doc: RuleChainDocument = {
+      ...base,
+      nodes: [...base.nodes, {
+        id: T, type: 'tb:transformation:script', name: 'Plus one', debugMode: 'all', x: 0, y: 0,
+        config: { ...newRuleNodeConfig('tb:transformation:script'), jsScript: `msg['${key}'] = msg['${key}'] + 1; return { msg: msg, metadata: metadata, msgType: msgType };` },
+      }],
+      connections: [...base.connections.map((c) => (c.to === SAVE_TS ? { ...c, to: T } : c)), { from: T, to: SAVE_TS, relation: 'Success' }],
+    };
+    await withRoot(doc, async () => {
+      const rewritten = () => prisma.auditTrail.count({ where: { action: 'TELEMETRY_READING_REWRITTEN', targetId: inst.id } });
+      const before = await rewritten();
+      const ts = Date.now() - 4_500;
+      await injectMessage({ type: 'POST_TELEMETRY_REQUEST', data: { [key]: 10 }, metadata: { ts: String(ts) } });
+      const found = await settledRows({ nodeId: SWITCH, msgType: 'POST_TELEMETRY_REQUEST', originatorId: inst.id, direction: 'IN' },
+        (r) => !!r.data && key in r.data, 2);
+      expect(found.map((r) => r.data[key])).toEqual([10, 11]);
+      expect(await rewritten() - before, '11 written, then rewritten to 12 once — never 13').toBe(1);
+      const stored = await prisma.$queryRaw<{ value: unknown }[]>`
+        SELECT value FROM instrument_telemetry_history WHERE instrument_id = ${inst.id} AND key = ${key} AND ts = ${new Date(ts)}`;
+      expect(stored).toEqual([{ value: 12 }]);
+    });
+  });
+
+  it('a Create alarm fed its OWN ALARM (details change every pass): it ends at the second pass — the alarm updated once', async () => {
+    const C = randomUUID();
+    const alarmType = `Loop ${STAMP}`;
+    const doc: RuleChainDocument = {
+      version: 1, firstNodeId: C, connections: [],
+      nodes: [{
+        id: C, type: 'tb:action:create-alarm', name: 'Create alarm', debugMode: 'all', x: 0, y: 0,
+        config: {
+          ...newRuleNodeConfig('tb:action:create-alarm'), useMessageAlarmData: true, overwriteAlarmDetails: true,
+          alarmDetailsBuildJs: 'var p = metadata.prevAlarmDetails ? JSON.parse(metadata.prevAlarmDetails) : { n: 0 }; return { n: p.n + 1 };',
+        },
+      }],
+    };
+    await withRoot(doc, async () => {
+      const skipped = loopSkipped();
+      await injectMessage({ data: { type: alarmType, severity: 'MAJOR', originator: { id: inst.id } } });
+      const ins = await settledRows({ nodeId: C, direction: 'IN' }, () => true, 2);
+      expect(ins.map((r) => r.msg_type)).toEqual(['REST_API_REQUEST', 'ALARM']);
+      const [alarm] = await prisma.alarm.findMany({ where: { instrumentId: inst.id, source: 'RULE', ruleSnapshot: { path: ['alarmType'], equals: alarmType } } });
+      createdAlarms.push(alarm.id);
+      expect((alarm.ruleSnapshot as { details: unknown }).details).toEqual({ n: 2 });
+      const outs = await rows({ nodeId: C, direction: 'OUT' });
+      expect(outs.map((r) => r.relation)).toEqual(['Created (unconnected)', 'Updated (unconnected)']);
+      expect(loopSkipped() - skipped).toBeGreaterThanOrEqual(1);
+    });
+    // Leave no open alarm behind for the cases below (Re-enter is OFF again: the clear does not re-enter).
+    expect(await ruleEngine.services.alarms.clear(inst.id, alarmType, undefined, ruleNodeOrigin(ROOT, C))).not.toBeNull();
   });
 });
 
@@ -509,6 +613,18 @@ describe('the durable path', () => {
     expect(jobs[0].payload).toMatchObject({ chainId: ROOT, resumeAfterNodeId: SAVE_TS, message: { id: msg.id, type: 'POST_TELEMETRY_REQUEST' } });
     // The hop count travels with it (a cycle through Delay still reaches the hop limit).
     expect(jobs[0].payload.message._hops).toBe(7);
+    // No re-entry depth from a first-generation flow (or none) …
+    expect(jobs[0].payload.message._reentryDepth).toBeUndefined();
+  });
+
+  it('… and a Delay inside a RE-ENTERED flow writes its depth into the job (RE-1); the task resumes it at that depth', async () => {
+    const msg = newMessage('POST_TELEMETRY_REQUEST', { type: 'INSTRUMENT', id: inst.id }, {}, { ts: 2 });
+    await runInFlow({ reentryDepth: 1 }, () => ruleEngine.services.durable.enqueue(msg, ROOT, SAVE_TS, new Date(Date.now() + 3_600_000)));
+    const [job] = await prisma.$queryRaw<{ payload: any }[]>`
+      SELECT j.payload FROM graphile_worker._private_jobs j
+      JOIN graphile_worker._private_job_queues q ON q.id = j.job_queue_id
+      WHERE q.queue_name = ${`rule-engine:${inst.id}`} AND j.payload -> 'message' ->> 'id' = ${msg.id}`;
+    expect(job.payload.message._reentryDepth).toBe(1);
   });
 });
 
@@ -595,6 +711,40 @@ describe('services (what Tasks 4-6 call)', () => {
     createdAlarms.push(third.alarm.id);
     expect(third.created).toBe(true);
     expect(third.alarm.id).not.toBe(first.alarm.id);
+  });
+
+  it('alarms.createOrUpdate is CHANGED-ONLY (RE-1): the same severity and details write nothing and emit no ALARM; a change does', async () => {
+    const svc = ruleEngine.services;
+    const alarmType = `Same ${STAMP}`;
+    const input = { instrumentId: inst.id, alarmType, severity: 'MAJOR', details: { n: 1, door: 'A' }, nodeId: SAVE_TS, chainId: ROOT };
+    await setReEnter(true);
+    try {
+      // Outside any flow (depth 0) with Re-enter ON: every ALARM the services emit reaches the root.
+      const first = await svc.alarms.createOrUpdate(input);
+      createdAlarms.push(first.alarm.id);
+      const atRoot = (atLeast: number) => waitForRows({ nodeId: SWITCH, msgType: 'ALARM', originatorId: first.alarm.id, direction: 'IN' }, atLeast);
+      expect(await atRoot(1)).toHaveLength(1);
+      // The same details in another key order, the same severity: nothing to write, nothing to say.
+      const same = await svc.alarms.createOrUpdate({ ...input, details: { door: 'A', n: 1 } });
+      expect(same.created).toBe(false);
+      expect(same.alarm.id).toBe(first.alarm.id);
+      await settle();
+      await new Promise((r) => setTimeout(r, 400));
+      expect(await atRoot(2)).toHaveLength(1);
+      // A changed detail is an update, announced.
+      const changed = await svc.alarms.createOrUpdate({ ...input, details: { n: 2, door: 'A' } });
+      expect(changed.created).toBe(false);
+      expect((changed.alarm.ruleSnapshot as { details: unknown }).details).toEqual({ n: 2, door: 'A' });
+      expect(await atRoot(2)).toHaveLength(2);
+      // So is a changed severity alone.
+      await svc.alarms.createOrUpdate({ ...input, details: { n: 2, door: 'A' }, severity: 'CRITICAL' });
+      expect(await atRoot(3)).toHaveLength(3);
+    } finally {
+      await setReEnter(false);
+      await settle();
+      // No open alarm left behind (Re-enter OFF: the clear does not re-enter).
+      await ruleEngine.services.alarms.clear(inst.id, alarmType, undefined, ruleNodeOrigin(ROOT, SAVE_TS));
+    }
   });
 
   it('telemetry.write with skipLatest writes history only', async () => {
