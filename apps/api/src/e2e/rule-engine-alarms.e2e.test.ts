@@ -25,7 +25,11 @@
  *     runAt ≈ now + period; at maxPendingMsgs the next message fails;
  *   - Math function ADD over two body keys → the result key;
  *   - Generator / Message count: their real lifecycle (armed by
- *     `syncLifecycles`) and real timers.
+ *     `syncLifecycles`) and real timers;
+ *   - AL-1: every alarm message comes from the alarm's instrument (`metadata.alarmId`);
+ *   - DP-1: ThingsBoard's v4.2 root chain + "Alarm Created" / "Alarm Cleared" branches —
+ *     a real `evaluateAlarms` raise / clear leaves the Device profile on its label only; a
+ *     rule node's alarm and an acknowledge pass on Success.
  *
  * Every chain here is this file's own (name prefix `T5 e2e `), one of them made
  * root for the run exactly as Task 3's e2e does (ruling T3-8): beforeAll first
@@ -36,7 +40,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
-import { newRuleNodeConfig, type RuleChainDocument } from '@digilog/shared';
+import { readFileSync } from 'node:fs';
+import { fromThingsboardExport, newRuleNodeConfig, parseRuleChainDocument, type RuleChainDocument } from '@digilog/shared';
+import { evaluateAlarms } from '../workers/alarm-evaluation.worker.js';
 import { buildApp, loginAs } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 import { hashPassword } from '../lib/password.js';
@@ -580,5 +586,201 @@ describe('Generator and Message count (their lifecycle)', () => {
     } finally {
       await dropChain(mc);
     }
+  });
+});
+
+// ─── Device profile on ThingsBoard's own root chain (ruling DP-1) ──────────
+
+/**
+ * Ruling DP-1 on the REAL Device profile handler, in the running engine: ThingsBoard's v4.2
+ * root chain (the import fixture, byte for byte from tag v4.2) with an "Alarm Created" and an
+ * "Alarm Cleared" connection added from its Device profile node — neither ThingsBoard fixture
+ * wires one — made root for this block. The evaluator's raise and clear (a real `evaluateAlarms`
+ * pass on this block's own instrument, origin `system`) leave on their label ONLY; a rule node's
+ * alarm (isNewAlarm, origin `rule_node:…`) and the acknowledge route's ALARM_ACK (origin `user`)
+ * pass on Success. Owns its instrument, profile, chains and the `alarm-limits` row (restored FIRST).
+ */
+describe('Device profile routes as ThingsBoard\'s does (ruling DP-1) — ThingsBoard\'s v4.2 root chain + "Alarm Created" / "Alarm Cleared" branches', () => {
+  type CfgRow = { configValue: unknown; configType: string; requiresReauth: boolean } | null;
+  let limitsBefore: CfgRow | undefined;
+  let dpChain = '';
+  let profileNode = '';
+  let switchNode = '';
+  let onCreated = '';
+  let onCleared = '';
+  let dpInst: { id: string; code: string } | undefined;
+  let ruleCreate: Built;
+  let evaluatorAlarm = '';
+  const dpAlarms = new Set<string>();
+
+  /** A reading the limit pass judges: the latest table and last-seen, as instrument-limit-alarms.e2e writes them. */
+  async function pushReading(value: number) {
+    const instrumentId = dpInst!.id;
+    await prisma.instrumentTelemetryLatest.upsert({
+      where: { instrumentId_key: { instrumentId, key: 'temperature' } },
+      create: { instrumentId, key: 'temperature', value, valueType: 'number', ts: new Date() },
+      update: { value, valueType: 'number', ts: new Date() },
+    });
+    await prisma.instrument.update({ where: { id: instrumentId }, data: { lastSeenAt: new Date() } });
+  }
+
+  const ofNode = (list: DebugRow[], nodeId: string, direction: 'IN' | 'OUT') => list.filter((r) => r.node_id === nodeId && r.direction === direction);
+
+  /** Rows of ONE node matching `where`, waiting until there are `atLeast` (or the time is up). */
+  async function waitForNode(where: Where, nodeId: string, direction: 'IN' | 'OUT', atLeast = 1, ms = 3_000): Promise<DebugRow[]> {
+    const until = Date.now() + ms;
+    for (;;) {
+      const found = ofNode(await rows(dpChain, where), nodeId, direction);
+      if (found.length >= atLeast || Date.now() > until) return found;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+
+  const activeRuleOf = (instrumentId: string, type: string) => prisma.alarm.findMany({
+    where: { instrumentId, source: 'RULE', state: 'ACTIVE', ruleSnapshot: { path: ['alarmType'], equals: type } },
+  });
+
+  beforeAll(async () => {
+    // The ONE administered value the limit pass reads (memory: a test that reads config pins it).
+    const row = await prisma.systemConfig.findUnique({ where: { configKey: 'alarm-limits' } });
+    limitsBefore = row ? { configValue: row.configValue, configType: row.configType, requiresReauth: row.requiresReauth } : null;
+    const enabled = { ...((row?.configValue ?? {}) as Record<string, unknown>), enabled: true };
+    await prisma.systemConfig.upsert({
+      where: { configKey: 'alarm-limits' }, update: { configValue: enabled as never },
+      create: { configKey: 'alarm-limits', configValue: enabled as never, configType: 'system', requiresReauth: false },
+    });
+
+    const res = await app.inject({ method: 'POST', url: '/api/instruments', headers: sa,
+      payload: { profileId: await fixtureProfileId('fixture:rule-engine-dp1'), name: `T5 DP ${STAMP}`, code: `T5-DP-${STAMP}` } });
+    expect(res.statusCode, res.body).toBe(201);
+    dpInst = res.json();
+    await prisma.instrumentAttribute.createMany({ data: [
+      { instrumentId: dpInst!.id, key: 'High Temperature Limit', value: '25' },
+      { instrumentId: dpInst!.id, key: 'Low Temperature Limit', value: '18' },
+    ] });
+
+    const fixture = readFileSync(new URL('../modules/rule-engine/__tests__/fixtures/thingsboard-root-chain-4.2.json', import.meta.url), 'utf8');
+    const imported = fromThingsboardExport(JSON.parse(fixture));
+    const profile = imported.document.nodes.find((n) => n.type === 'tb:action:device-profile');
+    const sw = imported.document.nodes.find((n) => n.type === 'tb:filter:message-type-switch');
+    expect(profile, 'the v4.2 root chain enters through a Device profile node').toBeDefined();
+    expect(sw).toBeDefined();
+    expect(imported.document.firstNodeId).toBe(profile!.id);
+    // Neither ThingsBoard fixture wires an alarm label: Device profile → switch on Success only.
+    expect(imported.document.connections.filter((c) => c.from === profile!.id).map((c) => c.relation)).toEqual(['Success']);
+    profileNode = profile!.id;
+    switchNode = sw!.id;
+    onCreated = randomUUID();
+    onCleared = randomUUID();
+    const log = (id: string, name: string) => ({ id, type: 'tb:action:log', name, debugMode: 'all' as const, config: newRuleNodeConfig('tb:action:log'), x: 0, y: 0 });
+    const doc = parseRuleChainDocument({
+      ...imported.document,
+      nodes: [
+        ...imported.document.nodes.map((n) => (n.id === profileNode || n.id === switchNode ? { ...n, debugMode: 'all' } : n)),
+        log(onCreated, 'On Alarm Created'), log(onCleared, 'On Alarm Cleared'),
+      ],
+      connections: [
+        ...imported.document.connections,
+        { from: profileNode, to: onCreated, relation: 'Alarm Created' },
+        { from: profileNode, to: onCleared, relation: 'Alarm Cleared' },
+      ],
+    });
+    dpChain = randomUUID();
+    await prisma.ruleChain.create({ data: { id: dpChain, name: `${PREFIX}DP-1 ThingsBoard 4.2 ${STAMP}`, firstNodeId: doc.firstNodeId, document: doc as never } });
+    // A rule node's alarm reaches the root only while ITS chain says "Re-enter on rule-node writes".
+    ruleCreate = await makeChain('dp-1 rule alarm', 'tb:action:create-alarm', { alarmType: `DP rule ${STAMP}`, severity: 'MINOR' }, true);
+    await prisma.$transaction([
+      prisma.$executeRaw`UPDATE rule_chains SET root = false WHERE id = ${ROOT.chainId}::uuid`,
+      prisma.$executeRaw`UPDATE rule_chains SET root = true WHERE id = ${dpChain}::uuid`,
+    ]);
+    invalidateChainCache();
+    expect((await getChain(dpChain))?.nodesById.get(profileNode)?.type).toBe('tb:action:device-profile');
+  });
+
+  afterAll(async () => {
+    try {
+      if (limitsBefore) await prisma.systemConfig.update({ where: { configKey: 'alarm-limits' }, data: limitsBefore as never });
+      else if (limitsBefore === null) await prisma.systemConfig.deleteMany({ where: { configKey: 'alarm-limits' } });
+    } catch (e) { console.error('restore alarm-limits', e); }
+    try {
+      await prisma.$transaction([
+        prisma.$executeRaw`UPDATE rule_chains SET root = false WHERE id = ${dpChain}::uuid`,
+        prisma.$executeRaw`UPDATE rule_chains SET root = true WHERE id = ${ROOT.chainId}::uuid`,
+      ]);
+      invalidateChainCache();
+    } catch (e) { console.error('root back', e); }
+    if (!dpInst) return;
+    try {
+      for (const a of await prisma.alarm.findMany({ where: { instrumentId: dpInst.id }, select: { id: true } })) dpAlarms.add(a.id);
+    } catch (e) { console.error('dp alarm list', e); }
+    for (const alarmId of dpAlarms) {
+      try {
+        await prisma.$executeRaw`DELETE FROM graphile_worker._private_jobs j USING graphile_worker._private_tasks t
+          WHERE j.task_id = t.id AND t.identifier IN ('notification', 'alarm_webhook') AND j.payload::text LIKE ${`%${alarmId}%`}`;
+      } catch (e) { console.error('dp job cleanup', e); }
+    }
+    try { await prisma.alarm.deleteMany({ where: { instrumentId: dpInst.id } }); } catch (e) { console.error('dp alarm cleanup', e); }
+    try { await app.inject({ method: 'DELETE', url: `/api/instruments/${dpInst.id}`, headers: sa }); } catch (e) { console.error(e); }
+  });
+
+  it('the EVALUATOR\'s raise (a real limit pass) leaves the Device profile on "Alarm Created" ONLY — into that branch, never on Success', async () => {
+    await pushReading(26.4);
+    await evaluateAlarms();
+    const [alarm] = await prisma.alarm.findMany({ where: { instrumentId: dpInst!.id, source: 'INSTRUMENT_LIMIT', state: 'ACTIVE' } });
+    expect(alarm, 'the limit pass raised the HIGH alarm').toBeDefined();
+    evaluatorAlarm = alarm.id;
+    dpAlarms.add(alarm.id);
+    expect(await waitForNode({ alarmId: alarm.id }, onCreated, 'IN'), 'the alarm reached the "Alarm Created" branch').toHaveLength(1);
+    await ruleEngine.drain();
+    const all = await rows(dpChain, { alarmId: alarm.id });
+    const out = ofNode(all, profileNode, 'OUT');
+    expect(out.map((r) => r.relation)).toEqual(['Alarm Created']);
+    expect(out[0]).toMatchObject({ msg_type: 'ALARM', originator_id: dpInst!.id });
+    expect(out[0].metadata).toMatchObject({ isNewAlarm: 'true', rule_engine_origin: 'system', alarmId: alarm.id });
+    // On its label ONLY: the switch never saw it.
+    expect(ofNode(all, switchNode, 'IN')).toEqual([]);
+  });
+
+  it('the EVALUATOR\'s clear leaves on "Alarm Cleared" ONLY, as type ALARM (ThingsBoard\'s AlarmState sends all four as ALARM)', async () => {
+    await pushReading(22.0);
+    await evaluateAlarms();
+    expect((await prisma.alarm.findUniqueOrThrow({ where: { id: evaluatorAlarm } })).state).toBe('CLEARED');
+    const reached = await waitForNode({ alarmId: evaluatorAlarm }, onCleared, 'IN');
+    expect(reached, 'the clear reached the "Alarm Cleared" branch').toHaveLength(1);
+    expect(reached[0].msg_type).toBe('ALARM');
+    expect(reached[0].metadata).toMatchObject({ isClearedAlarm: 'true', alarmId: evaluatorAlarm });
+    expect(reached[0].data).toMatchObject({ id: evaluatorAlarm, cleared: true });
+    await ruleEngine.drain();
+    const all = await rows(dpChain, { alarmId: evaluatorAlarm });
+    expect(ofNode(all, profileNode, 'IN').map((r) => r.msg_type)).toEqual(['ALARM', 'ALARM_CLEAR']);
+    expect(ofNode(all, profileNode, 'OUT').map((r) => [r.relation, r.msg_type])).toEqual([['Alarm Created', 'ALARM'], ['Alarm Cleared', 'ALARM']]);
+    expect(ofNode(all, switchNode, 'IN')).toEqual([]);
+  });
+
+  it('a RULE NODE\'s alarm (isNewAlarm, origin rule_node) and the acknowledge route\'s ALARM_ACK pass on Success — never on an alarm label', async () => {
+    const msg = newMessage('POST_TELEMETRY_REQUEST', { type: 'INSTRUMENT', id: dpInst!.id, code: dpInst!.code }, { t: 1 }, { rule_engine_origin: 'rest_api' });
+    await ruleEngine.processNow(msg, { chainId: ruleCreate.chainId });
+    const [ruleAlarm] = await activeRuleOf(dpInst!.id, `DP rule ${STAMP}`);
+    expect(ruleAlarm, 'the Create alarm node opened its alarm').toBeDefined();
+    dpAlarms.add(ruleAlarm.id);
+    expect(await waitForNode({ alarmId: ruleAlarm.id }, switchNode, 'IN'), 'the rule node\'s ALARM went on to the switch').toHaveLength(1);
+    await ruleEngine.drain();
+    const out = ofNode(await rows(dpChain, { alarmId: ruleAlarm.id }), profileNode, 'OUT');
+    expect(out.map((r) => r.relation)).toEqual(['Success']);
+    expect(out[0].metadata).toMatchObject({ isNewAlarm: 'true', rule_engine_origin: ruleNodeOrigin(ruleCreate.chainId, ruleCreate.nodeId) });
+
+    const ack = await app.inject({
+      method: 'POST', url: `/api/alarms/${evaluatorAlarm}/acknowledge`,
+      headers: { ...sa, 'x-reauth-password': PW }, payload: { reason: 'DP-1 e2e: the excursion was reviewed' },
+    });
+    expect(ack.statusCode, ack.body).toBe(200);
+    expect(await waitForNode({ alarmId: evaluatorAlarm, msgType: 'ALARM_ACK' }, switchNode, 'IN'), 'the ALARM_ACK went on to the switch').toHaveLength(1);
+    await ruleEngine.drain();
+    const ackOut = ofNode(await rows(dpChain, { alarmId: evaluatorAlarm, msgType: 'ALARM_ACK' }), profileNode, 'OUT');
+    expect(ackOut.map((r) => r.relation)).toEqual(['Success']);
+    expect(ackOut[0].metadata.rule_engine_origin).toBe('user');
+    // Neither reached an alarm branch.
+    expect(ofNode(await rows(dpChain, { alarmId: ruleAlarm.id }), onCreated, 'IN')).toEqual([]);
+    expect(ofNode(await rows(dpChain, { msgType: 'ALARM_ACK' }), onCreated, 'IN')).toEqual([]);
   });
 });

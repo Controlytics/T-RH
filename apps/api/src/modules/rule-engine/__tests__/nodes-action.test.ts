@@ -13,7 +13,7 @@ import { registerActionNodes } from '../nodes/action/index.js';
 import { metadataTs, processPattern, roundHalfUp } from '../nodes/action/support.js';
 import { compileExpression, evaluateExpression } from '../nodes/action/math-expression.js';
 import { newMessage, newMessageId, type RuleMessage } from '../message.js';
-import { alarmMessageData } from '../emit.js';
+import { alarmMessageData, emitAlarm, setRuleEngineSink } from '../emit.js';
 import { fakeContext, testMessage } from '../../../test-support/rule-engine.js';
 import type { RuleServices } from '../services.js';
 
@@ -350,14 +350,19 @@ describe('Create alarm', () => {
     expect(createOrUpdate.mock.calls[0][0]).toMatchObject({ details: { seen: '{"upstream":1}' } });
   });
 
-  it('a non-instrument originator, a blank type and a TBEL node fail', async () => {
+  it('a non-instrument originator and a blank type fail; a TBEL-stored node runs its TBEL script AS JAVASCRIPT (ruling TB-L), a blank one its JavaScript', async () => {
     const sys = await run(T, {}, newMessage('X', { type: 'SYSTEM', id: 'SYSTEM' }, {}));
     expect(sys.thrown?.message).toMatch(/^ORIGINATOR_NOT_INSTRUMENT/);
     const { prisma } = prismaWithOpen(null);
     const blank = await run(T, { alarmType: '${nothing}' }, testMessage({}, { metadata: { nothing: '  ' } }), { prisma });
     expect(blank.thrown?.message).toMatch(/^ALARM_TYPE_REQUIRED/);
-    const tbel = await run(T, { scriptLang: 'TBEL' }, testMessage({}), { prisma });
-    expect(tbel.thrown?.message).toMatch(/^SCRIPT_LANGUAGE_UNSUPPORTED/);
+    const createOrUpdate = vi.fn(async () => ({ alarm: alarmRow() as never, created: true }));
+    const scripts = { alarmDetailsBuildJs: "return { ran: 'js' };" };
+    const tbel = await run(T, { ...scripts, scriptLang: 'TBEL', alarmDetailsBuildTbel: "return { ran: 'tbel' };" }, testMessage({}), { prisma, alarms: { createOrUpdate } });
+    expect(tbel.thrown).toBeNull();
+    expect(createOrUpdate.mock.calls[0][0]).toMatchObject({ details: { ran: 'tbel' } });
+    await run(T, { ...scripts, scriptLang: 'TBEL', alarmDetailsBuildTbel: '  ' }, testMessage({}), { prisma, alarms: { createOrUpdate } });
+    expect(createOrUpdate.mock.calls[1][0]).toMatchObject({ details: { ran: 'js' } });
   });
 });
 
@@ -624,21 +629,84 @@ describe('Log', () => {
     expect(r.out).toBe(msg);
   });
 
-  it('a non-string result is logged as JSON; a throwing script and a TBEL node fail', async () => {
+  it('a non-string result is logged as JSON; a throwing script fails; a TBEL-stored node runs its TBEL script as JavaScript (ruling TB-L)', async () => {
     const r = await run(T, { jsScript: 'return { a: msg.t };' }, testMessage({ t: 2 }));
     expect(r.calls.logs[0].text).toBe('{"a":2}');
     expect((await run(T, { jsScript: "throw new Error('nope');" }, testMessage({}))).thrown?.message).toContain('nope');
-    expect((await run(T, { scriptLang: 'TBEL' }, testMessage({}))).thrown?.message).toMatch(/^SCRIPT_LANGUAGE_UNSUPPORTED/);
+    const tbel = await run(T, { scriptLang: 'TBEL', jsScript: "return 'js';", tbelScript: "return 'tbel ' + msg.t;" }, testMessage({ t: 3 }));
+    expect(tbel.thrown).toBeNull();
+    expect(tbel.calls.logs).toEqual([{ level: 'info', text: 'tbel 3' }]);
+    expect((await run(T, { scriptLang: 'TBEL', jsScript: "return 'js';", tbelScript: '' }, testMessage({}))).calls.logs).toEqual([{ level: 'info', text: 'js' }]);
   });
 });
 
 // ─── Device profile ──────────────────────────────────────────────────────────
 
-describe('Device profile (a pass-through)', () => {
-  it('passes the message on Success unchanged, whatever its type or config', async () => {
-    for (const msg of [testMessage({ t: 1 }), testMessage({}, { type: 'POST_ATTRIBUTES_REQUEST' }), newMessage('ALARM', { type: 'ALARM', id: 'a' }, {})]) {
-      const r = await run('tb:action:device-profile', { persistAlarmRulesState: true }, msg);
-      expect(r.calls.relations()).toEqual(['Success']);
+describe('Device profile (ruling DP-1: routes as ThingsBoard\'s TbDeviceProfileNode)', () => {
+  const T = 'tb:action:device-profile';
+  /** The message `emitAlarm` really builds — the contract between the emit path and this node. */
+  async function emitted(kind: 'ALARM' | 'ALARM_CLEAR' | 'ALARM_ACK', flags: Parameters<typeof emitAlarm>[2] = {}): Promise<RuleMessage> {
+    const queued: RuleMessage[] = [];
+    setRuleEngineSink({ accepting: () => true, enqueue: (m) => { queued.push(m); return true; }, reEnterAllowed: async () => true });
+    try {
+      await emitAlarm(kind, {
+        id: 'al-9', instrumentId: 'instrument-1', source: 'INSTRUMENT_LIMIT', metric: 'TEMPERATURE', limitKind: 'HIGH', severity: 'MAJOR',
+        state: kind === 'ALARM_CLEAR' ? 'CLEARED' : 'ACTIVE', triggeredValue: 30, raisedAt: new Date(5_000),
+        ...(kind === 'ALARM_ACK' ? { acknowledgedAt: new Date(6_000), acknowledgedBy: 'qa1' } : {}),
+      }, { instrumentCode: 'TEST-001', ...flags });
+    } finally {
+      setRuleEngineSink(null);
+    }
+    expect(queued).toHaveLength(1);
+    return queued[0];
+  }
+
+  it('the catalogue carries ThingsBoard\'s six relations, the four alarm labels among them', () => {
+    expect(RULE_NODE_TYPES.find((s) => s.id === T)?.relations).toEqual(['Alarm Created', 'Alarm Updated', 'Alarm Severity Updated', 'Alarm Cleared', 'Success', 'Failure']);
+  });
+
+  it('the EVALUATOR\'s raise (origin system, isNewAlarm) leaves on "Alarm Created" ONLY, unchanged', async () => {
+    const msg = await emitted('ALARM', { isNewAlarm: true });
+    const r = await run(T, {}, msg);
+    expect(r.calls.relations()).toEqual(['Alarm Created']);
+    expect(r.out).toBe(msg);
+  });
+
+  it('the EVALUATOR\'s clear leaves on "Alarm Cleared" ONLY — as type ALARM, as ThingsBoard\'s AlarmState sends all four', async () => {
+    const msg = await emitted('ALARM_CLEAR', { isClearedAlarm: true });
+    const r = await run(T, {}, msg);
+    expect(r.calls.relations()).toEqual(['Alarm Cleared']);
+    expect(r.out).toMatchObject({ id: msg.id, type: 'ALARM', originator: msg.originator, metadata: msg.metadata, data: msg.data });
+    expect(r.out!.metadata.isClearedAlarm).toBe('true');
+  });
+
+  it('ThingsBoard\'s flag order for the two acts the evaluator never does: isSeverityUpdated before isExistingAlarm', async () => {
+    const base = await emitted('ALARM', {});
+    const sys = (metadata: Record<string, string>) => ({ ...base, metadata: { ...base.metadata, ...metadata } });
+    expect((await run(T, {}, sys({ isExistingAlarm: 'true', isSeverityUpdated: 'true' }))).calls.relations()).toEqual(['Alarm Severity Updated']);
+    expect((await run(T, {}, sys({ isExistingAlarm: 'true' }))).calls.relations()).toEqual(['Alarm Updated']);
+    // An ALARM with no true flag (or a "false" one) is not a profile alarm.
+    expect((await run(T, {}, sys({}))).calls.relations()).toEqual(['Success']);
+    expect((await run(T, {}, sys({ isNewAlarm: 'false' }))).calls.relations()).toEqual(['Success']);
+  });
+
+  it('everything else on Success, unchanged: the acknowledge (origin user), a RULE NODE\'s alarm messages though they carry isNewAlarm, telemetry, activity events', async () => {
+    const node = 'rule_node:44444444-4444-4444-8444-444444444444:33333333-3333-4333-8333-333333333333';
+    const others = [
+      await emitted('ALARM_ACK', { origin: 'user', acknowledgedBy: 'qa1' }),
+      await emitted('ALARM', { isNewAlarm: true, origin: node }),
+      await emitted('ALARM', { isExistingAlarm: true, origin: node }),
+      await emitted('ALARM_CLEAR', { isClearedAlarm: true, origin: node }),
+      testMessage({ t: 1 }, { metadata: { rule_engine_origin: 'ingest' } }),
+      testMessage({}, { type: 'POST_ATTRIBUTES_REQUEST' }),
+      testMessage({ lastActivityTime: 1 }, { type: 'INACTIVITY_EVENT', metadata: { rule_engine_origin: 'system' } }),
+      testMessage({ lastActivityTime: 1 }, { type: 'ACTIVITY_EVENT', metadata: { rule_engine_origin: 'system' } }),
+      // A system alarm whose originator is not an instrument: ThingsBoard sends a non-device originator on Success.
+      newMessage('ALARM', { type: 'ALARM', id: 'a' }, {}, { rule_engine_origin: 'system', isNewAlarm: 'true' }),
+    ];
+    for (const msg of others) {
+      const r = await run(T, { persistAlarmRulesState: true }, msg);
+      expect(r.calls.relations(), `${msg.type} from ${msg.metadata.rule_engine_origin}`).toEqual(['Success']);
       expect(r.out).toBe(msg);
     }
   });
@@ -751,7 +819,14 @@ describe('Generator', () => {
     }
     await expect(start({ periodInSeconds: 1, originatorType: 'INSTRUMENT', originatorId: null })).rejects.toThrow(/GENERATOR_ORIGINATOR/);
     await expect(start({ periodInSeconds: 1, originatorType: 'ASSET', originatorId: 'x' })).rejects.toThrow(/GENERATOR_ORIGINATOR/);
-    await expect(start({ periodInSeconds: 1, scriptLang: 'TBEL' })).rejects.toThrow(/SCRIPT_LANGUAGE_UNSUPPORTED/);
+    // Ruling TB-L: a TBEL-stored Generator starts and runs its TBEL script as JavaScript.
+    const tbel = await start({ periodInSeconds: 1, scriptLang: 'TBEL', jsScript: "return { msg: { from: 'js' } };", tbelScript: "return { msg: { from: 'tbel' } };" });
+    try {
+      vi.advanceTimersByTime(1_000);
+      expect(tbel.calls.next[0].msg.data).toEqual({ from: 'tbel' });
+    } finally {
+      await tbel.stop();
+    }
   });
 
   it('a script that throws sends a Failure and keeps going', async () => {
