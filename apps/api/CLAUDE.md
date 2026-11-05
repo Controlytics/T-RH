@@ -657,8 +657,13 @@ node apps/api/dist/app.js
       600; nothing is throttled (`13fbde43`).
     - **Nodes:** every script runs through the shared `ruleNodeScript` (TB-L; `nodeScriptOf` in `nodes/action/support.ts`);
       every template through the ONE `processPattern` in `nodes/action/support.ts` (TP-1); every `metadata.ts` through the
-      ONE `metadataTs` (M-1); key regexes through `lib/regex-budget.ts` `regexWithBudget` with a per-node switch-off keyed
-      on `ctx.chain.version` (M-5; `RuleContext.chain.version` is a getter over the one version expression `runScript`
+      ONE `metadataTs` (M-1); key regexes through `lib/regex-budget.ts` `regexWithBudget` (`58447bae`: `'match'` /
+      `'no-match'` / `'timeout'` / `'invalid'` — a caller that remembers answers or counts run-outs must never read a
+      timeout as a definite no-match; `testRegexWithBudget` stays the boolean wrapper the alarm webhooks and the SMS gateway
+      call, contract unchanged) with a per-node switch-off keyed
+      on `ctx.chain.version` (M-5, `887af67c`: 3 run-outs IN TOTAL per node, chain version and pattern — not in a row, or
+      key names alternating with harmless ones would keep a catastrophic pattern alive; a changing save re-arms it; a
+      run-out is a strike, never memoised as an answer; `RuleContext.chain.version` is a getter over the one version expression `runScript`
       keys on, `2e576af4`). `secrets.ts` judges a node's TEMPLATE fields (catalogue field type `template`, top level) by the
       PEM rule only, and its script keys by neither value rule (`aca4a11b`, `3f69f388`) — pass the node type wherever a
       config is masked or merged.
