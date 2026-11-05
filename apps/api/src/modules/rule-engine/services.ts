@@ -216,10 +216,11 @@ export interface RuleServices {
   alarms: {
     /**
      * Opens the RULE alarm of that type, or updates the open one. An update that changes neither
-     * the severity nor the details (by content) writes nothing and emits nothing (ruling RE-1) —
-     * it still returns `{ alarm, created: false }`, so the node answers `Updated`.
+     * the severity nor the details (by content) writes nothing and emits nothing (ruling RE-1) and
+     * returns `unchanged: true` — the Create alarm node then sends the incoming message on Success,
+     * as ThingsBoard's TbAbstractAlarmNode.onMsg does for a result that modified nothing.
      */
-    createOrUpdate(input: RuleAlarmInput): Promise<{ alarm: Alarm; created: boolean }>;
+    createOrUpdate(input: RuleAlarmInput): Promise<{ alarm: Alarm; created: boolean; unchanged?: true }>;
     /** Clears the ACTIVE RULE alarm of that type; null when there is none. */
     /** `origin` REQUIRED (`ctx.origin`): the ALARM_CLEAR it emits goes through the loop guard. */
     clear(instrumentId: string, alarmType: string, details: unknown | undefined, origin: string): Promise<Alarm | null>;
@@ -856,7 +857,7 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
         // unchanged alarm pushed an extra ALARM into the root chain each time, and looped a
         // chain that feeds Create alarm its own ALARM. The node still answers `Updated`.
         if (existing.severity === severity && canonical(prior.details ?? {}) === canonical(input.details ?? {})) {
-          return { alarm: existing, created: false };
+          return { alarm: existing, created: false, unchanged: true };
         }
         const alarm = await prisma.alarm.update({
           where: { id: existing.id },
@@ -884,7 +885,9 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
         });
         if (!closed) return null;
         await announceAlarm('cleared', closed, type, prior.details);
-        await emitRuleNodeAlarm('ALARM_CLEAR', closed, { ruleNodeId: parseRuleNodeOrigin(origin)?.nodeId ?? '', origin });
+        // ruleNodeId only when the origin names one — never an empty one.
+        const frame = parseRuleNodeOrigin(origin);
+        await emitRuleNodeAlarm('ALARM_CLEAR', closed, { ...(frame ? { ruleNodeId: frame.nodeId } : {}), origin });
         return closed;
       },
 

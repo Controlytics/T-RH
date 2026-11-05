@@ -254,6 +254,12 @@ describe('alarms', () => {
     expect(cleared.data).toMatchObject({ id: 'al-1', status: 'CLEARED_UNACK', cleared: true });
   });
 
+  it('AL-2: with no rule node to name, the action message carries NO ruleNodeId (never an empty one)', async () => {
+    await emitRuleNodeAlarm('ALARM_CLEAR', alarm({ state: 'CLEARED' }), { origin: 'system' });
+    expect(queued[0].metadata).toEqual({ alarmId: 'al-1', rule_engine_origin: 'system' });
+    expect(queued[0].metadata).not.toHaveProperty('ruleNodeId');
+  });
+
   it('INACTIVITY_EVENT and ACTIVITY_EVENT', async () => {
     await emitInactivity('i1', new Date(1_000), new Date(2_000));
     await emitActivity('i1', new Date(3_000));

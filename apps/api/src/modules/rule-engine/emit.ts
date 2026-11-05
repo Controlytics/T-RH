@@ -366,12 +366,12 @@ export type RuleNodeAlarmAction = 'ENTITY_CREATED' | 'ENTITY_UPDATED' | 'ALARM_C
 export function emitRuleNodeAlarm(
   kind: RuleNodeAlarmAction,
   alarm: EmittedAlarm,
-  opts: { ruleNodeId: string; origin: string; instrumentCode?: string | null },
+  opts: { ruleNodeId?: string; origin: string; instrumentCode?: string | null },
 ): Promise<number> {
   return deliver(`rule-node alarm ${kind}`, opts.origin, () => {
     const code = opts.instrumentCode || undefined;
     return [newMessage(kind, { type: 'INSTRUMENT', id: alarm.instrumentId, ...(code ? { code } : {}) }, alarmMessageData(alarm),
-      { ruleNodeId: opts.ruleNodeId, alarmId: alarm.id })];
+      { ...(opts.ruleNodeId ? { ruleNodeId: opts.ruleNodeId } : {}), alarmId: alarm.id })];
   });
 }
 

@@ -1188,8 +1188,11 @@ describe('services (what Tasks 4-6 call)', () => {
       expect(createdMsg.metadata).toMatchObject({ ruleNodeId: SAVE_TS, alarmId: first.alarm.id, rule_engine_origin: ruleNodeOrigin(ROOT, SAVE_TS) });
       expect(createdMsg.metadata).not.toHaveProperty('isNewAlarm');
       // The same details in another key order, the same severity: nothing to write, nothing to say.
+      expect(first.unchanged).toBeUndefined();
       const same = await svc.alarms.createOrUpdate({ ...input, details: { door: 'A', n: 1 } });
       expect(same.created).toBe(false);
+      // Says so (the Create alarm node then goes on Success, as ThingsBoard's onMsg does for a no-op).
+      expect(same.unchanged).toBe(true);
       expect(same.alarm.id).toBe(first.alarm.id);
       await settle();
       await new Promise((r) => setTimeout(r, 400));
@@ -1197,10 +1200,11 @@ describe('services (what Tasks 4-6 call)', () => {
       // A changed detail is an update, announced.
       const changed = await svc.alarms.createOrUpdate({ ...input, details: { n: 2, door: 'A' } });
       expect(changed.created).toBe(false);
+      expect(changed.unchanged).toBeUndefined();
       expect((changed.alarm.ruleSnapshot as { details: unknown }).details).toEqual({ n: 2, door: 'A' });
       expect(await atRoot(2)).toHaveLength(2);
       // So is a changed severity alone (ThingsBoard: isUpdated || isSeverityUpdated → ENTITY_UPDATED).
-      await svc.alarms.createOrUpdate({ ...input, details: { n: 2, door: 'A' }, severity: 'CRITICAL' });
+      expect((await svc.alarms.createOrUpdate({ ...input, details: { n: 2, door: 'A' }, severity: 'CRITICAL' })).unchanged).toBeUndefined();
       const all = await atRoot(3);
       expect(all.map((r) => r.msg_type)).toEqual(['ENTITY_CREATED', 'ENTITY_UPDATED', 'ENTITY_UPDATED']);
       for (const r of all.slice(1)) expect(r.metadata).not.toHaveProperty('isExistingAlarm');
@@ -1210,6 +1214,19 @@ describe('services (what Tasks 4-6 call)', () => {
       // No open alarm left behind (Re-enter OFF: the clear does not re-enter).
       await ruleEngine.services.alarms.clear(inst.id, alarmType, undefined, ruleNodeOrigin(ROOT, SAVE_TS));
     }
+  });
+
+  it('AL-2: an ALARM_CLEAR whose origin names no rule node carries NO ruleNodeId — never an empty one', async () => {
+    const svc = ruleEngine.services;
+    const alarmType = `NoNode ${STAMP}`;
+    // Re-enter OFF: the create's ENTITY_CREATED (a rule-node origin) stays out of the root.
+    const made = await svc.alarms.createOrUpdate({ instrumentId: inst.id, alarmType, severity: 'MINOR', details: {}, nodeId: SAVE_TS, chainId: ROOT });
+    createdAlarms.push(made.alarm.id);
+    expect(await svc.alarms.clear(inst.id, alarmType, undefined, 'user')).not.toBeNull();
+    const [entered] = await waitForRows({ nodeId: SWITCH, msgType: 'ALARM_CLEAR', originatorId: inst.id, alarmId: made.alarm.id, direction: 'IN' }, 1);
+    expect(entered, 'the ALARM_CLEAR (origin user) entered the root').toBeDefined();
+    expect(entered.metadata).toMatchObject({ alarmId: made.alarm.id, rule_engine_origin: 'user' });
+    expect(entered.metadata).not.toHaveProperty('ruleNodeId');
   });
 
   it('telemetry.write with skipLatest writes history only', async () => {

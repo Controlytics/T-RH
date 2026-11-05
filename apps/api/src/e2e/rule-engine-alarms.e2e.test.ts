@@ -380,7 +380,7 @@ describe('Create alarm and Clear alarm', () => {
     expect(ack.data).toMatchObject({ id: alarm.id, acknowledged: true });
   });
 
-  it('eight Create alarm messages AT ONCE open ONE alarm (the partial unique index settles the race)', async () => {
+  it('eight Create alarm messages AT ONCE open ONE alarm (the partial unique index settles the race); the seven that change nothing go on Success', async () => {
     const msgs = Array.from({ length: 8 }, (_, i) => instMsg('POST_TELEMETRY_REQUEST', { i }));
     await Promise.all(msgs.map((m) => ruleEngine.processNow(m, { chainId: RACE.chainId })));
     const open = await activeRule(RACE_TYPE);
@@ -389,7 +389,14 @@ describe('Create alarm and Clear alarm', () => {
     const out = await waitForRows(RACE.chainId, { direction: 'OUT' }, 8);
     expect(out).toHaveLength(8);
     expect(out.filter((r) => r.relation === 'Created (unconnected)')).toHaveLength(1);
-    expect(out.filter((r) => r.relation === 'Updated (unconnected)')).toHaveLength(7);
+    // The shipped details script gives the seven losers the alarm's own details ({}) at the same severity: an
+    // update that changes nothing, so — as ThingsBoard's TbAbstractAlarmNode.onMsg — each leaves on Success with
+    // the INCOMING message (POST_TELEMETRY_REQUEST, no isExistingAlarm), never on Updated.
+    const quiet = out.filter((r) => r.relation === 'Success (unconnected)');
+    expect(quiet).toHaveLength(7);
+    for (const r of quiet) expect(r).toMatchObject({ msg_type: 'POST_TELEMETRY_REQUEST' });
+    for (const r of quiet) expect(r.metadata).not.toHaveProperty('isExistingAlarm');
+    expect(out.filter((r) => r.relation === 'Updated (unconnected)')).toHaveLength(0);
   });
 });
 
@@ -867,6 +874,6 @@ describe('Device profile routes as ThingsBoard\'s does (ruling DP-1) — ThingsB
     expect(ackOut[0].metadata.rule_engine_origin).toBe('user');
     // Neither reached an alarm branch.
     expect(ofNode(await rows(dpChain, { alarmId: ruleAlarm.id }), onCreated, 'IN')).toEqual([]);
-    expect(ofNode(await rows(dpChain, { msgType: 'ALARM_ACK' }), onCreated, 'IN')).toEqual([]);
+    expect(ofNode(await rows(dpChain, { msgType: 'ALARM_ACK', originatorId: dpInst!.id }), onCreated, 'IN')).toEqual([]);
   });
 });

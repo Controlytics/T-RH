@@ -312,6 +312,17 @@ describe('Create alarm', () => {
     expect(r.out!.metadata).not.toHaveProperty('prevAlarmDetails');
   });
 
+  it('an update that CHANGES NOTHING goes on Success with the incoming message unchanged — ThingsBoard\'s TbAbstractAlarmNode.onMsg (neither isUpdated nor isSeverityUpdated → tellSuccess)', async () => {
+    const { prisma } = prismaWithOpen({ ruleSnapshot: { alarmType: 'Hot', details: { count: 1 } } });
+    const createOrUpdate = vi.fn(async () => ({ alarm: alarmRow() as never, created: false, unchanged: true as const }));
+    const msg = testMessage({ t: 31 });
+    const r = await run(T, { alarmType: 'Hot' }, msg, { prisma, alarms: { createOrUpdate } });
+    expect(r.calls.relations()).toEqual(['Success']);
+    expect(r.out).toBe(msg);
+    expect(r.out!.type).toBe('POST_TELEMETRY_REQUEST');
+    expect(r.out!.metadata).not.toHaveProperty('isExistingAlarm');
+  });
+
   it('the type is a pattern; a dynamic severity is a pattern that must name a severity', async () => {
     const { prisma } = prismaWithOpen(null);
     const createOrUpdate = vi.fn(async () => ({ alarm: alarmRow() as never, created: true }));
