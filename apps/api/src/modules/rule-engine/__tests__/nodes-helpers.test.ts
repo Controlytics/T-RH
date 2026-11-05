@@ -13,7 +13,9 @@ import { clearRegistry, getHandler } from '../registry.js';
 import { registerActionNodes } from '../nodes/action/index.js';
 import { registerFilterNodes } from '../nodes/filter/index.js';
 import { registerTransformationNodes } from '../nodes/transformation/index.js';
-import { jsScriptOf, nodeScriptOf } from '../nodes/action/support.js';
+import { registerEnrichmentNodes } from '../nodes/enrichment/index.js';
+import { registerExternalNodes } from '../nodes/external/index.js';
+import { jsScriptOf, nodeScriptOf, processPattern } from '../nodes/action/support.js';
 import { importChain } from '../import-export.js';
 import type { RuleMessage } from '../message.js';
 import type { RuleServices } from '../services.js';
@@ -39,6 +41,8 @@ beforeAll(() => {
   registerActionNodes();
   registerFilterNodes();
   registerTransformationNodes();
+  registerEnrichmentNodes();
+  registerExternalNodes();
 });
 
 afterEach(() => { vi.useRealTimers(); });
@@ -144,5 +148,93 @@ describe('ruling TB-L — every script node runs the script scriptLang selects, 
     expect(() => nodeScriptOf('tb:action:log', { scriptLang: 'JS', jsScript: ' ' })).toThrow('SCRIPT_REQUIRED: the node has no script (jsScript)');
     expect(() => nodeScriptOf('tb:action:log', { scriptLang: 'TBEL', tbelScript: '' })).toThrow('SCRIPT_REQUIRED: the node has no script (jsScript)');
     expect(nodeScriptOf('tb:action:clear-alarm', { scriptLang: 'TBEL', alarmDetailsBuildTbel: 'return {};' })).toBe('return {};');
+  });
+});
+
+// ─── TP-1: ONE template rule for every caller ────────────────────────────────
+
+describe('ruling TP-1 — processPattern is ThingsBoard\'s TbNodeUtils.processPattern, in ONE pass', () => {
+  const msg = {
+    metadata: { deviceName: 'F-1', n: '3' },
+    data: { temp: 21.5, nested: { a: { b: 'deep' } }, flag: true, nil: null, obj: { x: 1 }, list: [1, 2] },
+  };
+
+  it('${key} reads metadata, $[path] walks data objects; strings raw, booleans as text, JSON null as "null"', () => {
+    expect(processPattern('${deviceName} is $[temp] (${n}/${n}) $[nested.a.b] $[flag] $[nil]', msg)).toBe('F-1 is 21.5 (3/3) deep true null');
+  });
+
+  it('${*} is the whole metadata as JSON, $[*] the whole data as JSON — as ThingsBoard prints them', () => {
+    expect(processPattern('${*}', msg)).toBe(JSON.stringify(msg.metadata));
+    expect(processPattern('$[*]', msg)).toBe(JSON.stringify(msg.data));
+    expect(processPattern('${*}|$[*]', { metadata: {}, data: 'text' })).toBe('{}|"text"');
+  });
+
+  it('the trailing-dot rule (Java String.split drops trailing empty strings): $[a.] and $[a..] read a', () => {
+    expect(processPattern('$[temp.]|$[temp..]|$[nested.a.b.]', msg)).toBe('21.5|21.5|deep');
+  });
+
+  it('leaves as written: a missing key, an object, an array, an empty step, a non-object data, a span over a line break', () => {
+    expect(processPattern('${nope}|$[nope]|$[obj]|$[list]|$[list.0]|$[nested..a]|$[.temp]|$[]|$[.]', msg))
+      .toBe('${nope}|$[nope]|$[obj]|$[list]|$[list.0]|$[nested..a]|$[.temp]|$[]|$[.]');
+    expect(processPattern('$[0]|${n}', { metadata: { n: '1' }, data: [1] })).toBe('$[0]|1');
+    expect(processPattern('$[te\nmp]', { metadata: {}, data: { 'te\nmp': 1 } })).toBe('$[te\nmp]');
+  });
+
+  it('OWN keys only: an inherited property is not a value', () => {
+    const m = { metadata: { ts: '1' }, data: JSON.parse('{"a":{"b":2}}') as unknown };
+    expect(processPattern('$[constructor]|$[a.toString]|$[a.b]|${constructor}|${hasOwnProperty}', m))
+      .toBe('$[constructor]|$[a.toString]|2|${constructor}|${hasOwnProperty}');
+    // An inherited VALUE is not read either (JSON never carries one; a test object can).
+    const inherited = Object.assign(Object.create({ leak: 'x', nested: { v: 1 } }) as Record<string, unknown>, { mine: { leak: 'y' } });
+    expect(processPattern('$[leak]|$[nested.v]|$[mine.leak]', { metadata: {}, data: inherited })).toBe('$[leak]|$[nested.v]|y');
+  });
+
+  it('ONE pass: a substituted value is never expanded again — metadata → metadata, metadata → data, data → anything', () => {
+    const m = { metadata: { a: '${b}', b: 'B', c: '$[t]' }, data: { t: 5, s: '${b}', u: '$[t]' } };
+    expect(processPattern('${a}|${c}|$[s]|$[u]|${b}|$[t]', m)).toBe('${b}|$[t]|${b}|$[t]|B|5');
+    // A placeholder BUILT by a substitution is not one either: ThingsBoard would read data[v] here.
+    expect(processPattern('$[${k}]', { metadata: { k: 't' }, data: { t: 9 } })).toBe('$[t]');
+  });
+
+  it('an unresolved placeholder does not swallow the text after it', () => {
+    expect(processPattern('${a${b}|$[x ${b}', { metadata: { b: 'B' }, data: {} })).toBe('${aB|$[x B');
+    expect(processPattern('$${n}$[temp]$', msg)).toBe('$321.5$');
+  });
+
+  it('numbers print as Jackson\'s asText: a whole number as is, any other as Java\'s Double.toString', () => {
+    const m = { metadata: {}, data: { i: 12345678, small: 0.0001, big: 12345678.9, f: 21.25 } };
+    expect(processPattern('$[i]|$[small]|$[big]|$[f]', m)).toBe('12345678|1.0E-4|1.23456789E7|21.25');
+  });
+
+  it('escapeJson (ThingsBoard\'s escapeJsonValues, Jackson quoteAsString): each ${key} / $[key] value escaped; ${*} / $[*] go in as JSON', () => {
+    const m = { metadata: { q: 'a"b\\c\n\t\u0001\u001f/é' }, data: { s: 'x"y', n: 1.5 } };
+    expect(processPattern('${q}|$[s]|$[n]', m, { escapeJson: true })).toBe('a\\"b\\\\c\\n\\t\\u0001\\u001F/é|x\\"y|1.5');
+    expect(processPattern('${q}', m)).toBe(m.metadata.q);
+    const body = processPattern('{"q":"${q}","s":"$[s]","meta":${*},"data":$[*]}', m, { escapeJson: true });
+    expect(JSON.parse(body)).toEqual({ q: m.metadata.q, s: 'x"y', meta: m.metadata, data: m.data });
+  });
+
+  it('a non-string pattern is the empty text', () => {
+    expect(processPattern(undefined as unknown as string, msg)).toBe('');
+  });
+
+  it('the TRANSFORMATION group (To email) uses it: one pass, no metadata re-expansion', async () => {
+    const r = await run('tb:transformation:to-email', { subjectTemplate: '${a}|${b}|$[c]' },
+      testMessage({ c: '${b}' }, { metadata: { a: '${b}', b: 'B' } }));
+    expect((r.calls.next[0].msg.data as { subject: string }).subject).toBe('${b}|B|${b}');
+  });
+
+  it('the ENRICHMENT / ACTION group (support.ts callers — Originator attributes keys) uses it: a metadata value naming $[…] is not read from the data', async () => {
+    const get = vi.fn(async () => ({}));
+    await run('tb:enrichment:originator-attributes', { serverAttributeNames: ['${which}'], tellFailureIfAbsent: false },
+      testMessage({ k: 'fw' }, { metadata: { which: '$[k]' } }), { attributes: { get } });
+    expect(get).toHaveBeenCalledWith('instrument-1', ['$[k]']);
+  });
+
+  it('the EXTERNAL group (Send SMS) uses it: ${*} / $[*] print JSON, one pass', async () => {
+    const sms = vi.fn(async () => ({ sent: ['+1'], failed: [] }));
+    const msgIn = testMessage({ t: 1 }, { metadata: { a: '${b}', b: 'B' } });
+    await run('tb:external:send-sms', { numbersToTemplate: '+1', smsMessageTemplate: '${a}|$[*]|${*}' }, msgIn, { notifications: { sms } });
+    expect((sms.mock.calls[0] as unknown as [{ message: string }])[0].message).toBe(`\${b}|{"t":1}|${JSON.stringify(msgIn.metadata)}`);
   });
 });

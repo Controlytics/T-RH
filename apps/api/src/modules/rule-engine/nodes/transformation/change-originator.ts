@@ -2,7 +2,7 @@ import { RULE_RELATION_SUCCESS, toRuleOriginatorType } from '@digilog/shared';
 import type { RuleContext, RuleNodeHandler } from '../../context.js';
 import { copyMessage, type RuleMessage, type RuleOriginator } from '../../message.js';
 import { configError } from '../filter/support.js';
-import { processPattern } from './pattern.js';
+import { processPattern } from '../action/support.js';
 
 /**
  * Change originator — ThingsBoard's `TbChangeOriginatorNode` (spec §7). The

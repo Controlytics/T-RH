@@ -1,5 +1,5 @@
 import type { RuleNodeHandler } from '../../context.js';
-import { processPattern } from './template.js';
+import { processPattern } from '../action/support.js';
 import { maskedSecretPaths, credentialNotSetError } from './credentials.js';
 import { ruleHttp, requestError } from './http.js';
 

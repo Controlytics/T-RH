@@ -1,7 +1,8 @@
 import type { RuleNodeHandler } from '../../context.js';
 import type { RuleNodeLifecycle } from '../../registry.js';
 import type { RuleMqttConfig } from '../../services.js';
-import { processPattern, messageText } from './template.js';
+import { processPattern } from '../action/support.js';
+import { messageText } from './template.js';
 import { maskedSecretPaths, credentialNotSetError } from './credentials.js';
 
 export const MQTT_TYPE = 'tb:external:mqtt';

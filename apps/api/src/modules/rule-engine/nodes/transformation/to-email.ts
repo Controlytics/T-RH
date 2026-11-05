@@ -1,7 +1,7 @@
 import { RULE_RELATION_SUCCESS } from '@digilog/shared';
 import type { RuleNodeHandler } from '../../context.js';
 import { copyMessage, type RuleMessage } from '../../message.js';
-import { processPattern } from './pattern.js';
+import { processPattern } from '../action/support.js';
 import { processDatePatterns, resolveTimeZone } from './date-pattern.js';
 
 /**

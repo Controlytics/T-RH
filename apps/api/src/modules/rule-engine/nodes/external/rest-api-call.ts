@@ -1,7 +1,8 @@
 import { isSecretLeaf, MASKED_SECRET } from '../../secrets.js';
 import type { RuleNodeHandler } from '../../context.js';
 import type { RuleMessage } from '../../message.js';
-import { processPattern, messageText } from './template.js';
+import { processPattern } from '../action/support.js';
+import { messageText } from './template.js';
 import { maskedSecretPaths, credentialNotSetError } from './credentials.js';
 import { ruleHttp, requestError, httpStatusName, httpStatusReason, type RuleHttpResponse } from './http.js';
 

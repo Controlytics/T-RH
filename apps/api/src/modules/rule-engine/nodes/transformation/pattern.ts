@@ -1,71 +1,12 @@
-import type { RuleMessage } from '../../message.js';
-import { configError, isPlainObject } from '../filter/support.js';
+import { configError } from '../filter/support.js';
 
 /**
- * ThingsBoard's TEMPLATE and KEY-PATTERN rules, shared by Task 4's nodes
- * (Change originator, To email; Copy / Delete key-value pairs). Read off
- * ThingsBoard master `TbNodeUtils.processPattern` and the key nodes'
- * `Pattern.compile(key).matcher(k).matches()`, 2026-11-04.
- *
- * Task 5 / 6 nodes that fill templates (Create alarm's type, Send SMS …)
- * should use `processPattern` too, so a template means one thing everywhere.
+ * ThingsBoard's KEY-PATTERN rule, shared by Copy / Delete key-value pairs:
+ * `Pattern.compile(key).matcher(k).matches()` (ThingsBoard master
+ * `TbCopyKeysNode` / `TbDeleteKeysNode`, read 2026-11-04). The TEMPLATE rule
+ * that used to live here too is `processPattern` in `../action/support.ts`
+ * (ruling TP-1, 2026-11-05: one template rule for every node).
  */
-
-const has = (o: object, key: string) => Object.prototype.hasOwnProperty.call(o, key);
-const replaceAll = (s: string, find: string, by: string) => s.split(find).join(by);
-
-/**
- * `${key}` → the metadata value, literal key match (no nesting); `${*}` → the
- * whole metadata as JSON (`{}` when empty). A key the metadata lacks stays as
- * written. `${*}` is replaced first, then each key, as ThingsBoard does.
- */
-export function processMetadataPattern(pattern: string, metadata: Record<string, string>): string {
-  let result = pattern;
-  if (result.includes('${*}')) result = replaceAll(result, '${*}', JSON.stringify(metadata));
-  for (const [key, value] of Object.entries(metadata)) result = replaceAll(result, `\${${key}}`, value);
-  return result;
-}
-
-/** A data path's value as ThingsBoard's `JsonNode.asText()` prints a VALUE node; undefined for a missing key, an object or an array. */
-function dataValue(data: Record<string, unknown>, path: string): string | undefined {
-  const keys = path.split('.');
-  // Java's String.split drops trailing empty strings: `$[a.]` reads `a`.
-  while (keys.length > 1 && keys[keys.length - 1] === '') keys.pop();
-  let node: unknown = data;
-  for (const key of keys) {
-    if (key === '' || !isPlainObject(node) || !has(node, key)) return undefined;
-    node = node[key];
-  }
-  if (node === null) return 'null';
-  if (typeof node === 'string') return node;
-  if (typeof node === 'number' || typeof node === 'boolean') return String(node);
-  return undefined;
-}
-
-const DATA_VAR = /\$\[(.*?)]/g;
-
-/**
- * ThingsBoard's `TbNodeUtils.processPattern(pattern, msg)`:
- *  1. the metadata placeholders (`${key}`, `${*}`);
- *  2. `$[*]` → the whole message data as JSON;
- *  3. when the data is a JSON OBJECT, `$[key]` / `$[a.b]` → that data value
- *     (strings raw, numbers / booleans as text, JSON null as `null`); a
- *     missing key, an object or an array leaves the placeholder as written.
- */
-export function processPattern(pattern: string, msg: Pick<RuleMessage, 'data' | 'metadata'>): string {
-  let result = processMetadataPattern(pattern, msg.metadata);
-  if (result.includes('$[*]')) result = replaceAll(result, '$[*]', JSON.stringify(msg.data === undefined ? null : msg.data));
-  if (isPlainObject(msg.data)) {
-    const data = msg.data;
-    const paths = new Set<string>();
-    for (const m of result.matchAll(DATA_VAR)) paths.add(m[1]);
-    for (const path of paths) {
-      const value = dataValue(data, path);
-      if (value !== undefined) result = replaceAll(result, `$[${path}]`, value);
-    }
-  }
-  return result;
-}
 
 const REGEX_META = /[\\^$.|?*+()[\]{}]/;
 const COMPILED_MAX = 256;

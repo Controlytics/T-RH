@@ -2,45 +2,145 @@ import { RULE_SCRIPT_KEYS, ruleNodeScript, ruleNodeScriptKey } from '@digilog/sh
 import type { RuleMessage } from '../../message.js';
 
 /**
- * Helpers the Enrichment and Action node handlers share (rule chains, Task 5,
- * 2026-11-04). Written in parallel with Task 6's `nodes/external/template.ts`,
- * which has its own `processPattern`; the two follow the same ThingsBoard rule
- * and should be folded into ONE shared helper.
+ * Helpers the node handlers share (rule chains, Task 5, 2026-11-04; final fix
+ * wave 2026-11-05): THE template rule (`processPattern`, ruling TP-1 — every
+ * group's callers, the three earlier copies folded into it), the script a node
+ * runs (`nodeScriptOf`, ruling TB-L), the metadata-ts reader (`metadataTs`,
+ * M-1) and Java's number text. It lives here because the Java text helpers it
+ * needs do; no node module may import back into this file.
  */
 
 export type JsonObject = Record<string, unknown>;
 
 export const isPlainObject = (v: unknown): v is JsonObject => !!v && typeof v === 'object' && !Array.isArray(v);
 
-// ─── templates ───────────────────────────────────────────────────────────────
+// ─── templates (ruling TP-1: ONE rule for every caller) ─────────────────────
 
-const METADATA_VAR = /\$\{([^}]*)\}/g;
-const DATA_VAR = /\$\[(.*?)\]/g;
+export interface PatternOptions {
+  /**
+   * JSON-escape each `${key}` / `$[key]` value — ThingsBoard's
+   * `processPattern(pattern, msg, escapeJsonValues)`, which the REST API call's
+   * `requestBodyTemplate` uses so a value lands inside a JSON string intact.
+   * `${*}` / `$[*]` are JSON already and go in as they are (ThingsBoard does
+   * not escape them either), so `{"meta": ${*}}` stays a JSON object.
+   */
+  escapeJson?: boolean;
+}
+
+const own = (o: object, k: string) => Object.prototype.hasOwnProperty.call(o, k);
+
+/** Java's `.` without DOTALL stops at these, so ThingsBoard's `$[…]` pattern never spans one. */
+const LINE_BREAK = /[\n\r\u0085\u2028\u2029]/;
+
+const JSON_NAMED_ESCAPES: Readonly<Record<string, string>> = { '"': '\\"', '\\': '\\\\', '\b': '\\b', '\t': '\\t', '\n': '\\n', '\f': '\\f', '\r': '\\r' };
 
 /**
- * ThingsBoard's `TbNodeUtils.processPattern`: `${key}` → the metadata value,
- * then `$[path]` → the message data's value at a dot path (`$[a.b]`). Only a
- * VALUE (string, number, boolean, null) is substituted; a missing key, an
- * object or an array leaves the pattern as written. Data patterns are read only
- * when the data is a JSON object.
+ * Jackson's `JsonStringEncoder.quoteAsString` (jackson-core 2.21.7, the
+ * version ThingsBoard master pins): `"` and `\` escaped, `\b \t \n \f \r` by
+ * name, any other control character below U+0020 as `\u00XX` in UPPER-case
+ * hex; nothing else (no `/`, no non-ASCII, no surrounding quotes).
  */
-export function processPattern(pattern: string, msg: Pick<RuleMessage, 'metadata' | 'data'>): string {
-  if (typeof pattern !== 'string' || pattern === '') return pattern ?? '';
-  const withMetadata = pattern.replace(METADATA_VAR, (whole, key: string) =>
-    (Object.prototype.hasOwnProperty.call(msg.metadata, key) ? msg.metadata[key] : whole));
-  if (!isPlainObject(msg.data)) return withMetadata;
-  const data = msg.data;
-  return withMetadata.replace(DATA_VAR, (whole, path: string) => {
-    let node: unknown = data;
-    for (const key of path.split('.')) {
-      if (key === '' || !isPlainObject(node) || !Object.prototype.hasOwnProperty.call(node, key)) return whole;
-      node = node[key];
+export function jsonEscape(text: string): string {
+  return text.replace(/["\\\u0000-\u001f]/g, (c) => JSON_NAMED_ESCAPES[c] ?? `\\u${c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}`);
+}
+
+/**
+ * The text of a data VALUE as ThingsBoard's `JsonNode.asText()` prints one: a
+ * string as is, a boolean as `true` / `false`, JSON null as `null`, a number
+ * as `javaValueText` (a whole number as is — Jackson's IntNode / LongNode —
+ * any other by Java's `Double.toString`: `1.0E-4`). `undefined` for an object,
+ * an array or nothing — those leave the placeholder as written.
+ */
+function valueText(v: unknown): string | undefined {
+  if (v === null) return 'null';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'boolean') return String(v);
+  if (typeof v === 'number') return javaValueText(v);
+  return undefined;
+}
+
+/** `$[path]`'s value: dot steps over OWN keys of JSON objects; Java's `split` drops trailing empty steps (`a.` reads `a`). */
+function dataValue(data: unknown, path: string): string | undefined {
+  if (!isPlainObject(data) || LINE_BREAK.test(path)) return undefined;
+  const steps = path.split('.');
+  while (steps.length > 0 && steps[steps.length - 1] === '') steps.pop();
+  if (steps.length === 0) return undefined;
+  let node: unknown = data;
+  for (const step of steps) {
+    if (step === '' || !isPlainObject(node) || !own(node, step)) return undefined;
+    node = node[step];
+  }
+  return valueText(node);
+}
+
+/**
+ * THE template rule of every node (ruling TP-1, 2026-11-05) — ThingsBoard's
+ * `TbNodeUtils.processPattern` (master e48b5780), with ONE deliberate
+ * difference. The placeholders:
+ *  - `${key}` → the metadata value of `key`; `${*}` → the whole metadata as
+ *    JSON (`{}` when empty);
+ *  - `$[path]` → the message DATA value at a dot path (`$[a.b]`), only when
+ *    the data is a JSON object and the path ends on a VALUE (string, number,
+ *    boolean, null → `null`); a trailing dot is dropped as Java's
+ *    `String.split` drops it (`$[a.]` reads `a`); `$[*]` → the whole data as
+ *    JSON;
+ *  - OWN keys only (`$[constructor]` is not a value); a placeholder that does
+ *    not resolve is LEFT AS WRITTEN, and the text after it is still read.
+ * THE DIFFERENCE: ONE PASS over the pattern — a substituted value is never
+ * expanded again, and a placeholder a substitution would BUILD (`$[${k}]`)
+ * is not one. ThingsBoard replaces key by key and then the data, so it
+ * re-expands; one pass keeps a value a DEVICE controls (a telemetry value, an
+ * attribute, a response header) from pulling other message content into a
+ * URL, an email or an alarm type. Not reproduced either: a metadata key
+ * containing `}` (ThingsBoard replaces it literally), and Jackson's text of a
+ * number that arrived as `20.0` (JSON gave this system the number 20).
+ * Used by every node that fills a template — the action, enrichment,
+ * transformation and external groups alike; there is no second one.
+ */
+export function processPattern(pattern: string, msg: Pick<RuleMessage, 'metadata' | 'data'>, opts: PatternOptions = {}): string {
+  if (typeof pattern !== 'string') return '';
+  const metadata = msg.metadata ?? {};
+  const fill = opts.escapeJson === true ? jsonEscape : (s: string) => s;
+  let out = '';
+  let i = 0;
+  while (i < pattern.length) {
+    const at = pattern.indexOf('$', i);
+    if (at < 0) {
+      out += pattern.slice(i);
+      break;
     }
-    if (node === null) return 'null';
-    if (typeof node === 'string') return node;
-    if (typeof node === 'number' || typeof node === 'boolean') return String(node);
-    return whole;
-  });
+    out += pattern.slice(i, at);
+    const hit = placeholderAt(pattern, at, msg.data, metadata, fill);
+    if (hit) {
+      out += hit.text;
+      i = hit.end;
+    } else {
+      out += '$';
+      i = at + 1;
+    }
+  }
+  return out;
+}
+
+function placeholderAt(
+  pattern: string, at: number, data: unknown, metadata: Record<string, string>, fill: (s: string) => string,
+): { text: string; end: number } | null {
+  const open = pattern[at + 1];
+  if (open === '{') {
+    if (pattern.startsWith('${*}', at)) return { text: JSON.stringify(metadata), end: at + 4 };
+    const close = pattern.indexOf('}', at + 2);
+    if (close < 0) return null;
+    const key = pattern.slice(at + 2, close);
+    return own(metadata, key) ? { text: fill(metadata[key]), end: close + 1 } : null;
+  }
+  if (open === '[') {
+    if (pattern.startsWith('$[*]', at)) return { text: JSON.stringify(data === undefined ? null : data), end: at + 4 };
+    const close = pattern.indexOf(']', at + 2);
+    if (close < 0) return null;
+    const value = dataValue(data, pattern.slice(at + 2, close));
+    return value === undefined ? null : { text: fill(value), end: close + 1 };
+  }
+  return null;
 }
 
 /** `processPattern` over a key list: blank results dropped, duplicates kept once (in order). */

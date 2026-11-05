@@ -1,6 +1,6 @@
 import type { RuleNodeHandler } from '../../context.js';
 import type { RuleSendResult } from '../../services.js';
-import { processPattern } from './template.js';
+import { processPattern } from '../action/support.js';
 import { sendFailureText } from './send-email.js';
 
 export const SEND_SMS_TYPE = 'tb:external:send-sms';
