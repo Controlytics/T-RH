@@ -46,7 +46,7 @@ import {
   RULE_NODE_NAME_MAX, RULE_CHAIN_NAME_MAX, RULE_CHAIN_NODES_MAX, RULE_RELATION_MAX,
   RULE_RELATION_OTHER, newRuleNodeConfig, coerceThingsboardScalars, upgradeThingsboardConfig,
   fromThingsboardConfig, toThingsboardConfig, entityTypeSwitchLabelFromThingsboard, entityTypeSwitchLabelToThingsboard,
-  thingsboardExportNotes, thingsboardImportNotes,
+  thingsboardExportNotes, thingsboardImportNotes, THINGSBOARD_EXPORT_NOTES_HEADER,
   type RuleDebugMode,
 } from './rule-nodes.js';
 
@@ -393,7 +393,7 @@ export function toThingsboardExport(name: string, root: boolean, doc: RuleChainD
   return {
     ruleChain: {
       name, type: 'CORE', root, debugMode: false, configuration: null,
-      additionalInfo: notes.length > 0 ? { description: ['Set in ThingsBoard when you import this chain:', ...notes].join('\n') } : null,
+      additionalInfo: notes.length > 0 ? { description: [THINGSBOARD_EXPORT_NOTES_HEADER, ...notes].join('\n') } : null,
     },
     metadata: {
       firstNodeIndex: doc.firstNodeId !== null && index.has(doc.firstNodeId) ? index.get(doc.firstNodeId)! : null,
