@@ -1,6 +1,6 @@
 import type { RuleContext } from '../../context.js';
 import type { RuleMessage } from '../../message.js';
-import { jsScriptOf, type JsonObject } from './support.js';
+import { nodeScriptOf, type JsonObject } from './support.js';
 
 /**
  * LOG — ThingsBoard's `TbLogNode` (rule chains, Task 5): the script's return
@@ -12,7 +12,8 @@ import { jsScriptOf, type JsonObject } from './support.js';
 export const LOG_TYPE = 'tb:action:log';
 
 export function logNode(ctx: RuleContext<JsonObject>, msg: RuleMessage): void {
-  const script = jsScriptOf(ctx.config, 'jsScript');
+  // The script scriptLang selects (ruling TB-L): a stored TBEL node runs its TBEL text as JavaScript.
+  const script = nodeScriptOf(ctx.node.type, ctx.config);
   const result = ctx.runScript('log', script, msg);
   ctx.log('info', typeof result === 'string' ? result : (JSON.stringify(result) ?? 'undefined'));
   ctx.tellNext(msg, 'Success');

@@ -1,3 +1,4 @@
+import { RULE_SCRIPT_KEYS, ruleNodeScript, ruleNodeScriptKey } from '@digilog/shared';
 import type { RuleMessage } from '../../message.js';
 
 /**
@@ -223,17 +224,31 @@ export function scopeOf(msg: Pick<RuleMessage, 'metadata'>, configured: unknown)
 }
 
 /**
- * The node's JavaScript, to run through `ctx.runScript` (never script-vm's
+ * The script a node RUNS, to run through `ctx.runScript` (never script-vm's
  * `runScript` directly — the context's is keyed to the node, so a script that
- * keeps timing out is disabled). ThingsBoard keeps a TBEL script beside it and runs
- * whichever `scriptLang` names; TBEL does not run here (spec §3), so a node set
- * to TBEL FAILS rather than silently running a JavaScript default it never used.
+ * keeps timing out is disabled). ONE rule for every script node — Filter
+ * script, Switch, Script transform, Log, Generator, Create / Clear alarm —
+ * and it is `@digilog/shared`'s `ruleNodeScript` (ruling TB-L, 2026-11-05),
+ * the same rule the editor's script field, the import and the export read:
+ * `scriptLang: 'TBEL'` with a non-blank TBEL script (a document stored before
+ * TB-L) runs THAT text as JavaScript; anything else runs the JavaScript key.
+ * TBEL itself is not built (spec §3); nothing refuses a TBEL node any more.
  */
-export function jsScriptOf(config: { scriptLang?: unknown } & JsonObject, key: string): string {
-  if (config.scriptLang === 'TBEL') {
-    throw new Error('SCRIPT_LANGUAGE_UNSUPPORTED: this node is set to a TBEL script; only JavaScript runs here — rewrite it in JavaScript');
+export function nodeScriptOf(type: string, config: object): string {
+  const cfg = config as JsonObject;
+  const script = ruleNodeScript(type, cfg);
+  if (typeof script !== 'string' || script.trim() === '') {
+    throw new Error(`SCRIPT_REQUIRED: the node has no script (${ruleNodeScriptKey(type, cfg) ?? type})`);
   }
-  const script = config[key];
-  if (typeof script !== 'string' || script.trim() === '') throw new Error(`SCRIPT_REQUIRED: the node has no ${key}`);
   return script;
+}
+
+/** The node type of each JavaScript script key — every type sharing a key shares its TBEL twin, so the key alone decides. */
+const SCRIPT_TYPE_BY_JS_KEY: ReadonlyMap<string, string> = new Map(Object.entries(RULE_SCRIPT_KEYS).map(([type, [js]]) => [js, type]));
+
+/** `nodeScriptOf` for a caller that names the JavaScript KEY (`alarm-support.ts`: `alarmDetailsBuildJs`). */
+export function jsScriptOf(config: object, key: string): string {
+  const type = SCRIPT_TYPE_BY_JS_KEY.get(key);
+  if (type === undefined) throw new Error(`SCRIPT_REQUIRED: "${key}" is not a script key`);
+  return nodeScriptOf(type, config);
 }

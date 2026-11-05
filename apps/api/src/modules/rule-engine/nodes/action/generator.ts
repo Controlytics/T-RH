@@ -2,7 +2,7 @@ import { toRuleOriginatorType } from '@digilog/shared';
 import type { RuleContext } from '../../context.js';
 import { newMessage, type RuleMessage, type RuleOriginator } from '../../message.js';
 import { coerceMetadata } from '../../script-vm.js';
-import { isPlainObject, jsScriptOf, type JsonObject } from './support.js';
+import { isPlainObject, nodeScriptOf, type JsonObject } from './support.js';
 
 /**
  * GENERATOR — ThingsBoard's `TbMsgGeneratorNode` (rule chains, Task 5).
@@ -85,7 +85,8 @@ export function stopGenerator(ctx: RuleContext<GeneratorConfig>): void {
 export function startGenerator(ctx: RuleContext<GeneratorConfig>): void {
   stopGenerator(ctx);
   const cfg = ctx.config;
-  const script = GENERATOR_PREV_PREFIX + jsScriptOf(cfg, 'jsScript');
+  // The script scriptLang selects (ruling TB-L): a stored TBEL Generator runs its TBEL text as JavaScript.
+  const script = GENERATOR_PREV_PREFIX + nodeScriptOf(ctx.node.type, cfg);
   const originator = generatorOriginator(cfg, ctx.node.id);
   const periodMs = Math.max(1, Math.floor(Number(cfg.periodInSeconds) || 1)) * 1000;
   const limit = Math.max(0, Math.floor(Number(cfg.msgCount) || 0));

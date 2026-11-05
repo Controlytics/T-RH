@@ -297,9 +297,12 @@ describe('Script — transformation (TbTransformMsgNode)', () => {
     expect((await run(T, testMessage({}), { config: { jsScript: "throw new Error('nope');" } })).calls.relations()).toEqual(['Failure']);
   });
 
-  it('runs the JavaScript even when an import says scriptLang TBEL', async () => {
-    const { calls } = await run(T, testMessage({ t: 1 }), { config: { scriptLang: 'TBEL', tbelScript: 'return {};', jsScript: 'return { msg: { t: 2 } };' } });
-    expect(calls.next[0].msg.data).toEqual({ t: 2 });
+  it('a node stored with scriptLang TBEL runs its TBEL text as JavaScript; a JS node its JavaScript (ruling TB-L, shared ruleNodeScript)', async () => {
+    const both = { tbelScript: 'return { msg: { t: 3 } };', jsScript: 'return { msg: { t: 2 } };' };
+    const tbel = await run(T, testMessage({ t: 1 }), { config: { scriptLang: 'TBEL', ...both } });
+    expect(tbel.calls.next[0].msg.data).toEqual({ t: 3 });
+    const js = await run(T, testMessage({ t: 1 }), { config: { scriptLang: 'JS', ...both } });
+    expect(js.calls.next[0].msg.data).toEqual({ t: 2 });
   });
 });
 

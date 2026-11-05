@@ -328,9 +328,12 @@ describe('Script — filter (TbJsFilterNode)', () => {
     expect(notBool.relations()).toEqual(['Failure']);
   });
 
-  it('runs the JavaScript even when an import says scriptLang TBEL', async () => {
-    const calls = await run(T, testMessage({ t: 30 }), { config: { scriptLang: 'TBEL', tbelScript: 'return false;', jsScript: 'return msg.t > 20;' } });
-    expect(calls.relations()).toEqual(['True']);
+  it('a node stored with scriptLang TBEL runs its TBEL text as JavaScript; a JS node its JavaScript (ruling TB-L, shared ruleNodeScript)', async () => {
+    const both = { tbelScript: 'return msg.t > 40;', jsScript: 'return msg.t > 20;' };
+    const tbel = await run(T, testMessage({ t: 30 }), { config: { scriptLang: 'TBEL', ...both } });
+    expect(tbel.relations()).toEqual(['False']);
+    const js = await run(T, testMessage({ t: 30 }), { config: { scriptLang: 'JS', ...both } });
+    expect(js.relations()).toEqual(['True']);
   });
 
   it('runs through ctx.runScript: three time-outs in a row and the node\'s script is switched off (SCRIPT_DISABLED)', async () => {
