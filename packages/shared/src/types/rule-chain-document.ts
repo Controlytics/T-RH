@@ -33,12 +33,18 @@
  * BEFORE the string-scalar coercion and the validation; an older version with
  * no mirrored upgrade imports with a warning to review it. The export writes
  * the version each node's configuration is at (ruling CV-1).
+ * Between the upgrade and the coercion, `fromThingsboardConfig` turns
+ * ThingsBoard's exchange form into the ONE shape stored here (ruling CV-3 —
+ * Save time series' `processingSettings` sets its toggle; a strategy not built
+ * here warns once, naming it); the export writes it back with
+ * `toThingsboardConfig`.
  */
 import { z, ZodError, type ZodIssue } from 'zod';
 import {
   RULE_NODE_TYPE_BY_ID, RULE_NODE_TYPE_BY_TB_CLASS, UNSUPPORTED_NODE_TYPE, RULE_DEBUG_MODES,
   RULE_NODE_NAME_MAX, RULE_CHAIN_NAME_MAX, RULE_CHAIN_NODES_MAX, RULE_RELATION_MAX,
   RULE_RELATION_OTHER, newRuleNodeConfig, coerceThingsboardScalars, upgradeThingsboardConfig,
+  fromThingsboardConfig, toThingsboardConfig,
   type RuleDebugMode,
 } from './rule-nodes.js';
 
@@ -352,7 +358,8 @@ export function toThingsboardExport(name: string, root: boolean, doc: RuleChainD
     const tbClass = unsupported
       ? (typeof n.config.tbClass === 'string' ? n.config.tbClass : spec?.tbClass ?? UNSUPPORTED_NODE_TYPE)
       : spec.tbClass;
-    const configuration = unsupported ? (n.config.configuration ?? {}) : n.config;
+    // A built node in ThingsBoard's exchange form (ruling CV-3: Save time series' toggle → processingSettings).
+    const configuration = unsupported ? (n.config.configuration ?? {}) : toThingsboardConfig(spec.id, n.config);
     // The version the configuration is AT: a built node's is the one its entry models (it was
     // upgraded on import); an Unsupported node's is the one it came with. A later / none node's
     // configuration is kept as it came and its version was not recorded — none is written.
@@ -462,9 +469,12 @@ export function fromThingsboardExport(json: unknown, opts: { newId?: () => strin
       if (upgrade.outcome === 'not-upgraded') {
         warnings.push(`Node "${nodeName}": configuration version ${fromVersion} is older than ${spec.tbConfigurationVersion} — review its settings.`);
       }
-      // 2. ThingsBoard 3.6.0–3.6.3 exported some booleans / numbers as strings — read them.
-      const coerced = coerceThingsboardScalars(spec.id, upgrade.config);
-      // 3. Validate.
+      // 2. ThingsBoard's exchange form → the ONE shape stored here (ruling CV-3): Save time
+      //    series' processingSettings sets its toggle; what is not built here is named.
+      const boundary = fromThingsboardConfig(spec.id, upgrade.config);
+      // 3. ThingsBoard 3.6.0–3.6.3 exported some booleans / numbers as strings — read them.
+      const coerced = coerceThingsboardScalars(spec.id, boundary.config);
+      // 4. Validate.
       const r = spec.configSchema.safeParse(coerced);
       if (!r.success) {
         const e = r.error.issues[0];
@@ -474,6 +484,7 @@ export function fromThingsboardExport(json: unknown, opts: { newId?: () => strin
       } else {
         type = spec.id;
         config = coerced;
+        if (boundary.notHonoured) warnings.push(`Node "${nodeName}" (${spec.label}): ${boundary.notHonoured}`);
         const keys = SCRIPT_KEYS[spec.id];
         if (keys && config.scriptLang === 'TBEL' && typeof config[keys[1]] === 'string' && config[keys[1]] !== config[keys[0]]) {
           warnings.push(`Node "${nodeName}" (${spec.label}): its TBEL script differs from its JavaScript one; only JavaScript runs here, so the JavaScript script will run.`);

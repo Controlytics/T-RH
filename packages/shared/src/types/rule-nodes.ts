@@ -263,6 +263,8 @@ function cloneJson<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
 }
 
+const isPlainObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+
 /** A config object: the modelled keys checked, every other key kept. */
 const cfg = <T extends z.ZodRawShape>(shape: T) => z.object(shape).passthrough();
 const anyObject = z.object({}).passthrough();
@@ -965,9 +967,12 @@ const ACTION: RuleNodeTypeSpec[] = [
     relations: FS,
     fields: [
       { key: 'scope', label: 'Scope', type: 'select', options: SCOPE_OPTIONS, help: SCOPES_HELP },
-      { key: 'updateAttributesOnlyOnValueChange', label: 'Write only a changed value', type: 'boolean' },
+      // TB-P 7 (2026-11-05): both toggles DO something, said here (21 CFR Part 11 keeps the writer change-only).
+      { key: 'updateAttributesOnlyOnValueChange', label: 'Write only a changed value', type: 'boolean',
+        help: 'An unchanged value is never written or audited again here (21 CFR Part 11), whatever this says. Off: the Attributes Updated message lists every key of the message, not only the changed ones.' },
       { key: 'notifyDevice', label: 'Tell the instrument', type: 'boolean', help: 'Publishes the attribute to the instrument, as an edit on the Settings page does.' },
-      { key: 'sendAttributesUpdatedNotification', label: 'Send an Attributes Updated message', type: 'boolean' },
+      { key: 'sendAttributesUpdatedNotification', label: 'Send an Attributes Updated message', type: 'boolean',
+        help: 'Sent only when a value changed, and never for the client scope (as in ThingsBoard). It enters a chain only while that chain\'s "Re-enter on rule-node writes" is on.' },
     ],
     defaultConfig: {
       processingSettings: { type: 'ON_EVERY_MESSAGE' }, scope: 'SERVER_SCOPE', notifyDevice: false,
@@ -985,7 +990,8 @@ const ACTION: RuleNodeTypeSpec[] = [
     relations: FS,
     fields: [
       { key: 'useServerTs', label: 'Stamp with the server time', type: 'boolean' },
-      { key: 'skipLatestPersistence', label: 'Do not update the latest readings', type: 'boolean' },
+      { key: 'skipLatestPersistence', label: 'Do not update the latest readings', type: 'boolean',
+        help: 'ThingsBoard 4.x keeps this as processing settings (latest: Skip); an import and an export convert between the two.' },
       { key: 'defaultTTL', label: 'Time to live (seconds)', type: 'number', min: 0, help: 'Kept for export; monthly partitions govern retention here.' },
     ],
     defaultConfig: { defaultTTL: 0, useServerTs: false, skipLatestPersistence: false, processingSettings: { type: 'ON_EVERY_MESSAGE' } },
@@ -1327,17 +1333,176 @@ const deviceProfileUpgrade: TbUpgrade = (from, c) => {
   return asBoolean(c.persistAlarmRulesState) ? c : { ...c, fetchAlarmRulesStateOnStart: false };
 };
 
+// ─── Ruling CV-3 (2026-11-05): the other meaning-changing upgrades ──────────
+// Read off ThingsBoard master, commit e48b5780 (2026-11-02). Where a node's
+// `upgrade()` is a `switch` without `break`, an older version runs every later
+// case too — mirrored as `from <= n`.
+
+const hasOwn = (o: Record<string, unknown>, k: string) => Object.prototype.hasOwnProperty.call(o, k);
+
+/** Jackson's `TextNode.asBoolean(default)`: the TRIMMED text "true" / "false", else the default. */
+function textAsBoolean(text: string, dflt: boolean): boolean {
+  const t = text.trim();
+  return t === 'true' ? true : t === 'false' ? false : dflt;
+}
+
+/** ThingsBoard's `OnEveryMessage` processing settings, as `JacksonUtil.valueToTree` writes them. */
+const ON_EVERY_MESSAGE_SETTINGS = { type: 'ON_EVERY_MESSAGE' } as const;
+/**
+ * What `TbMsgTimeseriesNode.upgrade` writes for `skipLatestPersistence: "true"`:
+ * `new Advanced(onEveryMessage(), skip(), onEveryMessage(), onEveryMessage())`.
+ */
+const SKIP_LATEST_SETTINGS = {
+  type: 'ADVANCED', timeseries: { type: 'ON_EVERY_MESSAGE' }, latest: { type: 'SKIP' },
+  webSockets: { type: 'ON_EVERY_MESSAGE' }, calculatedFields: { type: 'ON_EVERY_MESSAGE' },
+} as const;
+/** Save time series' processing settings for a toggle value — ThingsBoard's own v0 → v1 output. */
+const timeseriesSettingsFor = (skipLatest: boolean): Record<string, unknown> =>
+  cloneJson(skipLatest ? SKIP_LATEST_SETTINGS : ON_EVERY_MESSAGE_SETTINGS) as Record<string, unknown>;
+
+/** `TbMsgTimeseriesNode.upgrade`: v0 → v1 moves `skipLatestPersistence` ("true" by `asText`) into `processingSettings`. */
+const saveTimeseriesUpgrade: TbUpgrade = (from, c) => {
+  if (from !== 0) return c;
+  const { skipLatestPersistence, ...rest } = c;
+  return { ...rest, processingSettings: timeseriesSettingsFor(asText(skipLatestPersistence) === 'true') };
+};
+
+/**
+ * `TbMsgAttributesNode.upgrade` (→ v3; the cases fall through): v0 without
+ * `updateAttributesOnlyOnValueChange` → false (v0 never compared values); v0 / v1
+ * each flag absent or null → its default (`notifyDevice` TRUE — "a while ago
+ * node always notified devices"), a text flag → `TextNode.asBoolean(default)`;
+ * v0 / v1 / v2 → `processingSettings` On every message (REPLACING any there).
+ */
+const saveAttributesUpgrade: TbUpgrade = (from, c) => {
+  const out = { ...c };
+  if (from === 0 && !hasOwn(out, 'updateAttributesOnlyOnValueChange')) out.updateAttributesOnlyOnValueChange = false;
+  if (from <= 1) {
+    const fix = (key: string, valueIfNull: boolean) => {
+      const v = out[key];
+      if (v === undefined || v === null) out[key] = valueIfNull;
+      else if (typeof v === 'string') out[key] = textAsBoolean(v, valueIfNull);
+    };
+    fix('notifyDevice', true);
+    fix('sendAttributesUpdatedNotification', false);
+    fix('updateAttributesOnlyOnValueChange', true);
+  }
+  if (from <= 2) out.processingSettings = cloneJson(ON_EVERY_MESSAGE_SETTINGS);
+  return out;
+};
+
+/**
+ * `TbAbstractNodeWithFetchTo.upgradeConfigurationToUseFetchTo`: `<oldKey>` "true" /
+ * "false" (`asText`) → `fetchTo` = `ifTrue` / `ifFalse`, the old key removed; any
+ * other value throws in ThingsBoard (null here).
+ */
+function fetchToFrom(c: Record<string, unknown>, oldKey: string, ifTrue: string, ifFalse: string): Record<string, unknown> | null {
+  const v = asText(c[oldKey]);
+  if (v !== 'true' && v !== 'false') return null;
+  const { [oldKey]: _gone, ...rest } = c;
+  return { ...rest, fetchTo: v === 'true' ? ifTrue : ifFalse };
+}
+
+/**
+ * `TbGetAttributesNode` / `TbGetDeviceAttrNode.upgrade` v0 → v1, through
+ * `TbAbstractGetAttributesNode`'s override: `fetchToData` absent → `fetchTo`
+ * METADATA (over whatever is there), a JSON null → removed and METADATA,
+ * "true" / "false" → DATA / METADATA.
+ */
+const attributesFetchToUpgrade: TbUpgrade = (from, c) => {
+  if (from !== 0) return c;
+  if (!hasOwn(c, 'fetchToData')) return { ...c, fetchTo: 'METADATA' };
+  if (c.fetchToData === null) {
+    const { fetchToData: _gone, ...rest } = c;
+    return { ...rest, fetchTo: 'METADATA' };
+  }
+  return fetchToFrom(c, 'fetchToData', 'DATA', 'METADATA');
+};
+
+/** `TbGetTenantDetailsNode.upgrade` v0 → v1 (the BASE helper): `addToMetadata` required; "true" → METADATA, "false" → DATA. */
+const tenantDetailsUpgrade: TbUpgrade = (from, c) => {
+  if (from !== 0) return c;
+  return hasOwn(c, 'addToMetadata') ? fetchToFrom(c, 'addToMetadata', 'METADATA', 'DATA') : null;
+};
+
+/** `TbGetOriginatorFieldsNode.upgrade` v0 → v1: `fieldsMapping` (required) → `dataMapping`, and `fetchTo` METADATA. */
+const originatorFieldsUpgrade: TbUpgrade = (from, c) => {
+  if (from !== 0) return c;
+  if (!hasOwn(c, 'fieldsMapping')) return null;
+  const { fieldsMapping, ...rest } = c;
+  return { ...rest, dataMapping: fieldsMapping, fetchTo: 'METADATA' };
+};
+
+/**
+ * `TbGetTenantAttributeNode.upgrade` v0 → v1 (`TbAbstractGetEntityDataNode`):
+ * `telemetry` and `attrMapping` both required; `attrMapping` → `dataMapping`,
+ * `telemetry` "true" / "false" → `dataToFetch` LATEST_TELEMETRY / ATTRIBUTES,
+ * and `fetchTo` METADATA.
+ */
+const tenantAttributesUpgrade: TbUpgrade = (from, c) => {
+  if (from !== 0) return c;
+  if (!hasOwn(c, 'telemetry') || !hasOwn(c, 'attrMapping')) return null;
+  const v = asText(c.telemetry);
+  if (v !== 'true' && v !== 'false') return null;
+  const { telemetry: _t, attrMapping, ...rest } = c;
+  return { ...rest, dataMapping: attrMapping, dataToFetch: v === 'true' ? 'LATEST_TELEMETRY' : 'ATTRIBUTES', fetchTo: 'METADATA' };
+};
+
+/**
+ * `TbGetTelemetryNode.upgrade` → v2 (case 0 has no `break`): v0 with a
+ * `fetchMode` — FIRST → orderBy ASC / aggregation NONE, LAST → DESC / NONE,
+ * ALL → a present-but-blank orderBy / aggregation gets ASC / NONE, anything else
+ * → LAST / DESC / NONE; then v0 / v1 — `limit` absent → 1000, and for ALL an
+ * absent aggregation / orderBy → NONE / ASC.
+ */
+const originatorTelemetryUpgrade: TbUpgrade = (from, c) => {
+  const out = { ...c };
+  const blank = (k: string) => hasOwn(out, k) && (out[k] === null || asText(out[k]) === '');
+  if (from === 0 && out.fetchMode !== undefined && out.fetchMode !== null) {
+    const mode = asText(out.fetchMode);
+    if (mode === 'FIRST') Object.assign(out, { orderBy: 'ASC', aggregation: 'NONE' });
+    else if (mode === 'LAST') Object.assign(out, { orderBy: 'DESC', aggregation: 'NONE' });
+    else if (mode === 'ALL') {
+      if (blank('orderBy')) out.orderBy = 'ASC';
+      if (blank('aggregation')) out.aggregation = 'NONE';
+    } else Object.assign(out, { fetchMode: 'LAST', orderBy: 'DESC', aggregation: 'NONE' });
+  }
+  if (from <= 1) {
+    if (out.limit === undefined || out.limit === null) out.limit = 1000;
+    if (hasOwn(out, 'fetchMode') && asText(out.fetchMode) === 'ALL') {
+      if (out.aggregation === undefined || out.aggregation === null) out.aggregation = 'NONE';
+      if (out.orderBy === undefined || out.orderBy === null) out.orderBy = 'ASC';
+    }
+  }
+  return out;
+};
+
+/** `CalculateDeltaNode.upgrade` v0 → v1 (additive): `excludeZeroDeltas` absent → false. */
+const calculateDeltaUpgrade: TbUpgrade = (from, c) =>
+  (from === 0 && !hasOwn(c, 'excludeZeroDeltas') ? { ...c, excludeZeroDeltas: false } : c);
+
 /**
  * The upgrades mirrored here. Every OTHER built node with a configuration
- * version above 0 has a ThingsBoard upgrade that is NOT mirrored; an import of
- * an older version of it is flagged for review (see `fromThingsboardExport`).
+ * version above 0 has a ThingsBoard upgrade that is NOT mirrored (all additive:
+ * change originator, deduplication, generator, MQTT, REST API call, checkpoint,
+ * rule chain); an import of an older version of it is flagged for review (see
+ * `fromThingsboardExport`).
  */
 const TB_UPGRADES: Readonly<Record<string, TbUpgrade>> = {
   'tb:filter:check-relation-presence': checkRelationUpgrade,
+  'tb:enrichment:calculate-delta': calculateDeltaUpgrade,
+  'tb:enrichment:originator-attributes': attributesFetchToUpgrade,
+  'tb:enrichment:originator-fields': originatorFieldsUpgrade,
+  'tb:enrichment:originator-telemetry': originatorTelemetryUpgrade,
+  'tb:enrichment:related-device-attributes': attributesFetchToUpgrade,
+  'tb:enrichment:tenant-attributes': tenantAttributesUpgrade,
+  'tb:enrichment:tenant-details': tenantDetailsUpgrade,
   'tb:transformation:copy-key-value-pairs': msgSourceUpgrade('copyFrom', 'fromMetadata'),
   'tb:transformation:delete-key-value-pairs': msgSourceUpgrade('deleteFrom', 'dataToFetch'),
   'tb:transformation:rename-keys': msgSourceUpgrade('renameIn', 'fromMetadata'),
   'tb:action:device-profile': deviceProfileUpgrade,
+  'tb:action:save-attributes': saveAttributesUpgrade,
+  'tb:action:save-timeseries': saveTimeseriesUpgrade,
 };
 
 export interface ThingsboardConfigUpgrade {
@@ -1363,4 +1528,136 @@ export function upgradeThingsboardConfig(type: string, fromVersion: number, conf
   const upgrade = TB_UPGRADES[type];
   const upgraded = upgrade ? upgrade(fromVersion, copy) : null;
   return upgraded ? { config: upgraded, outcome: 'upgraded' } : { config: copy, outcome: 'not-upgraded' };
+}
+
+// ─── Ruling CV-3: ONE source of truth per node, ThingsBoard's form at the boundary ─
+//
+// Save time series: the toggle `skipLatestPersistence` is what the handler honours.
+// ThingsBoard 4.x has no such key — its `processingSettings` decides, per action
+// (time series, latest, WebSockets, calculated fields), On every message / Skip /
+// Deduplicate. ONE predicate (`timeseriesSettingsJudge`) reads a setting both ways:
+// an import derives the toggle from it, an export keeps it verbatim unless it
+// contradicts the toggle. Only the actions that exist here are judged — time series
+// and latest (Save time series), attributes (Save attributes); this system has no
+// WebSocket subscriptions and no calculated fields, so their strategies are kept for
+// the export and never judged or warned about.
+
+/** A strategy's name for a note: "Skip", "Deduplicate every 60 s", … */
+function strategyText(s: unknown): string {
+  const type = isPlainObject(s) ? s.type : undefined;
+  if (type === 'ON_EVERY_MESSAGE') return 'On every message';
+  if (type === 'SKIP') return 'Skip';
+  if (type === 'DEDUPLICATE') {
+    const secs = isPlainObject(s) ? s.deduplicationIntervalSecs : undefined;
+    return typeof secs === 'number' ? `Deduplicate every ${secs} s` : 'Deduplicate';
+  }
+  return type === undefined ? 'no strategy' : `type ${JSON.stringify(type)}`;
+}
+
+const strategyType = (s: unknown): unknown => (isPlainObject(s) ? s.type : undefined);
+
+/**
+ * What a Save time series `processingSettings` means HERE: whether the latest
+ * readings are skipped (null = cannot tell), and the parts not built here. The
+ * handler saves every reading to history and updates the latest table unless the
+ * toggle says not: time series must be On every message, latest On every message
+ * or Skip. Basic WebSockets only skips every save in ThingsBoard — latest included.
+ */
+function timeseriesSettingsJudge(ps: Record<string, unknown>): { skipLatest: boolean | null; notBuilt: string[] } {
+  switch (ps.type) {
+    case 'ON_EVERY_MESSAGE': return { skipLatest: false, notBuilt: [] };
+    case 'WEBSOCKETS_ONLY': return { skipLatest: true, notBuilt: ['WebSockets only'] };
+    case 'DEDUPLICATE': return { skipLatest: false, notBuilt: [strategyText(ps)] };
+    case 'ADVANCED': {
+      const notBuilt: string[] = [];
+      if (strategyType(ps.timeseries) !== 'ON_EVERY_MESSAGE') notBuilt.push(`time series: ${strategyText(ps.timeseries)}`);
+      const latest = strategyType(ps.latest);
+      if (latest !== 'ON_EVERY_MESSAGE' && latest !== 'SKIP') notBuilt.push(`latest: ${strategyText(ps.latest)}`);
+      const skipLatest = latest === 'SKIP' ? true : latest === 'ON_EVERY_MESSAGE' || latest === 'DEDUPLICATE' ? false : null;
+      return { skipLatest, notBuilt };
+    }
+    default: return { skipLatest: null, notBuilt: [`type ${JSON.stringify(ps.type ?? null)}`] };
+  }
+}
+
+/** What a Save attributes `processingSettings` means here: the parts not built (the handler saves every message's attributes). */
+function attributesSettingsNotBuilt(ps: Record<string, unknown>): string[] {
+  switch (ps.type) {
+    case 'ON_EVERY_MESSAGE': return [];
+    case 'WEBSOCKETS_ONLY': return ['WebSockets only'];
+    case 'DEDUPLICATE': return [strategyText(ps)];
+    case 'ADVANCED': return strategyType(ps.attributes) === 'ON_EVERY_MESSAGE' ? [] : [`attributes: ${strategyText(ps.attributes)}`];
+    default: return [`type ${JSON.stringify(ps.type ?? null)}`];
+  }
+}
+
+const notBuiltNote = (notBuilt: string[], consequence: string): string | null =>
+  (notBuilt.length === 0 ? null : `processing settings not built here (${notBuilt.join('; ')}) — ${consequence}.`);
+
+export interface ThingsboardConfigImport {
+  /** The configuration in the shape this system stores — a copy. */
+  config: Record<string, unknown>;
+  /**
+   * What of ThingsBoard's configuration is not honoured here, as the tail of a
+   * warning ("processing settings not built here (…) — …"); null when all is.
+   */
+  notHonoured: string | null;
+}
+
+/**
+ * ThingsBoard's exchange form → the shape stored here (ruling CV-3). Runs on an
+ * import AFTER `upgradeThingsboardConfig`, so `config` is at the modelled version.
+ *  - Save time series: a `processingSettings` object SETS the toggle
+ *    `skipLatestPersistence` (written as a boolean) and is kept as it came; a
+ *    strategy not built here is named in `notHonoured` (the toggle still follows
+ *    the latest strategy; an unknown setting leaves the toggle as given). With no
+ *    `processingSettings`, the toggle is read as ThingsBoard's v0 reads it
+ *    (`asText` "true") and ThingsBoard's own v0 → v1 form is stored beside it.
+ *  - Save attributes: a strategy not built here is named; no `processingSettings`
+ *    → ThingsBoard's default (On every message).
+ *  - Every other node: a copy, unchanged.
+ */
+export function fromThingsboardConfig(type: string, config: Record<string, unknown>): ThingsboardConfigImport {
+  const c = cloneJson(config);
+  if (type === 'tb:action:save-timeseries') {
+    const givenToggle = asText(c.skipLatestPersistence) === 'true';
+    if (!isPlainObject(c.processingSettings)) {
+      return { config: { ...c, skipLatestPersistence: givenToggle, processingSettings: timeseriesSettingsFor(givenToggle) }, notHonoured: null };
+    }
+    const judged = timeseriesSettingsJudge(c.processingSettings);
+    const skipLatest = judged.skipLatest ?? givenToggle;
+    const consequence = `it saves every reading and ${skipLatest ? 'does not update' : 'updates'} the latest readings`;
+    return { config: { ...c, skipLatestPersistence: skipLatest }, notHonoured: notBuiltNote(judged.notBuilt, consequence) };
+  }
+  if (type === 'tb:action:save-attributes') {
+    if (!isPlainObject(c.processingSettings)) return { config: { ...c, processingSettings: cloneJson(ON_EVERY_MESSAGE_SETTINGS) }, notHonoured: null };
+    return { config: c, notHonoured: notBuiltNote(attributesSettingsNotBuilt(c.processingSettings), 'it saves the attributes of every message') };
+  }
+  return { config: c, notHonoured: null };
+}
+
+/**
+ * The shape stored here → ThingsBoard's exchange form, at the modelled version
+ * (ruling CV-3). A copy; the stored configuration is never touched.
+ *  - Save time series: NO `skipLatestPersistence` (ThingsBoard's v1 class has no
+ *    such field, and its Jackson refuses an unknown one — the node would not
+ *    start); `processingSettings` kept verbatim when it agrees with the toggle,
+ *    else — contradicting, absent or unreadable — exactly what ThingsBoard's own
+ *    v0 → v1 upgrade writes for the toggle's value.
+ *  - Save attributes: `processingSettings` kept; none → On every message
+ *    (ThingsBoard's `@NotNull` refuses a chain without one).
+ *  - Every other node: a copy, unchanged.
+ */
+export function toThingsboardConfig(type: string, config: Record<string, unknown>): Record<string, unknown> {
+  const c = cloneJson(config);
+  if (type === 'tb:action:save-timeseries') {
+    const { skipLatestPersistence, ...rest } = c;
+    const toggle = skipLatestPersistence === true;
+    const stored = isPlainObject(rest.processingSettings) ? timeseriesSettingsJudge(rest.processingSettings).skipLatest : null;
+    return stored === toggle ? rest : { ...rest, processingSettings: timeseriesSettingsFor(toggle) };
+  }
+  if (type === 'tb:action:save-attributes') {
+    return isPlainObject(c.processingSettings) ? c : { ...c, processingSettings: cloneJson(ON_EVERY_MESSAGE_SETTINGS) };
+  }
+  return c;
 }

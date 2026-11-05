@@ -5,7 +5,7 @@ import {
   RULE_RELATION_SUCCESS, RULE_RELATION_FAILURE, RULE_RELATION_TRUE, RULE_RELATION_FALSE, RULE_RELATION_OTHER,
   RULE_ORIGINATOR_TYPES, RULE_ORIGINATOR_TYPE_LABELS, TB_ENTITY_TYPE_ALIASES, RULE_DEBUG_MODES,
   RULE_NODE_NAME_MAX, RULE_CHAIN_NAME_MAX, RULE_CHAIN_NODES_MAX, RULE_MATH_OPERATIONS, toRuleNodeTypeDescriptor,
-  visibleRuleNodeFields, coerceThingsboardScalars, upgradeThingsboardConfig,
+  visibleRuleNodeFields, coerceThingsboardScalars, upgradeThingsboardConfig, fromThingsboardConfig, toThingsboardConfig,
 } from '../rule-nodes.js';
 
 /**
@@ -354,6 +354,18 @@ describe('built nodes — descriptors, defaults and config schemas', () => {
     }
   });
 
+  it('Save attributes\' two toggles SAY what they do here (TB-P 7 — no silent dead toggle); Save time series names its ThingsBoard form', () => {
+    const help = (type: string, key: string) => RULE_NODE_TYPE_BY_ID.get(type)!.fields.find((f) => f.key === key)?.help ?? '';
+    const onlyOnChange = help('tb:action:save-attributes', 'updateAttributesOnlyOnValueChange');
+    expect(onlyOnChange).toMatch(/never written or audited again/);
+    expect(onlyOnChange).toMatch(/Off: the Attributes Updated message lists every key of the message/);
+    const notify = help('tb:action:save-attributes', 'sendAttributesUpdatedNotification');
+    expect(notify).toMatch(/only when a value changed/);
+    expect(notify).toMatch(/never for the client scope/);
+    expect(notify).toMatch(/Re-enter on rule-node writes/);
+    expect(help('tb:action:save-timeseries', 'skipLatestPersistence')).toMatch(/processing settings/);
+  });
+
   it('both gateway-reaching defaults run TO the originator (the link runs gateway → instrument)', () => {
     // Change originator: RELATED is the gateway.
     const co = RULE_NODE_TYPE_BY_ID.get('tb:transformation:change-originator')!;
@@ -432,8 +444,9 @@ describe('upgradeThingsboardConfig — ThingsBoard\'s own configuration upgrades
   });
 
   it('an older version of a node whose upgrade is NOT mirrored is "not-upgraded", the config untouched', () => {
-    expect(up('tb:action:save-timeseries', 0, { defaultTTL: 0 })).toEqual({ outcome: 'not-upgraded', config: { defaultTTL: 0 } });
-    expect(up('tb:action:save-attributes', 2, { scope: 'CLIENT_SCOPE' }).outcome).toBe('not-upgraded');
+    // Additive-only upgrades still not mirrored (CV-1's list): the Generator, REST API call.
+    expect(up('tb:action:generator', 0, { periodInSeconds: 1 })).toEqual({ outcome: 'not-upgraded', config: { periodInSeconds: 1 } });
+    expect(up('tb:external:rest-api-call', 3, { restEndpointUrlPattern: 'http://x' }).outcome).toBe('not-upgraded');
     expect(up('tb:action:save-attributes', 3, { scope: 'CLIENT_SCOPE' }).outcome).toBe('current');
   });
 
@@ -452,6 +465,241 @@ describe('upgradeThingsboardConfig — ThingsBoard\'s own configuration upgrades
       (back.processingSettings as { type: string }).type = 'CHANGED';
       expect(given.processingSettings.type).toBe('ON_EVERY_MESSAGE');
     }
+  });
+});
+
+// ─── Ruling CV-3 (2026-11-05): every meaning-changing ThingsBoard upgrade, mirrored ─────
+//
+// Each vector below is read off ThingsBoard master (commit e48b5780, 2026-11-02): the
+// node's own `upgrade()` and, where ThingsBoard has one, its unit test's upgrade vectors
+// (TbMsgTimeseriesNodeTest / TbMsgAttributesNodeTest `givenFromVersionAndConfig_…`).
+
+const ON_EVERY = { type: 'ON_EVERY_MESSAGE' };
+/** What TbMsgTimeseriesNode.upgrade writes for skipLatestPersistence "true". */
+const SKIP_LATEST = {
+  type: 'ADVANCED', timeseries: { type: 'ON_EVERY_MESSAGE' }, latest: { type: 'SKIP' },
+  webSockets: { type: 'ON_EVERY_MESSAGE' }, calculatedFields: { type: 'ON_EVERY_MESSAGE' },
+};
+
+describe('upgradeThingsboardConfig — CV-3: Save time series / Save attributes (TbMsgTimeseriesNode, TbMsgAttributesNode)', () => {
+  const up = upgradeThingsboardConfig;
+
+  it('Save time series v0 → v1: skipLatestPersistence "true" becomes Advanced (latest SKIP), anything else On every message; the v0 key goes', () => {
+    const T = 'tb:action:save-timeseries';
+    // ThingsBoard's four test vectors.
+    expect(up(T, 0, { defaultTTL: 0, useServerTs: false, skipLatestPersistence: false }))
+      .toEqual({ outcome: 'upgraded', config: { defaultTTL: 0, useServerTs: false, processingSettings: ON_EVERY } });
+    expect(up(T, 0, { defaultTTL: 0, useServerTs: false }))
+      .toEqual({ outcome: 'upgraded', config: { defaultTTL: 0, useServerTs: false, processingSettings: ON_EVERY } });
+    expect(up(T, 0, { defaultTTL: 0, useServerTs: false, skipLatestPersistence: null }))
+      .toEqual({ outcome: 'upgraded', config: { defaultTTL: 0, useServerTs: false, processingSettings: ON_EVERY } });
+    expect(up(T, 0, { defaultTTL: 0, useServerTs: false, skipLatestPersistence: true }))
+      .toEqual({ outcome: 'upgraded', config: { defaultTTL: 0, useServerTs: false, processingSettings: SKIP_LATEST } });
+    // Jackson's asText(): the string "true" counts; "TRUE" does not.
+    expect(up(T, 0, { skipLatestPersistence: 'true' }).config).toEqual({ processingSettings: SKIP_LATEST });
+    expect(up(T, 0, { skipLatestPersistence: 'TRUE' }).config).toEqual({ processingSettings: ON_EVERY });
+    // ThingsBoard 3.6.4's root chain ships this node at v0 with { defaultTTL: 0 }.
+    expect(up(T, 0, { defaultTTL: 0 })).toEqual({ outcome: 'upgraded', config: { defaultTTL: 0, processingSettings: ON_EVERY } });
+    expect(up(T, 1, { processingSettings: ON_EVERY }).outcome).toBe('current');
+  });
+
+  it('Save attributes v0 / v1 / v2 → v3: ThingsBoard\'s eight test vectors', () => {
+    const T = 'tb:action:save-attributes';
+    const v3 = (scope: string, notifyDevice: boolean, onlyOnChange: boolean) => ({
+      outcome: 'upgraded',
+      config: { processingSettings: ON_EVERY, scope, notifyDevice, sendAttributesUpdatedNotification: false, updateAttributesOnlyOnValueChange: onlyOnChange },
+    });
+    // v0, flags as strings, no updateAttributesOnlyOnValueChange → false (v0 never compared values).
+    expect(up(T, 0, { scope: 'CLIENT_SCOPE', notifyDevice: 'false', sendAttributesUpdatedNotification: 'false' })).toEqual(v3('CLIENT_SCOPE', false, false));
+    expect(up(T, 0, { scope: 'CLIENT_SCOPE', notifyDevice: false, sendAttributesUpdatedNotification: false, updateAttributesOnlyOnValueChange: true }))
+      .toEqual(v3('CLIENT_SCOPE', false, true));
+    expect(up(T, 1, { scope: 'SHARED_SCOPE', notifyDevice: true, sendAttributesUpdatedNotification: false, updateAttributesOnlyOnValueChange: true }))
+      .toEqual(v3('SHARED_SCOPE', true, true));
+    // No flags at all: notifyDevice absent → TRUE (backward compatibility: the node once always notified).
+    expect(up(T, 1, { scope: 'CLIENT_SCOPE' })).toEqual(v3('CLIENT_SCOPE', true, true));
+    expect(up(T, 1, { scope: 'CLIENT_SCOPE', notifyDevice: 'false', sendAttributesUpdatedNotification: 'false', updateAttributesOnlyOnValueChange: 'true' }))
+      .toEqual(v3('CLIENT_SCOPE', false, true));
+    expect(up(T, 1, { scope: 'CLIENT_SCOPE', notifyDevice: 'false', sendAttributesUpdatedNotification: false, updateAttributesOnlyOnValueChange: true }))
+      .toEqual(v3('CLIENT_SCOPE', false, true));
+    // A text that is not a boolean ("null") takes the default — true for notifyDevice.
+    expect(up(T, 1, { scope: 'CLIENT_SCOPE', notifyDevice: 'null', sendAttributesUpdatedNotification: false, updateAttributesOnlyOnValueChange: true }))
+      .toEqual(v3('CLIENT_SCOPE', true, true));
+    // ThingsBoard 3.6.4's root chain ships Save Client Attributes at v2: only processingSettings is added.
+    expect(up(T, 2, { scope: 'SERVER_SCOPE', notifyDevice: false, sendAttributesUpdatedNotification: false, updateAttributesOnlyOnValueChange: true }))
+      .toEqual(v3('SERVER_SCOPE', false, true));
+  });
+
+  it('Save attributes: the cases fall through (v0 runs v1 and v2 too); a JSON null is "absent"; the text is trimmed (TextNode.asBoolean)', () => {
+    const T = 'tb:action:save-attributes';
+    expect(up(T, 0, { scope: 'SERVER_SCOPE' }).config).toEqual({
+      scope: 'SERVER_SCOPE', updateAttributesOnlyOnValueChange: false, notifyDevice: true, sendAttributesUpdatedNotification: false, processingSettings: ON_EVERY,
+    });
+    // v0 with the key present but null: `has` is true at v0, then v1's hasNonNull is false → true.
+    expect(up(T, 0, { updateAttributesOnlyOnValueChange: null }).config.updateAttributesOnlyOnValueChange).toBe(true);
+    expect(up(T, 1, { notifyDevice: null }).config.notifyDevice).toBe(true);
+    expect(up(T, 1, { sendAttributesUpdatedNotification: ' true ' }).config.sendAttributesUpdatedNotification).toBe(true);
+    expect(up(T, 1, { sendAttributesUpdatedNotification: 'TRUE' }).config.sendAttributesUpdatedNotification).toBe(false);
+    // v2 REPLACES whatever processingSettings it carried, as ThingsBoard does.
+    expect(up(T, 2, { processingSettings: { type: 'DEDUPLICATE', deduplicationIntervalSecs: 5 } }).config.processingSettings).toEqual(ON_EVERY);
+  });
+});
+
+describe('upgradeThingsboardConfig — CV-3: the enrichment nodes\' v0 upgrades', () => {
+  const up = upgradeThingsboardConfig;
+
+  it('Originator attributes and Related device attributes v0: fetchToData → fetchTo (TbAbstractGetAttributesNode\'s rule)', () => {
+    for (const T of ['tb:enrichment:originator-attributes', 'tb:enrichment:related-device-attributes']) {
+      expect(up(T, 0, { fetchToData: true, latestTsKeyNames: ['t'] }), T).toEqual({ outcome: 'upgraded', config: { latestTsKeyNames: ['t'], fetchTo: 'DATA' } });
+      expect(up(T, 0, { fetchToData: 'false' }).config, T).toEqual({ fetchTo: 'METADATA' });
+      // Absent → METADATA, even over a fetchTo already there; a JSON null → removed, METADATA.
+      expect(up(T, 0, { fetchTo: 'DATA' }).config, T).toEqual({ fetchTo: 'METADATA' });
+      expect(up(T, 0, { fetchToData: null }).config, T).toEqual({ fetchTo: 'METADATA' });
+      // Only an unexpected value makes ThingsBoard throw.
+      expect(up(T, 0, { fetchToData: 'yes' }), T).toEqual({ outcome: 'not-upgraded', config: { fetchToData: 'yes' } });
+      expect(up(T, 1, { fetchToData: true }).outcome, T).toBe('current');
+    }
+  });
+
+  it('Tenant details v0: addToMetadata → fetchTo, true meaning METADATA; a missing key throws in ThingsBoard', () => {
+    const T = 'tb:enrichment:tenant-details';
+    expect(up(T, 0, { detailsList: ['TITLE'], addToMetadata: true })).toEqual({ outcome: 'upgraded', config: { detailsList: ['TITLE'], fetchTo: 'METADATA' } });
+    expect(up(T, 0, { addToMetadata: 'false' }).config).toEqual({ fetchTo: 'DATA' });
+    expect(up(T, 0, { detailsList: [] }).outcome).toBe('not-upgraded');
+    expect(up(T, 0, { addToMetadata: null }).outcome).toBe('not-upgraded');
+  });
+
+  it('Originator fields v0: fieldsMapping → dataMapping, and fetchTo METADATA (TB-P 5 — the handler needs no fallback)', () => {
+    const T = 'tb:enrichment:originator-fields';
+    expect(up(T, 0, { fieldsMapping: { name: 'deviceName' }, ignoreNullStrings: true, fetchTo: 'DATA' }))
+      .toEqual({ outcome: 'upgraded', config: { dataMapping: { name: 'deviceName' }, ignoreNullStrings: true, fetchTo: 'METADATA' } });
+    expect(up(T, 0, { dataMapping: { name: 'x' } }).outcome).toBe('not-upgraded');
+  });
+
+  it('Tenant attributes v0: attrMapping → dataMapping, telemetry → dataToFetch, fetchTo METADATA; both keys required', () => {
+    const T = 'tb:enrichment:tenant-attributes';
+    expect(up(T, 0, { attrMapping: { limit: 'lim' }, telemetry: false }))
+      .toEqual({ outcome: 'upgraded', config: { dataMapping: { limit: 'lim' }, dataToFetch: 'ATTRIBUTES', fetchTo: 'METADATA' } });
+    expect(up(T, 0, { attrMapping: {}, telemetry: 'true' }).config).toEqual({ dataMapping: {}, dataToFetch: 'LATEST_TELEMETRY', fetchTo: 'METADATA' });
+    expect(up(T, 0, { attrMapping: {} }).outcome).toBe('not-upgraded');
+    expect(up(T, 0, { telemetry: false }).outcome).toBe('not-upgraded');
+    expect(up(T, 0, { attrMapping: {}, telemetry: 'maybe' })).toEqual({ outcome: 'not-upgraded', config: { attrMapping: {}, telemetry: 'maybe' } });
+  });
+
+  it('Originator telemetry v0 / v1 → v2: orderBy / aggregation from fetchMode, limit 1000; v0 falls through into v1', () => {
+    const T = 'tb:enrichment:originator-telemetry';
+    expect(up(T, 0, { fetchMode: 'FIRST' }).config).toEqual({ fetchMode: 'FIRST', orderBy: 'ASC', aggregation: 'NONE', limit: 1000 });
+    expect(up(T, 0, { fetchMode: 'LAST', limit: 5 }).config).toEqual({ fetchMode: 'LAST', orderBy: 'DESC', aggregation: 'NONE', limit: 5 });
+    // ALL: a blank / null orderBy or aggregation is given its default; an absent one is v1's to fill.
+    expect(up(T, 0, { fetchMode: 'ALL', orderBy: '', aggregation: null }).config).toEqual({ fetchMode: 'ALL', orderBy: 'ASC', aggregation: 'NONE', limit: 1000 });
+    expect(up(T, 0, { fetchMode: 'ALL', orderBy: 'DESC' }).config).toEqual({ fetchMode: 'ALL', orderBy: 'DESC', aggregation: 'NONE', limit: 1000 });
+    // An unknown fetchMode becomes LAST.
+    expect(up(T, 0, { fetchMode: 'MIDDLE' }).config).toEqual({ fetchMode: 'LAST', orderBy: 'DESC', aggregation: 'NONE', limit: 1000 });
+    expect(up(T, 0, {})).toEqual({ outcome: 'upgraded', config: { limit: 1000 } });
+    expect(up(T, 1, { fetchMode: 'ALL', limit: 10 }).config).toEqual({ fetchMode: 'ALL', limit: 10, aggregation: 'NONE', orderBy: 'ASC' });
+    expect(up(T, 1, { fetchMode: 'FIRST' }).config).toEqual({ fetchMode: 'FIRST', limit: 1000 });
+    expect(up(T, 2, { fetchMode: 'FIRST' }).outcome).toBe('current');
+  });
+
+  it('Calculate delta v0 (additive): excludeZeroDeltas absent → false', () => {
+    const T = 'tb:enrichment:calculate-delta';
+    expect(up(T, 0, { inputValueKey: 'a' })).toEqual({ outcome: 'upgraded', config: { inputValueKey: 'a', excludeZeroDeltas: false } });
+    expect(up(T, 0, { excludeZeroDeltas: true })).toEqual({ outcome: 'upgraded', config: { excludeZeroDeltas: true } });
+  });
+});
+
+describe('fromThingsboardConfig / toThingsboardConfig — CV-3: ONE source of truth per node, ThingsBoard\'s form at the boundary', () => {
+  const TS = 'tb:action:save-timeseries';
+  const ATTR = 'tb:action:save-attributes';
+  const adv = (over: Record<string, unknown>) => ({ ...SKIP_LATEST, latest: ON_EVERY, ...over });
+
+  it('Save time series import: processingSettings sets the toggle (explicitly), and is kept as it came', () => {
+    expect(fromThingsboardConfig(TS, { defaultTTL: 0, processingSettings: ON_EVERY }))
+      .toEqual({ config: { defaultTTL: 0, processingSettings: ON_EVERY, skipLatestPersistence: false }, notHonoured: null });
+    expect(fromThingsboardConfig(TS, { processingSettings: SKIP_LATEST }))
+      .toEqual({ config: { processingSettings: SKIP_LATEST, skipLatestPersistence: true }, notHonoured: null });
+    expect(fromThingsboardConfig(TS, { processingSettings: adv({}) }).config.skipLatestPersistence).toBe(false);
+    // The setting wins over a stale toggle beside it.
+    expect(fromThingsboardConfig(TS, { skipLatestPersistence: true, processingSettings: ON_EVERY }).config.skipLatestPersistence).toBe(false);
+    // WebSockets / calculated fields have no counterpart here: never judged, never warned about.
+    expect(fromThingsboardConfig(TS, { processingSettings: adv({ webSockets: { type: 'SKIP' }, calculatedFields: { type: 'DEDUPLICATE', deduplicationIntervalSecs: 9 } }) }))
+      .toEqual({ config: expect.objectContaining({ skipLatestPersistence: false }), notHonoured: null });
+  });
+
+  it('Save time series import: a strategy not built here sets the toggle from the latest strategy and is NAMED in one note', () => {
+    const dedupe = fromThingsboardConfig(TS, { processingSettings: { type: 'DEDUPLICATE', deduplicationIntervalSecs: 60 } });
+    expect(dedupe.config.skipLatestPersistence).toBe(false);
+    expect(dedupe.config.processingSettings).toEqual({ type: 'DEDUPLICATE', deduplicationIntervalSecs: 60 });
+    expect(dedupe.notHonoured).toBe('processing settings not built here (Deduplicate every 60 s) — it saves every reading and updates the latest readings.');
+    const ws = fromThingsboardConfig(TS, { processingSettings: { type: 'WEBSOCKETS_ONLY' } });
+    expect(ws.config.skipLatestPersistence).toBe(true);
+    expect(ws.notHonoured).toBe('processing settings not built here (WebSockets only) — it saves every reading and does not update the latest readings.');
+    const mixed = fromThingsboardConfig(TS, { processingSettings: adv({ timeseries: { type: 'SKIP' }, latest: { type: 'DEDUPLICATE', deduplicationIntervalSecs: 10 } }) });
+    expect(mixed.config.skipLatestPersistence).toBe(false);
+    expect(mixed.notHonoured).toBe('processing settings not built here (time series: Skip; latest: Deduplicate every 10 s) — it saves every reading and updates the latest readings.');
+    // A type ThingsBoard does not have either: the toggle stays as the config gives it.
+    const odd = fromThingsboardConfig(TS, { skipLatestPersistence: 'true', processingSettings: { type: 'BATCH' } });
+    expect(odd.config).toEqual({ skipLatestPersistence: true, processingSettings: { type: 'BATCH' } });
+    expect(odd.notHonoured).toBe('processing settings not built here (type "BATCH") — it saves every reading and does not update the latest readings.');
+  });
+
+  it('Save time series import with NO processingSettings: the toggle as given (Jackson asText "true"), and ThingsBoard\'s v0 → v1 form beside it', () => {
+    expect(fromThingsboardConfig(TS, { defaultTTL: 0 })).toEqual({
+      config: { defaultTTL: 0, skipLatestPersistence: false, processingSettings: ON_EVERY }, notHonoured: null,
+    });
+    expect(fromThingsboardConfig(TS, { skipLatestPersistence: 'true', processingSettings: null }).config)
+      .toEqual({ skipLatestPersistence: true, processingSettings: SKIP_LATEST });
+  });
+
+  it('Save time series export: no toggle key (ThingsBoard\'s v1 class has none); the stored setting verbatim unless it contradicts the toggle', () => {
+    // Consistent → verbatim.
+    expect(toThingsboardConfig(TS, { defaultTTL: 0, skipLatestPersistence: true, processingSettings: SKIP_LATEST })).toEqual({ defaultTTL: 0, processingSettings: SKIP_LATEST });
+    expect(toThingsboardConfig(TS, { skipLatestPersistence: false, processingSettings: { type: 'DEDUPLICATE', deduplicationIntervalSecs: 60 } }))
+      .toEqual({ processingSettings: { type: 'DEDUPLICATE', deduplicationIntervalSecs: 60 } });
+    expect(toThingsboardConfig(TS, { skipLatestPersistence: true, processingSettings: { type: 'WEBSOCKETS_ONLY' } })).toEqual({ processingSettings: { type: 'WEBSOCKETS_ONLY' } });
+    // Contradicting, absent or unreadable → exactly what ThingsBoard's own v0 → v1 upgrade writes for the toggle.
+    expect(toThingsboardConfig(TS, { skipLatestPersistence: true, processingSettings: ON_EVERY })).toEqual({ processingSettings: SKIP_LATEST });
+    expect(toThingsboardConfig(TS, { skipLatestPersistence: false, processingSettings: SKIP_LATEST })).toEqual({ processingSettings: ON_EVERY });
+    expect(toThingsboardConfig(TS, { useServerTs: true })).toEqual({ useServerTs: true, processingSettings: ON_EVERY });
+    expect(toThingsboardConfig(TS, { skipLatestPersistence: true, processingSettings: { type: 'BATCH' } })).toEqual({ processingSettings: SKIP_LATEST });
+  });
+
+  it('Save time series: ONE predicate both ways — every known setting survives import → export verbatim', () => {
+    for (const ps of [ON_EVERY, SKIP_LATEST, adv({}), { type: 'WEBSOCKETS_ONLY' }, { type: 'DEDUPLICATE', deduplicationIntervalSecs: 60 },
+      adv({ latest: { type: 'DEDUPLICATE', deduplicationIntervalSecs: 5 } }), adv({ timeseries: { type: 'SKIP' }, latest: { type: 'SKIP' } })]) {
+      const stored = fromThingsboardConfig(TS, { defaultTTL: 0, processingSettings: ps }).config;
+      expect(toThingsboardConfig(TS, stored), JSON.stringify(ps)).toEqual({ defaultTTL: 0, processingSettings: ps });
+    }
+  });
+
+  it('Save attributes: what is built (save on every message) is honoured, the rest named; a missing setting is ThingsBoard\'s default', () => {
+    expect(fromThingsboardConfig(ATTR, { scope: 'SERVER_SCOPE', processingSettings: ON_EVERY })).toEqual({ config: { scope: 'SERVER_SCOPE', processingSettings: ON_EVERY }, notHonoured: null });
+    expect(fromThingsboardConfig(ATTR, { processingSettings: { type: 'ADVANCED', attributes: ON_EVERY, webSockets: { type: 'SKIP' }, calculatedFields: { type: 'SKIP' } } }).notHonoured).toBeNull();
+    expect(fromThingsboardConfig(ATTR, { processingSettings: { type: 'ADVANCED', attributes: { type: 'SKIP' }, webSockets: ON_EVERY, calculatedFields: ON_EVERY } }).notHonoured)
+      .toBe('processing settings not built here (attributes: Skip) — it saves the attributes of every message.');
+    expect(fromThingsboardConfig(ATTR, { processingSettings: { type: 'DEDUPLICATE', deduplicationIntervalSecs: 30 } }).notHonoured)
+      .toBe('processing settings not built here (Deduplicate every 30 s) — it saves the attributes of every message.');
+    expect(fromThingsboardConfig(ATTR, { processingSettings: { type: 'WEBSOCKETS_ONLY' } }).notHonoured)
+      .toBe('processing settings not built here (WebSockets only) — it saves the attributes of every message.');
+    expect(fromThingsboardConfig(ATTR, { scope: 'CLIENT_SCOPE' }).config).toEqual({ scope: 'CLIENT_SCOPE', processingSettings: ON_EVERY });
+    // Export: the stored setting verbatim; none → ThingsBoard's default (its @NotNull refuses a missing one).
+    expect(toThingsboardConfig(ATTR, { scope: 'SERVER_SCOPE', processingSettings: { type: 'DEDUPLICATE', deduplicationIntervalSecs: 30 } }))
+      .toEqual({ scope: 'SERVER_SCOPE', processingSettings: { type: 'DEDUPLICATE', deduplicationIntervalSecs: 30 } });
+    expect(toThingsboardConfig(ATTR, { scope: 'SERVER_SCOPE' })).toEqual({ scope: 'SERVER_SCOPE', processingSettings: ON_EVERY });
+  });
+
+  it('any other node passes both ways unchanged — as a copy; the input is never touched', () => {
+    const cfg = { jsScript: 'return true;', nested: { a: 1 } };
+    const imp = fromThingsboardConfig('tb:filter:script', cfg);
+    expect(imp).toEqual({ config: cfg, notHonoured: null });
+    expect(imp.config).not.toBe(cfg);
+    const exp = toThingsboardConfig('tb:filter:script', cfg);
+    expect(exp).toEqual(cfg);
+    (exp.nested as { a: number }).a = 2;
+    expect(cfg.nested.a).toBe(1);
+    const given = { skipLatestPersistence: true, processingSettings: { type: 'ON_EVERY_MESSAGE' } };
+    fromThingsboardConfig(TS, given);
+    toThingsboardConfig(TS, given);
+    expect(given).toEqual({ skipLatestPersistence: true, processingSettings: { type: 'ON_EVERY_MESSAGE' } });
   });
 });
 

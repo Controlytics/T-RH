@@ -355,9 +355,13 @@ describe('ThingsBoard export / import', () => {
     expect(r.warnings).toEqual([]);
     const [attrs, ts] = r.document.nodes.slice(2);
     expect(attrs.type).toBe('tb:action:save-attributes');
-    expect(attrs.config).toEqual({ scope: 'CLIENT_SCOPE', notifyDevice: false, sendAttributesUpdatedNotification: false, updateAttributesOnlyOnValueChange: true });
+    // (Neither carries processingSettings, so the CV-3 boundary adds ThingsBoard's default form.)
+    expect(attrs.config).toEqual({
+      scope: 'CLIENT_SCOPE', notifyDevice: false, sendAttributesUpdatedNotification: false, updateAttributesOnlyOnValueChange: true,
+      processingSettings: { type: 'ON_EVERY_MESSAGE' },
+    });
     expect(ts.type).toBe('tb:action:save-timeseries');
-    expect(ts.config).toEqual({ defaultTTL: 0, useServerTs: false });
+    expect(ts.config).toEqual({ defaultTTL: 0, useServerTs: false, skipLatestPersistence: false, processingSettings: { type: 'ON_EVERY_MESSAGE' } });
     // A string that is not a boolean still does not fit — Unsupported, with the warning.
     tb.metadata.nodes[2].configuration.notifyDevice = 'no';
     const bad = fromThingsboardExport(tb);
@@ -404,18 +408,104 @@ describe('ThingsBoard export / import', () => {
     ]);
   });
 
-  it('an older built node whose upgrade is not mirrored imports as itself, with ONE warning to review it', () => {
+  it('an older built node whose upgrade is not mirrored (or cannot apply) imports as itself, with ONE warning to review it', () => {
     const r = importNodes(
-      tbNode('telemetry.TbMsgTimeseriesNode', 'Save Timeseries', { defaultTTL: 0 }),           // v0, as ThingsBoard 3.6–3.9 ship it
-      tbNode('telemetry.TbMsgAttributesNode', 'Save Attributes', { scope: 'CLIENT_SCOPE' }, 2),
-      tbNode('filter.TbCheckRelationNode', 'No direction', { relationType: 'Contains' }),       // the upgrade cannot apply
+      tbNode('debug.TbMsgGeneratorNode', 'Generator v0', { periodInSeconds: 1, jsScript: 'return {};' }),  // additive upgrade, not mirrored
+      tbNode('filter.TbCheckRelationNode', 'No direction', { relationType: 'Contains' }),                   // the upgrade cannot apply
     );
     expect(r.warnings).toEqual([
-      'Node "Save Timeseries": configuration version 0 is older than 1 — review its settings.',
-      'Node "Save Attributes": configuration version 2 is older than 3 — review its settings.',
+      'Node "Generator v0": configuration version 0 is older than 2 — review its settings.',
       'Node "No direction": configuration version 0 is older than 1 — review its settings.',
     ]);
-    expect(r.document.nodes.map((n) => n.type)).toEqual(['tb:action:save-timeseries', 'tb:action:save-attributes', 'tb:filter:check-relation-presence']);
+    expect(r.document.nodes.map((n) => n.type)).toEqual(['tb:action:generator', 'tb:filter:check-relation-presence']);
+  });
+
+  // ─── Ruling CV-3 (2026-11-05): Save time series / Save attributes and the enrichment upgrades ───
+  const ON_EVERY = { type: 'ON_EVERY_MESSAGE' };
+  const SKIP_LATEST = {
+    type: 'ADVANCED', timeseries: { type: 'ON_EVERY_MESSAGE' }, latest: { type: 'SKIP' },
+    webSockets: { type: 'ON_EVERY_MESSAGE' }, calculatedFields: { type: 'ON_EVERY_MESSAGE' },
+  };
+
+  it('ThingsBoard 3.6–3.9\'s Save Timeseries (v0) and Save Client Attributes (v2) import with NO warning, upgraded as ThingsBoard upgrades them', () => {
+    const r = importNodes(
+      tbNode('telemetry.TbMsgTimeseriesNode', 'Save Timeseries', { defaultTTL: 0 }),
+      tbNode('telemetry.TbMsgTimeseriesNode', 'History only', { defaultTTL: 0, skipLatestPersistence: true }),
+      tbNode('telemetry.TbMsgAttributesNode', 'Save Client Attributes',
+        { scope: 'CLIENT_SCOPE', notifyDevice: false, sendAttributesUpdatedNotification: false, updateAttributesOnlyOnValueChange: true }, 2),
+      tbNode('telemetry.TbMsgAttributesNode', 'Old save', { scope: 'SERVER_SCOPE' }),                       // v0
+    );
+    expect(r.warnings).toEqual([]);
+    expect(r.document.nodes.map((n) => n.config)).toEqual([
+      { defaultTTL: 0, skipLatestPersistence: false, processingSettings: ON_EVERY },
+      { defaultTTL: 0, skipLatestPersistence: true, processingSettings: SKIP_LATEST },
+      { scope: 'CLIENT_SCOPE', notifyDevice: false, sendAttributesUpdatedNotification: false, updateAttributesOnlyOnValueChange: true, processingSettings: ON_EVERY },
+      // ThingsBoard's v0 rules: notifyDevice absent → TRUE, updateAttributesOnlyOnValueChange absent → false.
+      { scope: 'SERVER_SCOPE', updateAttributesOnlyOnValueChange: false, notifyDevice: true, sendAttributesUpdatedNotification: false, processingSettings: ON_EVERY },
+    ]);
+  });
+
+  it('a v1 Save time series: processingSettings sets the toggle; a strategy not built here imports with ONE warning naming it', () => {
+    const r = importNodes(
+      tbNode('telemetry.TbMsgTimeseriesNode', 'Skip latest', { defaultTTL: 0, useServerTs: false, processingSettings: SKIP_LATEST }, 1),
+      tbNode('telemetry.TbMsgTimeseriesNode', 'Dedupe', { defaultTTL: 0, useServerTs: false, processingSettings: { type: 'DEDUPLICATE', deduplicationIntervalSecs: 60 } }, 1),
+      tbNode('telemetry.TbMsgAttributesNode', 'Attrs skip', { scope: 'SERVER_SCOPE', processingSettings: { type: 'ADVANCED', attributes: { type: 'SKIP' }, webSockets: ON_EVERY, calculatedFields: ON_EVERY } }, 3),
+    );
+    expect(r.warnings).toEqual([
+      'Node "Dedupe" (Save time series): processing settings not built here (Deduplicate every 60 s) — it saves every reading and updates the latest readings.',
+      'Node "Attrs skip" (Save attributes): processing settings not built here (attributes: Skip) — it saves the attributes of every message.',
+    ]);
+    expect(r.document.nodes.map((n) => n.type)).toEqual(['tb:action:save-timeseries', 'tb:action:save-timeseries', 'tb:action:save-attributes']);
+    expect(r.document.nodes.map((n) => n.config.skipLatestPersistence)).toEqual([true, false, undefined]);
+    // processingSettings is kept as it came.
+    expect(r.document.nodes[1].config.processingSettings).toEqual({ type: 'DEDUPLICATE', deduplicationIntervalSecs: 60 });
+  });
+
+  it('export writes Save time series at v1 with NO skipLatestPersistence key and a processingSettings consistent with the toggle', () => {
+    const consistent = node(A, 'tb:action:save-timeseries', { config: { defaultTTL: 0, useServerTs: false, skipLatestPersistence: true, processingSettings: SKIP_LATEST } });
+    const contradicting = node(B, 'tb:action:save-timeseries', { config: { defaultTTL: 0, useServerTs: false, skipLatestPersistence: true, processingSettings: ON_EVERY } });
+    const attrsNoSetting = node(C, 'tb:action:save-attributes', { config: { scope: 'SERVER_SCOPE', notifyDevice: false } });
+    const tb = toThingsboardExport('C', false, doc({ nodes: [consistent, contradicting, attrsNoSetting], connections: [], firstNodeId: null }));
+    expect(tb.metadata.nodes.map((n) => n.configurationVersion)).toEqual([1, 1, 3]);
+    expect(tb.metadata.nodes.map((n) => n.configuration)).toEqual([
+      { defaultTTL: 0, useServerTs: false, processingSettings: SKIP_LATEST },
+      { defaultTTL: 0, useServerTs: false, processingSettings: SKIP_LATEST },   // ThingsBoard's own v0 → v1 form for "true"
+      { scope: 'SERVER_SCOPE', notifyDevice: false, processingSettings: ON_EVERY },
+    ]);
+    // The stored chain is not touched by an export.
+    expect(contradicting.config.processingSettings).toEqual(ON_EVERY);
+    expect(contradicting.config.skipLatestPersistence).toBe(true);
+  });
+
+  it('import(export(import(x))) is import(x) for every known Save time series strategy (one predicate both ways)', () => {
+    for (const ps of [ON_EVERY, SKIP_LATEST, { type: 'WEBSOCKETS_ONLY' }, { type: 'DEDUPLICATE', deduplicationIntervalSecs: 60 }]) {
+      const once = importNodes(tbNode('telemetry.TbMsgTimeseriesNode', 'TS', { defaultTTL: 0, useServerTs: false, processingSettings: ps }, 1));
+      const twice = fromThingsboardExport(JSON.parse(JSON.stringify(toThingsboardExport('V', false, once.document))));
+      expect(ruleChainsEqual(twice.document, once.document), JSON.stringify(ps)).toBe(true);
+      expect(twice.warnings, JSON.stringify(ps)).toEqual(once.warnings);
+    }
+  });
+
+  it('the enrichment nodes\' v0 exports import upgraded, with no warning (fetchToData, addToMetadata, fieldsMapping, attrMapping, fetchMode)', () => {
+    const r = importNodes(
+      tbNode('metadata.TbGetAttributesNode', 'Attrs', { serverAttributeNames: ['limit'], fetchToData: true, tellFailureIfAbsent: false }),
+      tbNode('metadata.TbGetTenantDetailsNode', 'Tenant', { detailsList: ['TITLE'], addToMetadata: true }),
+      tbNode('metadata.TbGetOriginatorFieldsNode', 'Fields', { fieldsMapping: { name: 'deviceName' } }),
+      tbNode('metadata.TbGetTenantAttributeNode', 'Tenant attrs', { attrMapping: { limit: 'lim' }, telemetry: false }),
+      tbNode('metadata.TbGetTelemetryNode', 'Telemetry', { latestTsKeyNames: ['t'], fetchMode: 'LAST', startInterval: 2, endInterval: 1 }, 1),
+    );
+    expect(r.warnings).toEqual([]);
+    expect(r.document.nodes.map((n) => n.type)).toEqual([
+      'tb:enrichment:originator-attributes', 'tb:enrichment:tenant-details', 'tb:enrichment:originator-fields',
+      'tb:enrichment:tenant-attributes', 'tb:enrichment:originator-telemetry',
+    ]);
+    expect(r.document.nodes.map((n) => n.config)).toEqual([
+      { serverAttributeNames: ['limit'], tellFailureIfAbsent: false, fetchTo: 'DATA' },
+      { detailsList: ['TITLE'], fetchTo: 'METADATA' },
+      { dataMapping: { name: 'deviceName' }, fetchTo: 'METADATA' },
+      { dataMapping: { limit: 'lim' }, dataToFetch: 'ATTRIBUTES', fetchTo: 'METADATA' },
+      { latestTsKeyNames: ['t'], fetchMode: 'LAST', startInterval: 2, endInterval: 1, limit: 1000 },
+    ]);
   });
 
   it('EVERY built node round-trips export → import unchanged, with no warning (no upgrade re-applied)', () => {

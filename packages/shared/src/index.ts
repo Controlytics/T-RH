@@ -331,12 +331,12 @@ export {
   RULE_ALARM_STATUSES, RULE_MATH_OPERATIONS, RULE_ORIGINATOR_FIELDS,
   RULE_NODE_TYPES, RULE_NODE_TYPE_BY_ID, RULE_NODE_TYPE_BY_TB_CLASS, BUILT_RULE_NODE_TYPES,
   toRuleNodeTypeDescriptor, newRuleNodeConfig, ruleNodeConfigWithDefaults, visibleRuleNodeFields, coerceThingsboardScalars,
-  upgradeThingsboardConfig,
+  upgradeThingsboardConfig, fromThingsboardConfig, toThingsboardConfig,
 } from './types/rule-nodes.js';
 export type {
   RuleNodeGroup, RuleNodeStatus, RuleOriginatorType, RuleDebugMode, RuleMessageType,
   RuleNodeFieldType, RuleNodeFieldOption, RuleNodeConfigField, RuleNodeTypeSpec, RuleNodeTypeDescriptor,
-  ThingsboardConfigUpgrade,
+  ThingsboardConfigUpgrade, ThingsboardConfigImport,
 } from './types/rule-nodes.js';
 export {
   RULE_CHAIN_DOCUMENT_VERSION, RULE_CHAIN_CONNECTIONS_MAX, DEFAULT_ROOT_CHAIN_NAME, DEFAULT_ROOT_CHAIN_NODE_IDS,
