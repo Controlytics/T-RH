@@ -149,11 +149,15 @@ change HERE must not get wrong:
 - **Configuration keys and defaults are ThingsBoard's `defaultConfiguration()`.** ThingsBoard's Jackson REFUSES unknown keys
   (`FAIL_ON_UNKNOWN_PROPERTIES`), so a key added to a `defaultConfig` that ThingsBoard's configuration class lacks makes an
   exported node fail to start in ThingsBoard (that is why export drops `skipLatestPersistence`, ruling P-3). The sweep of all
-  47 built nodes against their ThingsBoard classes is owed (final fix wave).
+  47 built nodes against their ThingsBoard classes is owed (final fix wave). **[2026-11-05: done — ZERO unknown keys,
+  every configurationVersion matches (`tb-config-key-sweep.md`); the failures were VALUES / TYPES, handled by SW-1 and
+  SW-2 below.]**
 - **`tbConfigurationVersion` is ThingsBoard master's `@RuleNode(version)`.** When it moves, mirror ThingsBoard's own upgrade
   from its source into `upgradeThingsboardConfig` (rulings CV-1, CV-3), or an older export imports with the "review its
   settings" warning. Import runs, per built node: upgrade → `coerceThingsboardScalars` → `fromThingsboardConfig` → validation
-  — in that order (a mutant running validation first was killed). Save time series' editor toggle `skipLatestPersistence` is
+  — in that order (a mutant running validation first was killed). **[CORRECTED 2026-11-05, review B M-8: that order was
+  wrong. `fromThingsboardExport` (`rule-chain-document.ts:481-491`) runs `upgradeThingsboardConfig` →
+  `fromThingsboardConfig` → `coerceThingsboardScalars` → `configSchema.safeParse`.]** Save time series' editor toggle `skipLatestPersistence` is
   the ONE source of truth; ThingsBoard 4.x's `processingSettings` is derived at the import / export boundary only.
 - **Two readers of a document, never swapped:** `parseRuleChainDocument` (STRICT, every write; a 400 naming the node) and
   `readRuleChainDocument` (FORGIVING, every read; a node that no longer passes its type reads as Unsupported, a dangling
@@ -165,6 +169,39 @@ change HERE must not get wrong:
 - `MESSAGE_TYPE_SWITCH_LABELS` is the ONE table of Message type switch labels (ThingsBoard's `TbMsgType`, `REST API request`).
   `ruleAlarmTypeName` (`alarm-type-names.ts`) names a RULE alarm by its snapshot's `alarmType` on every surface.
 - **Rebuild `dist` after an edit** (`npm run build -w @digilog/shared`): the API reads the build, the web reads the source.
+- **FINAL FIX WAVE (2026-11-05) — the shared contracts it added** (rules in `docs/feature-notes.md` RULE CHAINS →
+  "FINAL FIX WAVE"; no count moved — type files stay 42):
+  - **TB-L — ONE script rule.** `RULE_SCRIPT_KEYS` (the seven script nodes, `[JS key, TBEL twin]`; a test pins it equal to
+    the built nodes with a script field), `ruleNodeScriptKey(type, config)` / `ruleNodeScript(type, config)`: `scriptLang`
+    TBEL with a non-blank TBEL script runs THAT text as JavaScript, anything else the JS key. The handlers, the editor, the
+    import and the export all read through it. Import turns a TBEL node into `scriptLang: 'JS'` + the script the author ran,
+    ONE warning per node; export writes JS only; catalogue defaults are `'JS'`. ThingsBoard's own root chains import with
+    THREE warnings (its two TBEL Log nodes + RPC Call Request) — re-pinned deliberately.
+  - **SW-1 — ThingsBoard's entity types at the boundary.** `RULE_ORIGINATOR_TB_ENTITY_TYPES` (INSTRUMENT → DEVICE, SYSTEM →
+    TENANT); the Entity type filter and Generator OPTIONS store `DEVICE` / `TENANT` (labelled Instrument / System);
+    `canonicalRuleNodeConfig(type, config)` reads a legacy `INSTRUMENT` / `SYSTEM` as `DEVICE` / `TENANT` (import, export,
+    `showWhen` and the web form read through it; it STAYS in the barrel — web imports it);
+    `TB_ENTITY_TYPE_SWITCH_LABELS` + `entityTypeSwitchLabelFromThingsboard` / `entityTypeSwitchLabelToThingsboard` map an
+    Entity type switch's connection labels `Device` ↔ `Instrument`, `Tenant` ↔ `System` (only connections out of that switch).
+  - **SW-2 / M-7 — notes at the boundary.** `thingsboardExportNotes(type, exportedConfig)` feeds the exported chain's
+    `additionalInfo.description` (`{ description } | null`), headed `THINGSBOARD_EXPORT_NOTES_HEADER` ("Set in ThingsBoard
+    when you import this chain:" — the API's masked-credential lines use the same constant), worded "… before ThingsBoard
+    will save the chain" (a bean constraint ThingsBoard refuses) or "… after import"; it judges the configuration
+    ThingsBoard RECEIVES. `thingsboardImportNotes` warns for an id that came with the file and for
+    `useSystemSmtpSettings` / `useSystemSmsSettings: false`, `enableProxy: true` (only when explicit).
+  - **DP-1.** Device profile's `relations` are ThingsBoard's six, in its order (Alarm Created, Alarm Updated, Alarm Severity
+    Updated, Alarm Cleared, Success, Failure); the import warns once per connection a BUILT fixed-relation node can never
+    send (after the SW-1 mapping; dynamic and later / none / Unsupported nodes not judged).
+  - **REST API call** gained the `requestBodyTemplate` "Body template" field (template type, nullable, NOT in
+    `defaultConfig` — ThingsBoard's default is null). Save attributes' description and Scope help say every changed value is
+    a lasting audit row; Delete attributes' two toggles say what the handler does.
+  - The barrel (`git diff 9d6b6aac..HEAD -- packages/shared/src/index.ts`) added exactly: `RULE_SCRIPT_KEYS`,
+    `ruleNodeScriptKey`, `ruleNodeScript`, `RULE_ORIGINATOR_TB_ENTITY_TYPES`, `TB_ENTITY_TYPE_SWITCH_LABELS`,
+    `canonicalRuleNodeConfig`, `entityTypeSwitchLabelFromThingsboard`, `entityTypeSwitchLabelToThingsboard`,
+    `thingsboardExportNotes`, `thingsboardImportNotes`, `THINGSBOARD_EXPORT_NOTES_HEADER`.
+  - **Ordering trap, now closed:** the shared TB-L half (`c00bff63`) must never ship without the handler half (`9587e541`) —
+    between them a legacy TBEL node would edit one script while another ran.
+
 
 ### Type files (live, re-derived 2026-10-05)
 

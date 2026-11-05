@@ -25,17 +25,23 @@ every route in `docs/recreation/06-api/endpoints.md`.
   `alarms.createOrUpdate` changed-only (`1cc3d5f4`); RE-2 durable items never evicted, refused at capacity, handed back on
   stop, a refused job rescheduled instead of thrown (`366f9b63`); the e2e on the REAL handlers, RE-1 pinned on the real
   nodes, the `alarms.clear` origin runtime pin (`bcbe2bf3`, re-review I2).
-- [ ] **Engine fix round 3, the rest (rc-t3c, in flight when this was written)** — MQTT 3.1 passthrough + 23-char client id, fail fast on
+- [x] **Engine fix round 3, the rest** — DONE 2026-11-05 (`a7fce274`, `aef2d5b0`, `398c8004`, `daaaa0ab`, D8-1 `39ddd221`,
+  `9d6b6aac`; report `task-3c-report.md`, 39/39 mutants): MQTT 3.1 passthrough + 23-char client id, fail fast on
   a dropped client, delete `services.http.fetch`, `cert.PEM` with ssl off; Generator disable key on the live version;
   getChain-null test; onInit backoff; mutants F1 / F5 / F6; `task-3c-report.md`.
-- [ ] **Final fix wave** — fold the three template helpers (`transformation/pattern.ts`, `action/support.ts`,
+- [x] **Final fix wave** — DONE 2026-11-05 after the three whole-branch reviews (`924fda9f` .. `2b2114b6`, 52 commits; reports
+  `fw-api-report.md`, `fw-n1-report.md`, `fw-n2-report.md`, `fw-n3-report.md`; CHANGELOG "RULE CHAINS — final fix wave"; no
+  migration, no count moved). Every item below landed, plus review A C1 / M1 / M3 / M6 / M7 / I2 / I3 / I4 / I5, review B
+  C-1 (TB-L) / I-1 (AL-1, AL-2) / I-2 (DP-1) / I-3 / I-4 (TS-1) / I-5 / M-1..M-11, review C I-1..I-3, SW-1, SW-2. The
+  original list: fold the three template helpers (`transformation/pattern.ts`, `action/support.ts`,
   `external/template.ts`); Delete attributes' `sendAttributesDeletedNotification` / `notifyDevice` (the P-10 treatment, emit
   only when a key was removed); the null-value wording (`Can't parse value: {"t":null}`); the SWEEP of all 47 built nodes'
   default / exported configuration keys against their ThingsBoard configuration classes (Important — an export ThingsBoard
   cannot start is a broken export); S-6 minors (Alibaba 100.100.100.200 / Azure 168.63.129.16 literals, drop `Content-Length` on a
   bodyless request, header mask for `x-auth-key` / `x-access-key` / `x-session-id`, tests for the non-`all` lookup branch, a lane
   released when send throws, numeric URL spellings); the stale `$.values.temperature` JSON-path help in `rule-nodes.ts` (m5).
-- [ ] Whole-branch review, then the gate: API suite (single fork, test DB), shared suite, every touched web file one per process,
+- [x] Whole-branch review — DONE (`whole-review-a.md`, `-b.md`, `-c.md`; their fixes are the final fix wave).
+- [ ] The gate, and a short re-review of the final fix wave: API suite (single fork, test DB), shared suite, every touched web file one per process,
   tsc ×3, `npm run lint`, `npm run db:verify-migrations`.
 - [ ] **Operator:** restart the local dev server (`prisma generate` hit EPERM on the Prisma engine DLL while `tsx watch` held it;
   the JS client was regenerated, the engine binary was not).
@@ -49,7 +55,7 @@ every route in `docs/recreation/06-api/endpoints.md`.
   the `secrets.ts` heuristics (the key pattern over-masks `tokenKeyName`, only string leaves are masked, array secrets merge by
   index, a save with an unresolved `"***"` gives no warning, a literal password `***` cannot be stored); the two config defs carry
   no re-auth action (T2-13 — switching the engine OFF needs no password under a re-auth policy; a one-line `reauthAction` if
-  wanted); Slack incoming-webhook URL needs a catalogue field; REST URL templating inserts unencoded values (as ThingsBoard);
+  wanted) [DONE 2026-11-05: ruling D8-1, `39ddd221`, both carry `UPDATE_CONFIG_PAGE`]; Slack incoming-webhook URL needs a catalogue field; REST URL templating inserts unencoded values (as ThingsBoard);
   Check relation presence reads prisma directly; Rename keys copies before it knows a change; Deduplication makes a started
   engine poll `rule_chains` every 5 s; browser Back is not guarded by the editor's leave guard (needs a data router);
   notification templates may 403 for a MANAGE holder who is not SUPER_ADMIN (untested against a real role); the script hash
@@ -57,6 +63,36 @@ every route in `docs/recreation/06-api/endpoints.md`.
   re-add and the completion (accepted); Delay's pending count reads graphile's private tables; Calculate delta's history lookup not measured under load;
   `Double.toString` digits match JDK 19+, not verified against a ThingsBoard install's JDK; the PE class in the unknown-class
   test named from memory; node names / configs stored verbatim (escape outside React).
+- [ ] **Open after the final fix wave (2026-11-05; from the four fw reports' "Open items" and the ledger's ACCEPTED /
+  DOCUMENTED items):**
+  - **Operator question — encrypt rule-node credentials at rest?** They are plain text in `rule_chains.document` /
+    `rule_nodes.config` and in backups, unlike instrument tokens (review A M9).
+  - **Operator question — should the server refuse `RULE_CHAIN_MANAGE` to a role whose instrument view is limited?** A chain
+    acts on every instrument whatever its author sees, so the route scoping is defence in depth (fw-api open 5).
+  - **P-5** (Math TIME_SERIES stores the UNROUNDED result, as ThingsBoard does) — kept as ruled; listed for the operator.
+  - **A worker-thread script pool** — scripts run on the API's event loop, bounded per call (≤ 5 s) and by the 3-strike
+    switch-off; a script that runs just under its timeout is never switched off (review A I1, accepted for this build).
+  - **M-7 exact id resolution** — the import warns that an id "came with the file" whether or not it resolves here; a DB
+    lookup in `import-export.ts` is deferred.
+  - **`import-export.test.ts` stand-ins** — its routing / capacity tests still register stand-ins under shipped type ids,
+    beside the real-handler acceptance tests (FW-N3 open item 6, accepted).
+  - **"Skip Save nodes" OFF** — Save time series can then write an older ingest value back over a newer reading at the same
+    instant, audited as a rewrite; the shipped default (skip ON, S-3) prevents it (FW-N2 open 2).
+  - **Gson number text** — ThingsBoard's "Can't parse value" text can differ from ours for number text such as 1.50 (FW-N2
+    open 5).
+  - **The SIIT (`::ffff:0:a.b.c.d`) and 6to4 (`2002::`) spellings** of the refused metadata addresses are not covered
+    (task-6b accepted; FW-N3 N3-15).
+  - Also recorded, none blocks: a rescheduled durable message can be overtaken by a later one of the same originator (review
+    A M4); a device-mediated attribute loop (`notifyDevice` → firmware re-report) escapes RE-1 like m10; the M-5 residual (a
+    catastrophic key pattern costs ~100 ms per NEW key name until its 3 run-outs switch it off; a GC pause over 100 ms counts
+    as a run-out, never as an answer); a credential stored as `"***"` is not named in the export notes (N3-14); Send to Slack's
+    `conversation` could be made required in the strict schema (a default Slack node makes ThingsBoard refuse the exported
+    chain — the export note says so); no import warning for an Entity type filter listing a ThingsBoard-only type, or for
+    Slack `useSystemSettings: true`; ThingsBoard's default JavaScript evaluator (Nashorn) may not run ES2015+ — UNVERIFIED;
+    `Long.parseLong` with Unicode digits and a whitespace-only body template in ThingsBoard — UNVERIFIED; the dev DB holds ~900
+    permanently failed graphile jobs from dev restarts (operator's call, not needed).
+  - **Deploy owed by this wave** (beside the deploy line above): users reload; restart the dev server; no new migration;
+    real-browser check of drag / connect / pan on :5176.
 - [ ] "Later" nodes, each a feature first: GPS geofencing filter / events (lat / long keys), Related entity data and Create /
   Delete relation (relations beyond the gateway link), Device state (the activity tracker accepting an event), REST call reply
   (a synchronous REST request route), RPC call request / reply (device RPC), AI request (an AI provider).

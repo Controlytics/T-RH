@@ -1,5 +1,90 @@
 # Changelog
 
+## [Unreleased] - RULE CHAINS — final fix wave (2026-11-05)
+
+The fixes after the three read-only whole-branch reviews of the rule-chains build (`whole-review-a.md` API core,
+`-b.md` nodes and the shared catalogue, `-c.md` web), and the rest of engine fix round 3. Every ruling is in
+`.superpowers/sdd/2026-11-03-rule-chains/progress.md` from "Whole-branch review A" on (reports `fw-api-report.md`,
+`fw-n1-report.md`, `fw-n2-report.md`, `fw-n3-report.md`, `task-3c-report.md`); the rules are in `docs/feature-notes.md`
+RULE CHAINS, whose sub-bullet "FINAL FIX WAVE" summarises them and whose every superseded sentence carries a dated note.
+**Built, not pushed, not deployed. No migration** (`git diff --stat 9d6b6aac..HEAD -- apps/api/prisma` is empty) and **no
+count moved** (every System Stats count re-derived — see below).
+
+Commits (`git log --oneline 9d6b6aac..HEAD`, by area):
+- **Engine fix round 3, the rest** (before `9d6b6aac`, after the RULE CHAINS entry below was written): `a7fce274` lifecycle
+  minors (a Generator's script switch-off follows the chain's current version; a failed lifecycle start backs off 5 s ..
+  5 min) · `aef2d5b0` `398c8004` MQTT 3.1 connects as 3.1, an over-long client id refused, a dropped client fails fast,
+  `cert.PEM` without SSL warns, `services.http.fetch` removed · `daaaa0ab` the durable task's own reschedule pinned ·
+  `39ddd221` both rule-engine config defs carry the `UPDATE_CONFIG_PAGE` re-auth action (ruling D8-1) · `9d6b6aac`.
+- **Engine and routes (review A):** `d2847e2e` no flow holds the event loop — a yield after ~10 ms, `STEP_LIMIT`, an
+  administered `messageBudgetMs`, `stop()` halts, `/stats` `counters` · `bc7acc6f` nothing accepted until the
+  configuration is read · `ba8ff042` `bf6fbb29` the durable backlog handed back in batched `add_jobs` inserts in `run_at`
+  order · `8806e005` · `a14dc105` the hourly sweep deletes empty `rule-engine:` job queues · `d78a558f` `71cc027f` debug
+  and inject scoped by instrument view, 403 `ORIGINATOR_REQUIRED`, 256 KB inject, test-script 10 a minute · `ffd10633`
+  `0a351401` the bulk instrument upload emits `ENTITY_CREATED` / `ENTITY_UPDATED` · `b1b5c9bc` · `145583d5`.
+- **Shared catalogue, ThingsBoard import / export, secrets (review B):** `99e3a24e` `aca4a11b` `3f69f388` secrets
+  (`serviceAccountKey`, `sasl.jaas.config`, PEM private keys, `x-auth-key` / `x-access-key` / `x-session-id`; scripts
+  and template fields exempt) · `15a82df3` Save attributes says every changed value is an audit row · `c00bff63`
+  `37362849` TBEL imports as JavaScript (ruling TB-L) · `47b7b2bf` ThingsBoard's DEVICE / TENANT at the boundary (SW-1) ·
+  `ab0bdcff` Device profile's four alarm relations, a dead-connection import warning (DP-1) · `e09dfd96` `422bb2e0`
+  `981a3d07` `8c4f4da5` the export names what to set in ThingsBoard and every masked credential; the import names what
+  will not work here (SW-2, M-7).
+- **Alarms, writes, audit, the durable cap:** `171214e9` every alarm message from the alarm's instrument (AL-1) ·
+  `4f3a8809` a rule node's root-chain alarm message is `ENTITY_CREATED` / `ENTITY_UPDATED` / `ALARM_CLEAR` (AL-2) ·
+  `2b2114b6` an alarm update that changes nothing goes on Success; no empty `ruleNodeId` · `da23d112` Device profile
+  sends the evaluator's alarms on `Alarm Created` / `Alarm Cleared` (DP-1) · `9ce6453e` a rule write refuses an instant
+  outside ingest's window (TS-1), string ts, ThingsBoard's null wording · `a33ea0cf` Delete attributes honours its two
+  toggles · `0bed30b2` one durable job builder and the `DURABLE_QUEUE_FULL` cap · `13fbde43` the 600-a-minute audit
+  warning · `273b65c3` `8f72e910` `bb6d0c3f` a rule-engine rewrite audited as the rule engine, linked to its message ·
+  `98183ee3` debug rows keep their batch order · `be125e32` the MQTT broker through the S-6 guard · `18ebf589`.
+- **Scripts, templates, outbound:** `9587e541` every script node runs what `scriptLang` selects (TB-L) · `61f450dc` ONE
+  template rule (TP-1) · `c84ffbba` one metadata-ts reader (M-1), Math functions own-property only (M-9) · `b1ec7247`
+  typed attribute values in DATA (M-3), ThingsBoard's missing-key wording (M-11) · `4ce1f3a5` `58447bae` `2e576af4`
+  `887af67c` key patterns under the regex budget, switched off after 3 run-outs (M-5) · `3ac4720f` `46464b3c` REST
+  `requestBodyTemplate` (I-3), Content-Length on a bodyless request, two more cloud metadata hosts refused · `761d95cd`
+  `bb5cc1ed`.
+- **Web (review C):** `924fda9f` unreadable picker lists say so, the Debug drawer over the canvas, the cancel and Reload
+  paths pinned, re-adopt after Undo · `6a55825a` a node saved before SW-1 shows Instrument / System.
+
+What changed for the operator:
+- **A rule chain can no longer hold the server.** A fan-out loop ends at `STEP_LIMIT` (the hop limit × 10 node runs),
+  every flow yields to other work every ~10 ms, and the per-message budget is a setting (Configuration → Rule Engine →
+  `messageBudgetMs`, 30 s shipped). A script call still holds the server for up to its timeout (≤ 5 s); a script that runs
+  just under its timeout is never switched off (accepted; a worker-thread pool is a future item).
+- **Scoped users see and send only their instruments.** The debug list hides other instruments' events from a role whose
+  instrument view is limited, and the inject route refuses an instrument outside the caller's view or no instrument at
+  all. **Grant `RULE_CHAIN_MANAGE` only to unrestricted roles** — a chain acts on every instrument whatever its author
+  sees.
+- **Imported ThingsBoard chains run as written.** TBEL scripts run as JavaScript (one warning per node — check them;
+  ThingsBoard's own root chains now import with three true warnings), Entity type switches route "Device" / "Tenant",
+  Device profile passes the system's own alarms on "Alarm Created" / "Alarm Cleared", REST nodes send their Body
+  template. An export says, in the chain's Description, what to set in ThingsBoard and which credentials to re-enter.
+- **Alarm messages look like ThingsBoard's:** from the instrument, with `metadata.alarmId`; a rule node's alarm reaches
+  the root chain as `ENTITY_CREATED` / `ENTITY_UPDATED` / `ALARM_CLEAR`. The shipped root chain listens to none of these,
+  so nothing it does changed.
+- **§11:** a rule chain that rewrites a stored reading is audited as the rule engine, naming the chain, node and message;
+  more than 600 rule-engine audit rows in a minute logs a warning (nothing is throttled); a rule write refuses an instant
+  before 2000 or more than 10 minutes ahead.
+- **Secrets:** more credential shapes are masked (service-account keys, Kafka JAAS, PEM private keys, more header names);
+  rule-node credentials are still stored in plain text — an open question for the operator (encrypt at rest?).
+
+Counts (root `CLAUDE.md`'s live-count block plus the extra commands, re-derived 2026-11-05 at `887af67c`; `2b2114b6`
+touches no count-bearing file): models 44, enums 13, migrations 56, modules 28, permissions 48, reauth actions 59 in 8
+categories, audit actions 112, templates 125 in 7 categories, sidebar items 16, permission-tree groups 16, nodes 58,
+feature privileges 41, config defs 39, config pages 24, `<Route`s 59, hooks + lib 59 (26 + 30 + the `ls` header lines),
+shared type files 42, graphile-worker tasks 9 (crontab: 5 identifiers on 6 lines), rule node catalogue 86 = 47 / 10 /
+29. **All unchanged.**
+
+OWED for deploy (also in `tasks/todo.md`):
+- every user reloads (web changed);
+- restart the local dev server (the API changed under `tsx watch`; the Prisma engine DLL note of the RULE CHAINS entry
+  still applies);
+- no new migration in this wave — the RULE CHAINS entry's two migrations still need `npx prisma migrate deploy` on AWS,
+  and `npm ci` its two dependencies; this wave does not touch `packages/queue` (engine fix round 3 changed its job
+  schema before `9d6b6aac`; the AWS deploy script rebuilds `@digilog/queue`, ledger);
+- a real-browser check of drag, drag-to-connect and pan / zoom on `/rule-chains/:id` at :5176 (still never run);
+- the whole-branch gate and a short re-review of the wave.
+
 ## [Unreleased] - Feature: RULE CHAINS — a ThingsBoard-style rule engine (2026-11-03 .. 2026-11-05)
 
 Operator: "add rule chains how in thingsboard has same add rule chains and what ever rule nodes are in thingsboard
@@ -30,8 +115,10 @@ spec `a83a67e7`, plan `7f505568`, and this docs commit.
   cloud queues, Twilio, PE reports. Every narrowing is written in the node's file and listed in the feature note.
 - **The engine** (`apps/api/src/modules/rule-engine/`, module 28): an in-memory Main queue, FIFO per originator, bounded
   (oldest of the largest backlog dropped and counted); a hop limit that ends a looping message; a 30 s budget per
-  message; Rule chain / Output calls; JavaScript node scripts in a time-boxed `node:vm` (NOT a security sandbox; a script
-  that times out three times running is disabled until the chain is saved); Delay and Checkpoint DURABLE through
+  message [2026-11-05: administered as `messageBudgetMs`, plus a yield every ~10 ms and `STEP_LIMIT` — final fix wave
+  entry above]; Rule chain / Output calls; JavaScript node scripts in a time-boxed `node:vm` (NOT a security sandbox; a script
+  that times out three times running is disabled until the chain is saved [2026-11-05: changed and saved; the bound is per
+  call, not 15 s — final fix wave entry above]); Delay and Checkpoint DURABLE through
   graphile-worker; per-node debug events with a cap and an hourly sweep. Emit hooks after every commit in ingest,
   attribute reports, the alarm evaluator, the acknowledge route and the instrument routes — they never throw and never
   wait. Telemetry messages are ThingsBoard's FLAT shape (ruling M-1).
@@ -49,7 +136,8 @@ spec `a83a67e7`, plan `7f505568`, and this docs commit.
 - **ThingsBoard import / export.** Import applies ThingsBoard's own configuration upgrades by `configurationVersion`,
   reads the string booleans / numbers of 3.6.0 – 3.6.3, and maps Save time series' 4.x `processingSettings` onto its one
   toggle; an unknown class imports as Unsupported with a warning. ThingsBoard's real root chains v3.6.4 and v4.2 each
-  import with exactly ONE warning (RPC Call Request). Export writes ThingsBoard's JSON with the modelled versions.
+  import with exactly ONE warning (RPC Call Request) [SUPERSEDED 2026-11-05: THREE true warnings since ruling TB-L — its
+  two TBEL Log nodes, which now RUN as JavaScript, and RPC Call Request; final fix wave entry above]. Export writes ThingsBoard's JSON with the modelled versions.
 - **Credentials** are masked as `"***"` in EVERY response, export and audit row, for every caller; a save that sends
   `"***"` back keeps the stored value. REST API call and Slack refuse link-local, unspecified and cloud-metadata
   addresses after one DNS lookup (ruling S-6); loopback and private networks are allowed.
@@ -73,7 +161,8 @@ spec `a83a67e7`, plan `7f505568`, and this docs commit.
   39 → 41, config defs 37 → 39, config pages 24 (unchanged), `<Route`s 57 → 59, shared type files 40 → 42,
   graphile-worker tasks 7 → 9 (`rule_engine_message`, `rule_engine_debug_sweep`; one new crontab line). New dependencies,
   both pinned exactly: `@xyflow/react` 12.12.0 (web), `jsonpath-plus` 11.2.1 (api).
-- **Still open when this entry was written:** the rest of engine fix round 3 (MQTT 3.1, deleting `services.http.fetch`
+- **Still open when this entry was written** [2026-11-05: ALL of it is done — the rest of engine fix round 3 and the
+  final fix wave are the entry above; the open items left are in `tasks/todo.md`]**:** the rest of engine fix round 3 (MQTT 3.1, deleting `services.http.fetch`
   and the other services minors; the owed mutants — the e2e loop-guard pins moved onto the REAL handlers in `bcbe2bf3`,
   after re-review I2 found they had run on a stand-in) and a final fix wave (fold the three template helpers, Delete attributes'
   two dead toggles, the null-value wording, a sweep of all 47 nodes' exported keys against ThingsBoard's configuration
@@ -81,7 +170,8 @@ spec `a83a67e7`, plan `7f505568`, and this docs commit.
 - **Operator, before / at deploy:** restart the local dev server (`prisma generate` hit EPERM on the Prisma engine DLL);
   try drag, drag-to-connect and pan / zoom on :5176 (never run in a real browser); on AWS `npm ci` and
   `npx prisma migrate deploy` (both migrations), then every user reloads. Grant `RULE_CHAIN_MANAGE` only to people you
-  would let write server-side scripts.
+  would let write server-side scripts [2026-11-05: and only to UNRESTRICTED roles — a chain acts on every instrument
+  whatever its author's instrument view; final fix wave entry above].
 
 ## [Unreleased] - Fix: Permissions tab shows a toggle another toggle or sidebar item holds (2026-11-03)
 

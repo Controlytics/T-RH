@@ -365,6 +365,15 @@ are in `docs/feature-notes.md` RULE CHAINS; what a change here must not get wron
   `DOMMatrix` stubs; drag, drag-to-connect and pan / zoom were NEVER run in a real browser — check them on :5176.
 - The leave guard (`leave-guard.ts`) catches reload / close and in-app links, NOT browser Back (needs a data router).
 - Tests: `routes/rule-chains/__tests__/` — 8 files, one per process.
+- **Final fix wave (2026-11-05, `924fda9f`, `6a55825a`; whole-branch review C):** a picker whose list the role may not
+  read (a 403 on users / instruments for a non-SUPER_ADMIN MANAGE holder) says so and keeps the stored value —
+  "(not found)" only against a list that LOADED, and a loading list waits; the Debug drawer OVERLAYS the canvas's right
+  edge and the MiniMap steps aside (a third column left ~312 px of canvas at 1240 px) — do not put it back in the grid;
+  the editor adopts ONLY a strictly newer chain version (the `chain` prop can lag one the page already adopted —
+  adopting it put the older chain back); a node saved before SW-1 is SHOWN through the shared
+  `canonicalRuleNodeConfig` (Instrument / System, never "not in this list") but the draft is not rewritten — an
+  untouched Apply stays a no-op and the first edit writes `DEVICE` / `TENANT`. The cancel outcome of every write and the
+  409 Reload path are pinned. REST gained the multiline "Body template" field from the catalogue; nothing else moved.
 
 ## Built dashboards — `routes/dashboards/` (2026-10-29, dashboard builder phase 1)
 
