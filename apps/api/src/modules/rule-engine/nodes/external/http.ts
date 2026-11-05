@@ -24,7 +24,9 @@ import { targetNotAllowed, ruleTargetLookup } from './target-guard.js';
  *    server compresses anyway is NOT decoded (narrowing);
  *  - defaults the earlier fetch transport sent are kept when the node does not
  *    set them: `Accept: *\/*`, `User-Agent: node`, and `Content-Type:
- *    text/plain;charset=UTF-8` for a body.
+ *    text/plain;charset=UTF-8` for a body;
+ *  - `Content-Length` is always the transport's: the body's byte length, or
+ *    none at all for a request without a body (a node's own is dropped).
  */
 export interface RuleHttpRequest {
   url: URL;
@@ -64,6 +66,10 @@ async function sendGuarded(req: RuleHttpRequest): Promise<RuleHttpResponse> {
   if (req.body !== undefined) {
     headers['content-length'] = String(Buffer.byteLength(req.body));
     if (!('content-type' in headers)) headers['content-type'] = 'text/plain;charset=UTF-8';
+  } else {
+    // A node's own Content-Length on a request with NO body would leave the server waiting for bytes
+    // that never come, until the time-out (task-6b review minor 5): there is nothing to measure.
+    delete headers['content-length'];
   }
   if (!('accept' in headers)) headers.accept = '*/*';
   if (!('user-agent' in headers)) headers['user-agent'] = 'node';

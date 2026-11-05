@@ -18,6 +18,8 @@ export interface RestApiCallConfig {
   maxParallelRequestsCount?: number;
   ignoreRequestBody?: boolean;
   parseToPlainText?: boolean;
+  /** ThingsBoard 4's body template (review B I-3): non-empty → it is the body, filled from the message. */
+  requestBodyTemplate?: string | null;
   enableProxy?: boolean;
   maxInMemoryBufferSizeInKb?: number;
   credentials?: { type?: string; username?: string; password?: string } | null;
@@ -36,8 +38,10 @@ const COOKIE_HEADERS = new Set(['cookie', 'set-cookie']);
  * from ThingsBoard's source (v3.6.4 and master):
  *  - URL, header names and header values are templated (`${metadata}`,
  *    `$[data]`); `queryParams` entries too, appended to the URL;
- *  - the body is the message data (`parseToPlainText`: a string goes
- *    unquoted) for POST / PUT / PATCH / DELETE unless `ignoreRequestBody`;
+ *  - the body (POST / PUT / PATCH / DELETE, unless `ignoreRequestBody`) is
+ *    `requestBody`: a non-empty `requestBodyTemplate` filled from the
+ *    message, else the message data (`parseToPlainText`: a string goes
+ *    unquoted);
  *  - basic credentials add `Authorization: Basic …` (it replaces a configured
  *    one; ThingsBoard sends both). A bearer token is an `Authorization`
  *    header. `cert.PEM` is refused — the transport sends no client
@@ -106,7 +110,12 @@ export const restApiCallHandler: RuleNodeHandler<RestApiCallConfig> = async (ctx
   }
 
   const method = cfg.requestMethod;
-  const body = BODY_METHODS.has(method) && cfg.ignoreRequestBody !== true ? messageText(msg.data, cfg.parseToPlainText === true) : undefined;
+  let body: string | undefined;
+  try {
+    body = BODY_METHODS.has(method) && cfg.ignoreRequestBody !== true ? requestBody(cfg, msg) : undefined;
+  } catch (err) {
+    return ctx.tellFailure(msg, err);
+  }
   const timeoutMs = typeof cfg.readTimeoutMs === 'number' && cfg.readTimeoutMs > 0 ? cfg.readTimeoutMs : ctx.services.config().httpTimeoutMs;
   const capKb = typeof cfg.maxInMemoryBufferSizeInKb === 'number' && cfg.maxInMemoryBufferSizeInKb > 0 ? cfg.maxInMemoryBufferSizeInKb : DEFAULT_BUFFER_KB;
 
@@ -144,6 +153,35 @@ export const restApiCallHandler: RuleNodeHandler<RestApiCallConfig> = async (ctx
   }
   return ctx.tellFailure({ ...msg, metadata }, new Error(`HTTP_ERROR: ${code} ${reason}`.trim()));
 };
+
+/**
+ * The request body — ThingsBoard's `TbHttpClient.getRequestBody` (master
+ * e48b5780; review B I-3):
+ *  - a `requestBodyTemplate` that is not EMPTY (`StringUtils.isNotEmpty`: a
+ *    blank one counts) IS the body, filled by the one template rule
+ *    (`processPattern`) with each `${key}` / `$[key]` value JSON-ESCAPED unless
+ *    `parseToPlainText` (`escapeJson = !parseToPlainText`); `${*}` / `$[*]` go
+ *    in as JSON. With `parseToPlainText` the filled text is sent as it is;
+ *    otherwise it must parse as JSON or the message fails with ThingsBoard's
+ *    wording (`Request body template produced invalid JSON: …`, the text cut
+ *    at 4 KB as `error_body` is). ThingsBoard re-serialises the parsed JSON;
+ *    the filled text is sent here as written — the same JSON, only its
+ *    whitespace (and the digits of a number like `1.50`) kept as typed;
+ *  - no template (absent, null, `""`) → the message data, as before.
+ */
+export function requestBody(cfg: Pick<RestApiCallConfig, 'requestBodyTemplate' | 'parseToPlainText'>, msg: RuleMessage): string {
+  const template = cfg.requestBodyTemplate;
+  const plain = cfg.parseToPlainText === true;
+  if (typeof template !== 'string' || template.length === 0) return messageText(msg.data, plain);
+  const filled = processPattern(template, msg, { escapeJson: !plain });
+  if (plain) return filled;
+  try {
+    JSON.parse(filled);
+  } catch {
+    throw new Error(`HTTP_BODY_TEMPLATE_INVALID: Request body template produced invalid JSON: ${errorBody(filled)}`);
+  }
+  return filled;
+}
 
 function withResult(msg: RuleMessage, metadata: Record<string, string>, data: unknown): RuleMessage {
   return { ...msg, metadata, data };

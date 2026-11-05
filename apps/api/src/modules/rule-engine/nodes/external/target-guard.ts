@@ -1,5 +1,5 @@
 import dns from 'node:dns';
-import net, { type LookupFunction } from 'node:net';
+import net, { BlockList, type LookupFunction } from 'node:net';
 import { blockedAddressReason } from '../../../../lib/outbound-guard.js';
 
 /**
@@ -13,7 +13,10 @@ import { blockedAddressReason } from '../../../../lib/outbound-guard.js';
  *
  * WHAT IS REFUSED: link-local and unspecified addresses — 169.254.0.0/16,
  * 0.0.0.0/8, fe80::/10, `::` — and EC2's IPv6 metadata endpoint fd00:ec2::254,
- * also when spelled as an IPv4-mapped / -compatible / NAT64 IPv6 address.
+ * also when spelled as an IPv4-mapped / -compatible / NAT64 IPv6 address. And
+ * two cloud metadata hosts OUTSIDE link-local (task-6b review minor 4): Alibaba
+ * Cloud's 100.100.100.200 and Azure's WireServer 168.63.129.16, with the same
+ * three IPv6 spellings.
  * WHAT IS ALLOWED (an accepted risk, S-6): loopback and the private ranges —
  * ThingsBoard allows them, and a plant's systems live on private networks.
  *
@@ -30,10 +33,20 @@ import { blockedAddressReason } from '../../../../lib/outbound-guard.js';
  * that were judged — there is no second lookup a rebinding DNS answer could slip
  * into. Redirects are never followed (http.ts).
  */
+/** The cloud metadata hosts outside link-local. A BlockList matches the IPv4-mapped spelling of an IPv4 rule itself; the compatible and NAT64 ones are listed. */
+const METADATA_HOSTS = new BlockList();
+for (const v4 of ['100.100.100.200', '168.63.129.16']) {
+  METADATA_HOSTS.addAddress(v4, 'ipv4');
+  METADATA_HOSTS.addAddress(`::${v4}`, 'ipv6');
+  METADATA_HOSTS.addAddress(`64:ff9b::${v4}`, 'ipv6');
+}
+
 export function targetNotAllowed(address: string): string | null {
   const a = address.replace(/^\[|\]$/g, '');
   const family = net.isIP(a);
   if (family === 0) return null;
+  // Judged FIRST: outbound-guard allows both (one is CGNAT space, one public), so after its verdict this would never run.
+  if (METADATA_HOSTS.check(a, family === 4 ? 'ipv4' : 'ipv6')) return `TARGET_NOT_ALLOWED: ${a} is a cloud metadata address`;
   if (blockedAddressReason(a) === null) return null;
   if (family === 4 && a.split('.')[0] === '127') return null;
   if (family === 6 && a.toLowerCase() === '::1') return null;

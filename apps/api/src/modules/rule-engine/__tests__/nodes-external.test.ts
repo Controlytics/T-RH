@@ -561,12 +561,162 @@ describe('target guard (ruling S-6): link-local / unspecified / metadata refused
   });
 });
 
+// ─── REST API call: requestBodyTemplate (review B I-3) ───────────────────────
+describe('REST API call — requestBodyTemplate (TbHttpClient.getRequestBody, ThingsBoard master e48b5780)', () => {
+  const md = { deviceName: 'F-1 "east"\\wing' };
+
+  it('a template is filled with JSON-ESCAPED values and posted exactly as filled', async () => {
+    const { ctx, calls } = restCtx({
+      restEndpointUrlPattern: `${base}/api/t`, requestMethod: 'POST',
+      requestBodyTemplate: '{"t": $[temperature], "dev": "${deviceName}"}',
+    });
+    await run(restApiCallHandler, ctx, testMessage({ temperature: 21.5, other: 1 }, { metadata: md }));
+    expect(calls.relations()).toEqual(['Success']);
+    expect(seen[0].body).toBe('{"t": 21.5, "dev": "F-1 \\"east\\"\\\\wing"}');
+    expect(JSON.parse(seen[0].body!)).toEqual({ t: 21.5, dev: 'F-1 "east"\\wing' });
+  });
+
+  it('${*} and $[*] go in as JSON, unescaped, so the body stays an object', async () => {
+    const { ctx } = restCtx({ restEndpointUrlPattern: `${base}/api/t`, requestMethod: 'PUT', requestBodyTemplate: '{"meta": ${*}, "data": $[*]}' });
+    const msg = testMessage({ temperature: 21.5 }, { metadata: md });
+    await run(restApiCallHandler, ctx, msg);
+    expect(JSON.parse(seen[0].body!)).toEqual({ meta: msg.metadata, data: { temperature: 21.5 } });
+  });
+
+  it('no template — absent, null or "" — posts the message data, as before', async () => {
+    for (const requestBodyTemplate of [undefined, null, '']) {
+      const { ctx, calls } = restCtx({ restEndpointUrlPattern: `${base}/api/t`, requestMethod: 'POST', requestBodyTemplate });
+      await run(restApiCallHandler, ctx, testMessage({ a: 1 }));
+      expect(calls.relations(), String(requestBodyTemplate)).toEqual(['Success']);
+    }
+    expect(seen.map((x) => x.body)).toEqual(['{"a":1}', '{"a":1}', '{"a":1}']);
+  });
+
+  it('parseToPlainText: the filled text is sent as it is — not escaped, not parsed', async () => {
+    const { ctx, calls } = restCtx({
+      restEndpointUrlPattern: `${base}/text`, requestMethod: 'POST', parseToPlainText: true,
+      requestBodyTemplate: 'T=$[temperature] dev=${deviceName}',
+    });
+    await run(restApiCallHandler, ctx, testMessage({ temperature: 21.5 }, { metadata: md }));
+    expect(calls.relations()).toEqual(['Success']);
+    expect(seen[0].body).toBe('T=21.5 dev=F-1 "east"\\wing');
+  });
+
+  it('a filled template that is not JSON → Failure with ThingsBoard\'s wording, and nothing is sent', async () => {
+    const { ctx, calls } = restCtx({ restEndpointUrlPattern: `${base}/api/t`, requestMethod: 'POST', requestBodyTemplate: '{"t": $[missing]}' });
+    await run(restApiCallHandler, ctx, testMessage({ temperature: 21.5 }));
+    expect(calls.failures.map((f) => f.error)).toEqual(['HTTP_BODY_TEMPLATE_INVALID: Request body template produced invalid JSON: {"t": $[missing]}']);
+    expect(seen).toHaveLength(0);
+  });
+
+  it('ignoreRequestBody, and a method that carries no body, send none even with a template', async () => {
+    const tpl = { requestBodyTemplate: '{"x": 1}' };
+    const a = restCtx({ restEndpointUrlPattern: `${base}/api/t`, requestMethod: 'POST', ignoreRequestBody: true, ...tpl });
+    await run(restApiCallHandler, a.ctx, telemetry());
+    const b = restCtx({ restEndpointUrlPattern: `${base}/api/t`, requestMethod: 'GET', ...tpl });
+    await run(restApiCallHandler, b.ctx, telemetry());
+    expect(seen.map((x) => [x.method, x.body || null])).toEqual([['POST', null], ['GET', null]]);
+  });
+});
+
+// ─── the transport and the guard: task-6b review minors ──────────────────────
+describe('task-6b minors — Content-Length, two more metadata literals, the lookup without `all`, a lane after a throw, numeric URL spellings', () => {
+  const REFUSED_METADATA = 'is a cloud metadata address';
+
+  it('a user Content-Length header on a bodyless request is dropped: the server is not left waiting for a body that never comes', async () => {
+    const server = http.createServer((req, res) => {
+      req.resume();
+      req.on('end', () => res.end(JSON.stringify({ cl: req.headers['content-length'] ?? null })));
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const port = (server.address() as AddressInfo).port;
+      const { ctx, calls } = restCtx({ restEndpointUrlPattern: `http://127.0.0.1:${port}/x`, requestMethod: 'GET', headers: { 'Content-Length': '10' }, readTimeoutMs: 800 });
+      await run(restApiCallHandler, ctx, telemetry());
+      expect(calls.failures.map((f) => f.error)).toEqual([]);
+      expect(calls.next[0].msg.data).toEqual({ cl: null });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it('refuses Alibaba Cloud\'s metadata 100.100.100.200 and Azure\'s WireServer 168.63.129.16, also spelled as mapped / compatible / NAT64 IPv6', () => {
+    for (const a of ['100.100.100.200', '168.63.129.16', '::ffff:100.100.100.200', '::ffff:6464:64c8', '::6464:64c8', '64:ff9b::a83f:8110', '[::ffff:168.63.129.16]']) {
+      expect(targetNotAllowed(a), a).toBe(`TARGET_NOT_ALLOWED: ${a.replace(/^\[|\]$/g, '')} ${REFUSED_METADATA}`);
+    }
+    for (const a of ['100.100.100.201', '100.64.0.1', '168.63.129.17', '10.0.0.1']) expect(targetNotAllowed(a), a).toBeNull();
+  });
+
+  it('numeric URL spellings of a refused address are refused BEFORE any I/O (new URL normalises them; pinned against a Node change)', async () => {
+    const asked: string[] = [];
+    vi.spyOn(dns, 'lookup').mockImplementation(((host: string) => { asked.push(host); throw new Error('dns.lookup must not be called'); }) as never);
+    vi.spyOn(http, 'request').mockImplementation((() => { throw new Error('http.request must not be called'); }) as never);
+    const cases: [string, string][] = [
+      ['http://2852039166/latest', '169.254.169.254'],
+      ['http://0xA9FEA9FE/latest', '169.254.169.254'],
+      ['http://0251.0376.0251.0376/latest', '169.254.169.254'],
+      ['http://169.254.169.254./latest', '169.254.169.254'],
+      ['http://169.254.43518/latest', '169.254.169.254'],
+      ['http://1684301000/', '100.100.100.200'],
+      ['http://0xa8.0x3f.0x81.0x10/', '168.63.129.16'],
+    ];
+    for (const [url, address] of cases) {
+      const { ctx, calls } = restCtx({ restEndpointUrlPattern: url, requestMethod: 'GET' });
+      await run(restApiCallHandler, ctx, telemetry());
+      expect(calls.failures.map((f) => f.error), url).toEqual([expect.stringMatching(new RegExp(`^TARGET_NOT_ALLOWED: ${address.replace(/\./g, '\\.')} `))]);
+    }
+    expect(asked).toEqual([]);
+  });
+
+  it('ruleTargetLookup WITHOUT `all` hands the socket ONE judged address and its family; a refused answer is an error', async () => {
+    vi.spyOn(dns, 'lookup').mockImplementation(((host: string, opts: { all?: boolean }, cb: (...a: unknown[]) => void) => {
+      expect(opts.all).toBe(true);
+      if (host === 'one.plant.test') return cb(null, [{ address: '10.0.0.5', family: 4 }, { address: 'fd12::6', family: 6 }]);
+      return cb(null, [{ address: '10.0.0.7', family: 4 }, { address: '168.63.129.16', family: 4 }]);
+    }) as never);
+    const ask = (host: string, options: object) => new Promise<{ err: { code?: string } | null; address: unknown; family: unknown }>((resolve) =>
+      (ruleTargetLookup as unknown as (h: string, o: object, cb: (err: { code?: string } | null, address: unknown, family?: unknown) => void) => void)(
+        host, options, (err, address, family) => resolve({ err, address, family })));
+    expect(await ask('one.plant.test', {})).toEqual({ err: null, address: '10.0.0.5', family: 4 });
+    const bad = await ask('bad.plant.test', {});
+    expect(bad.err?.code).toBe('TARGET_NOT_ALLOWED');
+    expect(bad.address).toEqual([]);
+  });
+
+  it('a request whose send THROWS still releases its lane: the next request of the same node goes out', async () => {
+    const ids = { nodeId: '0f000000-0000-4000-8000-0000000e0101', chainId: '0f000000-0000-4000-8000-0000000e0102' };
+    let sends = 0;
+    ruleHttp.send = async () => {
+      sends++;
+      if (sends === 1) throw new Error('boom');
+      return { status: 200, statusText: 'OK', headers: new Headers(), text: '{}' };
+    };
+    const cfg = { restEndpointUrlPattern: `${base}/api/lane`, requestMethod: 'POST', maxParallelRequestsCount: 1 };
+    const a = restCtx(cfg, ids);
+    await run(restApiCallHandler, a.ctx, telemetry());
+    expect(a.calls.failures.map((f) => f.error)).toEqual(['HTTP_REQUEST_FAILED: boom']);
+    const b = restCtx(cfg, ids);
+    const outcome = await Promise.race([
+      run(restApiCallHandler, b.ctx, telemetry()).then(() => 'sent'),
+      new Promise((resolve) => setTimeout(() => resolve('stuck behind a slot that was never released'), 1_000)),
+    ]);
+    expect(outcome).toBe('sent');
+    expect(b.calls.relations()).toEqual(['Success']);
+  });
+});
+
 // ─── MQTT ────────────────────────────────────────────────────────────────────
 describe('MQTT', () => {
   let services: RuleServicesHandle;
+  /** `broker.local` answers with a private address (allowed by the S-6 guard); services.mqtt resolves the broker ONCE (FW-N2's M-4, be125e32). */
+  const BROKER_ADDRESS = '10.20.30.40';
   beforeEach(() => {
     mqttMock.clients.length = 0;
     services = createRuleServices({ config: () => ({ ...RULE_ENGINE_CONFIG_DEFAULTS }), inc: () => undefined });
+    const real = dns.promises.lookup;
+    vi.spyOn(dns.promises, 'lookup').mockImplementation(((host: string, opts: unknown) => (host === 'broker.local'
+      ? Promise.resolve([{ address: BROKER_ADDRESS, family: 4 }])
+      : (real as unknown as (h: string, o: unknown) => Promise<unknown>)(host, opts))) as never);
   });
 
   function mqttCtx(config: Record<string, unknown>, nodeId = '5e1f0000-0000-4000-8000-0000000000a1') {
@@ -585,8 +735,9 @@ describe('MQTT', () => {
     expect(calls.relations()).toEqual(['Success', 'Success']);
     expect(mqttMock.clients).toHaveLength(1);
     const c = mqttMock.clients[0];
+    // The client connects to the address the guard judged, with the NAME kept for TLS (review B M-4).
     expect(c.opts).toMatchObject({
-      host: 'broker.local', port: 1884, protocol: 'mqtt', clientId: mqttClientIdFor(ctx.nodeKey, { clientId: 'rule', appendClientIdSuffix: true }), clean: false, connectTimeout: 3000,
+      host: BROKER_ADDRESS, servername: 'broker.local', port: 1884, protocol: 'mqtt', clientId: mqttClientIdFor(ctx.nodeKey, { clientId: 'rule', appendClientIdSuffix: true }), clean: false, connectTimeout: 3000,
       protocolVersion: 5, username: 'u1', password: 'pw1',
     });
     expect(String(c.opts.clientId)).toMatch(/^rule_[0-9a-f]{10}$/);
