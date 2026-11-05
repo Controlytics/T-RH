@@ -325,8 +325,11 @@ function toOutput(value: unknown, msg: unknown, metadata: Record<string, string>
  * change (a save changes the chain version, which is part of the key — for a
  * lifecycle node too, which reads the version its chain has NOW) or the text
  * changes. Any run that ends some other way resets the count. Logged once when
- * it trips. The budget itself is at most 5 s (ruling RE-3, config.ts), so the
- * worst case is 15 s of a blocked loop.
+ * it trips. The budget itself is at most 5 s (ruling RE-3, config.ts), so one
+ * call holds the loop at most 5 s and three strikes at most 15 s before the
+ * switch-off. A script that runs just UNDER its timeout is never switched off
+ * and holds the loop that long on every message (review A I1, accepted —
+ * config.ts says so); between nodes a flow yields (C1, engine.ts).
  */
 export const SCRIPT_DISABLE_AFTER_TIMEOUTS = 3;
 // "Change the chain and save it": a save that changes nothing writes nothing and keeps the version.
