@@ -26,7 +26,7 @@ import {
 const NUMBER_LABELS: Record<keyof typeof RULE_ENGINE_NUMBER_SETTINGS, { label: string; description: string }> = {
   scriptTimeoutMs: {
     label: 'Script timeout (ms)',
-    description: 'How long a script node (filter, switch, transformation, log, generator, alarm details) may run before the message goes out on Failure.',
+    description: 'How long a script node (filter, switch, transformation, log, generator, alarm details) may run before the message goes out on Failure. At most 5000: a script runs on the one event loop the whole server shares, and a script that times out three times in a row is switched off until its chain is saved.',
   },
   queueCapacity: {
     label: 'Queue capacity (messages)',
