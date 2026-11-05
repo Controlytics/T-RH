@@ -1,7 +1,7 @@
 import type { RuleNodeHandler } from '../../context.js';
 import { processPattern } from './template.js';
 import { maskedSecretPaths, credentialNotSetError } from './credentials.js';
-import { requestError, readCapped } from './http.js';
+import { ruleHttp, requestError } from './http.js';
 
 export const SEND_TO_SLACK_TYPE = 'tb:external:send-to-slack';
 export const SLACK_POST_MESSAGE_URL = 'https://slack.com/api/chat.postMessage';
@@ -20,7 +20,9 @@ export interface SendToSlackConfig {
  * Send to Slack (`TbSlackNode`; spec §7). Posts the templated message to the
  * conversation (a channel or user id; ThingsBoard stores `{ id, name, … }`,
  * a plain id is accepted) with Slack's `chat.postMessage` and the node's BOT
- * TOKEN, through `services.http.fetch` (the engine's `httpTimeoutMs`).
+ * TOKEN, through `ruleHttp` (http.ts — the engine's `httpTimeoutMs`; the
+ * target guard of ruling S-6 judges slack.com's resolved addresses as it does a
+ * REST call's; redirects are not followed, so a 3xx is `SLACK_HTTP_ERROR`).
  * `Success` with the message unchanged when Slack answers `{ ok: true }`;
  * `Failure` when it answers `{ ok: false, error }` (`SLACK_ERROR: <error>` —
  * Slack says that with HTTP 200), on an HTTP error (`SLACK_HTTP_ERROR`), a
@@ -45,20 +47,24 @@ export const sendToSlackHandler: RuleNodeHandler<SendToSlackConfig> = async (ctx
   if (!channel) return ctx.tellFailure(msg, new Error('SLACK_CONVERSATION_REQUIRED: the node names no channel or user'));
   const text = processPattern(cfg.messageTemplate, msg);
 
+  const timeoutMs = ctx.services.config().httpTimeoutMs;
   let status: number;
   let statusText: string;
   let body: string;
   try {
-    const res = await ctx.services.http.fetch(SLACK_POST_MESSAGE_URL, {
+    const res = await ruleHttp.send({
+      url: new URL(SLACK_POST_MESSAGE_URL),
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=utf-8' },
+      headers: new Headers({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=utf-8' }),
       body: JSON.stringify({ channel, text }),
+      timeoutMs,
+      capKb: SLACK_RESPONSE_KB,
     });
     status = res.status;
     statusText = res.statusText;
-    body = await readCapped(res, SLACK_RESPONSE_KB * 1024, SLACK_RESPONSE_KB);
+    body = res.text;
   } catch (err) {
-    return ctx.tellFailure(msg, requestError(err, ctx.services.config().httpTimeoutMs));
+    return ctx.tellFailure(msg, requestError(err, timeoutMs));
   }
   if (status < 200 || status >= 300) return ctx.tellFailure(msg, new Error(`SLACK_HTTP_ERROR: ${status} ${statusText}`.trim()));
   let answer: { ok?: unknown; error?: unknown } | null = null;

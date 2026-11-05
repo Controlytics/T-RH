@@ -3,7 +3,7 @@ import type { RuleNodeHandler } from '../../context.js';
 import type { RuleMessage } from '../../message.js';
 import { processPattern, messageText } from './template.js';
 import { maskedSecretPaths, credentialNotSetError } from './credentials.js';
-import { requestError, readCapped, httpStatusName, httpStatusReason } from './http.js';
+import { ruleHttp, requestError, httpStatusName, httpStatusReason, type RuleHttpResponse } from './http.js';
 
 export const REST_API_CALL_TYPE = 'tb:external:rest-api-call';
 
@@ -25,6 +25,10 @@ export interface RestApiCallConfig {
 /** ThingsBoard (master) sends a body for these only, and only without `ignoreRequestBody`. */
 const BODY_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const DEFAULT_BUFFER_KB = 256;
+/** `error_body` is cut at 4 KB: a failing server's HTML page is not a message (review minor 2). */
+export const ERROR_BODY_MAX_BYTES = 4096;
+/** Cookies are credentials whatever `isSecretLeaf` says of their names (review minor 1). */
+const COOKIE_HEADERS = new Set(['cookie', 'set-cookie']);
 
 /**
  * REST API call (`TbRestApiCallNode` / `TbHttpClient`; spec §6, §7). Read
@@ -35,8 +39,13 @@ const DEFAULT_BUFFER_KB = 256;
  *    unquoted) for POST / PUT / PATCH / DELETE unless `ignoreRequestBody`;
  *  - basic credentials add `Authorization: Basic …` (it replaces a configured
  *    one; ThingsBoard sends both). A bearer token is an `Authorization`
- *    header. `cert.PEM` is refused — `services.http.fetch` has no client
+ *    header. `cert.PEM` is refused — the transport sends no client
  *    certificate (narrowing);
+ *  - sent through `ruleHttp` (http.ts): the TARGET GUARD (ruling S-6,
+ *    target-guard.ts) refuses a link-local / unspecified / cloud-metadata
+ *    address — an IP literal before any I/O, a name after its one DNS lookup —
+ *    with `TARGET_NOT_ALLOWED: <address> …`; loopback and private networks
+ *    are allowed; the socket connects to the address that was judged;
  *  - redirects are NOT followed (ThingsBoard's client does not follow them);
  *  - 2xx → `Success`: the response body REPLACES the data (JSON when it
  *    parses, else the text; empty = `{}`), metadata `status` (Spring's name,
@@ -44,13 +53,16 @@ const DEFAULT_BUFFER_KB = 256;
  *  - 4xx / 5xx → `Failure` with `status` (the reason phrase — ThingsBoard's
  *    exception path), `statusCode`, `error_body`; any other status (3xx) →
  *    `Failure` with `status` (the name), `statusCode`, `statusReason`,
- *    `error_body` and the headers; a timeout, a refused connection or a body
+ *    `error_body` and the headers (`error_body` cut at 4 KB, `…[truncated]`);
+ *    a timeout, a refused connection or a body
  *    over `maxInMemoryBufferSizeInKb` → `Failure` with `error`;
  *  - `readTimeoutMs` 0 = the engine's `httpTimeoutMs`; `maxParallelRequestsCount`
- *    bounds the requests ONE node has open (the rest wait their turn);
+ *    bounds the requests ONE node has open (the rest wait, first come first
+ *    served);
  *    `enableProxy` is ignored (spec §7).
  * A response header named like a credential (`isSecretLeaf` — `x-auth-token`,
- * `authorization` …) is put in the metadata as `"***"`: the metadata is what
+ * `authorization` … — and `cookie` / `set-cookie`) is put in the metadata as
+ * `"***"`: the metadata is what
  * debug events record (spec §12). The request's own headers never enter the
  * message, and nothing here logs them.
  */
@@ -94,21 +106,19 @@ export const restApiCallHandler: RuleNodeHandler<RestApiCallConfig> = async (ctx
 
   const method = cfg.requestMethod;
   const body = BODY_METHODS.has(method) && cfg.ignoreRequestBody !== true ? messageText(msg.data, cfg.parseToPlainText === true) : undefined;
-  const timeoutMs = typeof cfg.readTimeoutMs === 'number' && cfg.readTimeoutMs > 0 ? cfg.readTimeoutMs : undefined;
-  const effectiveTimeout = timeoutMs ?? ctx.services.config().httpTimeoutMs;
+  const timeoutMs = typeof cfg.readTimeoutMs === 'number' && cfg.readTimeoutMs > 0 ? cfg.readTimeoutMs : ctx.services.config().httpTimeoutMs;
   const capKb = typeof cfg.maxInMemoryBufferSizeInKb === 'number' && cfg.maxInMemoryBufferSizeInKb > 0 ? cfg.maxInMemoryBufferSizeInKb : DEFAULT_BUFFER_KB;
 
   const release = await acquireLane(ctx.nodeKey, typeof cfg.maxParallelRequestsCount === 'number' ? cfg.maxParallelRequestsCount : 0);
-  let res: Response;
-  let text: string;
+  let res: RuleHttpResponse;
   try {
-    res = await ctx.services.http.fetch(url.toString(), { method, headers, redirect: 'manual', ...(body !== undefined ? { body } : {}) }, timeoutMs);
-    text = await readCapped(res, capKb * 1024, capKb);
+    res = await ruleHttp.send({ url, method, headers, ...(body !== undefined ? { body } : {}), timeoutMs, capKb });
   } catch (err) {
-    return ctx.tellFailure(msg, requestError(err, effectiveTimeout));
+    return ctx.tellFailure(msg, requestError(err, timeoutMs));
   } finally {
     release();
   }
+  const text = res.text;
 
   const code = res.status;
   const metadata: Record<string, string> = { ...msg.metadata };
@@ -123,12 +133,12 @@ export const restApiCallHandler: RuleNodeHandler<RestApiCallConfig> = async (ctx
   if (code >= 400) {
     metadata.status = reason;
     metadata.statusCode = String(code);
-    metadata.error_body = text;
+    metadata.error_body = errorBody(text);
   } else {
     metadata.status = httpStatusName(code);
     metadata.statusCode = String(code);
     metadata.statusReason = httpStatusReason(code, res.statusText);
-    metadata.error_body = text;
+    metadata.error_body = errorBody(text);
     copyHeaders(res.headers, metadata);
   }
   return ctx.tellFailure({ ...msg, metadata }, new Error(`HTTP_ERROR: ${code} ${reason}`.trim()));
@@ -148,20 +158,34 @@ function responseData(text: string): unknown {
   }
 }
 
-/** ThingsBoard's `headersToMetaData`: one value as itself, several as a JSON array. Names arrive lower-cased (fetch). */
-function copyHeaders(headers: Headers, metadata: Record<string, string>): void {
-  headers.forEach((value, name) => {
-    if (name === 'set-cookie') return;
-    metadata[name] = isSecretLeaf(name, false) ? MASKED_SECRET : value;
-  });
-  const cookies = headers.getSetCookie();
-  if (cookies.length > 0) metadata['set-cookie'] = cookies.length === 1 ? cookies[0] : JSON.stringify(cookies);
+/** `error_body`, at most 4 KB of it (a cut multi-byte character is dropped). */
+export function errorBody(text: string): string {
+  const bytes = Buffer.from(text, 'utf8');
+  if (bytes.length <= ERROR_BODY_MAX_BYTES) return text;
+  return `${bytes.subarray(0, ERROR_BODY_MAX_BYTES).toString('utf8').replace(/\uFFFD+$/, '')}…[truncated]`;
 }
 
 /**
- * Per-node request lanes, keyed by `ctx.nodeKey`: `maxParallelRequestsCount`
- * requests of one node at once (0 = no limit); the rest wait in arrival order. In memory — a lane
- * empties itself when its last request finishes.
+ * ThingsBoard's `headersToMetaData`: each response header as a metadata value
+ * (names lower-cased). A credential-named header and the cookies go in as
+ * `"***"` (spec §12: debug rows record the metadata).
+ */
+function copyHeaders(headers: Headers, metadata: Record<string, string>): void {
+  headers.forEach((value, name) => {
+    if (name === 'set-cookie') return;
+    metadata[name] = COOKIE_HEADERS.has(name) || isSecretLeaf(name, false) ? MASKED_SECRET : value;
+  });
+  if (headers.getSetCookie().length > 0) metadata['set-cookie'] = MASKED_SECRET;
+}
+
+/**
+ * Per-node request lanes, keyed by `ctx.nodeKey`: at most
+ * `maxParallelRequestsCount` requests of one node open at once (0 = no limit).
+ * FIFO: a request that finds the lane full queues, and a finishing request
+ * hands its slot straight to the oldest one waiting — a newcomer never takes a
+ * slot while others wait. In memory; a lane deletes itself when its last
+ * request finishes (nothing is held for `onDestroy` to release — deleting a
+ * lane that still had waiters would strand them).
  */
 const lanes = new Map<string, { active: number; waiting: (() => void)[] }>();
 
@@ -173,15 +197,18 @@ async function acquireLane(nodeKey: string, max: number): Promise<() => void> {
     lanes.set(nodeKey, lane);
   }
   const l = lane;
-  while (l.active >= max) await new Promise<void>((resolve) => l.waiting.push(resolve));
-  l.active++;
+  if (l.active < max && l.waiting.length === 0) l.active++;
+  else await new Promise<void>((resolve) => l.waiting.push(resolve)); // the slot is handed over, `active` unchanged
   let released = false;
   return () => {
     if (released) return;
     released = true;
-    l.active--;
     const next = l.waiting.shift();
-    if (next) next();
-    else if (l.active === 0 && lanes.get(nodeKey) === l) lanes.delete(nodeKey);
+    if (next) {
+      next();
+      return;
+    }
+    l.active--;
+    if (l.active === 0 && lanes.get(nodeKey) === l) lanes.delete(nodeKey);
   };
 }

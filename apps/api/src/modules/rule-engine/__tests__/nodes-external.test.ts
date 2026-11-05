@@ -1,5 +1,9 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import type { AddressInfo } from 'node:net';
+import dns from 'node:dns';
+import http from 'node:http';
+import https from 'node:https';
+import { EventEmitter } from 'node:events';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { BUILT_RULE_NODE_TYPES, type RuleChainDocument } from '@digilog/shared';
 import { createRuleServices, mqttClientIdFor, type RuleServicesHandle } from '../services.js';
@@ -11,7 +15,10 @@ import type { RuleNodeHandler, RuleContext } from '../context.js';
 import { fakeContext, fakeServices, testMessage, nodeOf, docOf, chainOf, memoryDeps } from '../../../test-support/rule-engine.js';
 import { registerExternalNodes } from '../nodes/external/index.js';
 import { processPattern, toFlatMap } from '../nodes/external/template.js';
-import { restApiCallHandler } from '../nodes/external/rest-api-call.js';
+import { restApiCallHandler, errorBody } from '../nodes/external/rest-api-call.js';
+import { ruleHttp } from '../nodes/external/http.js';
+import { targetNotAllowed, ruleTargetLookup } from '../nodes/external/target-guard.js';
+import { blockedAddressReason } from '../../../lib/outbound-guard.js';
 import { mqttHandler, mqttLifecycle, type MqttNodeConfig } from '../nodes/external/mqtt.js';
 import { sendEmailHandler } from '../nodes/external/send-email.js';
 import { sendSmsHandler } from '../nodes/external/send-sms.js';
@@ -93,11 +100,19 @@ beforeAll(async () => {
     method: [...methods], url: '/api/:code', exposeHeadRoute: false,
     handler: async (req: FastifyRequest, reply: FastifyReply) => {
       record(req);
-      reply.header('x-request-id', 'r-1').header('x-auth-token', 'secret-abc');
+      reply.header('x-request-id', 'r-1').header('x-auth-token', 'secret-abc').header('set-cookie', 'sid=s3cr3t; HttpOnly').header('cookie', 'jar=j4r');
       return { ok: true, code: (req.params as { code: string }).code };
     },
   });
   stub.post('/missing', async (req, reply) => { record(req); reply.code(404).type('text/plain'); return 'no such thing'; });
+  stub.post('/missing-big', async (req, reply) => { record(req); reply.code(500).type('text/plain'); return 'y'.repeat(5000); });
+  stub.post('/drip', (req, reply) => {
+    record(req);
+    reply.hijack();
+    reply.raw.writeHead(200, { 'content-type': 'text/plain' });
+    reply.raw.write('part of it');
+    setTimeout(() => reply.raw.end(' and the rest'), 600);
+  });
   stub.get('/moved', async (req, reply) => { record(req); reply.code(302).header('location', '/api/elsewhere'); return ''; });
   stub.post('/slow', async (req) => { record(req); await new Promise((r) => setTimeout(r, 600)); return { late: true }; });
   stub.post('/big', async (req, reply) => { record(req); reply.type('text/plain'); return 'x'.repeat(2048); });
@@ -125,25 +140,18 @@ beforeEach(() => {
   maxInFlight = 0;
 });
 
-/** The REAL http service, wrapped so a test sees the timeout the NODE chose. */
-function realHttp() {
-  const services = createRuleServices({ config: () => ({ ...RULE_ENGINE_CONFIG_DEFAULTS }), inc: () => undefined });
-  const timeouts: (number | undefined)[] = [];
-  return {
-    timeouts,
-    http: {
-      fetch: (url: string, init: RequestInit, timeoutMs?: number) => {
-        timeouts.push(timeoutMs);
-        return services.http.fetch(url, init, timeoutMs);
-      },
-    },
-  };
-}
+/** REST runs on the REAL guarded transport; a Slack test stands in for `ruleHttp.send` and it is put back here. Every spy too. */
+const realSend = ruleHttp.send;
+afterEach(() => {
+  ruleHttp.send = realSend;
+  vi.restoreAllMocks();
+});
 
-function restCtx(config: Record<string, unknown>, opts: { nodeId?: string; chainId?: string } = {}) {
-  const h = realHttp();
-  const { ctx, calls } = fakeContext({ type: REST, config, services: { http: h.http }, ...opts });
-  return { ctx, calls, timeouts: h.timeouts };
+function restCtx(config: Record<string, unknown>, opts: { nodeId?: string; chainId?: string; httpTimeoutMs?: number } = {}) {
+  const { httpTimeoutMs, ...ids } = opts;
+  const services = fakeServices({}, httpTimeoutMs ? { httpTimeoutMs } : {});
+  const { ctx, calls } = fakeContext({ type: REST, config, services, ...ids });
+  return { ctx, calls };
 }
 
 const telemetry = () => testMessage({ temp: 21.5, nested: { v: 7 }, flag: true }, { metadata: { instrumentCode: 'CWH-001', unit: 'C' } });
@@ -177,6 +185,17 @@ describe('processPattern (ThingsBoard TbNodeUtils.processPattern)', () => {
     expect(processPattern('${missing}|$[missing]|$[nested]|$[list]|$[nested.]', msg)).toBe('${missing}|$[missing]|$[nested]|$[list]|$[nested.]');
   });
 
+  it('substitutes in ONE pass: a substituted value is never expanded again', () => {
+    const m = { metadata: { a: '${b}', b: 'B', c: '$[t]' }, data: { t: 5, s: '${b}' } };
+    expect(processPattern('${a}|${c}|$[s]|${b}|$[t]', m)).toBe('${b}|$[t]|${b}|B|5');
+  });
+
+  it('reads OWN keys only: an inherited property is not a value', () => {
+    const m = { metadata: { ts: '1' }, data: JSON.parse('{"a":{"b":2}}') as unknown };
+    expect(processPattern('$[constructor]|$[a.toString]|$[a.b]|${constructor}|${hasOwnProperty}', m))
+      .toBe('$[constructor]|$[a.toString]|2|${constructor}|${hasOwnProperty}');
+  });
+
   it('data that is not an object resolves only metadata', () => {
     expect(processPattern('${ts}:$[temp]', { metadata: { ts: '1' }, data: 'hello' })).toBe('1:$[temp]');
   });
@@ -190,7 +209,7 @@ describe('processPattern (ThingsBoard TbNodeUtils.processPattern)', () => {
 // ─── REST API call ───────────────────────────────────────────────────────────
 describe('REST API call', () => {
   it('POST: templated URL and headers, the message data as the body; the response becomes the message, its status the metadata', async () => {
-    const { ctx, calls, timeouts } = restCtx({
+    const { ctx, calls } = restCtx({
       restEndpointUrlPattern: `${base}/api/\${instrumentCode}?v=$[nested.v]`,
       requestMethod: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Unit-${unit}': 'temp=$[temp]' },
@@ -207,10 +226,11 @@ describe('REST API call', () => {
     expect(out.id).toBe(msg.id);
     expect(out.data).toEqual({ ok: true, code: 'CWH-001' });
     expect(out.metadata).toMatchObject({ status: 'OK', statusCode: '200', statusReason: 'OK', 'x-request-id': 'r-1', instrumentCode: 'CWH-001' });
-    // A response header named like a credential is masked (spec §12: no credentials in debug events).
+    // A response header named like a credential, and the cookies, are masked (spec §12: no credentials in debug events).
     expect(out.metadata['x-auth-token']).toBe('***');
-    // readTimeoutMs 0 = the engine's httpTimeoutMs: the node passes undefined, the service applies its default.
-    expect(timeouts).toEqual([undefined]);
+    expect(out.metadata['set-cookie']).toBe('***');
+    expect(out.metadata.cookie).toBe('***');
+    expect(JSON.stringify(out.metadata)).not.toMatch(/secret-abc|s3cr3t|j4r/);
   });
 
   it('GET and HEAD send no body (fetch refuses one); ignoreRequestBody sends none on POST', async () => {
@@ -263,13 +283,33 @@ describe('REST API call', () => {
   });
 
   it('times out on the node\'s readTimeoutMs → Failure HTTP_TIMEOUT', async () => {
-    const { ctx, calls, timeouts } = restCtx({ restEndpointUrlPattern: `${base}/slow`, requestMethod: 'POST', readTimeoutMs: 100 });
+    const { ctx, calls } = restCtx({ restEndpointUrlPattern: `${base}/slow`, requestMethod: 'POST', readTimeoutMs: 100 });
     const started = Date.now();
     await run(restApiCallHandler, ctx, telemetry());
     expect(Date.now() - started).toBeLessThan(550);
-    expect(timeouts).toEqual([100]);
     expect(calls.relations()).toEqual(['Failure']);
     expect(calls.failures[0].error).toBe('HTTP_TIMEOUT: no response within 100 ms');
+  });
+
+  it('readTimeoutMs 0 means the engine\'s httpTimeoutMs', async () => {
+    const { ctx, calls } = restCtx({ restEndpointUrlPattern: `${base}/slow`, requestMethod: 'POST', readTimeoutMs: 0 }, { httpTimeoutMs: 120 });
+    await run(restApiCallHandler, ctx, telemetry());
+    expect(calls.failures[0].error).toBe('HTTP_TIMEOUT: no response within 120 ms');
+  });
+
+  it('a timeout while the BODY is still arriving is a timeout too', async () => {
+    const { ctx, calls } = restCtx({ restEndpointUrlPattern: `${base}/drip`, requestMethod: 'POST', readTimeoutMs: 150 });
+    await run(restApiCallHandler, ctx, telemetry());
+    expect(calls.failures.map((f) => f.error)).toEqual(['HTTP_TIMEOUT: no response within 150 ms']);
+  });
+
+  it('error_body is cut at 4 KB', async () => {
+    const { ctx, calls } = restCtx({ restEndpointUrlPattern: `${base}/missing-big`, requestMethod: 'POST' });
+    await run(restApiCallHandler, ctx, telemetry());
+    expect(calls.failures[0].msg.metadata).toMatchObject({ statusCode: '500', error_body: `${'y'.repeat(4096)}…[truncated]` });
+    // A multi-byte character cut at the boundary is dropped, not half-printed.
+    expect(errorBody(`a${'é'.repeat(3000)}`)).toBe(`a${'é'.repeat(2047)}…[truncated]`);
+    expect(errorBody('short')).toBe('short');
   });
 
   it('a plain-text response stays text; an empty one is {} as in ThingsBoard', async () => {
@@ -368,6 +408,16 @@ describe('REST API call', () => {
     expect(maxInFlight).toBe(2);
   });
 
+  it('a full lane serves the requests waiting in it first come, first served', async () => {
+    const nodeId = '7d1e0000-0000-4000-8000-000000000002';
+    const chainId = '7d1e0000-0000-4000-8000-0000000000c2';
+    const order = ['a', 'b', 'c', 'd'];
+    const ctxs = order.map(() => restCtx({ restEndpointUrlPattern: `${base}/parallel?i=$[i]`, requestMethod: 'POST', maxParallelRequestsCount: 1 }, { nodeId, chainId }));
+    await Promise.all(ctxs.map((c, i) => run(restApiCallHandler, c.ctx, testMessage({ i: order[i] }))));
+    expect(seen.map((s) => s.url)).toEqual(order.map((i) => `/parallel?i=${i}`));
+    expect(maxInFlight).toBe(1);
+  });
+
   it('through the ENGINE with debug on: no debug event carries the credential the node sent', async () => {
     const restore = registerNode(REST, restApiCallHandler);
     try {
@@ -377,8 +427,7 @@ describe('REST API call', () => {
       });
       const root = chainOf('Root', docOf([rest], []), { root: true });
       const mem = memoryDeps([root]);
-      const h = realHttp();
-      const engine = createRuleEngine({ ...mem.deps, services: () => Object.assign(fakeServices({ http: h.http }), { dispose: async () => undefined }) });
+      const engine = createRuleEngine({ ...mem.deps, services: () => Object.assign(fakeServices(), { dispose: async () => undefined }) });
       await engine.processNow(telemetry());
       expect(seen).toHaveLength(1);
       expect(seen[0].headers['x-api-key']).toBe('key-xyz');
@@ -401,6 +450,113 @@ describe('REST API call', () => {
     await run(restApiCallHandler, ctx, telemetry());
     expect(calls.failures.map((f) => f.error)).toEqual(['CREDENTIAL_NOT_SET: credentials.password']);
     expect(seen).toHaveLength(0);
+  });
+});
+
+// ─── the target guard (ruling S-6) ───────────────────────────────────────────
+describe('target guard (ruling S-6): link-local / unspecified / metadata refused; loopback and private networks allowed', () => {
+  const REFUSED = 'is a link-local / unspecified address';
+
+  /** `dns.lookup` answering for the names a test lists — the real resolver for every other name. Returns the names asked. */
+  function fakeDns(answers: Record<string, { address: string; family: number }[]>): string[] {
+    const real = dns.lookup;
+    const asked: string[] = [];
+    vi.spyOn(dns, 'lookup').mockImplementation(((host: string, opts: unknown, cb: (...a: unknown[]) => void) => {
+      asked.push(host);
+      const answer = answers[host];
+      if (!answer) return (real as unknown as (...a: unknown[]) => void)(host, opts, cb);
+      if (opts && typeof opts === 'object' && (opts as { all?: boolean }).all) return cb(null, answer);
+      return cb(null, answer[0].address, answer[0].family);
+    }) as never);
+    return asked;
+  }
+
+  /** A connect the test must never reach: it fails loudly instead of touching the network. */
+  function noConnect() {
+    const h = vi.spyOn(http, 'request').mockImplementation((() => { throw new Error('http.request must not be called'); }) as never);
+    const s = vi.spyOn(https, 'request').mockImplementation((() => { throw new Error('https.request must not be called'); }) as never);
+    return { h, s };
+  }
+
+  it('the address rule is outbound-guard\'s, with plain loopback put back', () => {
+    for (const a of ['169.254.169.254', '169.254.0.1', '0.0.0.0', '0.1.2.3', 'fe80::1', '::', 'fd00:ec2::254',
+      '::ffff:169.254.169.254', '::ffff:a9fe:a9fe', '::169.254.169.254', '64:ff9b::169.254.169.254', '[fe80::1]']) {
+      expect(targetNotAllowed(a), a).toBe(`TARGET_NOT_ALLOWED: ${a.replace(/^\[|\]$/g, '')} ${REFUSED}`);
+    }
+    for (const a of ['127.0.0.1', '127.8.9.10', '::1', '[::1]', '10.1.2.3', '172.16.0.9', '192.168.1.20', 'fc00::5', 'fd12::1',
+      '93.184.216.34', '2606:4700::1111', 'not-an-ip']) {
+      expect(targetNotAllowed(a), a).toBeNull();
+    }
+    // Stricter than S-6, never looser: loopback SPELLED as a mapped address stays refused.
+    expect(targetNotAllowed('::ffff:127.0.0.1')).not.toBeNull();
+    // Every verdict but plain loopback is outbound-guard's: one rule with the webhooks and the SMS gateway.
+    for (const a of ['169.254.1.1', '0.0.0.0', 'fe80::9', '::', 'fd00:ec2::254', '::ffff:a9fe:1', '10.0.0.1', '8.8.8.8', '2001:db8::1']) {
+      expect(targetNotAllowed(a) !== null, a).toBe(blockedAddressReason(a) !== null);
+    }
+  });
+
+  it('refuses the cloud metadata endpoint, and every blocked IP literal, BEFORE any I/O', async () => {
+    const asked = fakeDns({});
+    const { h, s } = noConnect();
+    const cases: [string, string][] = [
+      ['http://169.254.169.254/latest/api/token', '169.254.169.254'],
+      ['http://0.0.0.0:8080/x', '0.0.0.0'],
+      ['http://[fe80::1]/x', 'fe80::1'],
+      ['http://[::]/x', '::'],
+      ['http://[fd00:ec2::254]/latest/meta-data/', 'fd00:ec2::254'],
+      ['http://[::ffff:169.254.169.254]/x', '::ffff:a9fe:a9fe'],
+      ['https://[64:ff9b::a9fe:a9fe]/x', '64:ff9b::a9fe:a9fe'],
+    ];
+    for (const [url, address] of cases) {
+      const { ctx, calls } = restCtx({ restEndpointUrlPattern: url, requestMethod: 'PUT' });
+      await run(restApiCallHandler, ctx, telemetry());
+      expect(calls.failures.map((f) => f.error), url).toEqual([`TARGET_NOT_ALLOWED: ${address} ${REFUSED}`]);
+    }
+    expect(h).not.toHaveBeenCalled();
+    expect(s).not.toHaveBeenCalled();
+    expect(asked).toEqual([]);
+  });
+
+  it('refuses a NAME that resolves to the metadata address — even beside an allowed one — after its one lookup, without connecting', async () => {
+    const asked = fakeDns({ 'imds.plant.test': [{ address: '127.0.0.1', family: 4 }, { address: '169.254.169.254', family: 4 }] });
+    const port = new URL(base).port;
+    const { ctx, calls } = restCtx({ restEndpointUrlPattern: `http://imds.plant.test:${port}/api/x`, requestMethod: 'GET' });
+    await run(restApiCallHandler, ctx, telemetry());
+    expect(calls.failures.map((f) => f.error)).toEqual([`TARGET_NOT_ALLOWED: 169.254.169.254 ${REFUSED}`]);
+    expect(asked.filter((n) => n === 'imds.plant.test')).toHaveLength(1);
+    expect(seen).toHaveLength(0);
+  });
+
+  it('connects to the address it resolved — ONE lookup, the Host of the NAME kept — and loopback is allowed', async () => {
+    const asked = fakeDns({ 'rule-stub.test': [{ address: '127.0.0.1', family: 4 }] });
+    const port = new URL(base).port;
+    const { ctx, calls } = restCtx({ restEndpointUrlPattern: `http://rule-stub.test:${port}/api/pinned`, requestMethod: 'POST' });
+    await run(restApiCallHandler, ctx, telemetry());
+    expect(calls.relations()).toEqual(['Success']);
+    expect(seen.map((x) => [x.url, x.headers.host])).toEqual([['/api/pinned', `rule-stub.test:${port}`]]);
+    expect(asked.filter((n) => n === 'rule-stub.test')).toHaveLength(1);
+  });
+
+  it('HTTPS keeps the NAME for SNI and connects through the guarded lookup on a fresh socket', async () => {
+    let captured: Record<string, unknown> | undefined;
+    vi.spyOn(https, 'request').mockImplementation(((_url: URL, opts: Record<string, unknown>) => {
+      captured = opts;
+      const fake = new EventEmitter() as EventEmitter & { end: () => void };
+      fake.end = () => queueMicrotask(() => fake.emit('error', Object.assign(new Error('stopped by the test'), { code: 'ESTOPPED' })));
+      return fake;
+    }) as never);
+    const { ctx, calls } = restCtx({ restEndpointUrlPattern: 'https://api.plant.test/v1/readings', requestMethod: 'POST' });
+    await run(restApiCallHandler, ctx, telemetry());
+    expect(calls.failures.map((f) => f.error)).toEqual(['HTTP_REQUEST_FAILED: ESTOPPED']);
+    expect(captured).toMatchObject({ method: 'POST', servername: 'api.plant.test', agent: false });
+    expect(captured!.lookup).toBe(ruleTargetLookup);
+  });
+
+  it('Send to Slack goes through the same guard: slack.com resolving to the metadata address is refused', async () => {
+    fakeDns({ 'slack.com': [{ address: '169.254.169.254', family: 4 }] });
+    const { ctx, calls } = fakeContext({ type: SLACK, config: { botToken: 'xoxb-1', conversation: 'C1', messageTemplate: 'hi' } });
+    await run(sendToSlackHandler, ctx, telemetry());
+    expect(calls.failures.map((f) => f.error)).toEqual([`TARGET_NOT_ALLOWED: 169.254.169.254 ${REFUSED}`]);
   });
 });
 
@@ -608,15 +764,24 @@ describe('Send notification', () => {
 
 // ─── Send to Slack ───────────────────────────────────────────────────────────
 describe('Send to Slack', () => {
-  function slackCtx(config: Record<string, unknown>, reply: () => Response) {
-    const fetch = vi.fn(async (_url: string, _init: RequestInit, _t?: number) => reply());
-    const f = fakeContext({ type: SLACK, config, services: { http: { fetch } } });
-    return { ...f, fetch };
+  interface Sent { url: string; method: string; headers: Record<string, string>; body?: string; timeoutMs: number }
+  /** slack.com is not reachable from a test: `ruleHttp.send` is stood in for (put back after each test). The guard itself is pinned above. */
+  function slackCtx(config: Record<string, unknown>, reply: () => { status: number; statusText?: string; text: string }) {
+    const sent: Sent[] = [];
+    ruleHttp.send = async (req) => {
+      const headers: Record<string, string> = {};
+      req.headers.forEach((v, k) => { headers[k] = v; });
+      sent.push({ url: req.url.toString(), method: req.method, headers, ...(req.body !== undefined ? { body: req.body } : {}), timeoutMs: req.timeoutMs });
+      const r = reply();
+      return { status: r.status, statusText: r.statusText ?? '', headers: new Headers(), text: r.text };
+    };
+    const f = fakeContext({ type: SLACK, config });
+    return { ...f, sent };
   }
-  const okReply = () => new Response(JSON.stringify({ ok: true, ts: '1.2' }), { status: 200, headers: { 'content-type': 'application/json' } });
+  const okReply = () => ({ status: 200, statusText: 'OK', text: JSON.stringify({ ok: true, ts: '1.2' }) });
 
   it('posts the templated message to the conversation with chat.postMessage and the bot token', async () => {
-    const { ctx, calls, fetch } = slackCtx(
+    const { ctx, calls, sent } = slackCtx(
       { botToken: 'xoxb-123', conversation: { id: 'C42', name: 'plant' }, messageTemplate: '${instrumentCode}: $[temp] ${unit}' },
       okReply,
     );
@@ -624,28 +789,31 @@ describe('Send to Slack', () => {
     await run(sendToSlackHandler, ctx, msg);
     expect(calls.relations()).toEqual(['Success']);
     expect(calls.next[0].msg).toBe(msg);
-    const [url, init] = fetch.mock.calls[0];
-    expect(url).toBe('https://slack.com/api/chat.postMessage');
-    expect(init.method).toBe('POST');
-    expect(new Headers(init.headers).get('authorization')).toBe('Bearer xoxb-123');
-    expect(new Headers(init.headers).get('content-type')).toBe('application/json; charset=utf-8');
-    expect(JSON.parse(String(init.body))).toEqual({ channel: 'C42', text: 'CWH-001: 21.5 C' });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ url: 'https://slack.com/api/chat.postMessage', method: 'POST', timeoutMs: RULE_ENGINE_CONFIG_DEFAULTS.httpTimeoutMs });
+    expect(sent[0].headers.authorization).toBe('Bearer xoxb-123');
+    expect(sent[0].headers['content-type']).toBe('application/json; charset=utf-8');
+    expect(JSON.parse(sent[0].body!)).toEqual({ channel: 'C42', text: 'CWH-001: 21.5 C' });
   });
 
   it('a plain conversation id is accepted', async () => {
-    const { ctx, fetch } = slackCtx({ botToken: 'xoxb-1', conversation: 'U7', messageTemplate: 'hi' }, okReply);
+    const { ctx, sent } = slackCtx({ botToken: 'xoxb-1', conversation: 'U7', messageTemplate: 'hi' }, okReply);
     await run(sendToSlackHandler, ctx, telemetry());
-    expect(JSON.parse(String(fetch.mock.calls[0][1].body)).channel).toBe('U7');
+    expect(JSON.parse(sent[0].body!).channel).toBe('U7');
   });
 
-  it('Slack\'s {ok:false} (HTTP 200) and an HTTP error both end on Failure', async () => {
+  it('Slack\'s {ok:false} (HTTP 200), an HTTP error and a redirect (not followed) all end on Failure', async () => {
     const a = slackCtx({ botToken: 'xoxb-1', conversation: 'C1', messageTemplate: 'hi' },
-      () => new Response(JSON.stringify({ ok: false, error: 'channel_not_found' }), { status: 200 }));
+      () => ({ status: 200, text: JSON.stringify({ ok: false, error: 'channel_not_found' }) }));
     await run(sendToSlackHandler, a.ctx, telemetry());
     expect(a.calls.failures[0].error).toBe('SLACK_ERROR: channel_not_found');
-    const b = slackCtx({ botToken: 'xoxb-1', conversation: 'C1', messageTemplate: 'hi' }, () => new Response('down', { status: 503, statusText: 'Service Unavailable' }));
+    const b = slackCtx({ botToken: 'xoxb-1', conversation: 'C1', messageTemplate: 'hi' }, () => ({ status: 503, statusText: 'Service Unavailable', text: 'down' }));
     await run(sendToSlackHandler, b.ctx, telemetry());
     expect(b.calls.failures[0].error).toBe('SLACK_HTTP_ERROR: 503 Service Unavailable');
+    const c = slackCtx({ botToken: 'xoxb-1', conversation: 'C1', messageTemplate: 'hi' }, () => ({ status: 302, statusText: 'Found', text: '' }));
+    await run(sendToSlackHandler, c.ctx, telemetry());
+    expect(c.calls.failures[0].error).toBe('SLACK_HTTP_ERROR: 302 Found');
+    expect(c.sent).toHaveLength(1);
   });
 
   it('system settings, a missing or masked token, or no conversation → Failure without a request', async () => {
@@ -657,16 +825,16 @@ describe('Send to Slack', () => {
       [{ botToken: 'xoxb-1', messageTemplate: 'hi' }, /^SLACK_CONVERSATION_REQUIRED: /],
     ];
     for (const [config, error] of cases) {
-      const { ctx, calls, fetch } = slackCtx(config, okReply);
+      const { ctx, calls, sent } = slackCtx(config, okReply);
       await run(sendToSlackHandler, ctx, telemetry());
       expect(calls.failures[0]?.error, JSON.stringify(config)).toMatch(error);
-      expect(fetch).not.toHaveBeenCalled();
+      expect(sent).toHaveLength(0);
     }
   });
 
   it('a request that times out ends on Failure HTTP_TIMEOUT with the engine\'s timeout', async () => {
-    const fetch = vi.fn(async () => { throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' }); });
-    const { ctx, calls } = fakeContext({ type: SLACK, config: { botToken: 'xoxb-1', conversation: 'C1', messageTemplate: 'hi' }, services: { http: { fetch } } });
+    ruleHttp.send = async () => { throw Object.assign(new Error('the request timed out'), { name: 'TimeoutError' }); };
+    const { ctx, calls } = fakeContext({ type: SLACK, config: { botToken: 'xoxb-1', conversation: 'C1', messageTemplate: 'hi' } });
     await run(sendToSlackHandler, ctx, telemetry());
     expect(calls.failures[0].error).toBe(`HTTP_TIMEOUT: no response within ${RULE_ENGINE_CONFIG_DEFAULTS.httpTimeoutMs} ms`);
   });
