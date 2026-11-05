@@ -10,6 +10,7 @@ import { currentReentryDepth } from '../context.js';
 import { emitTelemetry, emitCounters, resetEmitCounters } from '../emit.js';
 import { chainOf, docOf, nodeOf, memoryDeps, fakeServices, fakeContext, testMessage } from '../../../test-support/rule-engine.js';
 import type { LoadedRuleChain } from '../service.js';
+import { RULE_ENGINE_CONFIG_DEFAULTS } from '../config.js';
 
 /**
  * The processor (spec §6): routing on the returned relation, Failure on a
@@ -1077,6 +1078,80 @@ describe('ctx.runScript', () => {
     mem.chains.set(chain.id, { ...chain, updatedAt: new Date(chain.updatedAt.getTime() + 1_000) });
     await engine.processNow(testMessage({ t: 25 }));
     expect(results.at(-1)).toBe('true');
+  });
+});
+
+/**
+ * M1 (whole-branch review A): if Configuration → Rule Engine could not be read at
+ * start, the engine ran on the SHIPPED defaults — `enabled: true` — even when the
+ * stored switch said OFF. Now it accepts nothing until a read of THIS start succeeds.
+ */
+describe('nothing is accepted before the configuration is read (M1)', () => {
+  function flakyEngine(chains: LoadedRuleChain[], stored: Partial<typeof RULE_ENGINE_CONFIG_DEFAULTS> = {}) {
+    const state = { fail: true };
+    const mem = memoryDeps(chains);
+    const engine = createRuleEngine({
+      ...mem.deps,
+      loadConfig: async () => {
+        if (state.fail) throw new Error('database unreachable');
+        return { ...RULE_ENGINE_CONFIG_DEFAULTS, ...stored };
+      },
+      configRefreshMs: 3_600_000,
+      services: () => Object.assign(fakeServices(), { dispose: async () => undefined }),
+    });
+    return { engine, state };
+  }
+
+  it('a failed first read: not started, enqueue refused, a durable job RESCHEDULED (never dropped) — until a read succeeds', async () => {
+    const chain = chainOf('c', docOf([nodeOf(type('test:m1-sink', () => undefined), 'A')], []), { root: true });
+    const { engine, state } = flakyEngine([chain]);
+    const calls: unknown[] = [];
+    const reschedule = async (payload: Record<string, unknown>) => { calls.push(payload); };
+    const payload = { message: serialisableMessage(testMessage({})), chainId: chain.id, resumeAfterNodeId: chain.document.nodes[0].id };
+    await engine.start();
+    try {
+      expect(engine.started).toBe(false);
+      expect(engine.enqueue(testMessage({}))).toBe(false);
+      expect(await runRuleEngineMessage(payload, engine, { reschedule })).toBe('rescheduled');
+      expect(calls).toHaveLength(1);
+      state.fail = false;
+      await engine.refreshConfig();
+      expect(engine.started).toBe(true);
+      expect(engine.enqueue(testMessage({}))).toBe(true);
+    } finally {
+      await engine.stop();
+    }
+  });
+
+  it('… and when the first read that succeeds says OFF, it stays off', async () => {
+    const chain = chainOf('c', docOf([nodeOf(type('test:m1-sink2', () => undefined), 'A')], []), { root: true });
+    const { engine, state } = flakyEngine([chain], { enabled: false });
+    await engine.start();
+    try {
+      expect(engine.enqueue(testMessage({}))).toBe(false);
+      state.fail = false;
+      await engine.refreshConfig();
+      expect(engine.enqueue(testMessage({}))).toBe(false);
+    } finally {
+      await engine.stop();
+    }
+  });
+
+  it('every START needs its own read: a restart whose read fails accepts nothing, whatever the last run read', async () => {
+    const chain = chainOf('c', docOf([nodeOf(type('test:m1-sink3', () => undefined), 'A')], []), { root: true });
+    const { engine, state } = flakyEngine([chain]);
+    state.fail = false;
+    await engine.start();
+    expect(engine.enqueue(testMessage({}))).toBe(true);
+    await engine.stop();
+    state.fail = true;
+    await engine.start();
+    try {
+      expect(engine.started).toBe(false);
+      expect(engine.enqueue(testMessage({}))).toBe(false);
+    } finally {
+      await engine.stop();
+    }
   });
 });
 

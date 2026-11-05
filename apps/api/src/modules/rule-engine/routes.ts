@@ -397,7 +397,7 @@ export async function ruleEngineIngressRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Rule Chains'],
       summary: 'Inject a message into the root rule chain',
-      description: 'Body `{ type?, originatorCode?, data, metadata? }` — a message (type REST_API_REQUEST unless given) from the instrument with that code (ignoring case; 404 ORIGINATOR_NOT_FOUND) or, with no code, from SYSTEM. `metadata.requestId` is the message id; `metadata.rule_engine_origin` is `rest_api`. 202 `{ accepted: true, msgId }`, or `{ accepted: false, reason: ENGINE_NOT_STARTED | ENGINE_DISABLED | QUEUE_REFUSED }` (the audit row still names the message id). Every call that names a valid originator writes ONE `RULE_ENGINE_MESSAGE_INJECTED` audit row first (credential-like keys masked); no re-auth, no reason.',
+      description: 'Body `{ type?, originatorCode?, data, metadata? }` — a message (type REST_API_REQUEST unless given) from the instrument with that code (ignoring case; 404 ORIGINATOR_NOT_FOUND) or, with no code, from SYSTEM. `metadata.requestId` is the message id; `metadata.rule_engine_origin` is `rest_api`. 202 `{ accepted: true, msgId }`, or `{ accepted: false, reason: ENGINE_NOT_STARTED | ENGINE_DISABLED | QUEUE_REFUSED }` (the audit row still names the message id; ENGINE_NOT_STARTED also while Configuration → Rule Engine has not been read since the engine started). Every call that names a valid originator writes ONE `RULE_ENGINE_MESSAGE_INJECTED` audit row first (credential-like keys masked); no re-auth, no reason.',
       body: injectBody,
       response: injectResponse,
     },

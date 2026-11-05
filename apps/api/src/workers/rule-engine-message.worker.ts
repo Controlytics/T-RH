@@ -24,7 +24,8 @@ import { logger } from '../lib/logger.js';
  * queue never evicts it, and a graceful stop hands it back here as a new job.
  * Only a CRASH between admission and processing loses it.
  *
- *  - Engine not started (boot, or a failed start), or the Main queue refuses
+ *  - Engine not started (boot, a failed start, or Configuration → Rule Engine
+ *    not read yet since the start — M1), or the Main queue refuses
  *    it (stopping, or FULL) → the job is RESCHEDULED (ruling RE-2): the same
  *    payload is added again as a NEW job on the same queue, `requeues` + 1, at
  *    now + 5 s × 2^requeues (at most 5 min), and this one completes. graphile

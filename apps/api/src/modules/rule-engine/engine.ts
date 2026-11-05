@@ -80,7 +80,11 @@ import { unsupportedNodeMessage } from './nodes/unsupported.js';
  *
  * Configuration → Rule Engine is read on a 1 s timer into a snapshot, so the
  * emit helpers decide "accepting?" without awaiting anything. Switching it
- * OFF empties the queue.
+ * OFF empties the queue. Until the FIRST read of a start succeeds the engine
+ * accepts nothing (M1, 2026-11-05): a row that cannot be read at boot means
+ * OFF until the timer's first success, never the shipped defaults (ON) — the
+ * stored switch may say OFF. `started` stays false until then, so the durable
+ * task reschedules its job and the inject route answers ENGINE_NOT_STARTED.
  *
  * STOP: the queue is paused, waiting durable resumes are handed back (RE-2),
  * in-flight messages get `stopWaitMs` (5 s) to
@@ -301,7 +305,8 @@ class RuleEngineImpl implements RuleEngine {
     this.servicesHandle = deps.services({ config: () => this.cfg, inc: (name) => this.inc(name) });
   }
 
-  get started(): boolean { return this.isStarted; }
+  /** M1: started AND Configuration → Rule Engine read since — until then nothing is accepted. */
+  get started(): boolean { return this.isStarted && this.configLoaded; }
   get services(): RuleServices { return this.servicesHandle; }
 
   config(): RuleEngineConfig { return this.cfg; }
@@ -311,7 +316,10 @@ class RuleEngineImpl implements RuleEngine {
   }
 
   private accepting(): boolean {
-    return this.isStarted && !this.stopping && this.cfg.enabled;
+    // M1: `configLoaded` — before the first successful read `cfg` is the SHIPPED defaults (ON),
+    // which the stored switch may contradict. `cfg.enabled` itself is never forced OFF instead:
+    // the durable task reads it to DROP a job, and a job that runs before the read must wait.
+    return this.isStarted && this.configLoaded && !this.stopping && this.cfg.enabled;
   }
 
   private readonly sink: RuleEngineSink = {
@@ -326,6 +334,8 @@ class RuleEngineImpl implements RuleEngine {
     if (this.isStarted) return;
     this.stopping = false;
     this.halted = false;
+    // M1: every start reads the row again; until a read succeeds nothing is accepted.
+    this.configLoaded = false;
     try {
       this.deps.registerNodes();
     } catch (err) {
@@ -334,7 +344,7 @@ class RuleEngineImpl implements RuleEngine {
     try {
       await this.refreshConfig();
     } catch (err) {
-      logger.error({ err: errorText(err) }, '[rule-engine] Configuration → Rule Engine could not be read — running on the shipped defaults until it can');
+      logger.error({ err: errorText(err) }, '[rule-engine] Configuration → Rule Engine could not be read — the engine accepts NOTHING until it can (re-read every second)');
     }
     this.deps.debug.start?.();
     this.queue.resume();
@@ -955,7 +965,7 @@ class RuleEngineImpl implements RuleEngine {
       for (const [id, n] of bucket.chains) perChain.set(id, (perChain.get(id) ?? 0) + n);
     }
     return {
-      started: this.isStarted,
+      started: this.started,
       enabled: this.cfg.enabled,
       queueDepth: this.queue.size,
       inFlight: this.queue.inFlight,
