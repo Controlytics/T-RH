@@ -7,6 +7,7 @@ import {
 import { importChain, exportChain, MASKED_SECRET } from '../import-export.js';
 import { createRuleEngine } from '../engine.js';
 import { registerNode } from '../registry.js';
+import { DEVICE_PROFILE_TYPE, deviceProfile } from '../nodes/action/device-profile.js';
 import { newMessage } from '../message.js';
 import { chainOf, memoryDeps, fakeServices } from '../../../test-support/rule-engine.js';
 
@@ -89,19 +90,30 @@ describe('capacity (spec §6)', () => {
   });
 });
 
-// ─── ThingsBoard's REAL default root chain (Task 6) ──────────────────────────
+// ─── ThingsBoard's REAL default root chains (Task 6; re-pinned by ruling CV-3, 2026-11-05) ─
 //
-// `fixtures/thingsboard-root-chain-3.x.json` is ThingsBoard's own tenant root
-// chain, byte for byte: github.com/thingsboard/thingsboard, tag v3.6.4,
-// `application/src/main/data/json/tenant/rule_chains/root_rule_chain.json`
-// (sha256 099e78f7…c53a328). Every release from 3.6 to 4.2 ships SEVEN nodes,
-// the entry being the Device Profile Node (`TbDeviceProfileNode` — no
-// counterpart here) in front of the Message Type Switch; 3.6.4 is the 3.x
-// shape (`debugMode`, plain booleans).
-const FIXTURE_TEXT = readFileSync(new URL('./fixtures/thingsboard-root-chain-3.x.json', import.meta.url), 'utf8');
-type TbNode = { type: string; name: string; configuration: unknown; additionalInfo: { layoutX: number; layoutY: number } };
+// Both fixtures are ThingsBoard's own tenant root chain, byte for byte, from
+// github.com/thingsboard/thingsboard,
+// `application/src/main/data/json/tenant/rule_chains/root_rule_chain.json`:
+//  - `fixtures/thingsboard-root-chain-3.x.json` — tag v3.6.4 (commit 0c25a3b3),
+//    sha256 099e78f7…c53a328. The 3.x shape: `debugMode`, Save Timeseries with NO
+//    configurationVersion (v0), Save Client Attributes at v2.
+//  - `fixtures/thingsboard-root-chain-4.2.json` — tag v4.2 (commit 29a6e980), sha256
+//    26618699…bfae6a8b; the same bytes on v4.2.1, v4.2.2.8 and the release-4.2 branch
+//    head (4955498b, 2026-10-26). The 4.x shape: no debug flags, Save Timeseries at v1
+//    (`processingSettings`), Save Client Attributes at v3.
+// Both ship SEVEN nodes, the entry being the Device Profile Node — a BUILT
+// pass-through here since 46c91dc9 — in front of the Message Type Switch. The
+// one node with no counterpart is RPC Call Request (later): each imports with
+// exactly ONE warning (ruling CV-2 / CV-3 acceptance).
+const fixtureText = (file: string) => readFileSync(new URL(`./fixtures/${file}`, import.meta.url), 'utf8');
+const FIXTURE_TEXT = fixtureText('thingsboard-root-chain-3.x.json');
+const FIXTURE_42_TEXT = fixtureText('thingsboard-root-chain-4.2.json');
+type TbNode = { type: string; name: string; configurationVersion?: number; configuration: unknown; additionalInfo: { layoutX: number; layoutY: number } };
 type TbExport = { ruleChain: { name: string; root: boolean }; metadata: { firstNodeIndex: number; nodes: TbNode[]; connections: { fromIndex: number; toIndex: number; type: string }[] } };
 const fixture = (): TbExport => JSON.parse(FIXTURE_TEXT) as TbExport;
+const fixture42 = (): TbExport => JSON.parse(FIXTURE_42_TEXT) as TbExport;
+const ON_EVERY = { type: 'ON_EVERY_MESSAGE' };
 
 /** The fixture without the named nodes; indices re-numbered, connections touching them dropped, `first` the new entry. */
 function without(tb: TbExport, names: string[], first: string): TbExport {
@@ -121,43 +133,57 @@ function without(tb: TbExport, names: string[], first: string): TbExport {
 
 const NO_COUNTERPART = 'has no counterpart here and will send every message to Failure';
 const RPC_WARNING = `Node "RPC Call Request": RPC call request ${NO_COUNTERPART}.`;
-const DEVICE_PROFILE_WARNING = `Node "Device Profile Node": Device profile (deprecated) ${NO_COUNTERPART}.`;
+
+const NODES = [
+  ['tb:action:save-timeseries', 'Save Timeseries'],
+  ['tb:action:save-attributes', 'Save Client Attributes'],
+  ['tb:filter:message-type-switch', 'Message Type Switch'],
+  ['tb:action:log', 'Log RPC from Device'],
+  ['tb:action:log', 'Log Other'],
+  ['tb:action:rpc-call-request', 'RPC Call Request'],
+  ['tb:action:device-profile', 'Device Profile Node'],
+];
+const CONNECTIONS = [
+  ['Device Profile Node', 'Success', 'Message Type Switch'],
+  ['Message Type Switch', 'Other', 'Log Other'],
+  ['Message Type Switch', 'Post attributes', 'Save Client Attributes'],
+  ['Message Type Switch', 'Post telemetry', 'Save Timeseries'],
+  ['Message Type Switch', 'RPC Request from Device', 'Log RPC from Device'],
+  ['Message Type Switch', 'RPC Request to Device', 'RPC Call Request'],
+];
+
+/** What both fixtures share after import: every node mapped, the entry, positions, debug off, the connections. */
+function expectRootChainShape(tb: TbExport, r: ReturnType<typeof importChain>) {
+  expect(r.name).toBe('Root Rule Chain');
+  expect(r.document.nodes.map((n) => [n.type, n.name])).toEqual(NODES);
+  expect(r.document.nodes.some((n) => n.type === UNSUPPORTED_NODE_TYPE)).toBe(false);
+  // The entry is the Device Profile Node, as in ThingsBoard.
+  expect(r.document.firstNodeId).toBe(r.document.nodes[6].id);
+  expect(r.document.nodes.map((n) => [n.x, n.y])).toEqual(tb.metadata.nodes.map((n) => [n.additionalInfo.layoutX, n.additionalInfo.layoutY]));
+  expect(r.document.nodes.every((n) => n.debugMode === 'off')).toBe(true);
+  const name = (id: string) => r.document.nodes.find((n) => n.id === id)!.name;
+  expect(r.document.connections.map((c) => [name(c.from), c.relation, name(c.to)])).toEqual(CONNECTIONS);
+  expect(parseRuleChainDocument(r.document)).toEqual(r.document);
+}
 
 describe('ThingsBoard\'s real root chain export (v3.6.4 fixture)', () => {
-  it('imports every node mapped to its catalogue type, with ONE warning per node that has no handler here: RPC Call Request and Device Profile Node', () => {
+  it('imports every node mapped to its catalogue type, with exactly ONE warning — RPC Call Request (no counterpart)', () => {
     const tb = fixture();
     const r = importChain(tb);
-    expect(r.name).toBe('Root Rule Chain');
-    expect(r.document.nodes.map((n) => [n.type, n.name])).toEqual([
-      ['tb:action:save-timeseries', 'Save Timeseries'],
-      ['tb:action:save-attributes', 'Save Client Attributes'],
-      ['tb:filter:message-type-switch', 'Message Type Switch'],
-      ['tb:action:log', 'Log RPC from Device'],
-      ['tb:action:log', 'Log Other'],
-      ['tb:action:rpc-call-request', 'RPC Call Request'],
-      ['tb:action:device-profile', 'Device Profile Node'],
-    ]);
-    expect(r.document.nodes.some((n) => n.type === UNSUPPORTED_NODE_TYPE)).toBe(false);
-    expect(r.warnings).toEqual([RPC_WARNING, DEVICE_PROFILE_WARNING]);
-    // The entry is the Device Profile Node, as in ThingsBoard.
-    expect(r.document.firstNodeId).toBe(r.document.nodes[6].id);
-    expect(r.document.nodes.map((n) => [n.x, n.y])).toEqual(tb.metadata.nodes.map((n) => [n.additionalInfo.layoutX, n.additionalInfo.layoutY]));
-    expect(r.document.nodes.every((n) => n.debugMode === 'off')).toBe(true);
-    const name = (id: string) => r.document.nodes.find((n) => n.id === id)!.name;
-    expect(r.document.connections.map((c) => [name(c.from), c.relation, name(c.to)])).toEqual([
-      ['Device Profile Node', 'Success', 'Message Type Switch'],
-      ['Message Type Switch', 'Other', 'Log Other'],
-      ['Message Type Switch', 'Post attributes', 'Save Client Attributes'],
-      ['Message Type Switch', 'Post telemetry', 'Save Timeseries'],
-      ['Message Type Switch', 'RPC Request from Device', 'Log RPC from Device'],
-      ['Message Type Switch', 'RPC Request to Device', 'RPC Call Request'],
-    ]);
-    // ThingsBoard's configurations come through untouched (unmodelled keys included).
-    r.document.nodes.forEach((n, i) => expect(n.config, n.name).toEqual(tb.metadata.nodes[i].configuration));
-    expect(parseRuleChainDocument(r.document)).toEqual(r.document);
+    expectRootChainShape(tb, r);
+    expect(r.warnings).toEqual([RPC_WARNING]);
+    // ThingsBoard's configurations come through as given, except where ThingsBoard
+    // itself would upgrade them on import (TbNodeUpgradeUtils, ruling CV-3):
+    //  - Save Timeseries v0 → v1: processingSettings On every message, and here the toggle it sets;
+    //  - Save Client Attributes v2 → v3: processingSettings On every message;
+    //  - Device Profile v0 → v1: persistAlarmRulesState false → fetchAlarmRulesStateOnStart false (already false).
+    const expected = tb.metadata.nodes.map((n) => n.configuration as Record<string, unknown>);
+    expected[0] = { ...expected[0], skipLatestPersistence: false, processingSettings: ON_EVERY };
+    expected[1] = { ...expected[1], processingSettings: ON_EVERY };
+    r.document.nodes.forEach((n, i) => expect(n.config, n.name).toEqual(expected[i]));
   });
 
-  it('without its Device Profile Node (the switch as the entry) it imports with exactly ONE warning — the RPC Call Request', () => {
+  it('without its Device Profile Node (the switch as the entry) it still imports with exactly ONE warning', () => {
     const r = importChain(without(fixture(), ['Device Profile Node'], 'Message Type Switch'));
     expect(r.warnings).toEqual([RPC_WARNING]);
     expect(r.document.nodes).toHaveLength(6);
@@ -165,10 +191,10 @@ describe('ThingsBoard\'s real root chain export (v3.6.4 fixture)', () => {
   });
 
   it('with only its built nodes it imports with no warning at all', () => {
-    const r = importChain(without(fixture(), ['Device Profile Node', 'RPC Call Request'], 'Message Type Switch'));
+    const r = importChain(without(fixture(), ['RPC Call Request'], 'Device Profile Node'));
     expect(r.warnings).toEqual([]);
-    expect(r.document.nodes).toHaveLength(5);
-    expect(r.document.connections).toHaveLength(4);
+    expect(r.document.nodes).toHaveLength(6);
+    expect(r.document.connections).toHaveLength(5);
   });
 
   it('a class the catalogue does not know (a ThingsBoard PE node) imports as Unsupported with one more warning, and exports back as itself', () => {
@@ -177,10 +203,10 @@ describe('ThingsBoard\'s real root chain export (v3.6.4 fixture)', () => {
     const tb = fixture();
     tb.metadata.nodes.push({ type: cls, name: 'Aggregate stream', configuration: { interval: 60 }, additionalInfo: { layoutX: 10, layoutY: 20 } });
     const r = importChain(tb);
-    expect(r.warnings).toHaveLength(3);
-    expect(r.warnings.slice(0, 2)).toEqual([RPC_WARNING, DEVICE_PROFILE_WARNING]);
-    expect(r.warnings[2]).toContain('Aggregate stream');
-    expect(r.warnings[2]).toContain(cls);
+    expect(r.warnings).toHaveLength(2);
+    expect(r.warnings[0]).toBe(RPC_WARNING);
+    expect(r.warnings[1]).toContain('Aggregate stream');
+    expect(r.warnings[1]).toContain(cls);
     expect(r.document.nodes[7]).toMatchObject({ type: UNSUPPORTED_NODE_TYPE, name: 'Aggregate stream', config: { tbClass: cls, configuration: { interval: 60 } } });
     expect(toThingsboardExport('C', false, r.document).metadata.nodes[7]).toMatchObject({ type: cls, configuration: { interval: 60 } });
   });
@@ -198,21 +224,49 @@ describe('ThingsBoard\'s real root chain export (v3.6.4 fixture)', () => {
     expect(masked.metadata).toEqual(exported.metadata);
   });
 
-  it('imported as the ROOT chain it is inert here: every message ends at the Device Profile Node and never reaches the switch', async () => {
+  it('imported as the ROOT chain it RUNS: the Device Profile Node (a pass-through) hands every message to the switch', async () => {
+    // Until 46c91dc9 the Device Profile Node had no handler and this chain was inert here.
     const hits: Record<string, number> = {};
     standIns(hits);
-    const run = async (doc: RuleChainDocument) => {
-      const mem = memoryDeps([chainOf('Root Rule Chain', doc, { root: true, strict: true })]);
-      const engine = createRuleEngine({ ...mem.deps, services: () => Object.assign(fakeServices(), { dispose: async () => undefined }) });
-      await engine.processNow(telemetry('i1', 1));
-      return engine.stats().counters;
-    };
-    const asShipped = await run(importChain(fixture()).document);
-    expect(hits).toEqual({});
-    expect(asShipped.unhandled_failures).toBe(1);
-    const switchFirst = await run(importChain(without(fixture(), ['Device Profile Node'], 'Message Type Switch')).document);
-    expect(hits).toEqual({ timeseries: 1 });
-    expect(switchFirst.unhandled_failures ?? 0).toBe(0);
+    restores.push(registerNode(DEVICE_PROFILE_TYPE, deviceProfile));
+    const mem = memoryDeps([chainOf('Root Rule Chain', importChain(fixture()).document, { root: true, strict: true })]);
+    const engine = createRuleEngine({ ...mem.deps, services: () => Object.assign(fakeServices(), { dispose: async () => undefined }) });
+    await engine.processNow(telemetry('i1', 1));
+    await engine.processNow(newMessage('POST_ATTRIBUTES_REQUEST', { type: 'INSTRUMENT', id: 'i1' }, { a: '1' }));
+    expect(hits).toEqual({ timeseries: 1, attributes: 1 });
+    expect(engine.stats().counters.unhandled_failures ?? 0).toBe(0);
+  });
+});
+
+describe('ThingsBoard\'s real root chain export (v4.2 fixture)', () => {
+  it('imports every node mapped to its catalogue type, with exactly ONE warning — RPC Call Request (no counterpart)', () => {
+    const tb = fixture42();
+    const r = importChain(tb);
+    expectRootChainShape(tb, r);
+    expect(r.warnings).toEqual([RPC_WARNING]);
+    // 4.x configurations come through as given; Save Timeseries (v1) gains only the toggle its
+    // processingSettings sets (ruling CV-3) — On every message: the latest readings ARE updated.
+    expect(tb.metadata.nodes[0].configurationVersion).toBe(1);
+    expect(tb.metadata.nodes[1].configurationVersion).toBe(3);
+    const expected = tb.metadata.nodes.map((n) => n.configuration as Record<string, unknown>);
+    expected[0] = { ...expected[0], skipLatestPersistence: false };
+    r.document.nodes.forEach((n, i) => expect(n.config, n.name).toEqual(expected[i]));
+  });
+
+  it('exports back in ThingsBoard\'s OWN 4.2 form: every node\'s configuration is the fixture\'s, Save Timeseries at v1 without the toggle', () => {
+    const tb = fixture42();
+    const exported = toThingsboardExport('Root Rule Chain', true, importChain(tb).document);
+    expect(exported.metadata.nodes.map((n) => n.configuration)).toEqual(tb.metadata.nodes.map((n) => n.configuration));
+    expect(exported.metadata.nodes.map((n) => n.configurationVersion)).toEqual([1, 3, 0, 0, 0, undefined, 1]);
+    expect(exported.metadata.connections).toEqual(tb.metadata.connections);
+    expect(exported.metadata.firstNodeIndex).toBe(tb.metadata.firstNodeIndex);
+  });
+
+  it('export → import is the same chain, with the same ONE warning', () => {
+    const first = importChain(fixture42());
+    const again = importChain(JSON.parse(JSON.stringify(toThingsboardExport('Root Rule Chain', true, first.document))));
+    expect(ruleChainsEqual(again.document, first.document)).toBe(true);
+    expect(again.warnings).toEqual([RPC_WARNING]);
   });
 });
 
