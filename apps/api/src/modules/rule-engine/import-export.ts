@@ -9,7 +9,7 @@
  * is never touched by the mask.
  */
 import {
-  toThingsboardExport, fromThingsboardExport,
+  toThingsboardExport, fromThingsboardExport, RULE_NODE_TYPE_BY_TB_CLASS, THINGSBOARD_EXPORT_NOTES_HEADER,
   type RuleChainDocument, type ThingsboardRuleChainExport, type ThingsboardImportResult,
 } from '@digilog/shared';
 import { RuleChainError } from './service.js';
@@ -17,14 +17,54 @@ import { maskSecrets, mergeMaskedSecrets, unresolvedSecretWarnings } from './sec
 
 export { MASKED_SECRET, maskSecrets } from './secrets.js';
 
-/** The ThingsBoard export of a chain, every node's configuration masked. Never root on the wire unless it is. */
+/**
+ * The ThingsBoard export of a chain, every node's configuration masked. Never root on the wire unless it is.
+ *
+ * The rule chain's Description (`additionalInfo.description`, ruling SW-2) also names every node whose
+ * credential went out as "***" — one line per node after the shared notes, each masked path named
+ * (FW-N1 open item 3): the mask is applied HERE, after the shared export, so the shared notes cannot see
+ * it. Only a leaf the mask TURNED into "***" is named; one already "***" (never entered here) was no
+ * stored credential. `additionalInfo` stays `{ description } | null` (contract C5).
+ */
 export function exportChain(chain: { name: string; root: boolean; debugMode: boolean; document: RuleChainDocument }): ThingsboardRuleChainExport {
   const exp = toThingsboardExport(chain.name, chain.root, chain.document);
+  const credentialNotes: string[] = [];
+  const nodes = exp.metadata.nodes.map((n) => {
+    const configuration = maskSecrets(n.configuration);
+    const paths: string[] = [];
+    maskedPaths(n.configuration, configuration, '', paths);
+    if (paths.length > 0) {
+      credentialNotes.push(`- Node "${n.name}" (${exportedNodeLabel(n.type)}): set ${paths.join(', ')} after import — this system never exports a stored credential.`);
+    }
+    return { ...n, configuration };
+  });
+  const shared = exp.ruleChain.additionalInfo?.description;
+  const description = credentialNotes.length === 0 ? shared ?? null
+    : [shared ?? THINGSBOARD_EXPORT_NOTES_HEADER, ...credentialNotes].join('\n');
   return {
     ...exp,
-    ruleChain: { ...exp.ruleChain, debugMode: chain.debugMode },
-    metadata: { ...exp.metadata, nodes: exp.metadata.nodes.map((n) => ({ ...n, configuration: maskSecrets(n.configuration) })) },
+    ruleChain: { ...exp.ruleChain, debugMode: chain.debugMode, additionalInfo: description === null ? null : { description } },
+    metadata: { ...exp.metadata, nodes },
   };
+}
+
+/** Every string leaf the mask changed (it became "***"): `a.b`, `a[0]` — the paths secrets.ts reports. */
+function maskedPaths(before: unknown, after: unknown, path: string, out: string[]): void {
+  if (typeof before === 'string') {
+    if (after !== before) out.push(path);
+    return;
+  }
+  if (Array.isArray(before)) {
+    if (Array.isArray(after)) before.forEach((v, i) => maskedPaths(v, after[i], `${path}[${i}]`, out));
+    return;
+  }
+  if (before === null || typeof before !== 'object' || after === null || typeof after !== 'object' || Array.isArray(after)) return;
+  for (const [key, v] of Object.entries(before)) maskedPaths(v, (after as Record<string, unknown>)[key], path ? `${path}.${key}` : key, out);
+}
+
+/** An exported node's label: the catalogue's, by ThingsBoard class; an unknown class by its own name. */
+function exportedNodeLabel(tbClass: string): string {
+  return RULE_NODE_TYPE_BY_TB_CLASS.get(tbClass)?.label ?? tbClass.slice(tbClass.lastIndexOf('.') + 1);
 }
 
 /** `<name>.json`, safe in a Content-Disposition header (ASCII, no quotes or path characters). */

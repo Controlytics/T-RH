@@ -10,7 +10,9 @@ import {
   RULE_ORIGINATOR_TB_ENTITY_TYPES, TB_ENTITY_TYPE_SWITCH_LABELS, toRuleOriginatorType, canonicalRuleNodeConfig,
   entityTypeSwitchLabelFromThingsboard, entityTypeSwitchLabelToThingsboard,
   thingsboardExportNotes, thingsboardImportNotes,
+  THINGSBOARD_EXPORT_NOTES_HEADER,
 } from '../rule-nodes.js';
+import { toThingsboardExport } from '../rule-chain-document.js';
 
 /**
  * The rule-node catalogue (rule chains, 2026-11-03). Spec:
@@ -236,6 +238,16 @@ describe('built nodes — descriptors, defaults and config schemas', () => {
     expect(keys('tb:external:rest-api-call')).toEqual(expect.arrayContaining(['restEndpointUrlPattern', 'requestMethod', 'headers', 'readTimeoutMs']));
     expect(keys('tb:transformation:to-email')).toEqual(expect.arrayContaining(['fromTemplate', 'toTemplate', 'subjectTemplate', 'bodyTemplate', 'mailBodyType']));
     expect(keys('tb:action:create-alarm')).toEqual(expect.arrayContaining(['alarmType', 'severity', 'alarmDetailsBuildJs']));
+  });
+
+  it('THINGSBOARD_EXPORT_NOTES_HEADER is the first line the shared export writes over its notes (one header with the API credential lines)', () => {
+    const doc = { version: 1 as const, firstNodeId: null, connections: [], nodes: [
+      { id: 'a0de0000-0000-4000-8000-000000000001', type: 'tb:flow:rule-chain', name: 'Hop', debugMode: 'off' as const, x: 0, y: 0, config: { ruleChainId: '' } },
+    ] };
+    const lines = toThingsboardExport('X', false, doc).ruleChain.additionalInfo?.description.split(String.fromCharCode(10)) ?? [];
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines[0]).toBe(THINGSBOARD_EXPORT_NOTES_HEADER);
+    expect(THINGSBOARD_EXPORT_NOTES_HEADER).toBe('Set in ThingsBoard when you import this chain:');
   });
 
   it('REST API call models ThingsBoard 4\'s requestBodyTemplate (review B I-3): a template field, text or null, no default', () => {

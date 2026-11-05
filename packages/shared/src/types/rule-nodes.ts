@@ -1848,6 +1848,14 @@ export function toThingsboardConfig(type: string, config: Record<string, unknown
 const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const nonBlankText = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
 /** A bean constraint the configuration breaks: ThingsBoard refuses the whole chain until it is set (controller ruling on SW-2). */
+/**
+ * The first line of an export's `ruleChain.additionalInfo.description` (ruling
+ * SW-2): one `- Node "<name>" (<label>): …` line per note follows it — the
+ * shared export's `thingsboardExportNotes`, then the API's credential lines
+ * (`exportChain`, a credential masked as "***"). ONE header for both.
+ */
+export const THINGSBOARD_EXPORT_NOTES_HEADER = 'Set in ThingsBoard when you import this chain:';
+
 const BEFORE_SAVE = 'before ThingsBoard will save the chain';
 /** A value ThingsBoard cannot deserialise or start with: the chain is saved, the node waits. */
 const UNTIL_THEN = 'until then ThingsBoard keeps the node but cannot start it';

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   defaultRootChainDocument, messageTypeSwitchLabel, toThingsboardExport, fromThingsboardExport, parseRuleChainDocument, ruleChainsEqual,
   newRuleNodeConfig, RULE_NODE_TYPE_BY_TB_CLASS, UNSUPPORTED_NODE_TYPE, DEFAULT_ROOT_CHAIN_NODE_IDS, type RuleChainDocument,
-  RULE_SCRIPT_KEYS, ruleNodeScriptKey, ruleNodeScript,
+  RULE_SCRIPT_KEYS, ruleNodeScriptKey, ruleNodeScript, THINGSBOARD_EXPORT_NOTES_HEADER,
 } from '@digilog/shared';
 import { importChain, exportChain, MASKED_SECRET } from '../import-export.js';
 import { createRuleEngine } from '../engine.js';
@@ -405,11 +405,48 @@ describe('credentials on export (spec §12 ruling S-5, secrets.ts)', () => {
     expect(fromThingsboardExport(exp).document.nodes.map((n) => n.type)).toEqual(stored.nodes.map((n) => n.type));
   });
 
-  it('the export the route sends (exportChain) carries the SW-2 description — and masks nothing in it', () => {
+  it('the export the route sends (exportChain) carries the SW-2 description, then ONE line per node whose credential went out as "***" — and no secret in it', () => {
     const exp = exportChain({ name: 'Out', root: false, debugMode: false, document: doc() });
     expect(exp.ruleChain.additionalInfo?.description).toBe([
       'Set in ThingsBoard when you import this chain:',
       '- Node "Slack" (Send to Slack): choose the Slack conversation after import — the channel or user id "C1" cannot become a ThingsBoard conversation object (its type and name are not known here); until then ThingsBoard keeps the node but cannot start it.',
+      '- Node "Call ERP" (REST API call): set headers.Authorization, credentials.password after import — this system never exports a stored credential.',
+      '- Node "Broker (cert)" (MQTT): set credentials.privateKey, credentials.password after import — this system never exports a stored credential.',
+      '- Node "Broker (basic)" (MQTT): set credentials.password after import — this system never exports a stored credential.',
+      '- Node "Slack" (Send to Slack): set botToken after import — this system never exports a stored credential.',
+    ].join('\n'));
+    expect(exp.ruleChain.additionalInfo?.description).not.toMatch(/p@ss-1|tok-2|KEY-3|kp-4|pw-5|xoxb-6/);
+  });
+
+  it('a stored SMTP password exports as "***" AND a note naming its path; a node with no credential adds none; nothing else to say → the same header', () => {
+    const mailer = node('c0de0000-0000-4000-8000-000000000011', 'tb:external:send-email', 'Mailer', { useSystemSmtpSettings: true, password: 'smtp-secret' });
+    const log = node('c0de0000-0000-4000-8000-000000000012', 'tb:action:log', 'Log it', {});
+    const unentered = node('c0de0000-0000-4000-8000-000000000013', 'tb:external:send-email', 'Never set', { password: MASKED_SECRET });
+    const document: RuleChainDocument = { version: 1, firstNodeId: mailer.id, nodes: [mailer, log, unentered], connections: [] };
+    const exp = exportChain({ name: 'Mail', root: false, debugMode: false, document });
+    expect((exp.metadata.nodes[0].configuration as Record<string, unknown>).password).toBe(MASKED_SECRET);
+    // Only a credential the mask TURNED into "***" is named: one never entered here was "***" already.
+    expect(exp.ruleChain.additionalInfo).toEqual({
+      description: [
+        THINGSBOARD_EXPORT_NOTES_HEADER,
+        '- Node "Mailer" (Send email): set password after import — this system never exports a stored credential.',
+      ].join('\n'),
+    });
+    // No credential and no SW-2 note: no description at all (contract C5: `{ description } | null`).
+    expect(exportChain({ name: 'Quiet', root: false, debugMode: false, document: { ...document, nodes: [log], firstNodeId: log.id } }).ruleChain.additionalInfo).toBeNull();
+    // ONE header: the constant is the one the shared export writes.
+    expect(toThingsboardExport('Out', false, doc()).ruleChain.additionalInfo?.description.split('\n')[0]).toBe(THINGSBOARD_EXPORT_NOTES_HEADER);
+  });
+
+  it('an Unsupported (unknown class) node is named by its class when its masked secret is noted', () => {
+    const pubsub = {
+      id: 'c0de0000-0000-4000-8000-000000000021', type: UNSUPPORTED_NODE_TYPE, name: 'PE node', debugMode: 'off' as const, x: 0, y: 0,
+      config: { tbClass: 'org.thingsboard.rule.engine.pe.TbSecretSinkNode', configuration: { apiKey: 'k-1', target: 'x' } },
+    };
+    const exp = exportChain({ name: 'U', root: false, debugMode: false, document: { version: 1, firstNodeId: pubsub.id, nodes: [pubsub], connections: [] } });
+    expect(exp.ruleChain.additionalInfo?.description).toBe([
+      THINGSBOARD_EXPORT_NOTES_HEADER,
+      '- Node "PE node" (TbSecretSinkNode): set apiKey after import — this system never exports a stored credential.',
     ].join('\n'));
   });
 
