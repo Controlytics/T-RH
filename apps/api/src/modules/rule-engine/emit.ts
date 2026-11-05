@@ -252,7 +252,7 @@ export interface AlarmEmitFlags {
   /** The administered name the caller already resolved (the evaluator's `ruleName`). */
   typeName?: string;
   instrumentCode?: string | null;
-  /** Default `system` (the evaluator); the acknowledge route passes `user`; a rule node its `rule_node:` origin. */
+  /** Default `system` (the evaluator); the acknowledge route passes `user`. (A rule node uses `emitRuleNodeAlarm`.) */
   origin?: string;
 }
 
@@ -324,8 +324,9 @@ export function alarmMessageData(a: EmittedAlarm, typeName?: string): Record<str
  * as it does in ThingsBoard. The alarm itself is `metadata.alarmId` and the data —
  * the alarm JSON, its `id` included; `metadata.instrumentId` stays for chains that
  * read it. `instrumentCode` / `instrumentName` / `profileName` are filled in by the
- * engine when not given. This covers the evaluator's raises and clears, the
- * acknowledge route and the rule nodes' create / update / clear (services.ts).
+ * engine when not given. This covers the evaluator's raises and clears and the
+ * acknowledge route; a rule node's create / update / clear sends ThingsBoard's
+ * action message instead (`emitRuleNodeAlarm`, ruling AL-2).
  * Flags as ThingsBoard sets them: only the true one (`ALARM_FLAG`).
  */
 export function emitAlarm(kind: AlarmMessageKind, alarm: EmittedAlarm, flags: AlarmEmitFlags = {}): Promise<number> {
@@ -343,6 +344,34 @@ export function emitAlarm(kind: AlarmMessageKind, alarm: EmittedAlarm, flags: Al
     if (kind === 'ALARM_CLEAR') metadata[ALARM_FLAG.CLEARED] = 'true';
     if (kind === 'ALARM_ACK') metadata.acknowledgedBy = flags.acknowledgedBy ?? alarm.acknowledgedBy ?? '';
     return [newMessage(kind, { type: 'INSTRUMENT', id: alarm.instrumentId, ...(code ? { code } : {}) }, alarmMessageData(alarm, flags.typeName), metadata)];
+  });
+}
+
+/** A rule node's alarm act, as ThingsBoard names its root-chain message (ruling AL-2). */
+export type RuleNodeAlarmAction = 'ENTITY_CREATED' | 'ENTITY_UPDATED' | 'ALARM_CLEAR';
+
+/**
+ * A RULE NODE's alarm action message (ruling AL-2, 2026-11-05) — ThingsBoard's own: the
+ * alarm node (`TbAbstractAlarmNode.tellNext`, master e48b5780 :100-104) enqueues
+ * `ctx.alarmActionMsg(alarm, selfId, ENTITY_CREATED | ENTITY_UPDATED | ALARM_CLEAR)` for
+ * Created / Updated (a severity change too) / Cleared (:49-53): from the alarm's
+ * originator, the instrument (`DefaultTbContext.alarmActionMsg` :499-510), data = the
+ * alarm JSON, metadata = `getActionMetaData(ruleNodeId)` — `ruleNodeId` alone (:1309-1313).
+ * Here plus `alarmId` (AL-1) and the origin stamp the loop guard reads (`deliver`). No
+ * isNewAlarm / isExistingAlarm / isClearedAlarm: those ride on the NODE's own output
+ * (`toAlarmMsg`, type ALARM — create-alarm.ts / clear-alarm.ts), not on this message.
+ * The evaluator keeps `emitAlarm` (ALARM / ALARM_CLEAR, the profile flags) and the
+ * acknowledge route ALARM_ACK.
+ */
+export function emitRuleNodeAlarm(
+  kind: RuleNodeAlarmAction,
+  alarm: EmittedAlarm,
+  opts: { ruleNodeId: string; origin: string; instrumentCode?: string | null },
+): Promise<number> {
+  return deliver(`rule-node alarm ${kind}`, opts.origin, () => {
+    const code = opts.instrumentCode || undefined;
+    return [newMessage(kind, { type: 'INSTRUMENT', id: alarm.instrumentId, ...(code ? { code } : {}) }, alarmMessageData(alarm),
+      { ruleNodeId: opts.ruleNodeId, alarmId: alarm.id })];
   });
 }
 

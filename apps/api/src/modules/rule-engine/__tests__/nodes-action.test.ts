@@ -14,7 +14,7 @@ import { metadataTs, processPattern, roundHalfUp } from '../nodes/action/support
 import { compileExpression, evaluateExpression } from '../nodes/action/math-expression.js';
 import { telemetryTsOf } from '../nodes/action/save-timeseries.js';
 import { newMessage, newMessageId, type RuleMessage } from '../message.js';
-import { alarmMessageData, emitAlarm, setRuleEngineSink } from '../emit.js';
+import { alarmMessageData, emitAlarm, emitRuleNodeAlarm, setRuleEngineSink } from '../emit.js';
 import { fakeContext, testMessage } from '../../../test-support/rule-engine.js';
 import type { RuleServices } from '../services.js';
 
@@ -732,13 +732,25 @@ describe('Device profile (ruling DP-1: routes as ThingsBoard\'s TbDeviceProfileN
     expect((await run(T, {}, sys({ isNewAlarm: 'false' }))).calls.relations()).toEqual(['Success']);
   });
 
-  it('everything else on Success, unchanged: the acknowledge (origin user), a RULE NODE\'s alarm messages though they carry isNewAlarm, telemetry, activity events', async () => {
+  it('everything else on Success, unchanged: the acknowledge (origin user), a RULE NODE\'s alarm action messages (AL-2), telemetry, activity events', async () => {
     const node = 'rule_node:44444444-4444-4444-8444-444444444444:33333333-3333-4333-8333-333333333333';
+    /** What a rule node's createOrUpdate / clear really sends to the root (ruling AL-2). */
+    const fromRuleNode = async (kind: 'ENTITY_CREATED' | 'ENTITY_UPDATED' | 'ALARM_CLEAR'): Promise<RuleMessage> => {
+      const queued: RuleMessage[] = [];
+      setRuleEngineSink({ accepting: () => true, enqueue: (m) => { queued.push(m); return true; }, reEnterAllowed: async () => true });
+      try {
+        await emitRuleNodeAlarm(kind, { id: 'al-r', instrumentId: 'instrument-1', source: 'RULE', metric: 'CUSTOM', severity: 'MINOR', state: kind === 'ALARM_CLEAR' ? 'CLEARED' : 'ACTIVE', raisedAt: new Date(5_000) },
+          { ruleNodeId: '33333333-3333-4333-8333-333333333333', origin: node });
+      } finally {
+        setRuleEngineSink(null);
+      }
+      return queued[0];
+    };
     const others = [
       await emitted('ALARM_ACK', { origin: 'user', acknowledgedBy: 'qa1' }),
-      await emitted('ALARM', { isNewAlarm: true, origin: node }),
-      await emitted('ALARM', { isExistingAlarm: true, origin: node }),
-      await emitted('ALARM_CLEAR', { isClearedAlarm: true, origin: node }),
+      await fromRuleNode('ENTITY_CREATED'),
+      await fromRuleNode('ENTITY_UPDATED'),
+      await fromRuleNode('ALARM_CLEAR'),
       testMessage({ t: 1 }, { metadata: { rule_engine_origin: 'ingest' } }),
       testMessage({}, { type: 'POST_ATTRIBUTES_REQUEST' }),
       testMessage({ lastActivityTime: 1 }, { type: 'INACTIVITY_EVENT', metadata: { rule_engine_origin: 'system' } }),

@@ -350,10 +350,13 @@ describe('Create alarm and Clear alarm', () => {
     expect(cleared).toMatchObject({ relation: 'Cleared (unconnected)', msg_type: 'ALARM' });
     expect(cleared.data.details).toEqual({ closedAt: 18 });
     // Re-enter is ON for that chain: its ALARM_CLEAR enters the root chain carrying the same details.
-    // From the alarm's INSTRUMENT (ruling AL-1), the alarm in metadata.alarmId and the data.
+    // ThingsBoard's alarmActionMsg (ruling AL-2): ALARM_CLEAR from the alarm's INSTRUMENT (AL-1), the alarm in the
+    // data, metadata ruleNodeId + alarmId + origin — no isClearedAlarm (that is on the node's own Cleared output).
     const [entered] = await waitForRows(ROOT.chainId, { msgType: 'ALARM_CLEAR', originatorId: inst!.id, alarmId: open.id, direction: 'IN' }, 1);
     expect(entered, 'the ALARM_CLEAR entered the root chain').toBeDefined();
     expect(entered.data).toMatchObject({ id: open.id, cleared: true, details: { closedAt: 18 } });
+    expect(entered.metadata).toMatchObject({ ruleNodeId: CLEAR_2.nodeId, alarmId: open.id, rule_engine_origin: ruleNodeOrigin(CLEAR_2.chainId, CLEAR_2.nodeId) });
+    expect(entered.metadata).not.toHaveProperty('isClearedAlarm');
   });
 
   it('acknowledging it fires the ACKNOWLEDGED webhook under its alarmType, not its metric (alarms/routes.ts)', async () => {
@@ -675,7 +678,7 @@ describe('Generator and Message count (their lifecycle)', () => {
  * "Alarm Cleared" connection added from its Device profile node — neither ThingsBoard fixture
  * wires one — made root for this block. The evaluator's raise and clear (a real `evaluateAlarms`
  * pass on this block's own instrument, origin `system`) leave on their label ONLY; a rule node's
- * alarm (isNewAlarm, origin `rule_node:…`) and the acknowledge route's ALARM_ACK (origin `user`)
+ * alarm (ThingsBoard's ENTITY_CREATED action message, origin `rule_node:…`, AL-2) and the acknowledge route's ALARM_ACK (origin `user`)
  * pass on Success. Owns its instrument, profile, chains and the `alarm-limits` row (restored FIRST).
  */
 describe('Device profile routes as ThingsBoard\'s does (ruling DP-1) — ThingsBoard\'s v4.2 root chain + "Alarm Created" / "Alarm Cleared" branches', () => {
@@ -835,7 +838,7 @@ describe('Device profile routes as ThingsBoard\'s does (ruling DP-1) — ThingsB
     expect(ofNode(all, switchNode, 'IN')).toEqual([]);
   });
 
-  it('a RULE NODE\'s alarm (isNewAlarm, origin rule_node) and the acknowledge route\'s ALARM_ACK pass on Success — never on an alarm label', async () => {
+  it('a RULE NODE\'s alarm (its ENTITY_CREATED action message, origin rule_node — AL-2) and the acknowledge route\'s ALARM_ACK pass on Success — never on an alarm label', async () => {
     const msg = newMessage('POST_TELEMETRY_REQUEST', { type: 'INSTRUMENT', id: dpInst!.id, code: dpInst!.code }, { t: 1 }, { rule_engine_origin: 'rest_api' });
     await ruleEngine.processNow(msg, { chainId: ruleCreate.chainId });
     const [ruleAlarm] = await activeRuleOf(dpInst!.id, `DP rule ${STAMP}`);
@@ -845,7 +848,9 @@ describe('Device profile routes as ThingsBoard\'s does (ruling DP-1) — ThingsB
     await ruleEngine.drain();
     const out = ofNode(await rows(dpChain, { alarmId: ruleAlarm.id }), profileNode, 'OUT');
     expect(out.map((r) => r.relation)).toEqual(['Success']);
-    expect(out[0].metadata).toMatchObject({ isNewAlarm: 'true', rule_engine_origin: ruleNodeOrigin(ruleCreate.chainId, ruleCreate.nodeId) });
+    expect(out[0].msg_type).toBe('ENTITY_CREATED');
+    expect(out[0].metadata).toMatchObject({ ruleNodeId: ruleCreate.nodeId, alarmId: ruleAlarm.id, rule_engine_origin: ruleNodeOrigin(ruleCreate.chainId, ruleCreate.nodeId) });
+    expect(out[0].metadata).not.toHaveProperty('isNewAlarm');
 
     const ack = await app.inject({
       method: 'POST', url: `/api/alarms/${evaluatorAlarm}/acknowledge`,

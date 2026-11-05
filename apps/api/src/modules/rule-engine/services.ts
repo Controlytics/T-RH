@@ -22,7 +22,7 @@ import { sendNotification } from '../notification-delivery/delivery.service.js';
 import { resolveTemplate } from '../notification-delivery/template-engine.js';
 import { getApplicationAttributes, type RuleEngineConfig } from './config.js';
 import { getChain } from './service.js';
-import { emitTelemetry, emitAttributes, emitAttributesDeleted, emitAlarm } from './emit.js';
+import { emitTelemetry, emitAttributes, emitAttributesDeleted, emitRuleNodeAlarm } from './emit.js';
 import { DURABLE_JOB_MAX_ATTEMPTS, durableJobPayload, parseRuleNodeOrigin, ruleNodeOrigin, type RuleMessage } from './message.js';
 import { currentReentryDepth } from './context.js';
 import { targetNotAllowed } from './nodes/external/target-guard.js';
@@ -45,7 +45,8 @@ import { targetNotAllowed } from './nodes/external/target-guard.js';
  *  - alarms → `alarms` rows `source RULE`, `metric CUSTOM` (the dedupe is the
  *    partial unique index `alarms_active_rule_type_unique`); the clear is
  *    `claimClear`; both enqueue the notification and the webhook the
- *    evaluator's alarms do (spec §12) and emit their ALARM / ALARM_CLEAR;
+ *    evaluator's alarms do (spec §12) and emit ThingsBoard's alarm action message
+ *    — ENTITY_CREATED / ENTITY_UPDATED / ALARM_CLEAR from the instrument (ruling AL-2);
  *  - notifications → `sendNotification` (a `notification_logs` row, durable
  *    retries);
  *  - mqtt → one lazily connected client per node (`ctx.nodeKey`), closed on
@@ -821,7 +822,7 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
           }
           if (created) {
             await announceAlarm('raised', created, alarmType, snapshot.details);
-            await emitAlarm('ALARM', created, { isNewAlarm: true, origin });
+            await emitRuleNodeAlarm('ENTITY_CREATED', created, { ruleNodeId: input.nodeId, origin });
             return { alarm: created, created: true };
           }
           id = await openId();
@@ -845,7 +846,7 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
             ruleSnapshot: { ...prior, alarmType, nodeId: input.nodeId, chainId: input.chainId, details: input.details ?? {} } as unknown as Prisma.InputJsonObject,
           },
         });
-        await emitAlarm('ALARM', alarm, { isExistingAlarm: true, origin });
+        await emitRuleNodeAlarm('ENTITY_UPDATED', alarm, { ruleNodeId: input.nodeId, origin });
         return { alarm, created: false };
       },
 
@@ -864,7 +865,7 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
         });
         if (!closed) return null;
         await announceAlarm('cleared', closed, type, prior.details);
-        await emitAlarm('ALARM_CLEAR', closed, { isClearedAlarm: true, origin });
+        await emitRuleNodeAlarm('ALARM_CLEAR', closed, { ruleNodeId: parseRuleNodeOrigin(origin)?.nodeId ?? '', origin });
         return closed;
       },
 

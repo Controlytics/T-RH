@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import {
   setRuleEngineSink, emitCounters, resetEmitCounters,
-  emitTelemetry, emitTelemetryBatch, emitAttributes, emitAttributesDeleted, emitAlarm, emitInactivity, emitActivity, emitEntity,
+  emitTelemetry, emitTelemetryBatch, emitAttributes, emitAttributesDeleted, emitAlarm, emitRuleNodeAlarm, emitInactivity, emitActivity, emitEntity,
   type RuleEngineSink,
 } from '../emit.js';
 import { ruleNodeOrigin, type RuleMessage } from '../message.js';
@@ -109,8 +109,9 @@ describe('the loop guard (spec §5, ruling S-2)', () => {
     await emitAttributes('i1', { k: 'v' }, origin);
     await emitAttributesDeleted('i1', ['k'], origin);
     await emitAlarm('ALARM', alarm(), { isNewAlarm: true, origin });
+    await emitRuleNodeAlarm('ENTITY_CREATED', alarm(), { ruleNodeId: NODE, origin });
     expect(queued).toEqual([]);
-    expect(emitCounters().loop_skipped).toBe(3);
+    expect(emitCounters().loop_skipped).toBe(4);
   });
 
   it('a malformed rule_node origin is skipped, not let through', async () => {
@@ -131,8 +132,8 @@ describe('the re-entry depth (ruling RE-1)', () => {
       expect(await emitTelemetry('i1', reading(), 'rule-engine', origin)).toBe(0);
       expect(await emitAttributes('i1', { k: 'v' }, origin)).toBe(0);
       expect(await emitAttributesDeleted('i1', ['k'], origin)).toBe(0);
-      expect(await emitAlarm('ALARM', alarm(), { isExistingAlarm: true, origin })).toBe(0);
-      expect(await emitAlarm('ALARM_CLEAR', alarm(), { isClearedAlarm: true, origin })).toBe(0);
+      expect(await emitRuleNodeAlarm('ENTITY_UPDATED', alarm(), { ruleNodeId: NODE, origin })).toBe(0);
+      expect(await emitRuleNodeAlarm('ALARM_CLEAR', alarm(), { ruleNodeId: NODE, origin })).toBe(0);
     });
     expect(queued).toEqual([]);
     expect(emitCounters().loop_skipped).toBe(5);
@@ -230,15 +231,27 @@ describe('alarms', () => {
     await emitAlarm('ALARM', alarm(), { isNewAlarm: true });
     await emitAlarm('ALARM_CLEAR', alarm({ state: 'CLEARED' }), { isClearedAlarm: true });
     await emitAlarm('ALARM_ACK', alarm({ acknowledgedAt: new Date(6_000) }), { origin: 'user' });
-    await emitAlarm('ALARM', alarm(), { isNewAlarm: true, origin: node });
-    await emitAlarm('ALARM', alarm(), { isExistingAlarm: true, origin: node });
-    await emitAlarm('ALARM_CLEAR', alarm({ state: 'CLEARED' }), { isClearedAlarm: true, origin: node });
+    await emitRuleNodeAlarm('ENTITY_CREATED', alarm(), { ruleNodeId: NODE, origin: node });
+    await emitRuleNodeAlarm('ENTITY_UPDATED', alarm(), { ruleNodeId: NODE, origin: node });
+    await emitRuleNodeAlarm('ALARM_CLEAR', alarm({ state: 'CLEARED' }), { ruleNodeId: NODE, origin: node });
     expect(queued.map((m) => [m.type, m.originator.type, m.originator.id, m.metadata.alarmId])).toEqual([
       ['ALARM', 'INSTRUMENT', 'i1', 'al-1'], ['ALARM_CLEAR', 'INSTRUMENT', 'i1', 'al-1'], ['ALARM_ACK', 'INSTRUMENT', 'i1', 'al-1'],
-      ['ALARM', 'INSTRUMENT', 'i1', 'al-1'], ['ALARM', 'INSTRUMENT', 'i1', 'al-1'], ['ALARM_CLEAR', 'INSTRUMENT', 'i1', 'al-1'],
+      ['ENTITY_CREATED', 'INSTRUMENT', 'i1', 'al-1'], ['ENTITY_UPDATED', 'INSTRUMENT', 'i1', 'al-1'], ['ALARM_CLEAR', 'INSTRUMENT', 'i1', 'al-1'],
     ]);
-    expect(queued[4].metadata).toMatchObject({ isExistingAlarm: 'true' });
-    expect(queued[4].metadata).not.toHaveProperty('isNewAlarm');
+  });
+
+  it('AL-2: a RULE NODE\'s alarm action message is ThingsBoard\'s alarmActionMsg (ENTITY_CREATED / ENTITY_UPDATED / ALARM_CLEAR) from the instrument, data the alarm JSON, metadata ruleNodeId + alarmId + origin, NO profile flags', async () => {
+    reEnter = true;
+    const node = ruleNodeOrigin(CHAIN, NODE);
+    const rule = alarm({ source: 'RULE', metric: 'CUSTOM', limitKind: null, ruleSnapshot: { alarmType: 'Door open', details: { d: 1 } } });
+    await emitRuleNodeAlarm('ENTITY_CREATED', rule, { ruleNodeId: NODE, origin: node, instrumentCode: 'CWH/1' });
+    await emitRuleNodeAlarm('ALARM_CLEAR', { ...rule, state: 'CLEARED', clearedAt: new Date(9_000) }, { ruleNodeId: NODE, origin: node });
+    const [created, cleared] = queued;
+    expect(created.originator).toEqual({ type: 'INSTRUMENT', id: 'i1', code: 'CWH/1' });
+    expect(created.metadata).toEqual({ ruleNodeId: NODE, alarmId: 'al-1', rule_engine_origin: node });
+    expect(created.data).toMatchObject({ id: 'al-1', type: 'Door open', status: 'ACTIVE_UNACK', details: { d: 1 } });
+    expect(cleared.metadata).toEqual({ ruleNodeId: NODE, alarmId: 'al-1', rule_engine_origin: node });
+    expect(cleared.data).toMatchObject({ id: 'al-1', status: 'CLEARED_UNACK', cleared: true });
   });
 
   it('INACTIVITY_EVENT and ACTIVITY_EVENT', async () => {

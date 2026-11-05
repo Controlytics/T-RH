@@ -18,9 +18,10 @@
  *   - RE-1 on the REAL nodes, each a chain that would never end without the
  *     depth: Save Timeseries with `useServerTs` (2 switch IN rows, 2 stored
  *     rows); a transform adding 1 at the same instant (exactly ONE
- *     TELEMETRY_READING_REWRITTEN); a Create alarm fed its own ALARM (it ends
- *     at the second pass); and, outside any flow, `alarms.createOrUpdate` with
- *     nothing changed emits no ALARM (changed-only);
+ *     TELEMETRY_READING_REWRITTEN); a Create alarm fed its own action message
+ *     (ENTITY_CREATED, ruling AL-2 — it ends at the second pass); and, outside
+ *     any flow, `alarms.createOrUpdate` with nothing changed sends nothing, a
+ *     change ENTITY_UPDATED (changed-only);
  *   - the rule write is the ingest write path: no offset pass, an identical
  *     reading is an upsert no-op (no TELEMETRY_READING_REWRITTEN row);
  *   - a device attribute report enters as POST_ATTRIBUTES_REQUEST, an
@@ -476,7 +477,9 @@ describe('the re-entry depth on the REAL nodes (ruling RE-1) — each chain here
       const skipped = loopSkipped();
       await injectMessage({ data: { type: alarmType, severity: 'MAJOR', originator: { id: inst.id } } });
       const ins = await settledRows({ nodeId: C, direction: 'IN' }, () => true, 2);
-      expect(ins.map((r) => r.msg_type)).toEqual(['REST_API_REQUEST', 'ALARM']);
+      // Pass 1 creates and sends ThingsBoard's ENTITY_CREATED (AL-2) to the root — this node, Re-enter ON; pass 2 is
+      // fed that alarm, updates it and sends ENTITY_UPDATED, which RE-1 holds back (depth 1): the loop ends there.
+      expect(ins.map((r) => r.msg_type)).toEqual(['REST_API_REQUEST', 'ENTITY_CREATED']);
       const [alarm] = await prisma.alarm.findMany({ where: { instrumentId: inst.id, source: 'RULE', ruleSnapshot: { path: ['alarmType'], equals: alarmType } } });
       createdAlarms.push(alarm.id);
       expect((alarm.ruleSnapshot as { details: unknown }).details).toEqual({ n: 2 });
@@ -1095,18 +1098,22 @@ describe('services (what Tasks 4-6 call)', () => {
     expect(third.alarm.id).not.toBe(first.alarm.id);
   });
 
-  it('alarms.createOrUpdate is CHANGED-ONLY (RE-1): the same severity and details write nothing and emit no ALARM; a change does', async () => {
+  it('alarms.createOrUpdate is CHANGED-ONLY (RE-1): the same severity and details write nothing and send nothing; a change sends ENTITY_UPDATED (AL-2)', async () => {
     const svc = ruleEngine.services;
     const alarmType = `Same ${STAMP}`;
     const input = { instrumentId: inst.id, alarmType, severity: 'MAJOR', details: { n: 1, door: 'A' }, nodeId: SAVE_TS, chainId: ROOT };
     await setReEnter(true);
     try {
-      // Outside any flow (depth 0) with Re-enter ON: every ALARM the services emit reaches the root.
+      // Outside any flow (depth 0) with Re-enter ON: every action message the services send reaches the root —
+      // ThingsBoard's alarmActionMsg (ruling AL-2): ENTITY_CREATED, then ENTITY_UPDATED per real change, from the
+      // alarm's INSTRUMENT (AL-1), metadata ruleNodeId + alarmId + origin, no isNew / isExisting flag.
       const first = await svc.alarms.createOrUpdate(input);
       createdAlarms.push(first.alarm.id);
-      // AL-1: from the alarm's INSTRUMENT, the alarm in metadata.alarmId.
-      const atRoot = (atLeast: number) => waitForRows({ nodeId: SWITCH, msgType: 'ALARM', originatorId: inst.id, alarmId: first.alarm.id, direction: 'IN' }, atLeast);
-      expect(await atRoot(1)).toHaveLength(1);
+      const atRoot = (atLeast: number) => waitForRows({ nodeId: SWITCH, originatorId: inst.id, alarmId: first.alarm.id, direction: 'IN' }, atLeast);
+      const [createdMsg] = await atRoot(1);
+      expect(createdMsg).toMatchObject({ msg_type: 'ENTITY_CREATED', data: { id: first.alarm.id, type: alarmType } });
+      expect(createdMsg.metadata).toMatchObject({ ruleNodeId: SAVE_TS, alarmId: first.alarm.id, rule_engine_origin: ruleNodeOrigin(ROOT, SAVE_TS) });
+      expect(createdMsg.metadata).not.toHaveProperty('isNewAlarm');
       // The same details in another key order, the same severity: nothing to write, nothing to say.
       const same = await svc.alarms.createOrUpdate({ ...input, details: { door: 'A', n: 1 } });
       expect(same.created).toBe(false);
@@ -1119,9 +1126,11 @@ describe('services (what Tasks 4-6 call)', () => {
       expect(changed.created).toBe(false);
       expect((changed.alarm.ruleSnapshot as { details: unknown }).details).toEqual({ n: 2, door: 'A' });
       expect(await atRoot(2)).toHaveLength(2);
-      // So is a changed severity alone.
+      // So is a changed severity alone (ThingsBoard: isUpdated || isSeverityUpdated → ENTITY_UPDATED).
       await svc.alarms.createOrUpdate({ ...input, details: { n: 2, door: 'A' }, severity: 'CRITICAL' });
-      expect(await atRoot(3)).toHaveLength(3);
+      const all = await atRoot(3);
+      expect(all.map((r) => r.msg_type)).toEqual(['ENTITY_CREATED', 'ENTITY_UPDATED', 'ENTITY_UPDATED']);
+      for (const r of all.slice(1)) expect(r.metadata).not.toHaveProperty('isExistingAlarm');
     } finally {
       await setReEnter(false);
       await settle();
