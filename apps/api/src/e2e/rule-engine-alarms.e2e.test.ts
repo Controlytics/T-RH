@@ -37,8 +37,24 @@
  * the same, restoring Configuration → Rule Engine FIRST. Owns its super admin,
  * instrument and profile. Fake timers are for the unit tests only.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
+
+/**
+ * Every attribute downlink the services publish, recorded and then sent on to the REAL publisher
+ * (Delete attributes' `notifyDevice`, P-10). Nothing else about the downlink changes.
+ */
+const downlinks = vi.hoisted(() => [] as { instrumentId: string; changedKey: string | null | undefined; changedValue: string | null | undefined }[]);
+vi.mock('../modules/instruments/attribute-downlink.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../modules/instruments/attribute-downlink.js')>();
+  return {
+    ...real,
+    publishAttributeDownlink: async (...args: Parameters<typeof real.publishAttributeDownlink>) => {
+      downlinks.push({ instrumentId: args[0].instrumentId, changedKey: args[0].changedKey, changedValue: args[0].changedValue });
+      return real.publishAttributeDownlink(...args);
+    },
+  };
+});
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fromThingsboardExport, newRuleNodeConfig, parseRuleChainDocument, type RuleChainDocument } from '@digilog/shared';
@@ -432,6 +448,68 @@ describe('Save attributes', () => {
     await ruleEngine.processNow(instMsg('POST_ATTRIBUTES_REQUEST', { fw: value, site }), { chainId: ATTR_ALL.chainId });
     expect(await audits()).toBe(before + 1);
     expect(await updatedAtRoot(rowsBefore + 2, 1_500)).toHaveLength(rowsBefore + 1);
+  });
+});
+
+// ─── Delete attributes: its two toggles (P-10) ──────────────────────────────
+
+describe('Delete attributes — its two toggles honoured as ThingsBoard\'s, default OFF (P-10)', () => {
+  const quietKey = `delq_${STAMP}`;
+  const loudKey = `dell_${STAMP}`;
+  let DEL_QUIET: Built;
+  let DEL_LOUD: Built;
+  /** The ATTRIBUTES_DELETED messages naming `key` that entered the root — waiting until `atLeast` (or the time is up). */
+  async function deletedAtRoot(key: string, atLeast = 999, ms = 1_500) {
+    const until = Date.now() + ms;
+    for (;;) {
+      const found = (await rows(ROOT.chainId, { msgType: 'ATTRIBUTES_DELETED', originatorId: inst!.id, direction: 'IN' }))
+        .filter((r) => Array.isArray(r.data?.attributes) && r.data.attributes.includes(key));
+      if (found.length >= atLeast || Date.now() > until) return found;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+  const toldAbout = (key: string) => downlinks.filter((d) => d.instrumentId === inst!.id && d.changedKey === key);
+  const seed = (key: string) => prisma.instrumentAttribute.upsert({
+    where: { instrumentId_key: { instrumentId: inst!.id, key } }, create: { instrumentId: inst!.id, key, value: 'v' }, update: { value: 'v' },
+  });
+
+  beforeAll(async () => {
+    // Re-enter ON for both: a message they send WOULD reach the root, so its absence is the toggle's doing.
+    DEL_QUIET = await makeChain('delete-attributes defaults', 'tb:action:delete-attributes', { keys: [quietKey] }, true);
+    DEL_LOUD = await makeChain('delete-attributes toggles on', 'tb:action:delete-attributes',
+      { keys: [loudKey, `missing_${STAMP}`], sendAttributesDeletedNotification: true, notifyDevice: true }, true);
+  });
+
+  it('defaults (both OFF, as ThingsBoard): removed and audited as SYSTEM — but NO Attributes Deleted message and the instrument NOT told', async () => {
+    await seed(quietKey);
+    await ruleEngine.processNow(instMsg('POST_TELEMETRY_REQUEST', { t: 1 }), { chainId: DEL_QUIET.chainId });
+    expect(await prisma.instrumentAttribute.findUnique({ where: { instrumentId_key: { instrumentId: inst!.id, key: quietKey } } })).toBeNull();
+    const audit = await prisma.auditTrail.findFirst({ where: { action: 'INSTRUMENT_ATTRIBUTE_REMOVED', targetId: inst!.id, beforeValue: { path: ['attribute'], equals: quietKey } } });
+    expect(audit).toMatchObject({ userId: 'SYSTEM', userRole: 'SYSTEM', reason: `Removed by rule chain "${DEL_QUIET.name}" node "delete-attributes defaults"` });
+    expect((await waitForRows(DEL_QUIET.chainId, { direction: 'OUT' }, 1))[0].relation).toBe('Success (unconnected)');
+    expect(await deletedAtRoot(quietKey)).toEqual([]);
+    expect(toldAbout(quietKey)).toEqual([]);
+  });
+
+  it('metadata.notifyDevice = "true" tells the instrument even with the toggle OFF (ThingsBoard\'s checkNotifyDevice) — still no message', async () => {
+    await seed(quietKey);
+    await ruleEngine.processNow(instMsg('POST_TELEMETRY_REQUEST', { t: 1 }, { notifyDevice: 'true' }), { chainId: DEL_QUIET.chainId });
+    expect(toldAbout(quietKey)).toEqual([{ instrumentId: inst!.id, changedKey: quietKey, changedValue: null }]);
+    expect(await deletedAtRoot(quietKey)).toEqual([]);
+  });
+
+  it('both ON: the Attributes Deleted message names ONLY the key removed and reaches the root; the instrument is told; nothing left to remove → neither', async () => {
+    await seed(loudKey);
+    await ruleEngine.processNow(instMsg('POST_TELEMETRY_REQUEST', { t: 1 }), { chainId: DEL_LOUD.chainId });
+    const [entered] = await deletedAtRoot(loudKey, 1, 3_000);
+    expect(entered, 'the Attributes Deleted message entered the root chain').toBeDefined();
+    expect(entered.data).toEqual({ attributes: [loudKey] });
+    expect(entered.metadata.rule_engine_origin).toBe(ruleNodeOrigin(DEL_LOUD.chainId, DEL_LOUD.nodeId));
+    expect(toldAbout(loudKey)).toEqual([{ instrumentId: inst!.id, changedKey: loudKey, changedValue: null }]);
+    // Again: nothing exists to remove — no message, no downlink (re-entry stays bounded).
+    await ruleEngine.processNow(instMsg('POST_TELEMETRY_REQUEST', { t: 2 }), { chainId: DEL_LOUD.chainId });
+    expect(await deletedAtRoot(loudKey)).toHaveLength(1);
+    expect(toldAbout(loudKey)).toHaveLength(1);
   });
 });
 

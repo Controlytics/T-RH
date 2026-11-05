@@ -183,8 +183,12 @@ export interface RuleServices {
     get(instrumentId: string, keys?: string[]): Promise<Record<string, string>>;
     /** Returns the keys that CHANGED (written and audited). An unchanged value is never written, audited or told to the device. */
     save(instrumentId: string, kv: Record<string, string>, origin: string, notifyDevice: boolean, scope?: string, opts?: RuleAttributeSaveOptions): Promise<string[]>;
-    /** Returns the keys that existed and were removed. */
-    delete(instrumentId: string, keys: string[], origin: string, scope?: string): Promise<string[]>;
+    /**
+     * Returns the keys that existed and were removed (each audited). Only after a removal, and only
+     * when asked (Delete attributes' toggles, ThingsBoard's defaults OFF): `notifyDevice` tells the
+     * instrument; `sendDeleted` emits ATTRIBUTES_DELETED naming the removed keys, through the loop guard.
+     */
+    delete(instrumentId: string, keys: string[], origin: string, scope?: string, opts?: { notifyDevice?: boolean; sendDeleted?: boolean }): Promise<string[]>;
   };
   instruments: {
     byId(id: string): Promise<RuleInstrument | null>;
@@ -651,7 +655,7 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
         return changed.map(([k]) => k);
       },
 
-      async delete(instrumentId, keys, origin, scope) {
+      async delete(instrumentId, keys, origin, scope, opts = {}) {
         const wanted = [...new Set(keys.map((k) => k.trim()).filter(Boolean))];
         if (wanted.length === 0) return [];
         await refuseOffsetKeys(wanted);
@@ -675,8 +679,8 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
           }
         }, { timeout: 30_000 });
         if (removed.length === 0) return [];
-        await announce(instrument, removed.map((k) => [k, null]));
-        await emitAttributesDeleted(instrumentId, removed, origin, scope ?? 'SERVER_SCOPE');
+        if (opts.notifyDevice === true) await announce(instrument, removed.map((k) => [k, null]));
+        if (opts.sendDeleted === true) await emitAttributesDeleted(instrumentId, removed, origin, scope ?? 'SERVER_SCOPE');
         return removed;
       },
     },

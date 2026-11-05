@@ -26,8 +26,21 @@ import { instrumentIdOf, isPlainObject, processPatterns, scopeOf, type JsonObjec
  *    be an audit row of a change that did not happen; ThingsBoard re-saves it with
  *    a new timestamp), and the instrument is told only the changed keys.
  *
- * NARROWED, kept for export (Delete attributes): `sendAttributesDeletedNotification`
- * — the event is always emitted; `notifyDevice` — a removal is always announced.
+ * Delete attributes' two toggles, as ThingsBoard's `TbMsgDeleteAttributesNode`
+ * (master e48b5780; ruling P-10's treatment, 2026-11-05), both OFF by default as
+ * ThingsBoard's `defaultConfiguration`:
+ *  - `sendAttributesDeletedNotification` — the ATTRIBUTES_DELETED message
+ *    (`AttributesDeleteNodeCallback`) only when on, and here only after a delete
+ *    that REMOVED a key, naming the removed keys (ThingsBoard names every key it was
+ *    asked to delete, existing or not; a delete that removes nothing emits nothing,
+ *    so re-entry stays bounded — rulings C-1, RE-1). It re-enters a chain only under
+ *    that chain's "Re-enter on rule-node writes" (the emit path's loop guard);
+ *  - `notifyDevice` — the instrument is sent its attributes only when the toggle is
+ *    on, or the message's `metadata.notifyDevice` is "true" (`Boolean.parseBoolean`,
+ *    `checkNotifyDevice`), and again only after a removal. ThingsBoard also requires
+ *    SHARED_SCOPE there; here the three scopes are ONE table and every attribute is
+ *    the instrument's, so the scope is not checked — the ruling Save attributes'
+ *    device notification already has (rc-p1 open item 2).
  */
 export const SAVE_ATTRIBUTES_TYPE = 'tb:action:save-attributes';
 export const DELETE_ATTRIBUTES_TYPE = 'tb:action:delete-attributes';
@@ -76,11 +89,19 @@ export async function saveAttributes(ctx: RuleContext<SaveAttributesConfig>, msg
 interface DeleteAttributesConfig extends JsonObject {
   keys?: string[];
   scope?: string;
+  sendAttributesDeletedNotification?: boolean;
+  notifyDevice?: boolean;
 }
 
 export async function deleteAttributes(ctx: RuleContext<DeleteAttributesConfig>, msg: RuleMessage): Promise<void> {
   const instrumentId = instrumentIdOf(msg, 'Delete attributes');
   const keys = processPatterns(ctx.config.keys, msg);
-  if (keys.length > 0) await ctx.services.attributes.delete(instrumentId, keys, ctx.origin, scopeOf(msg, ctx.config.scope));
+  if (keys.length > 0) {
+    await ctx.services.attributes.delete(instrumentId, keys, ctx.origin, scopeOf(msg, ctx.config.scope), {
+      sendDeleted: ctx.config.sendAttributesDeletedNotification === true,
+      // ThingsBoard: `config.isNotifyDevice() || Boolean.parseBoolean(metadata.notifyDevice)`.
+      notifyDevice: ctx.config.notifyDevice === true || /^true$/i.test(msg.metadata.notifyDevice ?? ''),
+    });
+  }
   ctx.tellNext(msg, RULE_RELATION_SUCCESS);
 }

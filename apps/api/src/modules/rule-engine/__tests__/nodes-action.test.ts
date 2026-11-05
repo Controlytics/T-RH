@@ -529,9 +529,23 @@ describe('Delete attributes', () => {
     const del = vi.fn(async () => ['fw']);
     const msg = testMessage({ k: 'Location' }, { metadata: { which: 'fw' } });
     const r = await run(T, { keys: ['${which}', '$[k]', ' '], scope: 'SHARED_SCOPE' }, msg, { attributes: { delete: del } }, { nodeId: NODE, chainId: CHAIN });
-    expect(del).toHaveBeenCalledWith('instrument-1', ['fw', 'Location'], `rule_node:${CHAIN}:${NODE}`, 'SHARED_SCOPE');
+    // ThingsBoard's defaults (TbMsgDeleteAttributesNodeConfiguration): no Attributes Deleted message, the device not told.
+    expect(del).toHaveBeenCalledWith('instrument-1', ['fw', 'Location'], `rule_node:${CHAIN}:${NODE}`, 'SHARED_SCOPE', { sendDeleted: false, notifyDevice: false });
     expect(r.relation).toBe('Success');
     expect(r.out).toBe(msg);
+  });
+
+  it('P-10: the two toggles are honoured as ThingsBoard honours them — the message by its toggle; the device by its toggle OR metadata.notifyDevice (Boolean.parseBoolean)', async () => {
+    const del = vi.fn(async () => ['fw']);
+    const optsOf = async (config: Record<string, unknown>, metadata: Record<string, unknown> = {}) => {
+      del.mockClear();
+      await run(T, { keys: ['fw'], ...config }, testMessage({}, { metadata }), { attributes: { delete: del } });
+      return (del.mock.calls[0] as unknown[])[4];
+    };
+    expect(await optsOf({ sendAttributesDeletedNotification: true })).toEqual({ sendDeleted: true, notifyDevice: false });
+    expect(await optsOf({ notifyDevice: true })).toEqual({ sendDeleted: false, notifyDevice: true });
+    expect(await optsOf({}, { notifyDevice: 'TRUE' })).toEqual({ sendDeleted: false, notifyDevice: true });
+    for (const v of ['yes', '1', '', 'false', ' true']) expect(await optsOf({}, { notifyDevice: v }), v).toEqual({ sendDeleted: false, notifyDevice: false });
   });
 
   it('no keys: nothing deleted, the message passes on', async () => {
