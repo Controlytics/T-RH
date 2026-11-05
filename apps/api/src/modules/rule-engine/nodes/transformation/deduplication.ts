@@ -3,6 +3,7 @@ import type { RuleContext, RuleNodeHandler } from '../../context.js';
 import type { RuleNodeLifecycle } from '../../registry.js';
 import { errorText, newMessage, type RuleMessage } from '../../message.js';
 import { configError } from '../filter/support.js';
+import { metadataTs } from '../action/support.js';
 
 /**
  * Deduplication — ThingsBoard's `TbMsgDeduplicationNode` (spec §7), per
@@ -10,10 +11,10 @@ import { configError } from '../filter/support.js';
  * in-memory state does).
  *
  * Every message is HELD (the flow ends here — ThingsBoard acks it). Its time is
- * `metadata.ts` when that is a whole number, else the moment it arrived
- * (ThingsBoard's `getMetaDataTs()`: the ts metadata, else the message's own
- * creation time). The first held message of an originator starts a tick
- * `interval` seconds + 1 ms later; at each tick, while the earliest held time
+ * ThingsBoard's `getMetaDataTs()`: `metadata.ts` when `Long.parseLong` reads it,
+ * else the message's own creation time (`metadataTs`, the ONE reader — M-1).
+ * The first held message of an originator starts a tick `interval` seconds
+ * + 1 ms later; at each tick, while the earliest held time
  * + interval has passed, that PACK (held times in [earliest, earliest +
  * interval)) leaves as ONE message on `Success`:
  *  - FIRST — the pack's earliest message; LAST — its latest. A tie keeps the
@@ -86,14 +87,6 @@ function stateOf(key: string): NodeState {
     nodes.set(key, state);
   }
   return state;
-}
-
-/** ThingsBoard's `getMetaDataTs()` without its fallback: `metadata.ts` when it is a whole number, else null. */
-export function metadataTs(msg: RuleMessage): number | null {
-  const s = msg.metadata.ts;
-  if (typeof s !== 'string' || !/^[+-]?\d+$/.test(s)) return null;
-  const n = Number(s);
-  return Number.isSafeInteger(n) ? n : null;
 }
 
 function intervalMs(cfg: DeduplicationConfig): number {
@@ -171,7 +164,7 @@ export const deduplication: RuleNodeHandler<DeduplicationConfig> = (ctx, msg) =>
     state.windows.set(originatorKey, w);
   }
   w.ctx = ctx;
-  w.held.push({ msg, ts: metadataTs(msg) ?? Date.now() });
+  w.held.push({ msg, ts: metadataTs(msg) });
   schedule(key, originatorKey, w, ms);
 };
 

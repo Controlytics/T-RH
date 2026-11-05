@@ -173,13 +173,26 @@ function idTime(id: string): number | null {
   return Number.isFinite(ms) && ms > 0 ? ms : null;
 }
 
+/** Java's `Long.parseLong` grammar: an optional sign, then decimal digits — no blanks, no fraction, no exponent. */
+const LONG_TEXT = /^[+-]?[0-9]+$/;
+
 /**
- * ThingsBoard's `TbMsg.getMetaDataTs()`: `metadata.ts` when it is a whole
- * number, else the time the message was made (here, the time in its id), else now.
+ * THE metadata-ts reader (M-1, 2026-11-05) — ThingsBoard's `TbMsg.getMetaDataTs()`
+ * (master e48b5780): `Long.parseLong(metadata.ts)` when that parses, else the
+ * message's own time (`TbMsg.ts` — the moment it was made; here the time in its
+ * UUID v7 id), else now. So `+123` and `007` read, while ` 123`, `12.0` and
+ * `1.5e12` fall back. A whole number beyond 2^53 (Java reads up to 2^63)
+ * also falls back: a JavaScript number cannot hold it exactly, and no instant
+ * is that far off. Not read either: non-ASCII digits, which Java's
+ * `Character.digit` accepts. Save time series, Calculate delta and
+ * Deduplication read the time through this; there is no second one.
  */
 export function metadataTs(msg: Pick<RuleMessage, 'id' | 'metadata'>): number {
   const raw = msg.metadata.ts;
-  if (typeof raw === 'string' && /^-?\d+$/.test(raw.trim())) return Number(raw.trim());
+  if (typeof raw === 'string' && LONG_TEXT.test(raw)) {
+    const n = Number(raw);
+    if (Number.isSafeInteger(n)) return n === 0 ? 0 : n;
+  }
   return idTime(msg.id) ?? Date.now();
 }
 

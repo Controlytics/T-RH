@@ -561,13 +561,18 @@ describe('Deduplication (TbMsgDeduplicationNode)', () => {
     }
   });
 
-  it('a metadata ts that is not a whole number counts as the arrival time', async () => {
+  it('a metadata ts Long.parseLong refuses counts as the time the message was MADE (its id), not its arrival (ThingsBoard getMetaDataTs → TbMsg.ts; M-1)', async () => {
     start();
     const { calls, send } = node({ interval: 60, strategy: 'LAST' });
-    await send(reading(1, 'instrument-1', { ts: '1.5e12' }), t0);
-    await send(reading(2, 'instrument-1', { ts: 'soon' }), t0 + 1_000);
-    at(t0 + 60_001);
-    expect(tOf(calls)).toEqual(['instrument-1:2']);
+    // Message 2 is MADE before message 1 but ARRIVES after it: LAST picks the one made last.
+    at(t0);
+    const madeFirst = reading(2, 'instrument-1', { ts: 'soon' });
+    at(t0 + 5_000);
+    const madeLast = reading(1, 'instrument-1', { ts: '1.5e12' });
+    await send(madeLast, t0 + 5_000);
+    await send(madeFirst, t0 + 6_000);
+    at(t0 + 65_002);
+    expect(tOf(calls)).toEqual(['instrument-1:1']);
   });
 
   it('more than maxPendingMsgs waiting for one originator → Failure for the extra message', async () => {

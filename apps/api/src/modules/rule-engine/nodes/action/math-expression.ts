@@ -135,7 +135,8 @@ function parse(text: string): Node {
     if (t.t === 'name') {
       pos++;
       if (!isOp('(')) return { k: 'var', name: t.v };
-      const f = FUNCTIONS[t.v];
+      // OWN functions only (M-9): `constructor(x)` / `toString(x)` are unknown, not Object.prototype's.
+      const f = Object.prototype.hasOwnProperty.call(FUNCTIONS, t.v) ? FUNCTIONS[t.v] : undefined;
       if (!f) throw invalid(text, `unknown function "${t.v}"`);
       pos++;
       const args = [expr()];

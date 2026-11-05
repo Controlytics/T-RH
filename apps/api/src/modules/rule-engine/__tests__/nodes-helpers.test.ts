@@ -15,9 +15,10 @@ import { registerFilterNodes } from '../nodes/filter/index.js';
 import { registerTransformationNodes } from '../nodes/transformation/index.js';
 import { registerEnrichmentNodes } from '../nodes/enrichment/index.js';
 import { registerExternalNodes } from '../nodes/external/index.js';
-import { jsScriptOf, nodeScriptOf, processPattern } from '../nodes/action/support.js';
+import { jsScriptOf, metadataTs, nodeScriptOf, processPattern } from '../nodes/action/support.js';
 import { importChain } from '../import-export.js';
-import type { RuleMessage } from '../message.js';
+import { compileExpression, evaluateExpression } from '../nodes/action/math-expression.js';
+import { newMessageId, type RuleMessage } from '../message.js';
 import type { RuleServices } from '../services.js';
 import { fakeContext, testMessage } from '../../../test-support/rule-engine.js';
 
@@ -236,5 +237,46 @@ describe('ruling TP-1 — processPattern is ThingsBoard\'s TbNodeUtils.processPa
     const msgIn = testMessage({ t: 1 }, { metadata: { a: '${b}', b: 'B' } });
     await run('tb:external:send-sms', { numbersToTemplate: '+1', smsMessageTemplate: '${a}|$[*]|${*}' }, msgIn, { notifications: { sms } });
     expect((sms.mock.calls[0] as unknown as [{ message: string }])[0].message).toBe(`\${b}|{"t":1}|${JSON.stringify(msgIn.metadata)}`);
+  });
+});
+
+// ─── M-1: ONE metadata-ts reader ─────────────────────────────────────────────
+
+describe('M-1 — metadataTs is ThingsBoard\'s TbMsg.getMetaDataTs (Long.parseLong, else the message\'s own time)', () => {
+  const at = (ts: string | undefined, id = newMessageId(1_700_000_000_999)) =>
+    metadataTs({ id, metadata: ts === undefined ? {} : { ts } });
+
+  it('a whole number, with an optional sign — as Long.parseLong reads it', () => {
+    expect(at('1700000000123')).toBe(1_700_000_000_123);
+    expect(at('+1700000000123')).toBe(1_700_000_000_123);
+    expect(at('-5')).toBe(-5);
+    expect(at('007')).toBe(7);
+    expect(Object.is(at('-0'), 0)).toBe(true);
+  });
+
+  it('anything Long.parseLong refuses falls back to the message\'s own time (its id): no trim, no fraction, no exponent, no unsafe integer', () => {
+    for (const ts of [' 123', '123 ', '', '+', '-', '1.5e12', '12.0', 'soon', '0x10', '9007199254740993', '99999999999999999999']) {
+      expect(at(ts), JSON.stringify(ts)).toBe(1_700_000_000_999);
+    }
+    expect(at(undefined)).toBe(1_700_000_000_999);
+  });
+
+  it('no ts and no time in the id → now', () => {
+    const before = Date.now();
+    expect(metadataTs({ id: 'not-a-v7-id', metadata: {} })).toBeGreaterThanOrEqual(before);
+  });
+});
+
+// ─── M-9: the Math CUSTOM function table is own-property only ────────────────
+
+describe('M-9 — a Math CUSTOM expression names only the OWN functions of its table', () => {
+  it('constructor(x), toString(x), hasOwnProperty(x) are unknown functions, not "takes undefined argument(s)"', () => {
+    for (const fn of ['constructor', 'toString', 'hasOwnProperty', 'valueOf', '__proto__']) {
+      expect(() => compileExpression(`${fn}(x)`), fn).toThrow(`MATH_EXPRESSION_INVALID: unknown function "${fn}" in "${fn}(x)"`);
+    }
+  });
+
+  it('a real function still parses and evaluates', () => {
+    expect(evaluateExpression(compileExpression('sqrt(x) + pow(2, 3)'), { x: 16 })).toBe(12);
   });
 });
