@@ -46,6 +46,7 @@ import {
   RULE_NODE_NAME_MAX, RULE_CHAIN_NAME_MAX, RULE_CHAIN_NODES_MAX, RULE_RELATION_MAX,
   RULE_RELATION_OTHER, newRuleNodeConfig, coerceThingsboardScalars, upgradeThingsboardConfig,
   fromThingsboardConfig, toThingsboardConfig, entityTypeSwitchLabelFromThingsboard, entityTypeSwitchLabelToThingsboard,
+  thingsboardExportNotes, thingsboardImportNotes,
   type RuleDebugMode,
 } from './rule-nodes.js';
 
@@ -326,7 +327,12 @@ export interface ThingsboardNodeExport {
 }
 
 export interface ThingsboardRuleChainExport {
-  ruleChain: { name: string; type: 'CORE'; root: boolean; debugMode: boolean; configuration: null; additionalInfo: null };
+  /**
+   * `additionalInfo.description` is ThingsBoard's rule chain Description (`RuleChain extends
+   * BaseDataWithAdditionalInfo`; the UI reads `additionalInfo.description`, and its import keeps the
+   * `ruleChain` object it saves): what to set there after the import (ruling SW-2). Null when nothing.
+   */
+  ruleChain: { name: string; type: 'CORE'; root: boolean; debugMode: boolean; configuration: null; additionalInfo: { description: string } | null };
   metadata: {
     firstNodeIndex: number | null;
     nodes: ThingsboardNodeExport[];
@@ -345,6 +351,8 @@ export interface ThingsboardImportResult {
 /** ThingsBoard's export JSON for a document. */
 export function toThingsboardExport(name: string, root: boolean, doc: RuleChainDocument): ThingsboardRuleChainExport {
   const index = new Map(doc.nodes.map((n, i) => [n.id, i]));
+  // Ruling SW-2: every node ThingsBoard cannot start as exported is still exported, and named here.
+  const notes: string[] = [];
   const nodes = doc.nodes.map((n): ThingsboardNodeExport => {
     const spec = RULE_NODE_TYPE_BY_ID.get(n.type);
     const unsupported = n.type === UNSUPPORTED_NODE_TYPE || !spec;
@@ -359,6 +367,9 @@ export function toThingsboardExport(name: string, root: boolean, doc: RuleChainD
     const configurationVersion = !unsupported
       ? spec.tbConfigurationVersion
       : Number.isInteger(n.config.configurationVersion) ? n.config.configurationVersion as number : null;
+    if (!unsupported) {
+      for (const note of thingsboardExportNotes(spec.id, configuration as Record<string, unknown>)) notes.push(`- Node "${n.name}" (${spec.label}): ${note}`);
+    }
     return {
       type: tbClass,
       name: n.name,
@@ -380,7 +391,10 @@ export function toThingsboardExport(name: string, root: boolean, doc: RuleChainD
       type: typeOf.get(c.from) === ENTITY_TYPE_SWITCH ? entityTypeSwitchLabelToThingsboard(c.relation) : c.relation,
     }));
   return {
-    ruleChain: { name, type: 'CORE', root, debugMode: false, configuration: null, additionalInfo: null },
+    ruleChain: {
+      name, type: 'CORE', root, debugMode: false, configuration: null,
+      additionalInfo: notes.length > 0 ? { description: ['Set in ThingsBoard after importing this chain:', ...notes].join('\n') } : null,
+    },
     metadata: {
       firstNodeIndex: doc.firstNodeId !== null && index.has(doc.firstNodeId) ? index.get(doc.firstNodeId)! : null,
       nodes,
@@ -485,6 +499,8 @@ export function fromThingsboardExport(json: unknown, opts: { newId?: () => strin
         config = coerced;
         // Save time series / attributes: a strategy not built here; a script node: its TBEL script now runs as JavaScript (TB-L).
         if (boundary.notHonoured) warnings.push(`Node "${nodeName}" (${spec.label}): ${boundary.notHonoured}`);
+        // Ruling M-7: an id that came with the file, a setting not honoured here.
+        for (const note of thingsboardImportNotes(spec.id, config)) warnings.push(`Node "${nodeName}" (${spec.label}): ${note}`);
       }
     }
     const info = isPlainObject(raw.additionalInfo) ? raw.additionalInfo : {};

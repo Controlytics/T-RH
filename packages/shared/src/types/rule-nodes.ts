@@ -1825,3 +1825,133 @@ export function toThingsboardConfig(type: string, config: Record<string, unknown
   // (ThingsBoard would run it over the edited JavaScript the moment someone picked TBEL there).
   return scriptAsJavaScript(type, c);
 }
+
+// ─── What does not come across, said at the boundary (rulings SW-2, M-7, 2026-11-05) ─
+//
+// ThingsBoard master e48b5780: saving a chain runs `RuleChainDataValidator.validateRuleNode` on every
+// node (`BaseRuleChainService`, ignoring its return value). A configuration that fails to DESERIALISE
+// is caught and returned — the chain is saved, the node cannot start; one that deserialises but breaks
+// a bean constraint (`@NotNull` / `@NotEmpty`) THROWS — ThingsBoard refuses the whole chain. The notes
+// below say which, so the operator knows whether ThingsBoard will even save the import.
+
+const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const nonBlankText = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
+const KEPT_NOT_STARTED = 'ThingsBoard keeps the node but cannot start it';
+const REFUSED = 'ThingsBoard refuses to save the chain';
+
+/** ThingsBoard's `SlackConversationType` (master e48b5780). */
+const SLACK_CONVERSATION_TYPES: readonly unknown[] = ['DIRECT', 'PUBLIC_CHANNEL', 'PRIVATE_CHANNEL'];
+/** ThingsBoard's `ContactBasedEntityDetails` — what Tenant details can read there (master e48b5780). */
+const TB_TENANT_DETAILS: readonly unknown[] = ['ID', 'TITLE', 'COUNTRY', 'CITY', 'STATE', 'ZIP', 'ADDRESS', 'ADDRESS2', 'PHONE', 'EMAIL', 'ADDITIONAL_INFO'];
+
+/** A label for an option value of one of a type's fields (the value itself when it has none). */
+function optionLabel(type: string, key: string, value: unknown): string {
+  const option = RULE_NODE_TYPE_BY_ID.get(type)?.fields.find((f) => f.key === key)?.options?.find((o) => o.value === value);
+  return option?.label ?? String(value);
+}
+
+/** "choose <what> — <id> is this system's." or "— none is set." */
+const ownIdNote = (what: string, kind: string, id: unknown): string =>
+  (nonBlankText(id) ? `choose ${what} — ${kind} ${id.trim()} is this system's.` : `choose ${what} — none is set.`);
+
+/**
+ * What to set in ThingsBoard after importing a node's EXPORTED configuration
+ * (ruling SW-2) — one note per thing ThingsBoard cannot start as it stands,
+ * worded by whether ThingsBoard keeps the node (a value it cannot deserialise)
+ * or refuses the chain (a bean constraint). `config` is the configuration the
+ * export writes (`toThingsboardConfig`). `toThingsboardExport` puts the notes in
+ * the rule chain's `additionalInfo.description`, which ThingsBoard shows as the
+ * chain's Description. Empty when ThingsBoard can run the node as exported.
+ *  - Send notification: its template and recipients are this system's records.
+ *  - Send to Slack: a channel / user id here, a conversation OBJECT there (`@NotNull @Valid`).
+ *  - Rule chain, Generator (an instrument originator), Check relation (one entity):
+ *    the id is this system's, or none is set (ThingsBoard's init needs one).
+ *  - Tenant details: Application name / Server name / Server version exist only
+ *    here, and ThingsBoard's init needs at least one detail.
+ */
+export function thingsboardExportNotes(type: string, config: Record<string, unknown>): string[] {
+  switch (type) {
+    case 'tb:external:send-notification': {
+      // TbNotificationNodeConfiguration: @NotEmpty List<UUID> targets, @NotNull NotificationTemplateId templateId.
+      const t = config.targets;
+      const deserialises = (config.templateId === undefined || config.templateId === null)
+        && (t === undefined || t === null || (Array.isArray(t) && t.every((x) => typeof x === 'string' && UUID_TEXT.test(x))));
+      return [deserialises
+        ? `choose its notification template and recipients — ${REFUSED} until they are set.`
+        : `choose its notification template and recipients — this system's template, roles and users do not exist there; ${KEPT_NOT_STARTED} until they are set.`];
+    }
+    case 'tb:external:send-to-slack': {
+      // TbSlackNodeConfiguration: @NotNull @Valid SlackConversation { @NotNull type, @NotEmpty id, @NotEmpty name }.
+      const c = config.conversation;
+      if (typeof c === 'string') {
+        return [`choose the Slack conversation — here it is the channel or user id "${c}", there a conversation object; ${KEPT_NOT_STARTED} until it is set.`];
+      }
+      if (isPlainObject(c) && c.type !== undefined && c.type !== null && !SLACK_CONVERSATION_TYPES.includes(c.type)) {
+        return [`choose the Slack conversation — ${KEPT_NOT_STARTED} until it is set.`];
+      }
+      const complete = isPlainObject(c) && SLACK_CONVERSATION_TYPES.includes(c.type) && nonBlankText(c.id) && nonBlankText(c.name);
+      return complete ? [] : [`choose the Slack conversation — ${REFUSED} until it is set.`];
+    }
+    case 'tb:flow:rule-chain':
+      return [ownIdNote('the rule chain it sends to', 'rule chain', config.ruleChainId)];
+    case 'tb:action:generator':
+      // TbMsgGeneratorNode.getOriginatorId: RULE_NODE and TENANT need no id; any other type does.
+      return config.originatorType === 'DEVICE' ? [ownIdNote('the device it generates messages for', 'instrument', config.originatorId)] : [];
+    case 'tb:filter:check-relation-presence':
+      return config.checkForSingleEntity === true ? [ownIdNote('the entity to check', 'instrument', config.entityId)] : [];
+    case 'tb:enrichment:tenant-details': {
+      const list = Array.isArray(config.detailsList) ? config.detailsList : [];
+      const onlyHere = list.filter((v) => !TB_TENANT_DETAILS.includes(v));
+      if (onlyHere.length > 0) {
+        return [`pick its tenant details — ${onlyHere.map((v) => optionLabel(type, 'detailsList', v)).join(', ')} exist only here; ${KEPT_NOT_STARTED} with them.`];
+      }
+      return list.length === 0 ? ['pick at least one tenant detail — ThingsBoard cannot start it with none.'] : [];
+    }
+    default:
+      return [];
+  }
+}
+
+/** "<kind> <id> came with the file — a ThingsBoard <tbKind> id (or another installation's) does not exist here; choose <what>." */
+const fileIdNote = (kind: string, id: string, tbKind: string, what: string): string =>
+  `${kind} ${id.trim()} came with the file — a ThingsBoard ${tbKind} id (or another installation's) does not exist here; choose ${what}.`;
+
+/**
+ * What of an IMPORTED node will not work here as it did in ThingsBoard (ruling
+ * M-7) — one note per node, each the tail of a warning. `config` is the
+ * configuration as stored after the import. An id that came with the file may be
+ * a ThingsBoard id or another installation's, neither of which exists here — but
+ * shared code cannot look it up, so the note says what is true either way (a
+ * re-import of this installation's own export resolves). A setting this system
+ * does not honour (its own SMTP / SMS provider, a proxy) is named.
+ */
+export function thingsboardImportNotes(type: string, config: Record<string, unknown>): string[] {
+  switch (type) {
+    case 'tb:flow:rule-chain':
+      return nonBlankText(config.ruleChainId) ? [fileIdNote('rule chain', config.ruleChainId, 'rule chain', 'the rule chain it sends to')] : [];
+    case 'tb:action:generator':
+      return config.originatorType === 'DEVICE' && nonBlankText(config.originatorId)
+        ? [fileIdNote('instrument', config.originatorId, 'device', 'the instrument')] : [];
+    case 'tb:filter:check-relation-presence':
+      return config.checkForSingleEntity === true && nonBlankText(config.entityId)
+        ? [fileIdNote('entity', config.entityId, 'device', 'the instrument to check')] : [];
+    case 'tb:external:send-notification': {
+      const parts: string[] = [];
+      if (nonBlankText(config.templateId)) parts.push(fileIdNote('notification template', config.templateId, 'template', 'the template').slice(0, -1));
+      if (Array.isArray(config.targets) && config.targets.length > 0) {
+        parts.push(`its ${config.targets.length} recipient(s) are ThingsBoard notification targets, which have no counterpart here — choose the roles and users to notify`);
+      }
+      return parts.length > 0 ? [`${parts.join('; ')}.`] : [];
+    }
+    case 'tb:external:send-email':
+      return config.useSystemSmtpSettings === false
+        ? ['it was set to its own SMTP server; here it sends through this system\'s email settings (Configuration → Email).'] : [];
+    case 'tb:external:send-sms':
+      return config.useSystemSmsSettings === false
+        ? ['it was set to its own SMS provider; here it sends through this system\'s SMS settings (Configuration → SMS).'] : [];
+    case 'tb:external:rest-api-call':
+      return config.enableProxy === true ? ['its proxy is not used here — it calls the endpoint directly.'] : [];
+    default:
+      return [];
+  }
+}

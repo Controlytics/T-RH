@@ -405,6 +405,14 @@ describe('credentials on export (spec §12 ruling S-5, secrets.ts)', () => {
     expect(fromThingsboardExport(exp).document.nodes.map((n) => n.type)).toEqual(stored.nodes.map((n) => n.type));
   });
 
+  it('the export the route sends (exportChain) carries the SW-2 description — and masks nothing in it', () => {
+    const exp = exportChain({ name: 'Out', root: false, debugMode: false, document: doc() });
+    expect(exp.ruleChain.additionalInfo?.description).toBe([
+      'Set in ThingsBoard after importing this chain:',
+      '- Node "Slack" (Send to Slack): choose the Slack conversation — here it is the channel or user id "C1", there a conversation object; ThingsBoard keeps the node but cannot start it until it is set.',
+    ].join('\n'));
+  });
+
   it('importing that export warns once per node whose credential must be entered again', () => {
     const exp = exportChain({ name: 'Out', root: false, debugMode: false, document: doc() });
     const r = importChain(JSON.parse(JSON.stringify(exp)));

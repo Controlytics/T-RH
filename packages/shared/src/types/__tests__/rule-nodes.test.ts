@@ -9,6 +9,7 @@ import {
   RULE_SCRIPT_KEYS, ruleNodeScriptKey, ruleNodeScript,
   RULE_ORIGINATOR_TB_ENTITY_TYPES, TB_ENTITY_TYPE_SWITCH_LABELS, toRuleOriginatorType, canonicalRuleNodeConfig,
   entityTypeSwitchLabelFromThingsboard, entityTypeSwitchLabelToThingsboard,
+  thingsboardExportNotes, thingsboardImportNotes,
 } from '../rule-nodes.js';
 
 /**
@@ -918,6 +919,129 @@ describe('entity types — ruling SW-1: configurations store ThingsBoard\'s valu
     expect(entityTypeSwitchLabelFromThingsboard('toString')).toBe('toString');
     // The switch still EMITS this system's labels (its handler is unchanged).
     expect(RULE_NODE_TYPE_BY_ID.get('tb:filter:entity-type-switch')!.relations).toEqual(['Instrument', 'Alarm', 'User', 'System', 'Rule node', 'Failure']);
+  });
+});
+
+// ─── Rulings SW-2 / M-7 (2026-11-05): what does not come across, said at the boundary ───
+describe('thingsboardExportNotes — ruling SW-2: what to set in ThingsBoard after importing our export', () => {
+  const UUID = '0f9c5ce9-1111-4222-8333-444455556666';
+
+  it('every built node at its DEFAULT names only the five whose default ThingsBoard cannot start', () => {
+    const noted = BUILT_RULE_NODE_TYPES.filter((s) => thingsboardExportNotes(s.id, toThingsboardConfig(s.id, s.defaultConfig)).length > 0).map((s) => s.id);
+    expect(noted.sort()).toEqual([
+      'tb:enrichment:tenant-details', 'tb:external:send-notification', 'tb:external:send-to-slack',
+      'tb:filter:check-relation-presence', 'tb:flow:rule-chain',
+    ]);
+  });
+
+  it('Send notification: its template and recipients are this system\'s — kept but not started there, or the chain REFUSED when the config would pass deserialisation with no template', () => {
+    expect(thingsboardExportNotes('tb:external:send-notification', { templateId: UUID, targets: { roles: ['QA'], userIds: [] } })).toEqual([
+      'choose its notification template and recipients — this system\'s template, roles and users do not exist there; ThingsBoard keeps the node but cannot start it until they are set.',
+    ]);
+    // ThingsBoard's @NotNull templateId / @NotEmpty targets throw only when the configuration DESERIALISES (BaseRuleChainService
+    // → RuleChainDataValidator.validateRuleNode): targets a list of ids (or none) and no template.
+    // A target that is not a UUID fails ThingsBoard's List<UUID> deserialisation: kept, not started.
+    expect(thingsboardExportNotes('tb:external:send-notification', { templateId: null, targets: ['QA-team'] })[0]).toMatch(/keeps the node but cannot start it/);
+    for (const targets of [[UUID], [], null, undefined]) {
+      expect(thingsboardExportNotes('tb:external:send-notification', { templateId: null, targets }), JSON.stringify(targets)).toEqual([
+        'choose its notification template and recipients — ThingsBoard refuses to save the chain until they are set.',
+      ]);
+    }
+  });
+
+  it('Send to Slack: a channel id here is a conversation OBJECT there; with none at all ThingsBoard refuses the chain', () => {
+    expect(thingsboardExportNotes('tb:external:send-to-slack', { messageTemplate: 'm', conversation: 'C0123' })).toEqual([
+      'choose the Slack conversation — here it is the channel or user id "C0123", there a conversation object; ThingsBoard keeps the node but cannot start it until it is set.',
+    ]);
+    // A ThingsBoard type it does not know fails to deserialise: kept, not started.
+    expect(thingsboardExportNotes('tb:external:send-to-slack', { messageTemplate: 'm', conversation: { type: 'CHANNEL', id: 'C0123', name: 'alarms' } })).toEqual([
+      'choose the Slack conversation — ThingsBoard keeps the node but cannot start it until it is set.',
+    ]);
+    // An object short of @NotNull type / @NotEmpty id / @NotEmpty name deserialises and breaks @Valid: refused.
+    for (const conversation of [undefined, null, { id: 'C0123' }, { type: 'PUBLIC_CHANNEL', id: 'C0123' }, { id: 'C0123', name: 'alarms' }, { type: 'DIRECT', id: ' ', name: 'x' }]) {
+      expect(thingsboardExportNotes('tb:external:send-to-slack', { messageTemplate: 'm', conversation }), JSON.stringify(conversation)).toEqual([
+        'choose the Slack conversation — ThingsBoard refuses to save the chain until it is set.',
+      ]);
+    }
+    // ThingsBoard's own conversation object (an import kept it) goes back as it came: nothing to say.
+    expect(thingsboardExportNotes('tb:external:send-to-slack', { messageTemplate: 'm', conversation: { type: 'PUBLIC_CHANNEL', id: 'C0123', name: 'alarms' } })).toEqual([]);
+  });
+
+  it('Rule chain, Generator, Check relation: the id is this system\'s, or none is set', () => {
+    expect(thingsboardExportNotes('tb:flow:rule-chain', { ruleChainId: UUID })).toEqual([`choose the rule chain it sends to — rule chain ${UUID} is this system's.`]);
+    expect(thingsboardExportNotes('tb:flow:rule-chain', { ruleChainId: null })).toEqual(['choose the rule chain it sends to — none is set.']);
+    expect(thingsboardExportNotes('tb:action:generator', { originatorType: 'DEVICE', originatorId: UUID })).toEqual([`choose the device it generates messages for — instrument ${UUID} is this system's.`]);
+    expect(thingsboardExportNotes('tb:action:generator', { originatorType: 'DEVICE' })).toEqual(['choose the device it generates messages for — none is set.']);
+    expect(thingsboardExportNotes('tb:action:generator', { originatorType: 'RULE_NODE' })).toEqual([]);
+    expect(thingsboardExportNotes('tb:action:generator', { originatorType: 'TENANT' })).toEqual([]);
+    expect(thingsboardExportNotes('tb:filter:check-relation-presence', { checkForSingleEntity: true, entityType: 'DEVICE', entityId: UUID })).toEqual([`choose the entity to check — instrument ${UUID} is this system's.`]);
+    expect(thingsboardExportNotes('tb:filter:check-relation-presence', { checkForSingleEntity: true })).toEqual(['choose the entity to check — none is set.']);
+    expect(thingsboardExportNotes('tb:filter:check-relation-presence', { checkForSingleEntity: false, entityId: UUID })).toEqual([]);
+  });
+
+  it('Tenant details: the three APPLICATION details exist only here, and ThingsBoard needs at least one of its own', () => {
+    expect(thingsboardExportNotes('tb:enrichment:tenant-details', { detailsList: ['TITLE', 'EMAIL'] })).toEqual([]);
+    expect(thingsboardExportNotes('tb:enrichment:tenant-details', { detailsList: ['TITLE', 'APP_NAME', 'SERVER_VERSION'] })).toEqual([
+      'pick its tenant details — Application name, Server version exist only here; ThingsBoard keeps the node but cannot start it with them.',
+    ]);
+    expect(thingsboardExportNotes('tb:enrichment:tenant-details', { detailsList: [] })).toEqual(['pick at least one tenant detail — ThingsBoard cannot start it with none.']);
+    expect(thingsboardExportNotes('tb:enrichment:tenant-details', {})).toEqual(['pick at least one tenant detail — ThingsBoard cannot start it with none.']);
+  });
+
+  it('every other node, and an unknown type, has nothing to say', () => {
+    for (const s of BUILT_RULE_NODE_TYPES) {
+      if (['tb:enrichment:tenant-details', 'tb:external:send-notification', 'tb:external:send-to-slack', 'tb:filter:check-relation-presence', 'tb:flow:rule-chain', 'tb:action:generator'].includes(s.id)) continue;
+      expect(thingsboardExportNotes(s.id, { ...s.defaultConfig, ruleChainId: UUID, originatorId: UUID, entityId: UUID }), s.id).toEqual([]);
+    }
+    expect(thingsboardExportNotes('tb:nope', {})).toEqual([]);
+  });
+});
+
+describe('thingsboardImportNotes — ruling M-7: what of an imported node will not work here as it did', () => {
+  const UUID = '0f9c5ce9-1111-4222-8333-444455556666';
+
+  it('an id that came with the file: rule chain, Generator instrument, Check relation entity, notification template and targets', () => {
+    expect(thingsboardImportNotes('tb:flow:rule-chain', { ruleChainId: UUID })).toEqual([
+      `rule chain ${UUID} came with the file — a ThingsBoard rule chain id (or another installation's) does not exist here; choose the rule chain it sends to.`,
+    ]);
+    expect(thingsboardImportNotes('tb:action:generator', { originatorType: 'DEVICE', originatorId: UUID })).toEqual([
+      `instrument ${UUID} came with the file — a ThingsBoard device id (or another installation's) does not exist here; choose the instrument.`,
+    ]);
+    expect(thingsboardImportNotes('tb:filter:check-relation-presence', { checkForSingleEntity: true, entityType: 'DEVICE', entityId: UUID })).toEqual([
+      `entity ${UUID} came with the file — a ThingsBoard device id (or another installation's) does not exist here; choose the instrument to check.`,
+    ]);
+    expect(thingsboardImportNotes('tb:external:send-notification', { templateId: UUID, targets: [UUID, UUID] })).toEqual([
+      `notification template ${UUID} came with the file — a ThingsBoard template id (or another installation's) does not exist here; choose the template; its 2 recipient(s) are ThingsBoard notification targets, which have no counterpart here — choose the roles and users to notify.`,
+    ]);
+    expect(thingsboardImportNotes('tb:external:send-notification', { templateId: null, targets: [UUID] })).toEqual([
+      'its 1 recipient(s) are ThingsBoard notification targets, which have no counterpart here — choose the roles and users to notify.',
+    ]);
+  });
+
+  it('no id, or one that does nothing, says nothing (a Generator of this rule node, a Check relation of any entity, our own recipients)', () => {
+    expect(thingsboardImportNotes('tb:flow:rule-chain', { ruleChainId: '' })).toEqual([]);
+    expect(thingsboardImportNotes('tb:flow:rule-chain', {})).toEqual([]);
+    expect(thingsboardImportNotes('tb:action:generator', { originatorType: 'RULE_NODE', originatorId: UUID })).toEqual([]);
+    expect(thingsboardImportNotes('tb:filter:check-relation-presence', { checkForSingleEntity: false, entityId: UUID })).toEqual([]);
+    expect(thingsboardImportNotes('tb:external:send-notification', { templateId: null, targets: { roles: ['QA'], userIds: [] } })).toEqual([]);
+    expect(thingsboardImportNotes('tb:external:send-notification', { templateId: null, targets: [] })).toEqual([]);
+  });
+
+  it('a setting this system does not honour: its own SMTP server, its own SMS provider, a proxy', () => {
+    expect(thingsboardImportNotes('tb:external:send-email', { useSystemSmtpSettings: false })).toEqual([
+      'it was set to its own SMTP server; here it sends through this system\'s email settings (Configuration → Email).',
+    ]);
+    expect(thingsboardImportNotes('tb:external:send-sms', { useSystemSmsSettings: false, numbersToTemplate: 'x', smsMessageTemplate: 'y' })).toEqual([
+      'it was set to its own SMS provider; here it sends through this system\'s SMS settings (Configuration → SMS).',
+    ]);
+    expect(thingsboardImportNotes('tb:external:rest-api-call', { enableProxy: true })).toEqual(['its proxy is not used here — it calls the endpoint directly.']);
+    expect(thingsboardImportNotes('tb:external:send-email', { useSystemSmtpSettings: true })).toEqual([]);
+    expect(thingsboardImportNotes('tb:external:send-email', {})).toEqual([]);   // only an explicit false: nothing else contradicts what runs here
+    expect(thingsboardImportNotes('tb:external:rest-api-call', { enableProxy: false })).toEqual([]);
+  });
+
+  it('every built node at its DEFAULT has nothing to say (so the all-built round trip stays silent)', () => {
+    for (const s of BUILT_RULE_NODE_TYPES) expect(thingsboardImportNotes(s.id, s.defaultConfig), s.id).toEqual([]);
   });
 });
 

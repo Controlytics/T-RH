@@ -668,6 +668,74 @@ describe('ThingsBoard export / import', () => {
     expect(r.document.connections).toHaveLength(4);
   });
 
+  // ─── Rulings SW-2 / M-7 (2026-11-05) ───
+  it('SW-2: the export\'s ruleChain.additionalInfo.description names each node ThingsBoard cannot start and what to set there (ThingsBoard\'s rule chain Description)', () => {
+    const U = '0f9c5ce9-1111-4222-8333-444455556666';
+    const d = doc({
+      firstNodeId: A,
+      nodes: [
+        node(A, 'tb:external:send-notification', { name: 'Notify QA', config: { templateId: U, targets: { roles: ['QA'], userIds: [] } } }),
+        node(B, 'tb:flow:rule-chain', { name: 'To escalation', config: { ruleChainId: U, forwardMsgToDefaultRuleChain: false } }),
+        node(C, 'tb:action:log', { name: 'Log' }),
+      ],
+      connections: [],
+    });
+    const exp = toThingsboardExport('Escalation', false, d);
+    expect(exp.ruleChain.additionalInfo).toEqual({
+      description: [
+        'Set in ThingsBoard after importing this chain:',
+        '- Node "Notify QA" (Send notification): choose its notification template and recipients — this system\'s template, roles and users do not exist there; ThingsBoard keeps the node but cannot start it until they are set.',
+        `- Node "To escalation" (Rule chain): choose the rule chain it sends to — rule chain ${U} is this system's.`,
+      ].join('\n'),
+    });
+    // The nodes still go out — nothing is dropped.
+    expect(exp.metadata.nodes.map((n) => n.name)).toEqual(['Notify QA', 'To escalation', 'Log']);
+  });
+
+  it('SW-2: the notes judge what ThingsBoard RECEIVES — a Generator stored as INSTRUMENT (before SW-1) goes out as DEVICE and is named', () => {
+    const d = doc({
+      firstNodeId: A, connections: [],
+      nodes: [node(A, 'tb:action:generator', { name: 'Gen', config: { ...RULE_NODE_TYPE_BY_ID.get('tb:action:generator')!.defaultConfig, originatorType: 'INSTRUMENT', originatorId: 'i-7' } })],
+    });
+    expect(toThingsboardExport('C', false, d).ruleChain.additionalInfo?.description)
+      .toBe('Set in ThingsBoard after importing this chain:\n- Node "Gen" (Generator): choose the device it generates messages for — instrument i-7 is this system\'s.');
+  });
+
+  it('SW-2: a chain ThingsBoard can run as it stands carries NO description (additionalInfo stays null)', () => {
+    expect(toThingsboardExport('C', false, doc()).ruleChain.additionalInfo).toBeNull();
+    expect(toThingsboardExport('Root Rule Chain', true, defaultRootChainDocument()).ruleChain.additionalInfo).toBeNull();
+  });
+
+  it('M-7: an import warns once per node for an id that came with the file and for a setting not honoured here', () => {
+    const U = '0f9c5ce9-1111-4222-8333-444455556666';
+    const r = importNodes(
+      tbNode('flow.TbRuleChainInputNode', 'To chain', { ruleChainId: U, forwardMsgToDefaultRuleChain: false }, 1),
+      tbNode('debug.TbMsgGeneratorNode', 'Gen', { msgCount: 0, periodInSeconds: 5, originatorType: 'DEVICE', originatorId: U, scriptLang: 'JS', jsScript: 'return {};' }, 2),
+      tbNode('filter.TbCheckRelationNode', 'Has gateway', { direction: 'TO', relationType: 'Contains', checkForSingleEntity: true, entityType: 'DEVICE', entityId: U }, 1),
+      tbNode('mail.TbSendEmailNode', 'Mail', { useSystemSmtpSettings: false, smtpHost: 'mail.plant', smtpPort: 25, enableProxy: false }),
+      tbNode('sms.TbSendSmsNode', 'Text', { numbersToTemplate: '${phone}', smsMessageTemplate: 'Hi', useSystemSmsSettings: false }),
+      tbNode('rest.TbRestApiCallNode', 'Call', { restEndpointUrlPattern: 'http://x/api', requestMethod: 'POST', enableProxy: true, proxyHost: 'proxy', proxyPort: 3128 }, 4),
+    );
+    expect(r.warnings).toEqual([
+      `Node "To chain" (Rule chain): rule chain ${U} came with the file — a ThingsBoard rule chain id (or another installation's) does not exist here; choose the rule chain it sends to.`,
+      `Node "Gen" (Generator): instrument ${U} came with the file — a ThingsBoard device id (or another installation's) does not exist here; choose the instrument.`,
+      `Node "Has gateway" (Check relation presence): entity ${U} came with the file — a ThingsBoard device id (or another installation's) does not exist here; choose the instrument to check.`,
+      'Node "Mail" (Send email): it was set to its own SMTP server; here it sends through this system\'s email settings (Configuration → Email).',
+      'Node "Text" (Send SMS): it was set to its own SMS provider; here it sends through this system\'s SMS settings (Configuration → SMS).',
+      'Node "Call" (REST API call): its proxy is not used here — it calls the endpoint directly.',
+    ]);
+    expect(r.document.nodes.every((n) => n.type !== UNSUPPORTED_NODE_TYPE)).toBe(true);
+  });
+
+  it('M-7: ThingsBoard\'s Send notification (templateId an object) does not fit here — imported as Unsupported with ONE warning, not two', () => {
+    const r = importNodes(tbNode('notification.TbNotificationNode', 'Notify', {
+      templateId: { entityType: 'NOTIFICATION_TEMPLATE', id: '0f9c5ce9-1111-4222-8333-444455556666' }, targets: ['0f9c5ce9-1111-4222-8333-444455556666'],
+    }));
+    expect(r.document.nodes[0].type).toBe(UNSUPPORTED_NODE_TYPE);
+    expect(r.warnings).toHaveLength(1);
+    expect(r.warnings[0]).toMatch(/^Node "Notify" \(Send notification\): its configuration does not fit here \(templateId/);
+  });
+
   it('reads ThingsBoard 3.x "debugMode: true" as debug all', () => {
     const tb = toThingsboardExport('C', false, doc()) as any;
     delete tb.metadata.nodes[0].debugAll;
