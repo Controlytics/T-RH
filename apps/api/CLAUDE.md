@@ -613,8 +613,9 @@ node apps/api/dist/app.js
   - **REST API call and Slack connect only through `nodes/external/http.ts` + `target-guard.ts`** (ruling S-6: one judged
     DNS lookup, link-local / unspecified / cloud-metadata refused). `services.http.fetch` is UNGUARDED and called by no
     node — the final fix wave deletes it; never add a caller.
-  - **`rule-engine.e2e.test.ts` registered stand-ins for the shipped node types** at `b8a17e1f` (re-review I2); a loop-guard
-    pin must run on the REAL Save time series. The e2e suites restore `rule-engine` / `rule-engine-attributes` FIRST in
+  - **`rule-engine.e2e.test.ts` registered stand-ins for the shipped node types** until `bcbe2bf3` (re-review I2) — the
+    loop-guard pins ran on a stand-in Save time series, which is how re-review C1 went unseen. It now asserts the real
+    handlers are registered; never put a stand-in back under a shipped type id. The e2e suites restore `rule-engine` / `rule-engine-attributes` FIRST in
     `afterAll` (the row was once left at `enabled: false`).
   - `prisma generate` hit EPERM on the engine DLL while `tsx watch` held it (the JS client WAS regenerated); restart the
     dev server after pulling.

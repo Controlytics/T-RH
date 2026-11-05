@@ -23,9 +23,9 @@ PostgreSQL database, Turborepo for task running. Windows-first local dev.
 
 | Path | What it is for |
 |---|---|
-| `apps/api/` | Fastify backend. Auth, RBAC, audit chain, notifications, instruments, ingest, alarm webhooks, TCP/IP (Modbus) reading. **26** modules (`ls apps/api/src/modules/ \| wc -l`). Prisma schema + migrations live here. |
-| `apps/web/` | React SPA (Vite, Tailwind 4, SWR, react-router). **56** `<Route>` elements (`grep -cE "<Route" apps/web/src/main.tsx`; 54 → 56 on 2026-10-29, the Dashboards pages; 53 → 54 on 2026-10-24). |
-| `packages/shared/` | Contracts both sides import: **46** permissions, **57** reauth actions, **15** sidebar items, the permission tree, Zod schemas. |
+| `apps/api/` | Fastify backend. Auth, RBAC, audit chain, notifications, instruments, ingest, alarm webhooks, TCP/IP (Modbus) reading, report templates, the rule engine (rule chains). **28** modules (`ls apps/api/src/modules/ \| wc -l`, re-derived 2026-11-05; read 26 until then). Prisma schema + migrations live here. |
+| `apps/web/` | React SPA (Vite, Tailwind 4, SWR, react-router). **59** `<Route>` elements (`grep -cE "<Route" apps/web/src/main.tsx`, re-derived 2026-11-05; 57 → 59 on 2026-11-04, the Rule Chains pages; 56 → 57 on 2026-11-02, Report Templates; 54 → 56 on 2026-10-29, the Dashboards pages; 53 → 54 on 2026-10-24). |
+| `packages/shared/` | Contracts both sides import: **48** permissions, **59** reauth actions, **16** sidebar items (re-derived 2026-11-05; read 46 / 57 / 15 until then), the permission tree, the rule node catalogue, Zod schemas. |
 | `packages/queue/` | graphile-worker producer + runner. Postgres-backed — no Redis. |
 | `docs/` | Project docs. `docs/recreation/` is the verified inventory. |
 | `scripts/` | PowerShell scripts for start/stop, DB provisioning, migration verification, packaging. |
@@ -36,7 +36,7 @@ Counts came from: `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permiss
 `grep -cE "^\s+[A-Z_]+:" packages/shared/src/types/reauth-actions.ts`,
 `grep -cE "id: '" packages/shared/src/types/sidebar-items.ts`.
 
-The database has **39 models and 13 enums** (re-derived 2026-11-02 — 38 → 39 with `ModbusPollStatus`; 37 → 38 with `MeasurementType`; 36 → 37 on 2026-09-22 with `FloorplanRoomLink`)
+The database has **44 models and 13 enums** (re-derived 2026-11-05 — 40 → 44 on 2026-11-03 with the four rule-chain models; 39 → 40 on 2026-11-02 with `ReportTemplate`; earlier re-derived 2026-11-02 — 38 → 39 with `ModbusPollStatus`; 37 → 38 with `MeasurementType`; 36 → 37 on 2026-09-22 with `FloorplanRoomLink`)
 (`grep -cE "^model " apps/api/prisma/schema.prisma`, and `grep -cE "^enum "` on
 the same file).
 

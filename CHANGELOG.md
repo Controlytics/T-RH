@@ -19,7 +19,7 @@ config defs, credentials) · `06532861` `8e916ce3` `864d0098` `3112b462` `eece02
 `738f9e50` (engine) · `6ca785d8` `202f9810` `c4179379` `7c2ef9e3` (filter, flow, transformation nodes) · `f33b2449`
 `6a2cf576` `b8a17e1f` (enrichment and action nodes, RULE alarms, ThingsBoard parity) · `d8631f4d` `a0264c91` `ca591b65`
 (external nodes, the target guard, ThingsBoard import fixtures) · `9335a869` `66f08fc5` `995fcd86` `7119d4c4` (web) ·
-`6930fa18` `1cc3d5f4` `366f9b63` (engine fix round 3: rulings RE-3, RE-1, RE-2) ·
+`6930fa18` `1cc3d5f4` `366f9b63` `bcbe2bf3` (engine fix round 3: rulings RE-3, RE-1, RE-2; the e2e on the REAL handlers) ·
 spec `a83a67e7`, plan `7f505568`, and this docs commit.
 
 - **The catalogue: 86 ThingsBoard nodes — 47 built, 10 later, 29 with no counterpart here** (the spec said 87 = 46 / 12
@@ -73,9 +73,9 @@ spec `a83a67e7`, plan `7f505568`, and this docs commit.
   39 → 41, config defs 37 → 39, config pages 24 (unchanged), `<Route`s 57 → 59, shared type files 40 → 42,
   graphile-worker tasks 7 → 9 (`rule_engine_message`, `rule_engine_debug_sweep`; one new crontab line). New dependencies,
   both pinned exactly: `@xyflow/react` 12.12.0 (web), `jsonpath-plus` 11.2.1 (api).
-- **Still open when this entry was written:** the rest of engine fix round 3 (the e2e loop-guard pins moved onto the
-  real handlers — re-review I2 found they ran on a stand-in; MQTT 3.1, deleting `services.http.fetch` and the other
-  services minors; the owed mutants) and a final fix wave (fold the three template helpers, Delete attributes'
+- **Still open when this entry was written:** the rest of engine fix round 3 (MQTT 3.1, deleting `services.http.fetch`
+  and the other services minors; the owed mutants — the e2e loop-guard pins moved onto the REAL handlers in `bcbe2bf3`,
+  after re-review I2 found they had run on a stand-in) and a final fix wave (fold the three template helpers, Delete attributes'
   two dead toggles, the null-value wording, a sweep of all 47 nodes' exported keys against ThingsBoard's configuration
   classes, the deferred minors in `tasks/todo.md`). Then the whole-branch review and the gate.
 - **Operator, before / at deploy:** restart the local dev server (`prisma generate` hit EPERM on the Prisma engine DLL);

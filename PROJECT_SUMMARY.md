@@ -22,10 +22,10 @@ live instrument monitoring with alarms.
 | Layer | Choice |
 |---|---|
 | Backend | Fastify 5, TypeScript (ESM), Node 24.x (root `package.json` `engines`) |
-| Database | PostgreSQL 18 via Prisma 6 — **39 models, 13 enums** (re-derived 2026-11-02) |
+| Database | PostgreSQL 18 via Prisma 6 — **44 models, 13 enums** (re-derived 2026-11-05; read 39 until then) |
 | Frontend | React 19, Vite 6, React Router 7, SWR, Tailwind v4 |
 | Auth | JWT (`jose`, HS256, 1h default) + bcrypt; session table; single-tab enforcement |
-| Jobs | graphile-worker on Postgres — **7 tasks**. No Redis. |
+| Jobs | graphile-worker on Postgres — **9 tasks** (re-derived 2026-11-05 from `app.ts`'s `taskList`; 7 → 9 on 2026-11-03, `rule_engine_message`, `rule_engine_debug_sweep`). No Redis. |
 | Ingest | MQTT (EMQX 5.3.2), WebSocket, raw TCP, HTTP POST |
 | Reports | jsPDF + exceljs, client-side |
 | Deployment | Windows services (WinSW) + Inno Setup. No containers. |

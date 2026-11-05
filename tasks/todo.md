@@ -23,11 +23,11 @@ every route in `docs/recreation/06-api/endpoints.md`.
   report `.superpowers/sdd/2026-11-03-rule-chains/task-8-report.md`)
 - [x] Engine fix round 3, part 1 — RE-3 `scriptTimeoutMs` max 5,000 ms (`6930fa18`); RE-1 re-entry one generation deep +
   `alarms.createOrUpdate` changed-only (`1cc3d5f4`); RE-2 durable items never evicted, refused at capacity, handed back on
-  stop, a refused job rescheduled instead of thrown (`366f9b63`).
-- [ ] **Engine fix round 3, the rest (rc-t3c, in flight when this was written)** — the e2e loop-guard pins on the REAL
-  handlers (re-review I2); MQTT 3.1 passthrough + 23-char client id, fail fast on
+  stop, a refused job rescheduled instead of thrown (`366f9b63`); the e2e on the REAL handlers, RE-1 pinned on the real
+  nodes, the `alarms.clear` origin runtime pin (`bcbe2bf3`, re-review I2).
+- [ ] **Engine fix round 3, the rest (rc-t3c, in flight when this was written)** — MQTT 3.1 passthrough + 23-char client id, fail fast on
   a dropped client, delete `services.http.fetch`, `cert.PEM` with ssl off; Generator disable key on the live version;
-  getChain-null test; onInit backoff; `alarms.clear` origin runtime pin; mutants F1 / F5 / F6; `task-3c-report.md`.
+  getChain-null test; onInit backoff; mutants F1 / F5 / F6; `task-3c-report.md`.
 - [ ] **Final fix wave** — fold the three template helpers (`transformation/pattern.ts`, `action/support.ts`,
   `external/template.ts`); Delete attributes' `sendAttributesDeletedNotification` / `notifyDevice` (the P-10 treatment, emit
   only when a key was removed); the null-value wording (`Can't parse value: {"t":null}`); the SWEEP of all 47 built nodes'

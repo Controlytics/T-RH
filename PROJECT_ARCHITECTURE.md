@@ -67,13 +67,16 @@ that assumes any of those is describing upstream DigiLog, not this repository.
         │                                       ▲
         │  in-app notifications                 │
         └───────────────────────────┌───────────┴──────────────────────┐
-                                    │ graphile-worker (7 tasks)        │
+                                    │ graphile-worker (9 tasks)        │
                                     │  notification                    │
+                                    │  notification_retry         event│
                                     │  password_expiry_check      cron │
                                     │  session_sweep              cron │
                                     │  telemetry_partition_maint. cron │
                                     │  alarm_evaluation      cron 1min │
                                     │  alarm_webhook       event-driven│
+                                    │  rule_engine_message        event│
+                                    │  rule_engine_debug_sweep    cron │
                                     └───────────┬──────────────────────┘
                                                 ▼
                               Email (SMTP/OAuth2) · SMS · Alarm webhook

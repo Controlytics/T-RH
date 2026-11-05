@@ -1115,10 +1115,10 @@ compliance-core/
 │   │   │   └── migrations/     # hand-checked SQL migrations (partitioned telemetry table)
 │   │   ├── scripts/            # operational + one-shot scripts (one-shots carry a `// ONE-SHOT` header)
 │   │   └── src/
-│   │       ├── app.ts          # entry point; registers the 26 modules, ingest listeners, the Modbus Reader, job runner
-│   │       ├── modules/        # 26 API modules (`ls | wc -l`, 2026-11-02); config/defs/ holds 37 config defs
+│   │       ├── app.ts          # entry point; registers the 28 modules, ingest listeners, the Modbus Reader, the rule engine, job runner
+│   │       ├── modules/        # 28 API modules (`ls | wc -l`, 2026-11-05); config/defs/ holds 39 config defs
 │   │       ├── plugins/        # auth, rbac, cors, …
-│   │       ├── workers/        # the 6 graphile-worker tasks
+│   │       ├── workers/        # the graphile-worker task handlers (9 tasks in app.ts's taskList, 2026-11-05)
 │   │       └── lib/            # audit hash chain, config discovery/registry, sanitize, …
 │   └── web/                    # React 19 SPA (Vite 6, Tailwind v4) — port 5176 here
 │       └── src/
@@ -1233,10 +1233,10 @@ npm install && npm run build -w @digilog/shared && npx turbo build --force
 ## 15. Architecture Summary
 
 - **Backend:** Fastify 5 + TypeScript (ESM) + Prisma 6 on PostgreSQL 18; graphile-worker
-  job queue in the same database (**7** tasks: `notification`, `notification_retry`,
+  job queue in the same database (**9** tasks: `notification`, `notification_retry`,
   `password_expiry_check`, `session_sweep`, `telemetry_partition_maintenance`,
-  `alarm_evaluation`, `alarm_webhook` — the `taskList` in `apps/api/src/app.ts`,
-  2026-10-12). Instrument ingest over HTTP, WebSocket, raw TCP and MQTT (EMQX 5.3.2).
+  `alarm_evaluation`, `alarm_webhook`, `rule_engine_message`, `rule_engine_debug_sweep` — the
+  `taskList` in `apps/api/src/app.ts`, re-derived 2026-11-05; 7 until the rule engine, 2026-11-03). Instrument ingest over HTTP, WebSocket, raw TCP and MQTT (EMQX 5.3.2).
 - **Frontend:** React 19 + Vite 6 + Tailwind v4 + SWR + React Router 7, served
   same-origin by the API in production.
 - **Domain:** 21 CFR Part 11 administration — users, roles, hash-chained audit trail,

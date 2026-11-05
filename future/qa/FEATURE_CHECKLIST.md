@@ -26,9 +26,9 @@ Legend: ☐ to verify, ✅ verified, ❌ blocked.
 - ☐ Password reset self-requests appear in `/users/reset-requests`
 - ☐ Roles: create, edit, delete, clone-from-template; `creatable` matrix gates who can create whom
 - ☐ `/api/roles/active` is public (contact-admin page must render without auth)
-- ☐ Permission catalog has **45 permissions** (verify against `PERMISSIONS` in `@digilog/shared`; re-derived 2026-10-29 — the 102 here was upstream DigiLog's)
-- ☐ **39 feature privileges** (re-derived 2026-10-29; was 83, upstream DigiLog's) + `FEATURE_TO_PERMISSION_MAP` (each maps to BOTH frontend visibility perm AND backend route perm)
-- ☐ **15 sidebar items** (re-derived 2026-10-29, `dashboards` the 15th; was 26, upstream DigiLog's) + `SIDEBAR_PRIVILEGE_MAP` filters by current role
+- ☐ Permission catalog has **48 permissions** (verify against `PERMISSIONS` in `@digilog/shared`; re-derived 2026-11-05 — 46 → 48 with `RULE_CHAIN_READ` / `RULE_CHAIN_MANAGE`, and this line read 45, stale since 2026-10-30; re-derived 2026-10-29 — the 102 here was upstream DigiLog's)
+- ☐ **41 feature privileges** (re-derived 2026-11-05 — 39 → 41 with `rule_chains.view` / `rule_chains.manage`; was 83, upstream DigiLog's) + `FEATURE_TO_PERMISSION_MAP` (each maps to BOTH frontend visibility perm AND backend route perm)
+- ☐ **16 sidebar items** (re-derived 2026-11-05, `rule-chains` the 16th; `dashboards` the 15th on 2026-10-29; was 26, upstream DigiLog's) + `SIDEBAR_PRIVILEGE_MAP` filters by current role
 - ☐ Role scope (`ORGANIZATION`, `TENANT`, etc.) respected on every listing endpoint
 
 **Where:** `/users`, `/config/roles`, `/config/access-matrix`.
