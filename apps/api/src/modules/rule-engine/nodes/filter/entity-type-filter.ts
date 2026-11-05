@@ -4,9 +4,11 @@ import type { RuleNodeHandler } from '../../context.js';
 /**
  * Entity type filter — ThingsBoard's `TbOriginatorTypeFilterNode` (spec §7):
  * `True` when the originator's type is one of `originatorTypes`, else `False`.
- * The list holds OUR types (INSTRUMENT, ALARM, USER, SYSTEM, RULE_NODE);
- * ThingsBoard's DEVICE and TENANT read as INSTRUMENT and SYSTEM, any other
- * ThingsBoard type (ASSET, CUSTOMER …) matches nothing here.
+ * The list stores ThingsBoard's EntityType values (ruling SW-1, refined —
+ * DEVICE for an instrument, TENANT for the system, ALARM, USER, RULE_NODE); a
+ * list saved before SW-1 still holds INSTRUMENT / SYSTEM. Both spellings read
+ * through `toRuleOriginatorType` (contract C2); any other ThingsBoard type
+ * (ASSET, CUSTOMER …) matches nothing here.
  */
 export const ENTITY_TYPE_FILTER = 'tb:filter:entity-type-filter';
 

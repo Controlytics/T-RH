@@ -280,3 +280,28 @@ describe('M-9 — a Math CUSTOM expression names only the OWN functions of its t
     expect(evaluateExpression(compileExpression('sqrt(x) + pow(2, 3)'), { x: 16 })).toBe(12);
   });
 });
+
+// ─── contract C2 (FW-N1): the Generator reads both entity-type spellings ─────
+
+describe('contract C2 — the Generator reads ThingsBoard’s DEVICE / TENANT and the legacy INSTRUMENT / SYSTEM alike', () => {
+  it('DEVICE or INSTRUMENT (+ an id) → that instrument; TENANT or SYSTEM → the system', async () => {
+    vi.useFakeTimers();
+    const T = 'tb:action:generator';
+    const cases: [Record<string, unknown>, unknown][] = [
+      [{ originatorType: 'DEVICE', originatorId: 'inst-1' }, { type: 'INSTRUMENT', id: 'inst-1' }],
+      [{ originatorType: 'INSTRUMENT', originatorId: 'inst-2' }, { type: 'INSTRUMENT', id: 'inst-2' }],
+      [{ originatorType: 'TENANT' }, { type: 'SYSTEM', id: 'SYSTEM' }],
+      [{ originatorType: 'SYSTEM' }, { type: 'SYSTEM', id: 'SYSTEM' }],
+    ];
+    for (const [config, originator] of cases) {
+      const { ctx, calls } = fakeContext({ type: T, config: { periodInSeconds: 1, ...config } });
+      await getHandler(T)!.onInit!(ctx);
+      try {
+        vi.advanceTimersByTime(1_000);
+        expect(calls.next[0]?.msg.originator, JSON.stringify(config)).toEqual(originator);
+      } finally {
+        await getHandler(T)!.onDestroy!(ctx);
+      }
+    }
+  });
+});
