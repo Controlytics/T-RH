@@ -55,7 +55,7 @@ vi.mock('swr', () => ({
   },
 }));
 vi.mock('@/hooks/use-auth', () => ({ useAuth: () => ({ user: { role: state.role, permissions: state.permissions } }) }));
-const toast = { success: vi.fn(), error: vi.fn() };
+const toast = { success: vi.fn(), error: vi.fn(), info: vi.fn() };
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast }) }));
 vi.mock('@/hooks/use-datetime-format', () => ({
   useDatetimeFormat: () => ({ formatDate: (d: string) => d, formatTime: (d: string) => d, formatDateTime: (d: string) => d }),
@@ -86,15 +86,19 @@ const { DRAG_MIME } = await import('../palette');
 const { UNSUPPORTED_TOOLTIP } = await import('../node-card');
 const { DEBUG_CAP_CAPTION } = await import('../settings-dialog');
 
-function mount() {
-  return render(
+function tree() {
+  return (
     <MemoryRouter initialEntries={['/rule-chains/c-1']}>
       <Routes>
         <Route path="/rule-chains/:id" element={<><Link to="/somewhere-else">elsewhere</Link><RuleChainEditorPage /></>} />
         <Route path="/somewhere-else" element={<span data-testid="left">left the editor</span>} />
       </Routes>
-    </MemoryRouter>,
+    </MemoryRouter>
   );
+}
+
+function mount() {
+  return render(tree());
 }
 
 const cards = () => screen.getAllByTestId('rule-node');
@@ -321,8 +325,45 @@ describe('node settings start from the node, every time (fix round 1, Critical)'
     const { container } = mount();
     fireEvent.keyDown(container.querySelector(`.react-flow__node[data-id="${INPUT_NODE_ID}"]`) as HTMLElement, { key: 'Enter' });
     expect(screen.queryByRole('dialog')).toBeNull();
+    // A held key's repeats open nothing.
+    fireEvent.keyDown(container.querySelector(`.react-flow__node[data-id="${T}"]`) as HTMLElement, { key: 'Enter', repeat: true });
+    expect(screen.queryByRole('dialog')).toBeNull();
     fireEvent.keyDown(container.querySelector(`.react-flow__node[data-id="${T}"]`) as HTMLElement, { key: 'Enter' });
     expect(within(screen.getByRole('dialog')).getByLabelText('Name')).toHaveValue('Save Timeseries');
+  });
+});
+
+describe('a newer version saved by someone else while settings are open (review I2)', () => {
+  it('closes the settings with the adoption and says why; reopening shows the newer node', () => {
+    toast.info.mockClear();
+    state.chain = REST_CHAIN;
+    const view = mount();
+    fireEvent.doubleClick(card(R1));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    const doc = REST_CHAIN.document as unknown as { nodes: { id: string; config: Record<string, unknown> }[] };
+    state.chain = {
+      ...REST_CHAIN,
+      updatedAt: '2026-11-04T11:00:00.000Z',
+      document: { ...REST_CHAIN.document, nodes: doc.nodes.map((n) => (n.id === R1 ? { ...n, config: { ...n.config, headers: { 'X-Env': 'staging' } } } : n)) },
+    } as unknown as typeof CHAIN;
+    view.rerender(tree());
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(toast.info).toHaveBeenCalledWith('This rule chain was saved by someone else', expect.stringContaining('Open them again'));
+    fireEvent.doubleClick(card(R1));
+    const headers = within(screen.getByRole('dialog')).getByTestId('field-headers:map');
+    expect(within(headers).getByLabelText('Key 1')).toHaveValue('X-Env');
+    expect(within(headers).getByLabelText('Value 1')).toHaveValue('staging');
+  });
+
+  it('with nothing open, the adoption is silent', () => {
+    toast.info.mockClear();
+    state.chain = REST_CHAIN;
+    const view = mount();
+    state.chain = { ...REST_CHAIN, updatedAt: '2026-11-04T11:00:00.000Z' } as typeof CHAIN;
+    view.rerender(tree());
+    expect(toast.info).not.toHaveBeenCalled();
   });
 });
 

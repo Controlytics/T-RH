@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { useState } from 'react';
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import type { RuleNodeConfigField } from '@digilog/shared';
-import { ConfigForm, visibleFieldsFor, type ConfigFormContext } from '../config-form';
+import { ConfigForm, movedMasks, visibleFieldsFor, type ConfigFormContext } from '../config-form';
 
 /**
  * The node settings form (rule chains, 2026-11-04): ONE generic form rendered
@@ -301,6 +301,66 @@ describe('ConfigForm — a credential the server masked', () => {
     expect(within(r).getByLabelText('Value 1')).toHaveValue('•••• (stored)');
     fireEvent.change(within(r).getByLabelText('Value 2'), { target: { value: 'test' } });
     expect(last()?.headers).toEqual({ Authorization: '***', 'X-Env': 'test' });
+  });
+});
+
+describe('ConfigForm — a stored secret never moves (review I1 / M2)', () => {
+  it('a masked map row\'s key is locked until a new value is typed', () => {
+    const { last } = setup({
+      fields: [{ key: 'headers', label: 'Headers', type: 'map' }],
+      initial: { headers: { Authorization: '***', 'X-Env': 'prod' } },
+    });
+    const r = row('headers', 'map');
+    expect(within(r).getByLabelText('Key 1')).toBeDisabled();
+    expect(within(r).getByLabelText('Key 1')).toHaveAttribute('title', expect.stringMatching(/keeps its key/));
+    expect(within(r).getByLabelText('Key 2')).toBeEnabled();
+    expect(within(r).getByText(/keeps its key/)).toBeInTheDocument();
+    fireEvent.change(within(r).getByLabelText('Value 1'), { target: { value: 'Bearer new' } });
+    expect(within(r).getByLabelText('Key 1')).toBeEnabled();
+    fireEvent.change(within(r).getByLabelText('Key 1'), { target: { value: 'X-Auth' } });
+    expect(last()?.headers).toEqual({ 'X-Auth': 'Bearer new', 'X-Env': 'prod' });
+  });
+
+  it('a JSON edit that renames a masked key is refused, not written', () => {
+    const { last } = setup({
+      fields: [{ key: 'credentials', label: 'Credentials', type: 'json' }],
+      initial: { credentials: { type: 'basic', username: 'u', password: '***' } },
+    });
+    const r = row('credentials', 'json');
+    const box = within(r).getByRole('textbox') as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: box.value.replace('"password"', '"pass"') } });
+    expect(within(r).getByRole('alert')).toHaveTextContent('Not applied: a stored secret cannot move to pass.');
+    expect(last()).toBeUndefined();
+  });
+
+  it('a JSON edit that shifts an array element holding a masked leaf is refused (the server keeps secrets by index)', () => {
+    const { last } = setup({
+      fields: [{ key: 'list', label: 'List', type: 'json' }],
+      initial: { list: [{ name: 'a' }, { name: 'b', token: '***' }] },
+    });
+    const box = within(row('list', 'json')).getByRole('textbox') as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: JSON.stringify([{ name: 'b', token: '•••• (stored)' }]) } });
+    expect(within(row('list', 'json')).getByRole('alert')).toHaveTextContent('cannot move to [0].token');
+    expect(last()).toBeUndefined();
+    // Removing the masked element itself is a deliberate deletion, and allowed.
+    fireEvent.change(box, { target: { value: JSON.stringify([{ name: 'a' }]) } });
+    expect(last()?.list).toEqual([{ name: 'a' }]);
+  });
+
+  it('movedMasks names only the new places', () => {
+    expect(movedMasks({ a: '***', b: { c: '***' } }, { a: '***', b: { d: '***' } })).toEqual(['b.d']);
+    expect(movedMasks('***', '***')).toEqual([]);
+    expect(movedMasks(undefined, { x: '***' })).toEqual(['x']);
+  });
+});
+
+describe('ConfigForm — a JSON field cleared to blank (review M1)', () => {
+  it('REMOVES its key, so ThingsBoard\'s default applies (as a blank number does)', () => {
+    const { last } = setup();
+    const box = within(row('arguments', 'json')).getByRole('textbox') as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: '' } });
+    expect('arguments' in (last() ?? {})).toBe(false);
+    expect(box.value).toBe('');
   });
 });
 

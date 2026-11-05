@@ -86,6 +86,26 @@ function unmaskFromDisplay(v: unknown): unknown {
   return v;
 }
 
+/** Every path holding a `"***"` leaf, as display text (`a.b`, `list[2].c`). */
+function maskedPaths(v: unknown, at = ''): string[] {
+  if (v === MASKED_SECRET) return [at || '(the value)'];
+  if (Array.isArray(v)) return v.flatMap((x, i) => maskedPaths(x, `${at}[${i}]`));
+  if (v && typeof v === 'object') return Object.entries(v).flatMap(([k, x]) => maskedPaths(x, at ? `${at}.${k}` : k));
+  return [];
+}
+
+/**
+ * The paths where `next` holds a `"***"` the current value does not hold THERE.
+ * The server keeps a stored secret only for the same node, key and path (its
+ * merge), so a marker that moved — a renamed key, an array element that shifted
+ * — would be saved as the three characters `***` and the secret lost (review
+ * I1 / M2, 2026-11-05). Such an edit is refused, never written.
+ */
+export function movedMasks(current: unknown, next: unknown): string[] {
+  const had = new Set(maskedPaths(current));
+  return maskedPaths(next).filter((p) => !had.has(p));
+}
+
 /**
  * A field's LOCAL copy of its value (the text being typed, the map rows), seeded
  * from the config value and RE-SEEDED whenever that value changes from OUTSIDE
@@ -125,6 +145,8 @@ function Help({ field, extra }: { field: RuleNodeConfigField; extra?: ReactNode 
 }
 
 const MASK_NOTE = `${MASK_DISPLAY} is a stored secret: leave it as it is to keep it, or replace it with the new value.`;
+/** Its key cannot change while it holds the stored value — the server keeps a secret only under its own key. */
+const MASK_KEY_NOTE = 'A stored secret keeps its key: type a new value first to rename it.';
 
 export function ConfigForm({ nodeType, fields, value, onChange, context = {}, readOnly = false }: {
   nodeType: string;
@@ -207,7 +229,7 @@ function FieldControl({ field, raw, shown, fallback, readOnly, context, set, uns
     case 'map':
       return <MapField field={field} raw={raw} shown={shown} readOnly={readOnly} set={set} />;
     case 'json':
-      return <JsonField id={id} field={field} raw={raw} shown={shown} readOnly={readOnly} set={set} />;
+      return <JsonField id={id} field={field} raw={raw} shown={shown} readOnly={readOnly} set={set} unset={unset} />;
     case 'script':
       return <ScriptField field={field} value={typeof shown === 'string' ? shown : ''} readOnly={readOnly} onChange={set} testScript={context.testScript} />;
     case 'instrument': {
@@ -259,7 +281,7 @@ function FieldControl({ field, raw, shown, fallback, readOnly, context, set, uns
       );
     }
     default:
-      return <JsonField id={id} field={field} raw={raw} shown={shown} readOnly={readOnly} set={set} />;
+      return <JsonField id={id} field={field} raw={raw} shown={shown} readOnly={readOnly} set={set} unset={unset} />;
   }
 }
 
@@ -451,7 +473,8 @@ function MapField({ field, raw, shown, readOnly, set }: { field: RuleNodeConfigF
             aria-label={`Key ${i + 1}`}
             value={r.k}
             maxLength={RULE_KEY_MAX}
-            disabled={readOnly}
+            disabled={readOnly || r.v === MASK_DISPLAY}
+            title={r.v === MASK_DISPLAY ? MASK_KEY_NOTE : undefined}
             aria-invalid={repeated.includes(r.k.trim()) || undefined}
             onChange={(e) => commit(rows.map((x, j) => (j === i ? { ...x, k: e.target.value } : x)))}
           />
@@ -472,7 +495,7 @@ function MapField({ field, raw, shown, readOnly, set }: { field: RuleNodeConfigF
       ))}
       {repeated.length > 0 && <p role="alert" className="text-[0.75rem] text-rose-700">Repeated key: {repeated.join(', ')} — the last one is kept.</p>}
       {!readOnly && <Button type="button" variant="outline" size="sm" onClick={() => setRows([...rows, { k: '', v: '' }])}>Add row</Button>}
-      <Help field={field} extra={holdsMask(shown) ? MASK_NOTE : undefined} />
+      <Help field={field} extra={holdsMask(shown) ? `${MASK_NOTE} ${MASK_KEY_NOTE}` : undefined} />
     </div>
   );
 }
@@ -482,7 +505,9 @@ function MapField({ field, raw, shown, readOnly, set }: { field: RuleNodeConfigF
  * A masked leaf shows as the marker and is written back as `"***"`. The text
  * is re-seeded when the value changes from outside.
  */
-function JsonField({ id, field, raw, shown, readOnly, set }: { id: string; field: RuleNodeConfigField; raw: unknown; shown: unknown; readOnly: boolean; set: (v: unknown) => void }) {
+function JsonField({ id, field, raw, shown, readOnly, set, unset }: {
+  id: string; field: RuleNodeConfigField; raw: unknown; shown: unknown; readOnly: boolean; set: (v: unknown) => void; unset: () => void;
+}) {
   const [state, setState, commit] = useSeeded<{ text: string; error: string | null }>(raw, () => ({
     text: shown === undefined ? '' : JSON.stringify(maskForDisplay(shown), null, 2),
     error: null,
@@ -500,12 +525,18 @@ function JsonField({ id, field, raw, shown, readOnly, set }: { id: string; field
         aria-invalid={error ? true : undefined}
         onChange={(e) => {
           const t = e.target.value;
-          if (t.trim() === '') { commit({ text: t, error: null }, null); set(null); return; }
+          // Blank REMOVES the key, so ThingsBoard's default applies (as a blank number does).
+          if (t.trim() === '') { commit({ text: t, error: null }, undefined); unset(); return; }
           let parsed: unknown;
           try {
             parsed = unmaskFromDisplay(JSON.parse(t));
           } catch (err) {
             setState({ text: t, error: `Not valid JSON — not applied. ${(err as Error).message}` });
+            return;
+          }
+          const moved = movedMasks(raw, parsed);
+          if (moved.length > 0) {
+            setState({ text: t, error: `Not applied: a stored secret cannot move to ${moved.join(', ')}. Leave it where it was, or type a new value there.` });
             return;
           }
           commit({ text: t, error: null }, parsed);

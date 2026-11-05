@@ -137,7 +137,7 @@ function Flow(props: CanvasProps) {
       // Enter on a FOCUSED node opens its settings — the keyboard's double-click
       // (React Flow makes each node focusable; Enter also selects it).
       onKeyDown={(e) => {
-        if (e.key !== 'Enter') return;
+        if (e.key !== 'Enter' || e.repeat) return; // a held Enter would reopen the dialog it just opened
         const el = e.target as HTMLElement;
         const id = el.classList?.contains('react-flow__node') ? el.getAttribute('data-id') : null;
         if (!id || id === INPUT_NODE_ID) return;

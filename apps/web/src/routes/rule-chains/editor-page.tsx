@@ -119,16 +119,6 @@ export function EditorView({ chain, mutate }: {
     reset(next.state);
   }, [reset]);
 
-  // A newer stored version (another editor, a refetch) is adopted only while
-  // nothing is unsaved; with unsaved changes the draft keeps its base, so a
-  // save over the newer version is refused (409) rather than silent.
-  useEffect(() => {
-    if (chain.updatedAt === base.updatedAt || dirty) return;
-    adopt(chain);
-    // `chain` is a new object per fetch; its version is the event.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chain.updatedAt]);
-
   const [dialog, setDialog] = useState<Dialogs>(null);
   const [picker, setPicker] = useState<Picker>(null);
   // The node whose settings are open, and a counter per open: the dialog is
@@ -145,6 +135,26 @@ export function EditorView({ chain, mutate }: {
   const [chainReEnter, setChainReEnter] = useState(false);
   const canvasApi = useRef<CanvasApi | null>(null);
   const suggestions = useRelationSuggestions(picker, doc);
+
+  // A newer stored version (another editor, a refetch) is adopted only while
+  // nothing is unsaved; with unsaved changes the draft keeps its base, so a
+  // save over the newer version is refused (409) rather than silent. A dialog
+  // that edits the draft — a node's settings, the relation picker, Chain
+  // settings — holds values copied from the OLD version, so it closes with the
+  // adoption: its Apply would write them over the newer version, and the save
+  // after it would pass the version check (review I2, 2026-11-05).
+  useEffect(() => {
+    if (chain.updatedAt === base.updatedAt || dirty) return;
+    adopt(chain);
+    if (settingsFor !== null || picker !== null || dialog === 'chain') {
+      setSettingsFor(null);
+      setPicker(null);
+      if (dialog === 'chain') setDialog(null);
+      toast.info('This rule chain was saved by someone else', 'Your open settings were closed. Open them again to edit the chain as it is now.');
+    }
+    // `chain` is a new object per fetch; its version is the event.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chain.updatedAt]);
 
   const openDialog = (d: Dialogs) => { writes.setError(null); setDialog(d); };
 
