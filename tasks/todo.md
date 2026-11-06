@@ -60,8 +60,11 @@ every route in `docs/recreation/06-api/endpoints.md`.
   and Device profile's evaluator test (`device-profile.ts`) still decide on `metadata.rule_engine_origin`; a Script or a REST
   response header can steer them. Use `currentAdmittedOrigin()` as the audit row does. A behaviour lever for a chain author,
   not a §11 hole.
-- [ ] **Owed:** a SECOND full API suite run on the final HEAD. It was started on 2026-11-06 on a quiet DB and stopped by
-  Claude Code because the machine was low on memory (one file had run); not restarted unasked.
+- [x] Second full API suite run on the final HEAD `61f28e62` (2026-11-06, quiet DB): 295 files / 4,270 tests passed, exit 0.
+- [x] PUSHED to `trh/data-layer` and DEPLOYED to AWS `61f28e6` (2026-11-06): npm ci, both rule-chain migrations, health 200,
+  Root Rule Chain seeded, rule engine started (enabled by default — Configuration → Rule Engine).
+- [ ] **Operator:** reload browsers (PWA cache); `GET /api/audit/verify-chain` after the schema change (needs a login);
+  real-browser check of drag / drag-to-connect / pan on the editor.
 - [ ] **Operator:** restart the local dev server (`prisma generate` hit EPERM on the Prisma engine DLL while `tsx watch` held it;
   the JS client was regenerated, the engine binary was not).
 - [ ] **Operator:** a real-browser check on :5176 of drag from the palette, drag-to-connect and pan / zoom on `/rule-chains/:id`
