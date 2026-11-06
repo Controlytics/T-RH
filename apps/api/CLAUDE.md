@@ -651,7 +651,8 @@ node apps/api/dist/app.js
       ThingsBoard does for every repeat (its `updateAlarm` moves `endTs`). Ruling AL-3, `a1277329`, superseding
       `2b2114b6`'s "on Success", which the independent re-review showed was not ThingsBoard's behaviour.
     - **The rewrite audit's origin is the ADMITTED origin** (`bab792d3`): `currentAdmittedOrigin()` from the flow
-      context (`context.ts`), set at admission — never `msg.metadata.rule_engine_origin`, which a Script / Copy /
+      context (`context.ts`), set at admission, and carried through a durable Delay / Checkpoint as the job's
+      `message._admittedOrigin` (`894cb0f0`; nullable, optional for older jobs) — never `msg.metadata.rule_engine_origin`, which a Script / Copy /
       Rename node or a REST response header can overwrite. A Deduplication node's lifecycle emission still carries
       its metadata's origin (documented residual: the row names chain + node, and RULE_CHAIN_UPDATED attributes the
       Script).
