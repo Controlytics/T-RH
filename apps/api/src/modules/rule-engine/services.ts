@@ -180,8 +180,9 @@ export interface RuleServices {
      * `skipLatest`: history only, `instrument_telemetry_latest` untouched (TB's skipLatestPersistence).
      * An instant before 2000 or more than 10 minutes ahead REFUSES the whole write
      * (`TIMESTAMP_OUT_OF_WINDOW`, ruling TS-1) — the node's Failure, nothing stored.
-     * `message`: the message the node is processing (its id and `rule_engine_origin`) — a stored
-     * reading this write CHANGES is audited as the rule engine naming them (review A I2), so the
+     * `message`: the message the node is processing (its id only) — a stored reading this write
+     * CHANGES is audited as the rule engine naming that id and the flow's ADMITTED origin
+     * (`currentAdmittedOrigin()`, never the message metadata — review A I2, `bab792d3`), so the
      * row links to the inject route's RULE_ENGINE_MESSAGE_INJECTED (the same msgId).
      */
     write(instrumentId: string, readings: RuleTelemetryReading[], origin: string, opts?: RuleTelemetryWriteOptions): Promise<void>;

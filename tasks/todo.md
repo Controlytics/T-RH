@@ -53,6 +53,13 @@ every route in `docs/recreation/06-api/endpoints.md`.
   - The commits after `2b2114b6` (all inside the rule engine, its worker, the queue job schema, one def description, one
     shared help string) were verified file by file on their final HEAD (rule-engine 50, rule-engine-alarms 25,
     rule-chains 41, engine 56, engine-origin 7, the node / durable / config unit files, the queue tests).
+- [x] Second re-review of the fixes after `2b2114b6` (a1277329, bab792d3, 077d7b97, 894cb0f0, 9abc47d3): READY, no Critical /
+  Important. Minors: M1 stale JSDoc (fixed); M2 a lifecycle message (Generator / Message count tick) takes its admitted origin
+  from the metadata its own script wrote — DOCUMENTED residual (only a RULE_CHAIN_MANAGE author can set it); M3 below.
+- [ ] Low priority (re-review M3): Save time series / Save attributes' ingest-origin skip (`attributes.ts` skipsIngestOrigin)
+  and Device profile's evaluator test (`device-profile.ts`) still decide on `metadata.rule_engine_origin`; a Script or a REST
+  response header can steer them. Use `currentAdmittedOrigin()` as the audit row does. A behaviour lever for a chain author,
+  not a §11 hole.
 - [ ] **Owed:** a SECOND full API suite run on the final HEAD. It was started on 2026-11-06 on a quiet DB and stopped by
   Claude Code because the machine was low on memory (one file had run); not restarted unasked.
 - [ ] **Operator:** restart the local dev server (`prisma generate` hit EPERM on the Prisma engine DLL while `tsx watch` held it;
