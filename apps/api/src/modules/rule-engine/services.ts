@@ -23,8 +23,8 @@ import { resolveTemplate } from '../notification-delivery/template-engine.js';
 import { getApplicationAttributes, type RuleEngineConfig } from './config.js';
 import { getChain } from './service.js';
 import { emitTelemetry, emitAttributes, emitAttributesDeleted, emitRuleNodeAlarm } from './emit.js';
-import { DURABLE_JOB_MAX_ATTEMPTS, durableJobPayload, parseRuleNodeOrigin, ruleNodeOrigin, type RuleMessage } from './message.js';
-import { currentAdmittedOrigin, currentReentryDepth } from './context.js';
+import { DURABLE_JOB_MAX_ATTEMPTS, durableJobPayload, parseRuleNodeOrigin, ruleNodeOrigin, RULE_ENGINE_ORIGIN_KEY, type RuleMessage } from './message.js';
+import { currentAdmittedOrigin, currentReentryDepth, durableAdmittedOrigin } from './context.js';
 import { targetNotAllowed } from './nodes/external/target-guard.js';
 
 /**
@@ -262,7 +262,9 @@ export interface RuleServices {
      * Hand the message to graphile-worker (`rule_engine_message`); it resumes AFTER `nodeId` on `Success`
      * (or `opts.relation`) at `runAt`, with its hop count, call stack and RE-ENTRY DEPTH (ruling RE-1) —
      * the running flow's, unless `opts.reentryDepth` says otherwise (the engine's stop hands a waiting
-     * resume back with the depth it was admitted at).
+     * resume back with the depth it was admitted at). And with the flow's ADMITTED origin (review A I2,
+     * `_admittedOrigin`; null = admitted with none; outside a flow the message's metadata — nothing was
+     * admitted), so the resumed flow's 21 CFR 11 rows never name metadata a node rewrote.
      */
     enqueue(msg: RuleMessage, chainId: string, nodeId: string, runAt?: Date, opts?: RuleDurableOptions): Promise<void>;
   };
@@ -1075,8 +1077,10 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
           throw new Error(`DURABLE_QUEUE_FULL: ${waiting} messages of this originator already wait in the Delay / Checkpoint queue (${queueName}) — the queue capacity (Configuration → Rule Engine); this message was not queued`);
         }
         const producer = await getProducer();
+        const inFlow = durableAdmittedOrigin();
+        const admittedOrigin = inFlow !== undefined ? inFlow : (msg.metadata[RULE_ENGINE_ORIGIN_KEY] ?? null);
         // The ONE job shape (message.ts): the engine's stop hands its backlog back through the same builder (M6).
-        await producer.addJob(RULE_ENGINE_MESSAGE_TASK, durableJobPayload(msg, chainId, nodeId, { reentryDepth: depth, relation: opts.relation }), {
+        await producer.addJob(RULE_ENGINE_MESSAGE_TASK, durableJobPayload(msg, chainId, nodeId, { reentryDepth: depth, admittedOrigin, relation: opts.relation }), {
           queueName,
           ...(runAt ? { runAt } : {}),
           maxAttempts: DURABLE_JOB_MAX_ATTEMPTS,

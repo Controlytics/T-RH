@@ -110,9 +110,10 @@ export interface RuleFlowContext {
    * The `rule_engine_origin` the message carried when the engine ADMITTED it (review A I2 follow-up,
    * 2026-11-05) — what a §11 row says the message came from. Taken at admission like the depth, so a
    * Script / Copy keys / Rename keys node or a REST response header that rewrites the metadata
-   * downstream cannot change it. A late call / tellSelf keeps its flow's; a durable resume takes the
-   * one its message carries at resume time (the job does not carry it — packages/queue's schema);
-   * a lifecycle node's message (a Generator tick) the one it is queued with.
+   * downstream cannot change it. A late call / tellSelf keeps its flow's; a durable resume the one its
+   * job carries (`message._admittedOrigin`, written from the handing-over flow, 2026-11-06 — a job
+   * queued before then carries none, and its metadata is read at resume); a lifecycle node's message
+   * (a Generator tick) the one it is queued with.
    */
   readonly admittedOrigin?: string;
 }
@@ -135,4 +136,14 @@ export function currentReentryDepth(): number {
 /** The origin the running flow's message was ADMITTED with; undefined outside any flow. */
 export function currentAdmittedOrigin(): string | undefined {
   return flowStorage.getStore()?.admittedOrigin;
+}
+
+/**
+ * The origin a DURABLE hand-over (Delay / Checkpoint) writes into its job: inside a flow, the flow's
+ * admitted origin, null when it was admitted with none; undefined OUTSIDE any flow (nothing was
+ * admitted — the caller decides).
+ */
+export function durableAdmittedOrigin(): string | null | undefined {
+  const flow = flowStorage.getStore();
+  return flow ? (flow.admittedOrigin ?? null) : undefined;
 }

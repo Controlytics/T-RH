@@ -669,6 +669,52 @@ describe('Save Timeseries: the timestamp window (TS-1), a string ts (M-2), a nul
     expect((row.afterValue as { origin: string }).origin).toBe('rest_api');
   });
 
+  it('review A I2 (§11), the DURABLE path: Script (spoofs the origin) → Delay → Save, resumed through the REAL worker, still names the ADMITTED origin', async () => {
+    const T = randomUUID();
+    const D = randomUUID();
+    const S = randomUUID();
+    const chainId = randomUUID();
+    const name = `RE spoof durable ${STAMP}`;
+    await prisma.ruleChain.create({ data: { id: chainId, name, firstNodeId: T, document: {
+      version: 1, firstNodeId: T,
+      nodes: [
+        { id: T, type: 'tb:transformation:script', name: 'Spoof', debugMode: 'off', x: 0, y: 0,
+          config: { ...newRuleNodeConfig('tb:transformation:script'), jsScript: "metadata.rule_engine_origin = 'ingest'; return { msg: msg, metadata: metadata, msgType: msgType };" } },
+        { id: D, type: 'tb:action:delay', name: 'Delay', debugMode: 'off', x: 0, y: 0, config: { ...newRuleNodeConfig('tb:action:delay'), periodInSeconds: 3600 } },
+        { id: S, type: 'tb:action:save-timeseries', name: 'Save', debugMode: 'off', x: 0, y: 0, config: newRuleNodeConfig('tb:action:save-timeseries') },
+      ],
+      connections: [{ from: T, to: D, relation: 'Success' }, { from: D, to: S, relation: 'Success' }],
+    } as never } });
+    otherChains.push(chainId);
+    invalidateChainCache();
+    const key = `spoofd_${STAMP}`;
+    const ts = Date.now() - 14 * 60_000;
+    const queue = `rule-engine:${inst.id}`;
+    const since = new Date();
+    // No job runner in the e2e app: the Delay's job is read back from graphile's table and handed to the
+    // durable task's own function (the real worker), then the engine drains the resumed flow.
+    const sendAndResume = async (v: number) => {
+      const m = newMessage('POST_TELEMETRY_REQUEST', { type: 'INSTRUMENT', id: inst.id, code: inst.code }, { [key]: v }, { ts: String(ts), rule_engine_origin: 'rest_api' });
+      await ruleEngine.processNow(m, { chainId });
+      const [job] = await prisma.$queryRaw<{ id: bigint; payload: any }[]>`
+        SELECT j.id, j.payload FROM graphile_worker._private_jobs j
+        JOIN graphile_worker._private_job_queues q ON q.id = j.job_queue_id
+        WHERE q.queue_name = ${queue} AND j.payload -> 'message' ->> 'id' = ${m.id}`;
+      expect(job, 'the Delay handed the message to graphile').toBeDefined();
+      expect(job.payload.message.metadata.rule_engine_origin, 'the job carries the spoofed metadata').toBe('ingest');
+      await prisma.$executeRaw`DELETE FROM graphile_worker._private_jobs WHERE id = ${job.id}`;
+      expect(await runRuleEngineMessage(job.payload)).toBe('admitted');
+      await ruleEngine.drain();
+      return m.id;
+    };
+    await sendAndResume(1);
+    const msgId = await sendAndResume(2);
+    const [row] = await prisma.auditTrail.findMany({ where: { action: 'TELEMETRY_READING_REWRITTEN', targetId: inst.id, timestamp: { gte: since } } });
+    expect(row, 'the resumed rewrite was audited').toBeDefined();
+    expect(row.reason).toBe(`Rewritten by rule chain "${name}" node "Save" (message ${msgId}, origin rest_api)`);
+    expect((row.afterValue as { origin: string }).origin).toBe('rest_api');
+  });
+
   it('a null value fails with ThingsBoard\'s wording, the whole object named: Can\'t parse value: {"…":null}', async () => {
     const key = `nul_${STAMP}`;
     const out = await saveOut(await inject({ [key]: null }));
@@ -984,7 +1030,9 @@ describe('the durable path', () => {
       ...newMessage('POST_TELEMETRY_REQUEST', { type: 'INSTRUMENT', id: `fwapi-m6-${STAMP}-${n % 2}` }, { n }, { ts: String(n) }), _hops: n,
     }));
     try {
-      const backs = msgs.map((msg, i) => ({ msg, chainId: ROOT, nodeId: SAVE_TS, relation: i === 2 ? 'True' : 'Success', reentryDepth: i === 1 ? 1 : 0 }));
+      const backs = msgs.map((msg, i) => ({
+        msg, chainId: ROOT, nodeId: SAVE_TS, relation: i === 2 ? 'True' : 'Success', reentryDepth: i === 1 ? 1 : 0, admittedOrigin: i === 0 ? 'rest_api' : null,
+      }));
       // Two batches, as stop() sends them: the second starts at place 2.
       await addDurableJobs(backs.slice(0, 2), 0);
       await addDurableJobs(backs.slice(2), 2);
@@ -1007,6 +1055,8 @@ describe('the durable path', () => {
       expect(jobs.every((j) => j.task === 'rule_engine_message' && j.max_attempts === 5)).toBe(true);
       expect(jobs.map((j) => j.payload.message._hops)).toEqual([1, 2, 3]);
       expect(jobs[1].payload.message._reentryDepth).toBe(1);
+      // The admitted origin rides through add_jobs' JSON (review A I2): a string, and a JSON null for none.
+      expect(jobs.map((j) => j.payload.message._admittedOrigin)).toEqual(['rest_api', null, null]);
       expect(jobs[0].payload.relation).toBeUndefined();
       expect(jobs[2].payload.relation).toBe('True');
       for (const j of jobs) expect(ruleEngineMessageJobSchema.safeParse(j.payload).success, JSON.stringify(j.payload)).toBe(true);

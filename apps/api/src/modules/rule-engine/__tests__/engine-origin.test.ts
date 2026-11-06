@@ -7,10 +7,14 @@ import { describe, it, expect, afterEach } from 'vitest';
  * metadata a node may have rewritten since. Pinned for a root message, a LATE call
  * (a handler emitting after it settled, which re-enters the queue as a new item)
  * and a tellSelf: each keeps its flow's admitted origin although a node upstream
- * rewrote `metadata.rule_engine_origin`. No database: chains, debug sink and
- * services are in memory.
+ * rewrote `metadata.rule_engine_origin`. A DURABLE resume (Delay / Checkpoint) takes
+ * the origin its JOB carries (`message._admittedOrigin`), and the stop hands a waiting
+ * resume back with it. No database: chains, debug sink and services are in memory.
  */
 const { createRuleEngine } = await import('../engine.js');
+type DurableHandBack = import('../engine.js').DurableHandBack;
+const { serialisableMessage } = await import('../message.js');
+const { runRuleEngineMessage } = await import('../../../workers/rule-engine-message.worker.js');
 const { registerNode } = await import('../registry.js');
 const { currentAdmittedOrigin } = await import('../context.js');
 const { chainOf, docOf, nodeOf, memoryDeps, fakeServices, testMessage } = await import('../../../test-support/rule-engine.js');
@@ -83,5 +87,56 @@ describe('the admitted origin rides the flow, not the metadata', () => {
       await waitFor(() => seen.length === 2);
     });
     expect(seen).toEqual(['user', 'user']);
+  });
+});
+
+describe('a DURABLE resume keeps the origin its flow was admitted with (the job\'s _admittedOrigin)', () => {
+  /** The real worker resumes a job AFTER D whose message metadata says "ingest"; R reads the resumed flow's origin. */
+  async function originOnResume(job: Record<string, unknown>): Promise<string | undefined> {
+    const seen: (string | undefined)[] = [];
+    const d = nodeOf(type('test:origin-delay', () => undefined), 'D');
+    const r = nodeOf(type('test:origin-resumed', () => { seen.push(currentAdmittedOrigin()); }), 'R');
+    const chain = chainOf('c', docOf([d, r], [[d, 'Success', r]]), { root: true });
+    await withEngine(chain, async (engine) => {
+      const m = testMessage({ t: 1 }, { metadata: { rule_engine_origin: 'ingest' } });
+      const payload = { message: { ...serialisableMessage(m), ...job }, chainId: chain.id, resumeAfterNodeId: d.id };
+      expect(await runRuleEngineMessage(payload, engine)).toBe('admitted');
+      await waitFor(() => seen.length === 1);
+    });
+    return seen[0];
+  }
+
+  it('the job\'s _admittedOrigin, not the metadata a node rewrote before the hand-over', async () => {
+    expect(await originOnResume({ _admittedOrigin: 'rest_api' })).toBe('rest_api');
+  });
+
+  it('null = the flow was admitted with NONE: still never the metadata', async () => {
+    expect(await originOnResume({ _admittedOrigin: null })).toBeUndefined();
+  });
+
+  it('a job queued before the field (absent): the metadata, as before', async () => {
+    expect(await originOnResume({})).toBe('ingest');
+  });
+
+  it('the stop hands a waiting resume back WITH its admitted origin (null = none; a legacy resume, its metadata at admission)', async () => {
+    const batches: DurableHandBack[][] = [];
+    const hold = nodeOf(type('test:origin-hold', () => new Promise<void>(() => undefined)), 'Hold');
+    const d = nodeOf(type('test:origin-delay2', () => undefined), 'D');
+    const chain = chainOf('c', docOf([hold, d], [], hold), { root: true });
+    const engine = createRuleEngine({
+      ...memoryDeps([chain]).deps, budgetMs: 60_000, stopWaitMs: 20, durableHandBackBudgetMs: 5_000,
+      handBackDurable: async (items) => { batches.push([...items]); },
+      services: () => Object.assign(fakeServices(), { dispose: async () => undefined }),
+    });
+    await engine.start();
+    // Originator A is held in flight, so every resume for A WAITS in the queue until the stop.
+    engine.enqueue(testMessage({}, { originator: { id: 'A' } }));
+    await waitFor(() => engine.stats().inFlight === 1);
+    const spoofed = () => testMessage({}, { originator: { id: 'A' }, metadata: { rule_engine_origin: 'ingest' } });
+    expect(engine.resumeAfter(spoofed(), chain.id, d.id, ['Success'], { admittedOrigin: 'rest_api' })).toBe(true);
+    expect(engine.resumeAfter(spoofed(), chain.id, d.id, ['Success'], { admittedOrigin: null })).toBe(true);
+    expect(engine.resumeAfter(spoofed(), chain.id, d.id)).toBe(true);
+    await engine.stop();
+    expect(batches.flat().map((i) => i.admittedOrigin)).toEqual(['rest_api', null, 'ingest']);
   });
 });

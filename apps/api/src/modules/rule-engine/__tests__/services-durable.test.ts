@@ -76,11 +76,21 @@ describe('services.durable.enqueue', () => {
     expect(parsed.relation).toBe('True');
   });
 
+  it('review A I2: the job carries the flow\'s ADMITTED origin, never the metadata a node rewrote — null when the flow was admitted with none; outside a flow, the metadata (nothing was admitted)', async () => {
+    const spoofed = () => { const m = msg(); return { ...m, metadata: { ...m.metadata, rule_engine_origin: 'ingest' } }; };
+    await runInFlow({ reentryDepth: 0, admittedOrigin: 'rest_api' }, () => services().durable.enqueue(spoofed(), CHAIN, NODE));
+    await runInFlow({ reentryDepth: 0 }, () => services().durable.enqueue(spoofed(), CHAIN, NODE));
+    await services().durable.enqueue(spoofed(), CHAIN, NODE);
+    // Through the REAL job schema: a field zod strips would come back undefined here.
+    const origins = jobs.map((j) => ruleEngineMessageJobSchema.parse(JSON.parse(JSON.stringify(j.payload))).message._admittedOrigin);
+    expect(origins).toEqual(['rest_api', null, 'ingest']);
+  });
+
   it('builds its job with durableJobPayload — the ONE job shape (fw-api open item 2) — with the shared attempts and the runAt', async () => {
     const m = { ...msg(), _stack: [{ chainId: CHAIN, nodeId: NODE }] };
     const runAt = new Date(Date.now() + 60_000);
     await runInFlow({ reentryDepth: 1 }, () => services().durable.enqueue(m, CHAIN, NODE, runAt, { relation: 'False' }));
-    expect(jobs[0].payload).toEqual(durableJobPayload(m, CHAIN, NODE, { reentryDepth: 1, relation: 'False' }));
+    expect(jobs[0].payload).toEqual(durableJobPayload(m, CHAIN, NODE, { reentryDepth: 1, admittedOrigin: null, relation: 'False' }));
     expect(jobs[0].opts).toEqual({ queueName: 'rule-engine:inst-1', runAt, maxAttempts: DURABLE_JOB_MAX_ATTEMPTS });
   });
 });

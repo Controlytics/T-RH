@@ -98,6 +98,14 @@ export const ruleEngineMessageJobSchema = z.object({
      * message's rule-node writes do not re-enter again. Absent = 0.
      */
     _reentryDepth: z.number().int().min(0).max(1_000).optional(),
+    /**
+     * The origin the handing-over flow was ADMITTED with (review A I2, 2026-11-06): what
+     * the resumed flow's 21 CFR 11 rows name, never re-read from `metadata`, which a
+     * node may have rewritten before the hand-over. null = admitted with none. Absent =
+     * a job queued before this field: the resume reads `metadata.rule_engine_origin`.
+     * Unbounded, like the metadata values it comes from — a bound would drop a job.
+     */
+    _admittedOrigin: z.string().nullable().optional(),
   }),
   chainId: ruleId,
   resumeAfterNodeId: ruleId,

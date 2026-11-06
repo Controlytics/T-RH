@@ -17,7 +17,10 @@ import { logger } from '../lib/logger.js';
  * The message is re-injected at the connections AFTER `resumeAfterNodeId`
  * under `relation` (Success), through the Main queue, with its call stack, hop
  * count (a cycle through Delay / Checkpoint still reaches the hop limit) and
- * re-entry depth (`message._reentryDepth`, ruling RE-1) restored. The job
+ * re-entry depth (`message._reentryDepth`, ruling RE-1) and admitted origin
+ * (`message._admittedOrigin`, review A I2 — the origin the handing-over flow was
+ * admitted with, never the metadata a node rewrote; a job queued before the field
+ * carries none and the resumed flow takes its metadata's) restored. The job
  * COMPLETES as soon as the Main queue ADMITS the message (ruled 2026-11-04,
  * review I5) — awaiting the whole flow held the originator's graphile queue
  * behind a slow chain. Once admitted the engine keeps it (ruling RE-2): a full
@@ -87,7 +90,10 @@ export async function runRuleEngineMessage(
     logger.info({ msgId: msg.id, chainId }, '[rule-engine] switched off — a durable message was dropped');
     return 'dropped_disabled';
   }
-  if (!engine.resumeAfter(msg, chainId, resumeAfterNodeId, [relation], { reentryDepth: message._reentryDepth ?? 0 })) {
+  if (!engine.resumeAfter(msg, chainId, resumeAfterNodeId, [relation], {
+    reentryDepth: message._reentryDepth ?? 0,
+    ...(message._admittedOrigin !== undefined ? { admittedOrigin: message._admittedOrigin } : {}),
+  })) {
     return later('QUEUE_REFUSED: the rule engine did not admit the message (stopping, or its queue is full)');
   }
   return 'admitted';

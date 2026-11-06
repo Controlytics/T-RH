@@ -47,10 +47,11 @@ const specsOf = (q: { params: unknown[] }) => JSON.parse(q.params[0] as string) 
 
 describe('addDurableJobs writes the job services.durable.enqueue writes (M6)', () => {
   it('same task, payload, queue and attempts — with a stack, hops, depth 1 and relation True', async () => {
-    const msg = { ...newMessage('POST_TELEMETRY_REQUEST', { type: 'INSTRUMENT', id: 'inst-9', code: 'C/9' }, { t: 1 }, { ts: '1' }), _hops: 6, _stack: [{ chainId: CHAIN, nodeId: NODE }] };
+    const msg = { ...newMessage('POST_TELEMETRY_REQUEST', { type: 'INSTRUMENT', id: 'inst-9', code: 'C/9' }, { t: 1 }, { ts: '1', rule_engine_origin: 'rest_api' }), _hops: 6, _stack: [{ chainId: CHAIN, nodeId: NODE }] };
     const services = createRuleServices({ config: () => ({ ...RULE_ENGINE_CONFIG_DEFAULTS }), inc: () => undefined });
     await services.durable.enqueue(msg, CHAIN, NODE, undefined, { reentryDepth: 1, relation: 'True' });
-    await addDurableJobs([{ msg, chainId: CHAIN, nodeId: NODE, relation: 'True', reentryDepth: 1 }]);
+    // Outside a flow enqueue writes the metadata's origin (nothing was admitted); the hand-back writes the admitted one.
+    await addDurableJobs([{ msg, chainId: CHAIN, nodeId: NODE, relation: 'True', reentryDepth: 1, admittedOrigin: 'rest_api' }]);
     expect(added).toHaveLength(1);
     expect(queries).toHaveLength(1);
     const [spec] = specsOf(queries[0]);
@@ -60,14 +61,14 @@ describe('addDurableJobs writes the job services.durable.enqueue writes (M6)', (
     expect(spec.max_attempts).toBe(added[0].opts.maxAttempts);
     const parsed = ruleEngineMessageJobSchema.parse(spec.payload);
     expect(parsed).toMatchObject({ chainId: CHAIN, resumeAfterNodeId: NODE, relation: 'True' });
-    expect(parsed.message).toMatchObject({ _hops: 6, _reentryDepth: 1, _stack: [{ chainId: CHAIN, nodeId: NODE }] });
+    expect(parsed.message).toMatchObject({ _hops: 6, _reentryDepth: 1, _admittedOrigin: 'rest_api', _stack: [{ chainId: CHAIN, nodeId: NODE }] });
   });
 
   it('depth 0 and Success: neither written, as enqueue writes neither', async () => {
     const msg = newMessage('X', { type: 'SYSTEM', id: 'SYSTEM' }, {}, {});
     const services = createRuleServices({ config: () => ({ ...RULE_ENGINE_CONFIG_DEFAULTS }), inc: () => undefined });
     await services.durable.enqueue(msg, CHAIN, NODE, undefined, { reentryDepth: 0, relation: 'Success' });
-    await addDurableJobs([{ msg, chainId: CHAIN, nodeId: NODE, relation: 'Success', reentryDepth: 0 }]);
+    await addDurableJobs([{ msg, chainId: CHAIN, nodeId: NODE, relation: 'Success', reentryDepth: 0, admittedOrigin: null }]);
     const [spec] = specsOf(queries[0]);
     expect(spec.payload).toEqual(JSON.parse(JSON.stringify(added[0].payload)));
     expect(spec.payload).not.toHaveProperty('relation');
@@ -76,13 +77,13 @@ describe('addDurableJobs writes the job services.durable.enqueue writes (M6)', (
 
   it('ONE statement for the whole batch, the specs in order; nothing for an empty batch', async () => {
     const msgs = [1, 2, 3].map((n) => newMessage('X', { type: 'INSTRUMENT', id: `inst-${n}` }, { n }, {}));
-    await addDurableJobs(msgs.map((msg) => ({ msg, chainId: CHAIN, nodeId: NODE, relation: 'Success', reentryDepth: 0 })));
+    await addDurableJobs(msgs.map((msg) => ({ msg, chainId: CHAIN, nodeId: NODE, relation: 'Success', reentryDepth: 0, admittedOrigin: null })));
     expect(queries).toHaveLength(1);
     expect(queries[0].sql).toMatch(/graphile_worker\.add_jobs/);
     expect(specsOf(queries[0]).map((s) => s.queue_name)).toEqual(['rule-engine:inst-1', 'rule-engine:inst-2', 'rule-engine:inst-3']);
     // The batch's first place in the whole hand-back rides along (run_at = now() + place µs).
     expect(queries[0].params[1]).toBe(0);
-    await addDurableJobs(msgs.slice(0, 1).map((msg) => ({ msg, chainId: CHAIN, nodeId: NODE, relation: 'Success', reentryDepth: 0 })), 500);
+    await addDurableJobs(msgs.slice(0, 1).map((msg) => ({ msg, chainId: CHAIN, nodeId: NODE, relation: 'Success', reentryDepth: 0, admittedOrigin: null })), 500);
     expect(queries[1].params[1]).toBe(500);
     await addDurableJobs([]);
     expect(queries).toHaveLength(2);

@@ -153,6 +153,8 @@ export interface DurableHandBack {
   nodeId: string;
   relation: string;
   reentryDepth: number;
+  /** The origin the waiting resume was ADMITTED with (review A I2); null = none. Written into its job. */
+  admittedOrigin: string | null;
 }
 
 export interface RuleEngineStats {
@@ -178,7 +180,9 @@ export interface RuleEngine {
    * ADMITTED it (the job then completes); false when it was refused (engine
    * stopping or not accepting, or the queue FULL — ruling RE-2). `reentryDepth`
    * is the depth of the flow that handed it over (the job's
-   * `message._reentryDepth`; ruling RE-1). Once admitted it is the message's
+   * `message._reentryDepth`; ruling RE-1); `admittedOrigin` the origin that flow was
+   * admitted with (the job's `message._admittedOrigin`, review A I2: null = none; OMITTED
+   * = a job queued before the field, whose metadata is read). Once admitted it is the message's
    * only copy, so (RE-2) a full queue never evicts it and a graceful `stop()`
    * hands it back to graphile (`addDurableJobs`, batched — M6); switching the
    * engine OFF drops it, as the worker drops a job while off. Only a CRASH
@@ -186,7 +190,7 @@ export interface RuleEngine {
    * job holding its graphile slot for the whole flow blocked the per-originator
    * queue behind a slow chain).
    */
-  resumeAfter(msg: RuleMessage, chainId: string, nodeId: string, relations?: string[], opts?: { reentryDepth?: number }): boolean;
+  resumeAfter(msg: RuleMessage, chainId: string, nodeId: string, relations?: string[], opts?: { reentryDepth?: number; admittedOrigin?: string | null }): boolean;
   /** Run one message to completion now, bypassing the queue (tests). Into the root chain, or `chainId`'s first node. */
   processNow(msg: RuleMessage, opts?: { chainId?: string }): Promise<void>;
   stats(): RuleEngineStats;
@@ -452,7 +456,8 @@ class RuleEngineImpl implements RuleEngine {
 
   /** Each waiting durable resume back to graphile with its relation and depth (RE-2). Never throws. */
   /**
-   * Each waiting durable resume back to graphile with its relation and depth (RE-2). Never throws.
+   * Each waiting durable resume back to graphile with its relation, depth (RE-2) and admitted origin
+   * (review A I2). Never throws.
    *
    * M6 (whole-branch review A): batches of DURABLE_HANDBACK_BATCH, ONE insert each
    * (`deps.handBackDurable` — graphile's `add_jobs`), within `durableHandBackBudgetMs`:
@@ -466,7 +471,10 @@ class RuleEngineImpl implements RuleEngine {
     for (const item of items) {
       if (!item.durable || item.entry.kind !== 'replay' || item.entry.replay.kind !== 'next') continue;
       const { chainId, nodeId, replay } = item.entry;
-      backs.push({ msg: item.msg, chainId, nodeId, relation: replay.relations[0] ?? 'Success', reentryDepth: item.reentryDepth });
+      backs.push({
+        msg: item.msg, chainId, nodeId, relation: replay.relations[0] ?? 'Success', reentryDepth: item.reentryDepth,
+        admittedOrigin: item.admittedOrigin ?? null,
+      });
     }
     if (backs.length === 0) return;
     const deadline = Date.now() + this.deps.durableHandBackBudgetMs;
@@ -522,7 +530,10 @@ class RuleEngineImpl implements RuleEngine {
     return this.queue.push({ msg, entry: { kind: 'root' }, reentryDepth: admittedDepth(msg), admittedOrigin: admittedOrigin(msg) });
   }
 
-  resumeAfter(msg: RuleMessage, chainId: string, nodeId: string, relations: string[] = ['Success'], opts: { reentryDepth?: number } = {}): boolean {
+  resumeAfter(
+    msg: RuleMessage, chainId: string, nodeId: string, relations: string[] = ['Success'],
+    opts: { reentryDepth?: number; admittedOrigin?: string | null } = {},
+  ): boolean {
     if (!this.accepting()) return false;
     // RE-2: a full queue REFUSES a resume (graphile keeps the job and tries again) — it never evicts for one.
     if (this.queue.size >= this.cfg.queueCapacity) {
@@ -531,7 +542,9 @@ class RuleEngineImpl implements RuleEngine {
     }
     const depth = Math.min(REENTRY_DEPTH_MAX, Math.max(0, Math.floor(Number(opts.reentryDepth) || 0)));
     return this.queue.push({
-      msg, entry: { kind: 'replay', chainId, nodeId, replay: { kind: 'next', relations } }, reentryDepth: depth, admittedOrigin: admittedOrigin(msg), durable: true,
+      msg, entry: { kind: 'replay', chainId, nodeId, replay: { kind: 'next', relations } }, reentryDepth: depth,
+      // The job's admitted origin (review A I2); a job queued before the field carries none → its metadata.
+      admittedOrigin: opts.admittedOrigin === undefined ? admittedOrigin(msg) : (opts.admittedOrigin ?? undefined), durable: true,
     });
   }
 
@@ -1116,7 +1129,7 @@ export async function addDurableJobs(items: readonly DurableHandBack[], firstSeq
   if (items.length === 0) return;
   const specs = items.map((i) => ({
     identifier: RULE_ENGINE_MESSAGE_TASK,
-    payload: durableJobPayload(i.msg, i.chainId, i.nodeId, { reentryDepth: i.reentryDepth, relation: i.relation }),
+    payload: durableJobPayload(i.msg, i.chainId, i.nodeId, { reentryDepth: i.reentryDepth, admittedOrigin: i.admittedOrigin, relation: i.relation }),
     queue_name: ruleEngineQueueName(i.msg.originator.id),
     max_attempts: DURABLE_JOB_MAX_ATTEMPTS,
   }));

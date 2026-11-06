@@ -209,16 +209,21 @@ export const DURABLE_JOB_MAX_ATTEMPTS = 5;
 /**
  * The PAYLOAD of a `rule_engine_message` job (the shape `ruleEngineMessageJobSchema`
  * in @digilog/queue parses): the message with its stack and hop count, its re-entry
- * depth when above 0 (ruling RE-1), the node it resumes AFTER, and the relation when
- * it is not `Success`. The ONE builder: the engine's batched hand-back on stop (M6)
+ * depth when above 0 (ruling RE-1), the origin its flow was ADMITTED with (review A I2:
+ * `_admittedOrigin`, null = none — every builder must decide it, so it is required), the
+ * node it resumes AFTER, and the relation when it is not `Success`. The ONE builder: the
+ * engine's batched hand-back on stop (M6)
  * and `services.durable.enqueue` (Delay / Checkpoint, since 0bed30b2) both build their
  * jobs here — durable-handback.test.ts pins that they agree.
  */
 export function durableJobPayload(
-  msg: RuleMessage, chainId: string, nodeId: string, opts: { reentryDepth: number; relation?: string },
+  msg: RuleMessage, chainId: string, nodeId: string, opts: { reentryDepth: number; admittedOrigin: string | null; relation?: string },
 ): Record<string, unknown> {
   return {
-    message: { ...serialisableMessage(msg), ...(opts.reentryDepth > 0 ? { _reentryDepth: opts.reentryDepth } : {}) },
+    message: {
+      ...serialisableMessage(msg), ...(opts.reentryDepth > 0 ? { _reentryDepth: opts.reentryDepth } : {}),
+      _admittedOrigin: opts.admittedOrigin,
+    },
     chainId,
     resumeAfterNodeId: nodeId,
     ...(opts.relation && opts.relation !== 'Success' ? { relation: opts.relation } : {}),
