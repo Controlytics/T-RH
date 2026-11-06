@@ -41,8 +41,20 @@ every route in `docs/recreation/06-api/endpoints.md`.
   bodyless request, header mask for `x-auth-key` / `x-access-key` / `x-session-id`, tests for the non-`all` lookup branch, a lane
   released when send throws, numeric URL spellings); the stale `$.values.temperature` JSON-path help in `rule-nodes.ts` (m5).
 - [x] Whole-branch review — DONE (`whole-review-a.md`, `-b.md`, `-c.md`; their fixes are the final fix wave).
-- [ ] The gate, and a short re-review of the final fix wave: API suite (single fork, test DB), shared suite, every touched web file one per process,
-  tsc ×3, `npm run lint`, `npm run db:verify-migrations`.
+- [x] The gate, and a short re-review of the final fix wave (2026-11-05 .. 06).
+  - API suite single fork on `2b2114b6`: 4,255 passed / 5 failed / 3 skipped. Every failure fell in the 3-minute window in
+    which another agent's backup-restore e2e ran concurrently; the 4 affected files are green ALONE (instruments 39,
+    rule-engine 48, rule-engine-alarms 25, backup-restore 13). Web: 244 / 245 files one per process (3,272 tests); the
+    one red (functional-locations detail-page, untouched by the wave) is green 3 / 3 alone. Shared 48 files / 987; tsc ×3,
+    lint, the migration guard 0; no prisma change in the wave, so verify-migrations had nothing new to check.
+  - The independent re-review found every review A / B / C finding FIXED in code and ONE regression (`2b2114b6` sent an
+    unchanged alarm repeat on Success; ThingsBoard sends Updated) → fixed in `a1277329` (AL-3), plus three minors
+    (`bab792d3`, `077d7b97`, `894cb0f0`) and M-10's leftovers (`9abc47d3`). Review C I-2's built render: `4c0355ea`.
+  - The commits after `2b2114b6` (all inside the rule engine, its worker, the queue job schema, one def description, one
+    shared help string) were verified file by file on their final HEAD (rule-engine 50, rule-engine-alarms 25,
+    rule-chains 41, engine 56, engine-origin 7, the node / durable / config unit files, the queue tests).
+- [ ] **Owed:** a SECOND full API suite run on the final HEAD. It was started on 2026-11-06 on a quiet DB and stopped by
+  Claude Code because the machine was low on memory (one file had run); not restarted unasked.
 - [ ] **Operator:** restart the local dev server (`prisma generate` hit EPERM on the Prisma engine DLL while `tsx watch` held it;
   the JS client was regenerated, the engine binary was not).
 - [ ] **Operator:** a real-browser check on :5176 of drag from the palette, drag-to-connect and pan / zoom on `/rule-chains/:id`
