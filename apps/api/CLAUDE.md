@@ -646,8 +646,15 @@ node apps/api/dist/app.js
     - **Alarm messages** (`emitAlarm`, AL-1): originator = the alarm's INSTRUMENT, `metadata.alarmId`, only the TRUE flag;
       a rule node's create / update / clear reaches the root through `emitRuleNodeAlarm` as `ENTITY_CREATED` /
       `ENTITY_UPDATED` / `ALARM_CLEAR` with `ruleNodeId` (only when there is one) + `alarmId` + the origin (AL-2,
-      `4f3a8809`, `2b2114b6`); `createOrUpdate` returns `unchanged: true` for an update that changes nothing, and the node
-      sends the incoming message on Success.
+      `4f3a8809`, `2b2114b6`); `createOrUpdate` returns `unchanged: true` for an update that changes nothing — that skips
+      the write and the root `ENTITY_UPDATED` ONLY: the node still sends `ALARM` + `isExistingAlarm` on `Updated`, as
+      ThingsBoard does for every repeat (its `updateAlarm` moves `endTs`). Ruling AL-3, `a1277329`, superseding
+      `2b2114b6`'s "on Success", which the independent re-review showed was not ThingsBoard's behaviour.
+    - **The rewrite audit's origin is the ADMITTED origin** (`bab792d3`): `currentAdmittedOrigin()` from the flow
+      context (`context.ts`), set at admission — never `msg.metadata.rule_engine_origin`, which a Script / Copy /
+      Rename node or a REST response header can overwrite. A Deduplication node's lifecycle emission still carries
+      its metadata's origin (documented residual: the row names chain + node, and RULE_CHAIN_UPDATED attributes the
+      Script).
     - **Telemetry writes:** `services.telemetry.write` judges every instant with ingest's own `DEVICE_TS_MIN` /
       `DEVICE_TS_MAX_AHEAD_MS` and REFUSES (`TIMESTAMP_OUT_OF_WINDOW`) before any database access (TS-1, `9ce6453e`); it
       passes a rule-engine `WriteSource` so `writeBatch` audits a rewrite as `SYSTEM` naming chain, node, message id and

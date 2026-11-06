@@ -31,7 +31,11 @@ Commits (`git log --oneline 9d6b6aac..HEAD`, by area):
   will not work here (SW-2, M-7).
 - **Alarms, writes, audit, the durable cap:** `171214e9` every alarm message from the alarm's instrument (AL-1) ·
   `4f3a8809` a rule node's root-chain alarm message is `ENTITY_CREATED` / `ENTITY_UPDATED` / `ALARM_CLEAR` (AL-2) ·
-  `2b2114b6` an alarm update that changes nothing goes on Success; no empty `ruleNodeId` · `da23d112` Device profile
+  `2b2114b6` an alarm update that changes nothing goes on Success; no empty `ruleNodeId` — the Success half
+  SUPERSEDED by `a1277329` (AL-3): a repeat on an open alarm is `Updated`, as in ThingsBoard (its `updateAlarm`
+  moves `endTs` on every repeat); the no-op still writes nothing and sends no root `ENTITY_UPDATED` · `bab792d3` the
+  rewrite audit names the ADMITTED origin from the flow context, never the message metadata · `077d7b97` the hop
+  limit also bounds a large Split array (help text) · `da23d112` Device profile
   sends the evaluator's alarms on `Alarm Created` / `Alarm Cleared` (DP-1) · `9ce6453e` a rule write refuses an instant
   outside ingest's window (TS-1), string ts, ThingsBoard's null wording · `a33ea0cf` Delete attributes honours its two
   toggles · `0bed30b2` one durable job builder and the `DURABLE_QUEUE_FULL` cap · `13fbde43` the 600-a-minute audit
