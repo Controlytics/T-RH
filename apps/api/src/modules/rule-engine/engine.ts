@@ -234,6 +234,11 @@ interface QueueItem {
    */
   reentryDepth: number;
   /**
+   * The `rule_engine_origin` at ADMISSION (review A I2 follow-up, context.ts): the origin a §11 row names,
+   * never re-read from metadata a node may have rewritten. Inherited like `reentryDepth`.
+   */
+  admittedOrigin?: string;
+  /**
    * A resume from the durable worker (ruling RE-2): its graphile job already
    * COMPLETED when the queue admitted it, so this is its only copy — the queue
    * never evicts it, `stop()` hands it back to graphile.
@@ -243,6 +248,8 @@ interface QueueItem {
 
 /** A message admitted with a rule node's origin re-entered: depth 1. Anything else: 0. */
 const admittedDepth = (msg: RuleMessage): number => (isRuleNodeOrigin(msg.metadata[RULE_ENGINE_ORIGIN_KEY]) ? 1 : 0);
+/** The origin a message is admitted with — read ONCE, here, beside its depth. */
+const admittedOrigin = (msg: RuleMessage): string | undefined => msg.metadata[RULE_ENGINE_ORIGIN_KEY];
 
 interface Step {
   chain: LoadedRuleChain;
@@ -258,6 +265,8 @@ interface Flow {
   chainsEntered: Set<string>;
   /** The entering item's depth: what its late calls, tellSelf and durable hand-overs carry on. */
   reentryDepth: number;
+  /** The entering item's admitted origin: what its late calls and tellSelf carry on. */
+  admittedOrigin?: string;
   /** Node runs so far, over every copy of the message (C1's step limit). */
   entered: number;
 }
@@ -510,7 +519,7 @@ class RuleEngineImpl implements RuleEngine {
 
   enqueue(msg: RuleMessage): boolean {
     if (!this.accepting()) return false;
-    return this.queue.push({ msg, entry: { kind: 'root' }, reentryDepth: admittedDepth(msg) });
+    return this.queue.push({ msg, entry: { kind: 'root' }, reentryDepth: admittedDepth(msg), admittedOrigin: admittedOrigin(msg) });
   }
 
   resumeAfter(msg: RuleMessage, chainId: string, nodeId: string, relations: string[] = ['Success'], opts: { reentryDepth?: number } = {}): boolean {
@@ -521,12 +530,16 @@ class RuleEngineImpl implements RuleEngine {
       return false;
     }
     const depth = Math.min(REENTRY_DEPTH_MAX, Math.max(0, Math.floor(Number(opts.reentryDepth) || 0)));
-    return this.queue.push({ msg, entry: { kind: 'replay', chainId, nodeId, replay: { kind: 'next', relations } }, reentryDepth: depth, durable: true });
+    return this.queue.push({
+      msg, entry: { kind: 'replay', chainId, nodeId, replay: { kind: 'next', relations } }, reentryDepth: depth, admittedOrigin: admittedOrigin(msg), durable: true,
+    });
   }
 
   async processNow(msg: RuleMessage, opts: { chainId?: string } = {}): Promise<void> {
     await this.ensureConfig();
-    await this.runFlow({ msg, entry: opts.chainId ? { kind: 'chain', chainId: opts.chainId } : { kind: 'root' }, reentryDepth: admittedDepth(msg) });
+    await this.runFlow({
+      msg, entry: opts.chainId ? { kind: 'chain', chainId: opts.chainId } : { kind: 'root' }, reentryDepth: admittedDepth(msg), admittedOrigin: admittedOrigin(msg),
+    });
   }
 
   private onDrop(_item: QueueItem): void {
@@ -550,14 +563,15 @@ class RuleEngineImpl implements RuleEngine {
    * last, so a flow must never take its depth from the context it starts in.
    */
   private runFlow(item: QueueItem): Promise<void> {
-    return runInFlow({ reentryDepth: item.reentryDepth }, () => this.runFlowInContext(item));
+    return runInFlow({ reentryDepth: item.reentryDepth, admittedOrigin: item.admittedOrigin }, () => this.runFlowInContext(item));
   }
 
   private async runFlowInContext(item: QueueItem): Promise<void> {
     const budgetMs = this.deps.budgetMs ?? this.cfg.messageBudgetMs;
     const stepLimit = this.cfg.hopLimit * STEP_LIMIT_PER_HOP;
     const flow: Flow = {
-      deadline: Date.now() + budgetMs, steps: [], abandoned: false, chainsEntered: new Set(), reentryDepth: item.reentryDepth, entered: 0,
+      deadline: Date.now() + budgetMs, steps: [], abandoned: false, chainsEntered: new Set(), reentryDepth: item.reentryDepth,
+      admittedOrigin: item.admittedOrigin, entered: 0,
     };
     try {
       await this.hydrate(item.msg);
@@ -815,6 +829,8 @@ class RuleEngineImpl implements RuleEngine {
     const config = ruleNodeConfigWithDefaults(node.type, node.config);
     // RE-1: what this node sends later belongs to the flow it came from; a lifecycle node's message (a Generator tick) starts at 0.
     const reentryDepth = flow?.reentryDepth ?? 0;
+    // The admitted origin travels the same way: a flow's own; a lifecycle node's message, the one it is queued with.
+    const originOf = (msg: RuleMessage): string | undefined => (flow ? flow.admittedOrigin : admittedOrigin(msg));
     // THE chain version of this context — ONE function that `ctx.chain.version` and the runScript key both read, so
     // the script switch-off and Copy / Delete keys' pattern switch-off can never key on different versions. A
     // handler's chain is the one just loaded; a lifecycle context (a Generator) outlives saves that do not touch its
@@ -825,7 +841,7 @@ class RuleEngineImpl implements RuleEngine {
         this.inc('late_dropped');
         return;
       }
-      if (!this.queue.push({ msg, entry: { kind: 'replay', chainId: chain.id, nodeId: node.id, replay }, reentryDepth })) this.inc('late_dropped');
+      if (!this.queue.push({ msg, entry: { kind: 'replay', chainId: chain.id, nodeId: node.id, replay }, reentryDepth, admittedOrigin: originOf(msg) })) this.inc('late_dropped');
     };
     const ctx: RuleContext = {
       node: { id: node.id, name: node.name, type: node.type, config, debugMode: node.debugMode },
@@ -851,7 +867,7 @@ class RuleEngineImpl implements RuleEngine {
         }
         const timer = setTimeout(() => {
           this.selfTimers.delete(timer);
-          if (!this.accepting() || !this.queue.push({ msg, entry: { kind: 'node', chainId: chain.id, nodeId: node.id }, reentryDepth })) this.inc('late_dropped');
+          if (!this.accepting() || !this.queue.push({ msg, entry: { kind: 'node', chainId: chain.id, nodeId: node.id }, reentryDepth, admittedOrigin: originOf(msg) })) this.inc('late_dropped');
         }, Math.max(0, delayMs));
         timer.unref();
         this.selfTimers.add(timer);

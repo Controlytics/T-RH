@@ -1,6 +1,6 @@
 import { RULE_RELATION_SUCCESS } from '@digilog/shared';
 import type { RuleContext } from '../../context.js';
-import { RULE_ENGINE_ORIGIN_KEY, type RuleMessage } from '../../message.js';
+import type { RuleMessage } from '../../message.js';
 import type { RuleTelemetryReading } from '../../services.js';
 import { instrumentIdOf, isPlainObject, metadataTs, type JsonObject } from './support.js';
 import { skipsIngestOrigin } from './attributes.js';
@@ -109,7 +109,7 @@ export async function saveTimeseries(ctx: RuleContext<SaveTimeseriesConfig>, msg
   // The message rides along (review A I2): a stored reading this write changes is audited as the rule engine, naming it.
   await ctx.services.telemetry.write(instrumentId, readings, ctx.origin, {
     skipLatest: ctx.config.skipLatestPersistence === true,
-    message: { id: msg.id, origin: msg.metadata[RULE_ENGINE_ORIGIN_KEY] },
+    message: { id: msg.id },
   });
   ctx.tellNext(msg, RULE_RELATION_SUCCESS);
 }

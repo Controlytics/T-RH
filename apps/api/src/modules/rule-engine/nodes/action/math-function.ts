@@ -1,6 +1,6 @@
 import { RULE_MATH_OPERATIONS, RULE_RELATION_SUCCESS } from '@digilog/shared';
 import type { RuleContext } from '../../context.js';
-import { copyMessage, RULE_ENGINE_ORIGIN_KEY, type RuleMessage } from '../../message.js';
+import { copyMessage, type RuleMessage } from '../../message.js';
 import { compileExpression, evaluateExpression } from './math-expression.js';
 import {
   ATTRIBUTE_SCOPES, bodyFields, instrumentIdOf, javaDoubleToString, javaLong, javaLongText, processPattern, roundHalfUp, toNumber,
@@ -215,7 +215,7 @@ export async function mathFunction(ctx: RuleContext<MathConfig>, msg: RuleMessag
       // copies added to the message are truncated / rounded (ruling P-3).
       // The message rides along (review A I2): a reading this changes is audited as the rule engine, naming it.
       await ctx.services.telemetry.write(instrumentIdOf(msg, 'Math function'), [{ key, value: result, ts: new Date() }], ctx.origin,
-        { message: { id: msg.id, origin: msg.metadata[RULE_ENGINE_ORIGIN_KEY] } });
+        { message: { id: msg.id } });
       if (res.addToBody === true) toBody();
       if (res.addToMetadata === true) out.metadata[key] = text;
       break;

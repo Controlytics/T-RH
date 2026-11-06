@@ -228,8 +228,9 @@ describe('Math function', () => {
     }, testMessage({ a: 3, b: 7 }, { metadata: { rule_engine_origin: 'rest_api' } }), { telemetry: { write } }, { nodeId: NODE, chainId: CHAIN });
     const [id, readings, origin, opts] = write.mock.calls[0] as unknown as [string, { key: string; value: unknown; ts: Date }[], string, unknown];
     expect([id, origin]).toEqual(['instrument-1', `rule_node:${CHAIN}:${NODE}`]);
-    // Review A I2: the message the node processed rides to the write path, for a rewrite's audit wording.
-    expect(opts).toEqual({ message: { id: r.out!.id, origin: 'rest_api' } });
+    // Review A I2: the message the node processed rides to the write path (its id; the origin comes from the
+    // flow the engine admitted it with, never from metadata a node may have rewritten).
+    expect(opts).toEqual({ message: { id: r.out!.id } });
     expect(readings).toHaveLength(1);
     expect(readings[0]).toMatchObject({ key: 'peak', value: 7 });
     expect(readings[0].ts.getTime()).toBeGreaterThanOrEqual(before);
@@ -584,9 +585,10 @@ describe('Save time series', () => {
     const write = vi.fn(async () => undefined);
     const flat = testMessage({ t: 1, h: 'x' }, { metadata: { ts: '1000', rule_engine_origin: 'rest_api' } });
     await run(T, {}, flat, { telemetry: { write } }, { nodeId: NODE, chainId: CHAIN });
-    // Review A I2: the message id and its origin ride along — a rewrite is audited as the rule engine naming them.
+    // Review A I2: the message id rides along — a rewrite is audited as the rule engine naming it; the origin is the
+    // flow's admitted one (services.ts reads it from the flow context), never the metadata.
     expect(write.mock.calls[0]).toEqual(['instrument-1', [{ key: 't', value: 1, ts: new Date(1000) }, { key: 'h', value: 'x', ts: new Date(1000) }],
-      `rule_node:${CHAIN}:${NODE}`, { skipLatest: false, message: { id: flat.id, origin: 'rest_api' } }]);
+      `rule_node:${CHAIN}:${NODE}`, { skipLatest: false, message: { id: flat.id } }]);
     await run(T, {}, testMessage({ ts: 2000, values: { t: 2 } }), { telemetry: { write } });
     expect((write.mock.calls[1] as unknown[])[1]).toEqual([{ key: 't', value: 2, ts: new Date(2000) }]);
     await run(T, {}, testMessage([{ ts: 3000, values: { t: 3 } }, { ts: 4000, values: { t: 4 } }]), { telemetry: { write } });

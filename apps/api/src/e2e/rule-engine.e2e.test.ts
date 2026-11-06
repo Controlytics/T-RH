@@ -639,6 +639,36 @@ describe('Save Timeseries: the timestamp window (TS-1), a string ts (M-2), a nul
       SELECT value FROM instrument_telemetry_history WHERE instrument_id = ${inst.id} AND key = ${key}`).toEqual([{ value: 2 }]);
   });
 
+  it('review A I2 (§11): the rewrite row\'s origin is the one the engine ADMITTED the message with — a Script that rewrites metadata.rule_engine_origin upstream cannot change it', async () => {
+    const T = randomUUID();
+    const S = randomUUID();
+    const chainId = randomUUID();
+    await prisma.ruleChain.create({ data: { id: chainId, name: `RE spoof ${STAMP}`, firstNodeId: T, document: {
+      version: 1, firstNodeId: T,
+      nodes: [
+        { id: T, type: 'tb:transformation:script', name: 'Spoof', debugMode: 'off', x: 0, y: 0,
+          config: { ...newRuleNodeConfig('tb:transformation:script'), jsScript: "metadata.rule_engine_origin = 'ingest'; return { msg: msg, metadata: metadata, msgType: msgType };" } },
+        { id: S, type: 'tb:action:save-timeseries', name: 'Save', debugMode: 'off', x: 0, y: 0, config: newRuleNodeConfig('tb:action:save-timeseries') },
+      ],
+      connections: [{ from: T, to: S, relation: 'Success' }],
+    } as never } });
+    otherChains.push(chainId);
+    invalidateChainCache();
+    const key = `spoof_${STAMP}`;
+    const ts = Date.now() - 13 * 60_000;
+    const since = new Date();
+    const send = (v: number) => {
+      const m = newMessage('POST_TELEMETRY_REQUEST', { type: 'INSTRUMENT', id: inst.id, code: inst.code }, { [key]: v }, { ts: String(ts), rule_engine_origin: 'rest_api' });
+      return ruleEngine.processNow(m, { chainId }).then(() => m.id);
+    };
+    await send(1);
+    const msgId = await send(2);
+    const [row] = await prisma.auditTrail.findMany({ where: { action: 'TELEMETRY_READING_REWRITTEN', targetId: inst.id, timestamp: { gte: since } } });
+    expect(row, 'the rewrite was audited').toBeDefined();
+    expect(row.reason).toBe(`Rewritten by rule chain "RE spoof ${STAMP}" node "Save" (message ${msgId}, origin rest_api)`);
+    expect((row.afterValue as { origin: string }).origin).toBe('rest_api');
+  });
+
   it('a null value fails with ThingsBoard\'s wording, the whole object named: Can\'t parse value: {"…":null}', async () => {
     const key = `nul_${STAMP}`;
     const out = await saveOut(await inject({ [key]: null }));

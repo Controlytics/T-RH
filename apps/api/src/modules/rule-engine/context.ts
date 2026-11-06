@@ -106,6 +106,15 @@ export type RuleNodeHandler<C = Record<string, unknown>> = (ctx: RuleContext<C>,
  */
 export interface RuleFlowContext {
   readonly reentryDepth: number;
+  /**
+   * The `rule_engine_origin` the message carried when the engine ADMITTED it (review A I2 follow-up,
+   * 2026-11-05) — what a §11 row says the message came from. Taken at admission like the depth, so a
+   * Script / Copy keys / Rename keys node or a REST response header that rewrites the metadata
+   * downstream cannot change it. A late call / tellSelf keeps its flow's; a durable resume takes the
+   * one its message carries at resume time (the job does not carry it — packages/queue's schema);
+   * a lifecycle node's message (a Generator tick) the one it is queued with.
+   */
+  readonly admittedOrigin?: string;
 }
 
 /** A rule node's write re-enters only from a flow whose depth is below this. */
@@ -121,4 +130,9 @@ export function runInFlow<T>(flow: RuleFlowContext, fn: () => T): T {
 /** The running flow's re-entry depth; 0 outside any flow (ingest, a route, a test calling a service). */
 export function currentReentryDepth(): number {
   return flowStorage.getStore()?.reentryDepth ?? 0;
+}
+
+/** The origin the running flow's message was ADMITTED with; undefined outside any flow. */
+export function currentAdmittedOrigin(): string | undefined {
+  return flowStorage.getStore()?.admittedOrigin;
 }

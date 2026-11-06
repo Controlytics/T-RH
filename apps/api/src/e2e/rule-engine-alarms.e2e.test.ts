@@ -575,8 +575,9 @@ describe('Save time series (ruling S-3)', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0][1]).toEqual([{ key: 'temp', value: 22.5, ts: new Date(ts) }]);
     expect(calls[0][2]).toBe(ruleNodeOrigin(ROOT.chainId, ROOT.nodeId));
-    // The message rides along (review A I2): the ingest message's id and its origin, for a rewrite's audit wording.
-    expect(calls[0][3]).toEqual({ skipLatest: false, message: { id: msgId, origin: 'ingest' } });
+    // The message rides along (review A I2): the ingest message's id, for a rewrite's audit wording (its origin is the
+    // flow's admitted one, read by the services from the flow context).
+    expect(calls[0][3]).toEqual({ skipLatest: false, message: { id: msgId } });
     expect(await prisma.auditTrail.count({ where: { action: 'TELEMETRY_READING_REWRITTEN', targetId: inst!.id } })).toBe(0);
     const stored = await prisma.$queryRaw<{ value: unknown }[]>`
       SELECT value FROM instrument_telemetry_history WHERE instrument_id = ${inst!.id} AND key = 'temp' AND ts = ${new Date(ts)}`;

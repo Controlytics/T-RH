@@ -24,7 +24,7 @@ import { getApplicationAttributes, type RuleEngineConfig } from './config.js';
 import { getChain } from './service.js';
 import { emitTelemetry, emitAttributes, emitAttributesDeleted, emitRuleNodeAlarm } from './emit.js';
 import { DURABLE_JOB_MAX_ATTEMPTS, durableJobPayload, parseRuleNodeOrigin, ruleNodeOrigin, type RuleMessage } from './message.js';
-import { currentReentryDepth } from './context.js';
+import { currentAdmittedOrigin, currentReentryDepth } from './context.js';
 import { targetNotAllowed } from './nodes/external/target-guard.js';
 
 /**
@@ -81,8 +81,11 @@ export type RuleTelemetryAggregation = 'NONE' | 'AVG' | 'MIN' | 'MAX' | 'SUM' | 
 export interface RuleTelemetryWriteOptions {
   /** History only, `instrument_telemetry_latest` untouched (TB's skipLatestPersistence). */
   skipLatest?: boolean;
-  /** The message being processed: its id and its `rule_engine_origin` (review A I2's audit wording). */
-  message?: { id: string; origin?: string };
+  /**
+   * The message being processed (review A I2's audit wording): its id. Its ORIGIN is never taken from the
+   * message — a node may have rewritten the metadata — but from the running flow (`currentAdmittedOrigin`).
+   */
+  message?: { id: string };
 }
 
 export interface RuleDurableOptions {
@@ -649,10 +652,14 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
           applyOffsets: false, skipLatest: opts.skipLatest === true,
           // Review A I2 / review B M-6: a stored reading this write changes is audited as the RULE ENGINE
           // (SYSTEM, the chain, node, message id and origin), never as a device re-send.
-          source: {
-            kind: 'rule-engine', writer: writer.label, ...(writer.chainName ? { chainName: writer.chainName } : {}),
-            ...(opts.message ? { messageId: opts.message.id, ...(opts.message.origin ? { origin: opts.message.origin } : {}) } : {}),
-          },
+          // The origin is the one the message was ADMITTED with (the flow context), never its current metadata.
+          source: (() => {
+            const admitted = currentAdmittedOrigin();
+            return {
+              kind: 'rule-engine' as const, writer: writer.label, ...(writer.chainName ? { chainName: writer.chainName } : {}),
+              ...(opts.message ? { messageId: opts.message.id } : {}), ...(admitted ? { origin: admitted } : {}),
+            };
+          })(),
         });
         // Review A I5: each rewrite is a committed audit row too.
         auditRate.note(result.rewritten);
