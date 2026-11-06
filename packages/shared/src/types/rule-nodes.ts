@@ -801,7 +801,8 @@ const TRANSFORMATION: RuleNodeTypeSpec[] = [
   }),
   built({
     id: 'tb:transformation:split-array-msg', tbClass: `${TB}transform.TbSplitArrayMsgNode`, group: 'transformation', label: 'Split array msg',
-    description: 'Splits a message whose data is an array into one message per element.',
+    description: 'Splits a message whose data is an array into one message per element. A message and all its copies may run at most ten times '
+      + 'the hop limit in nodes (Configuration → Rule Engine): N elements each running k more nodes need N × k within it — raise the hop limit for a large split.',
     relations: FS, fields: [], defaultConfig: { version: 0 }, configSchema: emptyConfig,
   }),
   built({

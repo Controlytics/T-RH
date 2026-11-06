@@ -50,7 +50,7 @@ const NUMBER_LABELS: Record<keyof typeof RULE_ENGINE_NUMBER_SETTINGS, { label: s
   },
   hopLimit: {
     label: 'Hop limit',
-    description: 'The most nodes one message may pass through in a row (across chains). A message that reaches it ends there (recorded as a Failure with no connection, HOP_LIMIT) — this ends a loop. A message and all the copies it makes may run at most ten times this many nodes in total (STEP_LIMIT), which ends a loop that branches.',
+    description: 'The most nodes one message may pass through in a row (across chains). A message that reaches it ends there (recorded as a Failure with no connection, HOP_LIMIT) — this ends a loop. A message and all the copies it makes may run at most ten times this many nodes in total (STEP_LIMIT), which ends a loop that branches — and also a large split: a Split array msg of N elements, each running k more nodes, needs N × k within it, so raise the hop limit for a large split.',
   },
   messageBudgetMs: {
     label: 'Time per message (ms)',
