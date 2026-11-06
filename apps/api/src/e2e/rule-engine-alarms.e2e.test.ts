@@ -205,7 +205,8 @@ beforeAll(async () => {
 
   ROOT = await makeChain('root save-timeseries', 'tb:action:save-timeseries');
   CREATE = await makeChain('create-alarm', 'tb:action:create-alarm', { alarmType: ALARM_TYPE, severity: 'MAJOR', alarmDetailsBuildJs: 'return { t: msg.t };' });
-  RACE = await makeChain('create-alarm race', 'tb:action:create-alarm', { alarmType: RACE_TYPE, severity: 'MINOR' });
+  // Re-enter ON: a root-chain ENTITY_* it sends WOULD reach the root, so the absence of one for a no-op is the point (AL-3).
+  RACE = await makeChain('create-alarm race', 'tb:action:create-alarm', { alarmType: RACE_TYPE, severity: 'MINOR' }, true);
   CLEAR = await makeChain('clear-alarm', 'tb:action:clear-alarm', { alarmType: ALARM_TYPE });
   ATTR = await makeChain('save-attributes', 'tb:action:save-attributes', { sendAttributesUpdatedNotification: true }, true);
   // TB-P 7: ThingsBoard's default (notification off) sends nothing, Re-enter or not.
@@ -380,7 +381,7 @@ describe('Create alarm and Clear alarm', () => {
     expect(ack.data).toMatchObject({ id: alarm.id, acknowledged: true });
   });
 
-  it('eight Create alarm messages AT ONCE open ONE alarm (the partial unique index settles the race); the seven that change nothing go on Success', async () => {
+  it('eight Create alarm messages AT ONCE open ONE alarm (the partial unique index settles the race); the seven no-op repeats are Updated with NO root ENTITY_UPDATED (AL-3)', async () => {
     const msgs = Array.from({ length: 8 }, (_, i) => instMsg('POST_TELEMETRY_REQUEST', { i }));
     await Promise.all(msgs.map((m) => ruleEngine.processNow(m, { chainId: RACE.chainId })));
     const open = await activeRule(RACE_TYPE);
@@ -389,14 +390,18 @@ describe('Create alarm and Clear alarm', () => {
     const out = await waitForRows(RACE.chainId, { direction: 'OUT' }, 8);
     expect(out).toHaveLength(8);
     expect(out.filter((r) => r.relation === 'Created (unconnected)')).toHaveLength(1);
-    // The shipped details script gives the seven losers the alarm's own details ({}) at the same severity: an
-    // update that changes nothing, so — as ThingsBoard's TbAbstractAlarmNode.onMsg — each leaves on Success with
-    // the INCOMING message (POST_TELEMETRY_REQUEST, no isExistingAlarm), never on Updated.
-    const quiet = out.filter((r) => r.relation === 'Success (unconnected)');
-    expect(quiet).toHaveLength(7);
-    for (const r of quiet) expect(r).toMatchObject({ msg_type: 'POST_TELEMETRY_REQUEST' });
-    for (const r of quiet) expect(r.metadata).not.toHaveProperty('isExistingAlarm');
-    expect(out.filter((r) => r.relation === 'Updated (unconnected)')).toHaveLength(0);
+    // The shipped details script gives the seven losers the alarm's own details ({}) at the same severity — a no-op.
+    // Ruling AL-3: still Updated (ThingsBoard's updateAlarm sets endTs = now, so every repeat is modified there), the
+    // ALARM with isExistingAlarm; but nothing is written and NO ENTITY_UPDATED goes to the root (RE-1's difference).
+    const repeats = out.filter((r) => r.relation === 'Updated (unconnected)');
+    expect(repeats).toHaveLength(7);
+    for (const r of repeats) expect(r).toMatchObject({ msg_type: 'ALARM' });
+    for (const r of repeats) expect(r.metadata.isExistingAlarm).toBe('true');
+    const [alarm] = open;
+    await ruleEngine.drain();
+    await new Promise((r) => setTimeout(r, 500));
+    const atRoot = await rows(ROOT.chainId, { alarmId: alarm.id, direction: 'IN' });
+    expect(atRoot.map((r) => r.msg_type), 'the create\'s ENTITY_CREATED reached the root; the seven no-ops sent nothing').toEqual(['ENTITY_CREATED']);
   });
 });
 

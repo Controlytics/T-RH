@@ -1,4 +1,3 @@
-import { RULE_RELATION_SUCCESS } from '@digilog/shared';
 import type { RuleContext } from '../../context.js';
 import { copyMessage, type RuleMessage } from '../../message.js';
 import { alarmMessageData } from '../../emit.js';
@@ -26,14 +25,15 @@ import { buildAlarmDetails, openRuleAlarm, snapshotDetails } from './alarm-suppo
  *    IS an alarm (`type`, `severity`, `details`, `originator.id` — what an
  *    ALARM message carries): its details are used as they are unless
  *    `overwriteAlarmDetails`, when the script builds them instead.
- *  - Out: Created (new) or Updated (the open one, changed), the message turned
- *    into ThingsBoard's: type `ALARM`, data = the alarm JSON (`alarmMessageData`),
+ *  - Out: Created (new) or Updated (the open one), the message turned into
+ *    ThingsBoard's: type `ALARM`, data = the alarm JSON (`alarmMessageData`),
  *    metadata = the incoming metadata + `isNewAlarm` / `isExistingAlarm` "true"
- *    (`TbAbstractAlarmNode.toAlarmMsg`, master e48b5780 :79-90). An update that
- *    changes NOTHING (the same severity and details) goes on Success with the
- *    INCOMING message unchanged, as `TbAbstractAlarmNode.onMsg` (:44-58) sends a
- *    result that is neither created, updated nor severity-updated to
- *    `ctx.tellSuccess(msg)` — and, as there, no root-chain message is sent.
+ *    (`TbAbstractAlarmNode.toAlarmMsg`, master e48b5780 :79-90). A REPEAT on the
+ *    open alarm is Updated even when its severity and details are the same
+ *    (ruling AL-3): ThingsBoard's TbCreateAlarmNode.updateAlarm sets `endTs = now`
+ *    on every repeat (:159), so update_alarm reports it modified and onMsg sends
+ *    it on Updated. Here such a no-op writes nothing and sends no root-chain
+ *    ENTITY_UPDATED (`unchanged`, ruling RE-1 — ThingsBoard sends one every time).
  *  - `propagate*` and `relationTypes` are kept for export and not applied:
  *    there are no related entities to propagate to.
  */
@@ -94,13 +94,9 @@ export async function createAlarm(ctx: RuleContext<CreateAlarmConfig>, msg: Rule
     ? messageDetails
     : buildAlarmDetails(ctx, msg, open ? snapshotDetails(open.ruleSnapshot) : undefined);
 
-  const { alarm, created, unchanged } = await ctx.services.alarms.createOrUpdate({
+  const { alarm, created } = await ctx.services.alarms.createOrUpdate({
     instrumentId, alarmType, severity, details, nodeId: ctx.node.id, chainId: ctx.chain.id,
   });
-  if (!created && unchanged === true) {
-    ctx.tellNext(msg, RULE_RELATION_SUCCESS);
-    return;
-  }
   const out = copyMessage(msg, { type: 'ALARM', data: alarmMessageData(alarm) });
   out.metadata[created ? 'isNewAlarm' : 'isExistingAlarm'] = 'true';
   ctx.tellNext(out, created ? 'Created' : 'Updated');

@@ -216,9 +216,13 @@ export interface RuleServices {
   alarms: {
     /**
      * Opens the RULE alarm of that type, or updates the open one. An update that changes neither
-     * the severity nor the details (by content) writes nothing and emits nothing (ruling RE-1) and
-     * returns `unchanged: true` — the Create alarm node then sends the incoming message on Success,
-     * as ThingsBoard's TbAbstractAlarmNode.onMsg does for a result that modified nothing.
+     * the severity nor the details (by content) writes nothing and sends no root-chain ENTITY_UPDATED
+     * (ruling RE-1) and returns `unchanged: true` — used for that skip ONLY. The Create alarm node still
+     * answers Updated (ruling AL-3): in ThingsBoard every repeat IS a modification, because
+     * TbCreateAlarmNode.updateAlarm sets `endTs = now` (master e48b5780 :159), AlarmUpdateRequest.fromAlarm
+     * copies it and update_alarm counts a changed end_ts as modified (schema-functions.sql :119), so
+     * onMsg sends it on Updated — and ThingsBoard sends ENTITY_UPDATED to the root on every repeat, where
+     * we send none for a no-op (the ruled RE-1 difference).
      */
     createOrUpdate(input: RuleAlarmInput): Promise<{ alarm: Alarm; created: boolean; unchanged?: true }>;
     /** Clears the ACTIVE RULE alarm of that type; null when there is none. */
