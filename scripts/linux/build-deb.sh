@@ -3,23 +3,31 @@
 #
 # The Linux counterpart of scripts/build-installer.ps1. Runs on a Linux build
 # host (the GitHub Actions ubuntu-22.04 runner in .github/workflows/build-deb.yml,
-# or any Ubuntu 20.04+ box with node, npm, dpkg-deb, curl, unzip, xz). The
+# or any Ubuntu 22.04+ box with node, npm, dpkg-deb, curl, xz, bzip2, file and
+# the PostgreSQL build deps: build-essential, libssl-dev, zlib1g-dev). The
 # INTERNET IS NEEDED HERE, ONCE, for npm and the three vendor downloads; the
 # customer machine installs and runs the result with none.
 #
-# "Any Ubuntu version": every binary in the package is self-contained and built
-# against an OLD glibc — Node's official linux-x64 build (glibc >= 2.28), the
-# zonky portable PostgreSQL (its own lib/), EMQX's ubuntu20.04 tarball (bundled
-# Erlang) — and the build runs on the oldest supported runner. Nothing links
-# against the host's libssl/libicu, which is what breaks "works on 22.04, dies
-# on 24.04" packages. Prisma ships engines for both openssl 1.1 and 3.0 hosts
-# (schema.prisma binaryTargets).
+# Ubuntu 22.04 and later (the runner's release is the proven floor): Node's
+# official linux-x64 build (glibc >= 2.28) and EMQX's ubuntu20.04 tarball
+# (bundled Erlang) are self-contained; PostgreSQL is BUILT HERE from the
+# official source (2026-11-18) with only libc, libssl3 and zlib as outside
+# dependencies — present on every Ubuntu from 22.04 — and NO ICU or readline,
+# whose versions differ between releases (the "works on 22.04, dies on 24.04"
+# trap). A guard below refuses any other dependency. Prisma ships engines for
+# both openssl 1.1 and 3.0 hosts (schema.prisma binaryTargets).
+#
+# Why not a prebuilt portable PostgreSQL: the zonky bundle used until
+# 2026-11-18 ships only initdb / pg_ctl / postgres — no psql, pg_dump or
+# pg_isready, which the install scripts, the database unit and the nightly
+# backup call — and its extensions sit under share/postgresql/, where the old
+# check never looked. Every build-deb run failed on that check (33 of 33).
 #
 # Layout inside the package (mirrors the Windows installer, see
 # tasks/EXE-PACKAGING-PLAN.md §3):
 #   /opt/digilog/node/bin/node           portable Node
 #   /opt/digilog/runtime/{api,web,queue,node_modules}
-#   /opt/digilog/pgsql/{bin,lib,share}   portable PostgreSQL
+#   /opt/digilog/pgsql/{bin,lib,share}   PostgreSQL built from source here (relocatable)
 #   /opt/digilog/emqx/                   EMQX 5.3.2 (config rendered at install)
 #   /opt/digilog/emqx-templates/         scripts/emqx/* (ONE source with Windows)
 #   /opt/digilog/scripts/                digilog-lib.sh, digilog-backup.sh
@@ -30,7 +38,13 @@
 set -euo pipefail
 
 NODE_VERSION="${NODE_VERSION:-24.20.0}"
-PG_VERSION="${PG_VERSION:-18.6.0}"            # io.zonky.test.postgres:embedded-postgres-binaries-linux-amd64
+PG_VERSION="${PG_VERSION:-18.6}"               # the official PostgreSQL source release, built below
+# The prefix IS the install path (PostgreSQL is relocatable, but its compiled-in
+# paths then need no relocation at all). No ICU / readline: see the header. The
+# schema needs only ltree + pgcrypto (prisma/sql/extensions.sql); pgcrypto needs
+# OpenSSL. Changing a flag changes PG_BUILD_ID, so a cached build is not reused.
+PG_CONFIGURE=(--prefix=/opt/digilog/pgsql --without-icu --without-readline --with-ssl=openssl)
+PG_BUILD_ID="$PG_VERSION-$(printf '%s ' "${PG_CONFIGURE[@]}" | sha256sum | cut -c1-12)"
 EMQX_VERSION="${EMQX_VERSION:-5.3.2}"          # the last version with a Windows build; keep both installers on one broker version
 EMQX_DISTRO="${EMQX_DISTRO:-ubuntu20.04}"      # oldest supported build = widest glibc compatibility
 APP_VERSION=""
@@ -59,7 +73,7 @@ APP_VERSION="${APP_VERSION#v}"
 
 step() { printf '\n==> %s\n' "$*"; }
 need() { command -v "$1" >/dev/null 2>&1 || { echo "FATAL: '$1' not found on PATH" >&2; exit 1; }; }
-for t in node npm dpkg-deb curl unzip tar xz; do need "$t"; done
+for t in node npm dpkg-deb curl tar xz bzip2 sha256sum gcc make ldd file; do need "$t"; done
 case "$(node -v)" in v${NODE_VERSION%%.*}.*) ;; *) echo "FATAL: build must run on Node ${NODE_VERSION%%.*}.x (native modules are compiled for its ABI); found $(node -v)" >&2; exit 1 ;; esac
 
 rm -rf "$STAGE" "$CLEAN"
@@ -102,11 +116,14 @@ grep -qF "compliance-core patch (patches/graphile-worker+0.16.6.patch" "$CLEAN/n
 # ── 3. Vendor downloads (cached in $DL) ─────────────────────────────────────
 fetch() { local url="$1" out="$2"; if [ ! -s "$out" ]; then step "download $(basename "$out")"; curl -fsSL --retry 3 -o "$out" "$url"; fi; }
 NODE_TAR="$DL/node-v$NODE_VERSION-linux-x64.tar.xz"
-PG_JAR="$DL/embedded-postgres-binaries-linux-amd64-$PG_VERSION.jar"
+PG_SRC_TAR="$DL/postgresql-$PG_VERSION.tar.bz2"
 EMQX_TAR="$DL/emqx-$EMQX_VERSION-$EMQX_DISTRO-amd64.tar.gz"
 fetch "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-x64.tar.xz" "$NODE_TAR"
-fetch "https://repo1.maven.org/maven2/io/zonky/test/postgres/embedded-postgres-binaries-linux-amd64/$PG_VERSION/embedded-postgres-binaries-linux-amd64-$PG_VERSION.jar" "$PG_JAR"
+fetch "https://ftp.postgresql.org/pub/source/v$PG_VERSION/postgresql-$PG_VERSION.tar.bz2" "$PG_SRC_TAR"
+fetch "https://ftp.postgresql.org/pub/source/v$PG_VERSION/postgresql-$PG_VERSION.tar.bz2.sha256" "$PG_SRC_TAR.sha256"
 fetch "https://www.emqx.com/en/downloads/broker/$EMQX_VERSION/emqx-$EMQX_VERSION-$EMQX_DISTRO-amd64.tar.gz" "$EMQX_TAR"
+# The source is verified against the checksum the PostgreSQL project publishes beside it.
+( cd "$DL" && sha256sum -c "postgresql-$PG_VERSION.tar.bz2.sha256" ) || { echo "FATAL: postgresql-$PG_VERSION.tar.bz2 does not match its published SHA-256" >&2; exit 1; }
 
 # ── 4. Stage /opt/digilog ───────────────────────────────────────────────────
 OPT="$STAGE/opt/digilog"
@@ -132,11 +149,82 @@ for w in shared queue; do
   cp "packages/$w/package.json" "$OPT/runtime/node_modules/@digilog/$w/package.json"
 done
 
-step "Stage pgsql (zonky portable PostgreSQL $PG_VERSION)"
-unzip -p "$PG_JAR" postgres-linux-x86_64.txz | tar -xJ -C "$OPT/pgsql"
-test -x "$OPT/pgsql/bin/initdb" || { echo "FATAL: pgsql/bin/initdb missing after extract" >&2; exit 1; }
-test -f "$OPT/pgsql/share/extension/ltree.control" || { echo "FATAL: ltree extension not in the portable PostgreSQL (needed by the baseline migration)" >&2; exit 1; }
-test -f "$OPT/pgsql/share/extension/pgcrypto.control" || { echo "FATAL: pgcrypto extension not in the portable PostgreSQL" >&2; exit 1; }
+# Built once per PG_BUILD_ID and kept in $DL (the workflow caches $DL — its key
+# does not name the PostgreSQL build, so a new PG_BUILD_ID simply builds again
+# beside the old one until the key is bumped), then copied in.
+PG_BUILT="$DL/pgsql-$PG_BUILD_ID"
+if [ ! -x "$PG_BUILT/bin/postgres" ]; then
+  # The GitHub ubuntu-22.04 image carries these; say so plainly on a host that does not.
+  for h in openssl/ssl.h zlib.h; do
+    printf '#include <%s>\n' "$h" | gcc -E -x c - >/dev/null 2>&1 \
+      || { echo "FATAL: <$h> not found - install the PostgreSQL build deps: build-essential libssl-dev zlib1g-dev" >&2; exit 1; }
+  done
+  step "Build PostgreSQL $PG_VERSION from source (${PG_CONFIGURE[*]})"
+  PG_SRC="$OUT_DIR/pg-src"; PG_DEST="$OUT_DIR/pg-install"
+  rm -rf "$PG_SRC" "$PG_DEST" "$PG_BUILT"; mkdir -p "$PG_SRC"
+  tar -xjf "$PG_SRC_TAR" -C "$PG_SRC"
+  (
+    cd "$PG_SRC/postgresql-$PG_VERSION"
+    ./configure "${PG_CONFIGURE[@]}" >/dev/null
+    make -s -j"$(nproc)"
+    make -s -C contrib/ltree -j"$(nproc)"
+    make -s -C contrib/pgcrypto -j"$(nproc)"
+    # install-strip: the binaries without debug symbols. Into a DESTDIR — the
+    # build host is never written outside $OUT_DIR.
+    make -s install-strip DESTDIR="$PG_DEST"
+    make -s -C contrib/ltree install-strip DESTDIR="$PG_DEST"
+    make -s -C contrib/pgcrypto install-strip DESTDIR="$PG_DEST"
+  ) || { echo "FATAL: building PostgreSQL $PG_VERSION failed (build deps: gcc, make, libssl-dev, zlib1g-dev)" >&2; exit 1; }
+  mv "$PG_DEST/opt/digilog/pgsql" "$PG_BUILT"
+  rm -rf "$PG_SRC" "$PG_DEST"
+fi
+step "Stage pgsql (PostgreSQL $PG_VERSION, built from source)"
+cp -a "$PG_BUILT/." "$OPT/pgsql/"
+# Nothing on the customer machine compiles against it: drop the headers and static libraries.
+rm -rf "$OPT/pgsql/include"; find "$OPT/pgsql/lib" -maxdepth 1 -name '*.a' -delete
+
+# Every PostgreSQL program the Linux scripts call — the list is read FROM the
+# scripts, so a new call cannot ship without its binary (the zonky bundle had
+# no psql / pg_dump / pg_isready and nothing noticed).
+PG_TOOLS="$(grep -ohE 'PG_BIN/[a-z_]+|pgsql/bin/[a-z_]+' scripts/linux/*.sh scripts/linux/systemd/* scripts/linux/debian/* | sed -E 's#.*/##' | sort -u)"
+[ -n "$PG_TOOLS" ] || { echo "FATAL: found no PostgreSQL program calls in scripts/linux (the guard's own pattern is broken)" >&2; exit 1; }
+for t in $PG_TOOLS; do test -x "$OPT/pgsql/bin/$t" || { echo "FATAL: pgsql/bin/$t is called by scripts/linux but was not built" >&2; exit 1; }; done
+echo "PostgreSQL programs the scripts call, all present: $(echo $PG_TOOLS)"
+
+# The extensions the baseline migration needs, where THIS server looks for them.
+# pg_config may answer relocated (from where it runs: inside the stage) or as
+# compiled (the install path, /opt/digilog/pgsql/...): map the latter into the stage.
+pg_staged() {
+  local p; p="$(LD_LIBRARY_PATH="$OPT/pgsql/lib" "$OPT/pgsql/bin/pg_config" "$1")"
+  case "$p" in "$STAGE"/*) printf '%s' "$p" ;; *) printf '%s%s' "$STAGE" "$p" ;; esac
+}
+PG_SHAREDIR="$(pg_staged --sharedir)"
+PG_PKGLIBDIR="$(pg_staged --pkglibdir)"
+for e in ltree pgcrypto; do
+  test -f "$PG_SHAREDIR/extension/$e.control" || { echo "FATAL: $e.control not in $PG_SHAREDIR/extension (needed by the baseline migration)" >&2; exit 1; }
+  test -f "$PG_PKGLIBDIR/$e.so" || { echo "FATAL: $e.so not in $PG_PKGLIBDIR" >&2; exit 1; }
+done
+
+# Every ELF resolves, and needs nothing beyond what every Ubuntu from 22.04 has.
+# A library resolved INSIDE pgsql/lib is PostgreSQL's own (libpq, libpgtypes,
+# libecpg); anything else must be one of the base libraries below.
+# LD_LIBRARY_PATH stands in for the rpath (/opt/digilog/pgsql/lib), which does
+# not exist on the build host. (mawk is Ubuntu's awk: no \s, so [ \t].)
+PG_ALLOWED='^(linux-vdso\.so\.1|libc\.so\.6|libm\.so\.6|libdl\.so\.2|libpthread\.so\.0|librt\.so\.1|ld-linux-x86-64\.so\.2|libssl\.so\.3|libcrypto\.so\.3|libz\.so\.1)$'
+pg_bad=""; pg_outside=""
+while IFS= read -r f; do
+  file -b "$f" | grep -q '^ELF' || continue
+  deps="$(LD_LIBRARY_PATH="$OPT/pgsql/lib" ldd "$f" 2>&1)" || true
+  if printf '%s\n' "$deps" | grep -q 'not found'; then pg_bad="$pg_bad $(basename "$f"):unresolved"; fi
+  # "name => /path (addr)" lines: judge by where it resolved.
+  while read -r name path; do
+    case "$path" in "$OPT/pgsql/lib/"*) continue ;; esac
+    printf '%s\n' "$name" | grep -qE "$PG_ALLOWED" || pg_bad="$pg_bad $(basename "$f"):$name"
+    pg_outside="$pg_outside $name"
+  done < <(printf '%s\n' "$deps" | awk '/=>/ && $3 != "not" {print $1, $3}')
+done < <(find "$OPT/pgsql/bin" "$OPT/pgsql/lib" -type f)
+[ -z "$pg_bad" ] || { echo "FATAL: PostgreSQL needs libraries outside the allowed base set:$pg_bad" >&2; exit 1; }
+echo "PostgreSQL links outside itself only to:$(printf '%s\n' $pg_outside | sort -u | tr '\n' ' ')"
 
 step "Stage emqx ($EMQX_VERSION $EMQX_DISTRO)"
 tar -xzf "$EMQX_TAR" -C "$OPT/emqx"

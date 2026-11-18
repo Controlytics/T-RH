@@ -12,7 +12,7 @@ server with **no internet access and no reverse proxy**. Built by
 |---|---|
 | `/opt/digilog/node/bin/node` | Portable Node.js 24 (official linux-x64 build) |
 | `/opt/digilog/runtime/` | Compiled API, built web UI, production `node_modules` (Prisma engines for openssl 1.1 **and** 3.0 hosts, prebuilt `bcrypt`), migrations, `seed.mjs`, `crontab.txt` |
-| `/opt/digilog/pgsql/` | Portable PostgreSQL 18 (zonky build, self-contained `lib/`) |
+| `/opt/digilog/pgsql/` | PostgreSQL 18, built from the official source by `build-deb.sh` (server, `psql`, `pg_dump`, `pg_isready`, the `ltree` + `pgcrypto` extensions; links only libc, libssl3 and zlib — no ICU, no readline) |
 | `/opt/digilog/emqx/` | EMQX 5.3.2 MQTT broker (ubuntu20.04 build, bundled Erlang); config rendered at install from `/opt/digilog/emqx-templates/` — the SAME templates the Windows installer uses |
 | `/opt/digilog/scripts/` | `digilog-lib.sh` (provisioning library), `digilog-backup.sh` |
 | `/lib/systemd/system/` | `digilog-db`, `digilog-emqx`, `digilog-api` services; `digilog-backup` service + timer |
@@ -125,7 +125,7 @@ scripts/linux/build-deb.sh --version 1.0.0
 ```
 
 Pinned inputs (override with env vars): `NODE_VERSION=24.20.0`,
-`PG_VERSION=18.6.0` (zonky `embedded-postgres-binaries-linux-amd64`),
+`PG_VERSION=18.6` (the official source, SHA-256-verified, built on the runner with `--without-icu --without-readline --with-ssl=openssl`; until 2026-11-18 a zonky portable bundle, which had no `psql` / `pg_dump` / `pg_isready`),
 `EMQX_VERSION=5.3.2`, `EMQX_DISTRO=ubuntu20.04`. The broker version is pinned to
 the same one the Windows installer ships so both platforms run one broker.
 
