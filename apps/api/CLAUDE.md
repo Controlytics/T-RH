@@ -1075,6 +1075,10 @@ tear-out 2026-06-11..17, the reports tear-out 2026-07-04, the Phase 0 filter-dom
   e-signature — impossible for AD-authenticated users. Also exports
   `LDAP_PASSWORD_MANAGED_MESSAGE`, the one wording used wherever a local-password
   operation is refused. See `docs/LDAP-AD-INTEGRATION-GUIDE.md`.
+- `prisma.ts` — **`prisma` is a Proxy over THREE pooled clients since 2026-11-17** (performance audit R1, P-04):
+  `general` / `critical` (reserved: sign-in, health, alarm acknowledgement) / `long` (backup, verify-chain, partition
+  maintenance; no time limit). A route picks its pool with `config: { dbPool }`; non-request work uses `runOnPool`.
+  Read `docs/feature-notes.md` PERFORMANCE AUDIT R1 before changing it, adding a pool or moving a route.
 - `sanitize.ts` — HTML stripping on all text inputs
 - `config-discovery.ts` — Auto-discover config definitions at startup
 - `config-registry.ts` — Self-registering config module pattern

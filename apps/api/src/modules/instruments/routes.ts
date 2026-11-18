@@ -31,7 +31,7 @@ import { generateToken, hashToken, tokenPrefix, tokenMatches } from './token.js'
 import { encryptToken, decryptToken, tokenKeyConfigured } from './token-crypto.js';
 import { parseInstrumentCsv, type AttributeColumn, type RowError } from './bulk-csv.js';
 import { planBulkUpload, remarkRequired, type ExistingInstrument, type PlannedAddress, type PlannedChange, type PlannedReading, type RowPlan } from './bulk-plan.js';
-import { buildTelemetryOverview, instrumentLimitsWithText, NO_LIMIT_TEXT, loadActiveWindowMinutes } from './telemetry-overview.js';
+import { instrumentLimitsWithText, NO_LIMIT_TEXT, loadActiveWindowMinutes } from './telemetry-overview.js';
 import { enabledBoundsFor } from '../alarms/load-limits.js';
 import { decimalsFor, annotateAttribute } from './decimals.js';
 import { slotConfigForProfile, allOffsetKeys, measurementsForProfile, loadMeasurementTypes } from './profile-measurements.js';
@@ -48,6 +48,8 @@ import { invalidateChildMapCache } from './gateway-children.js';
 import { codeLabel } from './code-label.js';
 import deviceCertificateRoutes from './device-certificate-routes.js';
 import dataKeysRoutes from './data-keys-routes.js';
+import reportRowsRoutes from './report-rows-routes.js';
+import { sharedTelemetryOverview } from './overview-share.js';
 import { parseKeysParam } from './keys-param.js';
 import { parseUuidList } from '../../lib/uuid-list.js';
 import { resolvedSlotFor, measurementFor } from './data-keys.js';
@@ -895,6 +897,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
   // GET /api/instruments/data-keys (2026-10-28) — every key a set of instruments
   // has, for the widget key picker. A child plugin, the same arrangement.
   await app.register(dataKeysRoutes);
+  await app.register(reportRowsRoutes);
 
   // GET /api/instruments — paginated list
   app.get('/', {
@@ -1332,7 +1335,9 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const list = parseUuidList(q.instrumentIds, 200);
     if (list.error) return reply.code(400).send({ error: 'VALIDATION_ERROR', message: list.error });
     const { where: visibility } = await resolveVisibility(buildContext(req));
-    return { data: await buildTelemetryOverview({
+    // Shared per selection for 5 s (performance audit R1, P-02): every viewer with
+    // this scope asking within the window gets the ONE computation.
+    return { data: await sharedTelemetryOverview({
       profileId: q.profileId,
       instrumentIds: list.ids,
       floorplanId: q.floorplanId,

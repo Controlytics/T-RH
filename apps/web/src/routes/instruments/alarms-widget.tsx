@@ -1,4 +1,5 @@
 import { useState, useEffect, type ReactNode } from 'react';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import useSWR from 'swr';
 import type { TrendWidgetTexts } from '@digilog/shared';
 import type { DatetimeFormatOverride } from '@/hooks/use-datetime-format';
@@ -181,7 +182,9 @@ export function AlarmsWidget({
     page: String(page),
     pageSize: String(pageSize),
   });
-  applyWidgetFilters(query, filters);
+  // The search settles for 300 ms before it becomes a request (G1-09).
+  const search = useDebouncedValue(filters.search, 300);
+  applyWidgetFilters(query, { ...filters, search });
 
   const { data, isLoading, error, mutate } = useSWR<{ data: AlarmRow[]; total: number }>(
     instrumentId ? `/api/alarms?${query.toString()}` : null,
@@ -192,9 +195,14 @@ export function AlarmsWidget({
    * five-page result is an empty table once a filter narrows it to two. The same
    * rule and the same reason as the Alarms page.
    */
-  useEffect(() => {
+  // Adjusted during RENDER, not in an effect (G1-09): the effect let one request go
+  // out at the stale page before the reset landed.
+  const resetKey = `${instrumentId}|${period.from}|${period.to}|${search}|${filters.type}|${filters.status}|${pageSize}`;
+  const [seenResetKey, setSeenResetKey] = useState(resetKey);
+  if (seenResetKey !== resetKey) {
+    setSeenResetKey(resetKey);
     setPage(1);
-  }, [instrumentId, period.from, period.to, filters.search, filters.type, filters.status, pageSize]);
+  }
 
   const rows = data?.data ?? [];
   const total = data?.total ?? 0;

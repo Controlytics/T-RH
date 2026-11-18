@@ -385,6 +385,16 @@ describe('fetchAllAlarms', () => {
     expect(ALARM_REPORT_MAX).toBe(5000);
   });
 
+  it('pins EVERY page to one instant — an alarm raised mid-export cannot shift the pages (G2-04)', async () => {
+    const page = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `x${i}` }));
+    api.get.mockResolvedValueOnce({ data: page(500), total: 700 }).mockResolvedValueOnce({ data: page(200), total: 700 });
+    await fetchAllAlarms({ instrumentIds: ['a'] }, { search: '', type: '', status: '' });
+    const tos = api.get.mock.calls.map((c: unknown[]) => new URL(String(c[0]), 'https://x').searchParams.get('to'));
+    expect(tos).toHaveLength(2);
+    expect(tos[0]).toMatch(/^[0-9]{4}-[0-9]{2}-[0-9]{2}T/);
+    expect(tos[1]).toBe(tos[0]);
+  });
+
   it('asks nothing for an EMPTY fixed list', async () => {
     const all = await fetchAllAlarms({ instrumentIds: [] }, { search: '', type: '', status: '' });
     expect(all).toEqual({ rows: [], total: 0 });

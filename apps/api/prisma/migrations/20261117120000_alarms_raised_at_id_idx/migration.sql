@@ -1,0 +1,14 @@
+-- Performance audit 2026-11-17, G2-03 / G1-09 / G2-04 — hand-authored.
+--
+-- The alarm list's default order is `raised_at DESC, id DESC` over EVERY state
+-- (the Alarms page, the dashboard alarm panel and every alarm-table widget). No
+-- index led with raised_at — the existing ones lead with state or instrument_id —
+-- so every page sequentially scanned and top-N sorted the whole alarm set
+-- (EXPLAIN at 107k alarms: 121 / 183 ms). `id` makes the order unique, so offset
+-- pages of a signed report cannot repeat or drop a row (buildAlarmOrderBy ends
+-- every order in `id`). Read backwards for the ascending sort.
+--
+-- Nothing else: `prisma migrate diff` also proposes the usual DROP of the
+-- partitioned instrument_telemetry_history and the audit-chain noise; stripped,
+-- as in every migration since 2026-08-08.
+CREATE INDEX IF NOT EXISTS "alarms_raised_at_id_idx" ON "alarms" ("raised_at" DESC, "id" DESC);

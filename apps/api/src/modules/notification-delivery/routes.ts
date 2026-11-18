@@ -11,6 +11,7 @@ import { prisma } from '../../lib/prisma.js';
 import { invalidateNotificationConfigCache } from './config-loader.js';
 import { sendNotification, sendTestNotification, testChannel } from './delivery.service.js';
 import { auditLog } from '../../lib/audit.js';
+import { OAUTH_TOKEN_TIMEOUT_MS } from './channels/email-channel.js';
 import { NotFoundError } from '../../lib/errors.js';
 import {
   maskSecrets, SECRET_MASK, maskHeaderValues, restoreMaskedHeaders, maskUrlSecrets, restoreMaskedUrl,
@@ -384,6 +385,7 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: body.toString().replace(/%7E/gi, '~'),
+        signal: AbortSignal.timeout(OAUTH_TOKEN_TIMEOUT_MS),
       });
 
       const tokenData = await tokenRes.json() as Record<string, unknown>;

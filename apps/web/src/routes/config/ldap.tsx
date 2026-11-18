@@ -9,6 +9,7 @@ import { hasEffectivePermission, ldapConfigFormSchema, formFieldErrors, type For
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
 import { PageHero } from '@/components/ui/page-hero';
+import { SettingsLoadGate } from '@/components/ui/settings-load-gate';
 
 interface RoleMappingRow {
   ldapGroup: string;
@@ -72,7 +73,7 @@ export default function LdapConfigPage() {
   const perms = (user?.permissions as string[] | undefined) ?? [];
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const canWrite = isSuperAdmin || hasEffectivePermission(perms, 'CONFIG_UPDATE');
-  const { data: savedConfig, mutate } = useSWR<LdapConfig>('/api/ldap/config');
+  const { data: savedConfig, error: savedConfigError, mutate } = useSWR<LdapConfig>('/api/ldap/config');
   const { data: rolesData } = useSWR<Array<{ name: string; displayName: string }>>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
   const reauth = useReauth();
 
@@ -211,14 +212,14 @@ export default function LdapConfigPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
           </svg>
         }
-        actions={
+        actions={savedConfig === undefined ? undefined : (
           <>
             <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium ${config.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
               <span className={`w-2 h-2 rounded-full ${config.enabled ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
               {config.enabled ? 'Enabled' : 'Disabled'}
             </span>
           </>
-        }
+        )}
       />
 
       {/* Messages */}
@@ -229,6 +230,10 @@ export default function LdapConfigPage() {
         </div>
       )}
 
+      {/* G4-01: no form — and so no Save — until the stored configuration has
+          loaded. The page used to show DEFAULTS after a failed GET, and Save
+          (gated only on `saving`) wrote them over the real directory settings. */}
+      <SettingsLoadGate what="the LDAP settings" data={savedConfig} error={savedConfigError} onRetry={() => void mutate()}>
       {/* Enable Toggle */}
       <div className="bg-white rounded-[var(--radius-card)] border border-slate-200/60 shadow-[var(--elev-1)] p-6">
         <div className="flex items-center justify-between">
@@ -514,6 +519,7 @@ export default function LdapConfigPage() {
           {saving ? 'Saving...' : 'Save Configuration'}
         </Button>
       </div>
+      </SettingsLoadGate>
 
       <ReauthDialog
         open={reauth.isOpen}

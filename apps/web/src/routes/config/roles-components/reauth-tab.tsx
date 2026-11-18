@@ -8,6 +8,7 @@ import { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES } from '@digilog/shared';
 import type { RoleData, ReauthAction, ReauthActionCategory } from '@digilog/shared';
 import { Button } from '@/components/ui/button';
 import { SkeletonCard } from '@/components/ui/skeleton';
+import { SettingsLoadGate } from '@/components/ui/settings-load-gate';
 
 // ── Re-auth tab constants ──
 const REAUTH_CATEGORY_META: Record<ReauthActionCategory, { gradient: string; bgLight: string; icon: string; description: string }> = {
@@ -90,7 +91,7 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
     const { mutate } = useSWRConfig();
     const reauth = useReauth();
 
-    const { data: reauthConfig, isLoading: reauthLoading } = useSWR<Record<string, string[]>>(
+    const { data: reauthConfig, error: reauthConfigError, mutate: reloadReauthConfig } = useSWR<Record<string, string[]>>(
       '/api/config/action-reauth',
       { revalidateOnMount: true, dedupingInterval: 0 }
     );
@@ -251,7 +252,12 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
 
     return (
       <>
-        {reauthLoading ? (
+        {/* G4-01: a FAILED load used to fall through to the matrix with `{}` as the
+            stored config — one tick + Save then wrote a matrix in which only that
+            action asked for a password. Nothing is editable until it has loaded. */}
+        {reauthConfig === undefined && reauthConfigError ? (
+          <SettingsLoadGate what="the re-authentication settings" data={undefined} error={reauthConfigError} onRetry={() => void reloadReauthConfig()}>{null}</SettingsLoadGate>
+        ) : reauthConfig === undefined ? (
           <div className="space-y-6">
             {/* Four stat tiles then the action cards — the shape this screen
                 actually resolves to, so nothing jumps when it arrives. */}

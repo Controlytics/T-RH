@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import useSWR from 'swr';
 import { FormSection } from '@/components/ui/form-section';
+import { SettingsLoadGate } from '@/components/ui/settings-load-gate';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { apiClient } from '@/lib/api-client';
@@ -12,7 +13,7 @@ interface PaginationConfig {
 }
 
 export function PaginationConfigPage() {
-  const { data, mutate } = useSWR<PaginationConfig>('/api/config/pagination', { revalidateOnMount: true, dedupingInterval: 0 });
+  const { data, error, mutate } = useSWR<PaginationConfig>('/api/config/pagination', { revalidateOnMount: true, dedupingInterval: 0 });
   const [limit, setLimit] = useState(100);
   const [count, setCount] = useState(3);
   const [options, setOptions] = useState<number[]>([10, 25, 50]);
@@ -98,6 +99,10 @@ export function PaginationConfigPage() {
     <div className="space-y-5 max-w-2xl">
       <p className="text-sm text-slate-500">Configure records per page options for all list views.</p>
 
+      {/* G4-01: no form — and so no Save — until the stored sizes have loaded;
+          Save (gated only on `saving`) used to write the 100 / 3 / 10-25-50
+          defaults after a failed GET. */}
+      <SettingsLoadGate what="the page size settings" data={data} error={error} onRetry={() => void mutate()}>
       <FormSection title="Page Size Configuration" columns={1}>
           {message && (
             <div className={`p-3 rounded-lg text-sm ${
@@ -196,6 +201,7 @@ export function PaginationConfigPage() {
             </Button>
           </div>
       </FormSection>
+      </SettingsLoadGate>
     </div>
   );
 }

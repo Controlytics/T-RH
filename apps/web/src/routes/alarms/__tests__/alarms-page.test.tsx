@@ -210,6 +210,18 @@ describe('the count cards describe the plant, not the page', () => {
     expect(card('Cleared Acknowledged').textContent).toContain('0');
   });
 
+  it('a FAILED load shows the counts as unknown — never four zeros', () => {
+    // Performance audit 2026-11-17 (hung database): the cards read 0 / 0 / 0 / 0
+    // while the alarms could not be loaded — "the plant has no alarms", asserted
+    // by a screen that could not read them.
+    listState.error = new Error('The database is not answering right now.');
+    mount();
+    for (const label of ['Active Unacknowledged', 'Active Acknowledged', 'Cleared Unacknowledged', 'Cleared Acknowledged']) {
+      expect(card(label).textContent).not.toMatch(/[0-9]/);
+      expect(card(label).textContent).toContain('—');
+    }
+  });
+
   it('shows a zero state as 0, not as blank', () => {
     // A blank card reads as a rendering fault; "no alarms are in this state" is
     // a real and reassuring answer.

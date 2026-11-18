@@ -854,6 +854,22 @@ describe('Mean Kinetic Temperature on the chart summary', () => {
     expect(sums.humidity.mkt).toBeNull();
   });
 
+  // The Data Report asks this call for 2 points (`SUMMARY_ONLY_POINTS` in apps/web data-report-fetch.ts, performance
+  // audit R1 retest 2026-11-18): it reads ONLY `historyTotal` and `summaries` — the Max / Min / MKT a signed PDF
+  // prints — and throws the rows away. That is safe only while both are SQL over EVERY reading whatever `points` is.
+  // This pins it for the report's exact call (no key = every key), where `points=2` takes lttb's `target <= 2` branch.
+  it('the Data Report\'s 2-point call carries the SAME total and summaries as a 5,000-point one', async () => {
+    const two = (await telemetry(onId, `?from=${FROM}&to=${TO}&points=2`)).json() as ChartBody;
+    const many = (await telemetry(onId, `?from=${FROM}&to=${TO}&points=5000`)).json() as ChartBody;
+    // It DID sample: 2 rows of temperature against all 4.
+    expect(rowsFor(two, 'temperature')).toHaveLength(2);
+    expect(rowsFor(many, 'temperature')).toHaveLength(readings.length);
+    expect(two.historyTotal).toBe(readings.length + 1);
+    expect(two.historyTotal).toBe(many.historyTotal);
+    expect(two.summaries).toEqual(many.summaries);
+    expect(two.summaries!.temperature.mkt).toBeCloseTo(mktCelsius(readings)!, 6);
+  });
+
   it('is null when the attribute is off, and when it is absent', async () => {
     const off = (await telemetry(offId, `?from=${FROM}&to=${TO}&points=100`)).json() as ChartBody;
     expect(off.summaries!.temperature.mkt).toBeNull();

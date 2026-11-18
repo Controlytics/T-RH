@@ -9,6 +9,7 @@ import { useAttributeLabels } from '@/hooks/use-attribute-labels';
 import { Button } from '@/components/ui/button';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { MODE_LABEL } from './attribute-access-tab';
+import { SettingsLoadGate } from '@/components/ui/settings-load-gate';
 
 interface Rule { mode: AttributeAccessMode | null; keys: string[]; requireReauth: boolean }
 interface UserRow extends Rule {
@@ -47,7 +48,7 @@ export function UserAttributeAccess() {
   const { toast } = useToast();
   const { labelFor } = useAttributeLabels();
   const reauth = useReauth();
-  const { data, mutate } = useSWR<{ users: UserRow[] }>('/api/roles/attribute-access/users');
+  const { data, error: loadError, mutate } = useSWR<{ users: UserRow[] }>('/api/roles/attribute-access/users');
   const { data: rolesData } = useSWR<{ roles: RoleRow[]; availableKeys: string[] }>('/api/roles/attribute-access');
   const [userId, setUserId] = useState('');
   /** Un-saved edit of the chosen user's rule. null = showing what is stored. */
@@ -115,6 +116,13 @@ export function UserAttributeAccess() {
       onCancel: () => setSaving(false),
     });
   };
+
+  // A failed load used to render an EMPTY list here — "no users" to someone who
+  // merely could not read them (G4-01's sibling; rows only exist once loaded, so
+  // nothing could be overwritten).
+  if (data === undefined) {
+    return <SettingsLoadGate what="the per-user attribute access" data={data} error={loadError} onRetry={() => void mutate()}>{null}</SettingsLoadGate>;
+  }
 
   return (
     <div className="space-y-4">

@@ -7,6 +7,7 @@ import { ReauthDialog } from '@/components/reauth-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAttributeLabels } from '@/hooks/use-attribute-labels';
 import { Button } from '@/components/ui/button';
+import { SettingsLoadGate } from '@/components/ui/settings-load-gate';
 
 interface RoleAccess {
   role: string;
@@ -42,7 +43,7 @@ export function AttributeAccessTab() {
   const { toast } = useToast();
   const { labelFor } = useAttributeLabels();
   const reauth = useReauth();
-  const { data, mutate } = useSWR<{ roles: RoleAccess[]; availableKeys: string[] }>(
+  const { data, error: loadError, mutate } = useSWR<{ roles: RoleAccess[]; availableKeys: string[] }>(
     '/api/roles/attribute-access',
   );
   const [saving, setSaving] = useState<string | null>(null);
@@ -108,6 +109,13 @@ export function AttributeAccessTab() {
         : [...now.keys, key],
     });
   };
+
+  // A failed load used to render an EMPTY list here — "no users" to someone who
+  // merely could not read them (G4-01's sibling; rows only exist once loaded, so
+  // nothing could be overwritten).
+  if (data === undefined) {
+    return <SettingsLoadGate what="the attribute access settings" data={data} error={loadError} onRetry={() => void mutate()}>{null}</SettingsLoadGate>;
+  }
 
   return (
     <div className="space-y-4">

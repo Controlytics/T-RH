@@ -31,6 +31,9 @@ export default async function backupRoutes(app: FastifyInstance) {
   // unchanged for them. Pre-fix this checked CONFIG_UPDATE — a role with
   // generic config edit but no backup-specific scope still passed the gate.
   app.get('/export', {
+    // Its own unlimited database pool (performance audit 2026-11-17, P-04): never cut
+    // by the 5-minute statement limit, and never holding a request's connection.
+    config: { dbPool: 'long' },
     preHandler: [app.requirePermission('BACKUP_EXPORT')],
     schema: {
       tags: ['Backup'],
@@ -98,6 +101,9 @@ export default async function backupRoutes(app: FastifyInstance) {
   // SUPER_ADMIN and ADMIN have it seeded. Pre-fix this checked CONFIG_UPDATE
   // and a generic config-edit role could overwrite the database.
   app.post('/restore', {
+    // Its own unlimited database pool (performance audit 2026-11-17, P-04): never cut
+    // by the 5-minute statement limit, and never holding a request's connection.
+    config: { dbPool: 'long' },
     preHandler: [app.requirePermission('BACKUP_RESTORE')],
     schema: {
       tags: ['Backup'],
@@ -179,6 +185,9 @@ export default async function backupRoutes(app: FastifyInstance) {
 
   // POST /api/backup/validate — Validate a backup file without restoring
   app.post('/validate', {
+    // Its own unlimited database pool (performance audit 2026-11-17, P-04): never cut
+    // by the 5-minute statement limit, and never holding a request's connection.
+    config: { dbPool: 'long' },
     // Validate is a read-only dry-run over an uploaded backup, so it belongs to
     // the BACKUP_* family like its siblings above — not CONFIG_UPDATE, which the
     // 2026-05-14 pass left behind. That mismatch broke in both directions: a

@@ -13,6 +13,9 @@ export default async function authRoutes(app: FastifyInstance) {
     // Audit API-6: tight per-route bodyLimit — 4 KB is plenty for username+password JSON
     bodyLimit: 4096,
     config: {
+      // The reserved database pool (performance audit 2026-11-17, P-04): this must keep
+      // answering when heavy reads hold every general connection.
+      dbPool: 'critical',
       rateLimit: {
         max: 10,
         timeWindow: '1 minute',
@@ -78,6 +81,9 @@ export default async function authRoutes(app: FastifyInstance) {
 
   // POST /api/auth/logout
   app.post('/logout', {
+    // The reserved database pool (performance audit 2026-11-17, P-04): this must keep
+    // answering when heavy reads hold every general connection.
+    config: { dbPool: 'critical' },
     schema: {
       tags: ['Auth'],
       summary: 'Logout',
@@ -98,7 +104,9 @@ export default async function authRoutes(app: FastifyInstance) {
 
   // POST /api/auth/refresh — Refresh JWT token (extends session)
   app.post('/refresh', {
-    config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+    // The reserved database pool (performance audit 2026-11-17, P-04): this must keep
+    // answering when heavy reads hold every general connection.
+    config: { rateLimit: { max: 30, timeWindow: '1 minute' }, dbPool: 'critical' },
     schema: {
       tags: ['Authentication'],
       summary: 'Refresh JWT token',
@@ -147,6 +155,9 @@ export default async function authRoutes(app: FastifyInstance) {
   // POST /api/auth/beacon-logout — unauthenticated, accepts token in body
   // Used by navigator.sendBeacon() on tab/browser close
   app.post('/beacon-logout', {
+    // The reserved database pool (performance audit 2026-11-17, P-04): this must keep
+    // answering when heavy reads hold every general connection.
+    config: { dbPool: 'critical' },
     schema: {
       tags: ['Auth'],
       summary: 'Beacon logout',
@@ -176,6 +187,9 @@ export default async function authRoutes(app: FastifyInstance) {
 
   // GET /api/auth/me
   app.get('/me', {
+    // The reserved database pool (performance audit 2026-11-17, P-04): this must keep
+    // answering when heavy reads hold every general connection.
+    config: { dbPool: 'critical' },
     schema: {
       tags: ['Auth'],
       summary: 'Get current user',

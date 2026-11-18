@@ -1,6 +1,50 @@
 // NOTE: Prefer importing as `apiClient` using @/ alias across all files
 import { getApiBase } from './api-base';
 import { safeStorage } from './safe-storage';
+import { READ_TIMEOUT_MS, LONG_READ_TIMEOUT_MS } from './read-bounds';
+
+// Re-exported for callers that already hold the client; new callers import them from
+// `read-bounds.ts` (see there for why they do not live here).
+export { READ_TIMEOUT_MS, LONG_READ_TIMEOUT_MS };
+
+/**
+ * How long a READ may wait for the server (performance audit 2026-11-17, P-03).
+ *
+ * There was no limit anywhere: with the database hung, every page sat on
+ * "Loading…" for as long as the connection lived (measured: 76.5 s and still
+ * going), with nothing on screen to say why. Now a read that has not finished —
+ * headers AND body — inside its bound is aborted and fails with `code: 'TIMEOUT'`.
+ * The bounds themselves live in `read-bounds.ts`:
+ *
+ * - `READ_TIMEOUT_MS` — what a page LOAD may take: every SWR read (`swr-config.ts`).
+ *   The heaviest ordinary page measured ~0.9 s (the overview at 1,013 instruments).
+ * - `LONG_READ_TIMEOUT_MS` — what an action the operator STARTED may take (a report,
+ *   a download: an explicit `apiClient.get`), and the Data Report table, which
+ *   measured 12.6 s per page at 27 instruments x 30 days (G1-05) and grows with the
+ *   selection. Bounded, but never short enough to cut a legitimate report.
+ * - `timeoutMs: 0` — no limit (the backup download).
+ *
+ * WRITES ARE NOT BOUNDED HERE, deliberately: aborting a POST/PUT in the browser
+ * does not stop the server, so the operator would read "timed out" for a change
+ * that may well have committed — and a retry could record it twice. A write's
+ * outcome has to be bounded on the server. (This also keeps the token refresh, a
+ * POST, from ever "failing" by timeout.)
+ */
+
+export interface ReadOptions {
+  /** Milliseconds before the read is abandoned; 0 = no limit. */
+  timeoutMs?: number;
+}
+
+/** The error a timed-out read fails with. `code: 'TIMEOUT'` is what callers test. */
+export function readTimeoutError(url: string, timeoutMs: number): Error {
+  const seconds = Math.round(timeoutMs / 1000);
+  const error = new Error(`The server did not answer within ${seconds} seconds. Nothing was changed — try again in a moment.`);
+  error.name = 'TimeoutError';
+  (error as any).code = 'TIMEOUT';
+  (error as any).url = url;
+  return error;
+}
 
 class ApiClient {
   private getToken(): string | null {
@@ -44,6 +88,28 @@ class ApiClient {
   }
 
   /**
+   * Run `work` with an abort signal that fires after `timeoutMs` (0 = no limit).
+   * The timer stays live until `work` RESOLVES — `fetch` resolves at the headers,
+   * so `work` must read the body inside it, or the body read is unbounded.
+   * A manual AbortController rather than `AbortSignal.timeout`: one code path for
+   * every runtime the tests use.
+   */
+  private async bounded<T>(url: string, timeoutMs: number, work: (signal?: AbortSignal) => Promise<T>): Promise<T> {
+    if (!timeoutMs) return work(undefined);
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+    try {
+      return await work(controller.signal);
+    } catch (err) {
+      if (timedOut) throw readTimeoutError(url, timeoutMs);
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
    * A generic 401 = the session has ended: drop the token, the cached user and
    * the single-tab keys, and send the browser to /login. Not during login
    * itself, where a 401 is a wrong password and the form shows it.
@@ -69,7 +135,12 @@ class ApiClient {
     }
   }
 
-  private async request<T>(url: string, options: RequestInit = {}): Promise<T> {
+  /** `timeoutMs` bounds the whole exchange, body included; 0 = no limit (every write). */
+  private request<T>(url: string, options: RequestInit = {}, timeoutMs = 0): Promise<T> {
+    return this.bounded(url, timeoutMs, (signal) => this.requestOnce<T>(url, signal ? { ...options, signal } : options));
+  }
+
+  private async requestOnce<T>(url: string, options: RequestInit): Promise<T> {
     const res = await this.send(url, options);
 
     if (!res.ok) {
@@ -132,7 +203,8 @@ class ApiClient {
     }
   }
 
-  get<T>(url: string) { return this.request<T>(url); }
+  /** A read. Bounded at `LONG_READ_TIMEOUT_MS` unless told otherwise; SWR passes `READ_TIMEOUT_MS`. */
+  get<T>(url: string, opts: ReadOptions = {}) { return this.request<T>(url, {}, opts.timeoutMs ?? LONG_READ_TIMEOUT_MS); }
   post<T>(url: string, body: unknown, headers?: Record<string, string>) { return this.request<T>(url, { method: 'POST', body: JSON.stringify(body), ...(headers && { headers }) }); }
   put<T>(url: string, body: unknown, headers?: Record<string, string>) { return this.request<T>(url, { method: 'PUT', body: JSON.stringify(body), ...(headers && { headers }) }); }
   patch<T>(url: string, body: unknown) { return this.request<T>(url, { method: 'PATCH', body: JSON.stringify(body) }); }
@@ -156,8 +228,14 @@ class ApiClient {
    * it, and a 401 ends the session the same way. Until this existed, four
    * hand-rolled `fetch` calls each read the token themselves.
    */
-  async getRaw(url: string, options: RequestInit = {}): Promise<Response> {
-    const res = await this.send(url, { ...options, method: options.method ?? 'GET' });
+  async getRaw(url: string, options: RequestInit = {}, readOpts: ReadOptions = {}): Promise<Response> {
+    // Bounded until the HEADERS only: the caller reads the body, after this
+    // returns. A large download that must not be cut passes `timeoutMs: 0`.
+    return this.bounded(url, readOpts.timeoutMs ?? LONG_READ_TIMEOUT_MS, (signal) => this.rawOnce(url, options, signal));
+  }
+
+  private async rawOnce(url: string, options: RequestInit, signal?: AbortSignal): Promise<Response> {
+    const res = await this.send(url, { ...options, method: options.method ?? 'GET', ...(signal && { signal }) });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       // Re-auth errors go up untouched, as `request()` throws them, so the
@@ -172,8 +250,9 @@ class ApiClient {
     return res;
   }
 
-  async getBlob(url: string, options: RequestInit = {}): Promise<Blob> {
-    return (await this.getRaw(url, options)).blob();
+  /** Headers AND body inside the bound. */
+  async getBlob(url: string, options: RequestInit = {}, readOpts: ReadOptions = {}): Promise<Blob> {
+    return this.bounded(url, readOpts.timeoutMs ?? LONG_READ_TIMEOUT_MS, async (signal) => (await this.rawOnce(url, options, signal)).blob());
   }
   // 2026-05-21 fix: DELETE must carry an explicit Content-Type + body, even
   // when the route doesn't need a body. On Android, CapacitorHttp's native
@@ -207,7 +286,8 @@ class ApiClient {
       headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify({ ...((body as object) ?? {}), _currentPassword: password });
     }
-    return this.request<T>(url, opts);
+    // Only a GET is a read; every other method is a write and stays unbounded.
+    return this.request<T>(url, opts, method === 'GET' ? LONG_READ_TIMEOUT_MS : 0);
   }
   deleteWithReauth<T>(url: string, password: string, body?: unknown) {
     return this.withReauth<T>('DELETE', url, password, body);

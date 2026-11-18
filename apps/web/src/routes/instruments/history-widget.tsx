@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
+import { apiClient } from '@/lib/api-client';
+import { LONG_READ_TIMEOUT_MS } from '@/lib/read-bounds';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import { INTERVALS, coerceReading, formatDecimals, isOutOfRange, isSensorFailureValue } from '@digilog/shared';
 import { Button } from '@/components/ui/button';
@@ -102,6 +104,9 @@ export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
   });
   const { data: hist, isLoading: histLoading, error: histError } = useSWR<{ data: HistoryRow[]; total: number }>(
     chosenIds.length ? `/api/instruments/telemetry-history?${histQs}` : null,
+    // The Data Report table: 12.6 s per page at 27 instruments x 30 days (G1-05),
+    // growing with the selection — the long read bound, not a page load's.
+    (u: string) => apiClient.get<{ data: HistoryRow[]; total: number }>(u, { timeoutMs: LONG_READ_TIMEOUT_MS }),
   );
   const rows = hist?.data ?? [];
   const total = hist?.total ?? 0;

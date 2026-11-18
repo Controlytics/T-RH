@@ -7,6 +7,7 @@ import { ReauthDialog } from '@/components/reauth-dialog';
 import { EXPORT_SURFACES, type ExportFormat } from '@/lib/export-surfaces';
 import { Button } from '@/components/ui/button';
 import { PageHero } from '@/components/ui/page-hero';
+import { SettingsLoadGate } from '@/components/ui/settings-load-gate';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 
 type Matrix = Record<string, Record<string, string>>; // role -> surfaceKey -> format
@@ -34,8 +35,12 @@ export function ExportOptionsPage() {
   // other configuration page, so a role whose matrix asks for a password gets
   // the dialog instead of a bare 401.
   const reauth = useReauth();
-  const { data: matrixData, mutate } = useSWR<Matrix>('/api/config/export-options');
-  const { data: rolesData } = useSWR<Role[]>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
+  const { data: matrixData, error: matrixError, mutate } = useSWR<Matrix>('/api/config/export-options');
+  const { data: rolesData, error: rolesError, mutate: mutateRoles } = useSWR<Role[]>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
+  // G4-01: Save PUTs the WHOLE matrix, which is `{}` until the stored one
+  // arrives — so nothing is editable, and Save is not offered, until both the
+  // matrix and the roles it is laid out by have loaded.
+  const loaded = matrixData !== undefined && rolesData !== undefined;
 
   const [draft, setDraft] = useState<Matrix>({});
   const [saving, setSaving] = useState(false);
@@ -80,13 +85,15 @@ export function ExportOptionsPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
           </svg>
         }
-        actions={
+        actions={loaded ? (
           <Button onClick={save} loading={saving} loadingText="Saving…">
             Save Changes
           </Button>
-        }
+        ) : undefined}
       />
 
+      <SettingsLoadGate what="the export options" data={loaded ? matrixData : undefined} error={matrixError ?? rolesError}
+        onRetry={() => { void mutate(); void mutateRoles(); }}>
       {roles.length === 0 ? (
         <div className="text-sm text-slate-400 py-12 text-center">No roles to configure.</div>
       ) : (
@@ -128,6 +135,7 @@ export function ExportOptionsPage() {
           </Table>
         </div>
       )}
+      </SettingsLoadGate>
 
       <ReauthDialog
         open={reauth.isOpen}

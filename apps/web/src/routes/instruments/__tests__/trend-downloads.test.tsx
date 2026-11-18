@@ -4,6 +4,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { BRANDING_TAB_TITLE_DEFAULT, builtinReportTemplate } from '@digilog/shared';
 import { STUB_PNG, withoutCanvas } from '@/test-support/canvas-stub';
 import { brandingFetch } from '@/test-support/branding-stub';
+import { reportRowsFake } from '@/test-support/report-rows-fake';
 
 // Branding and its logo answer: a report made now REFUSES when either cannot be
 // read (ruling F-1, extended 2026-11-03). Branding names nothing, so the
@@ -53,8 +54,10 @@ const history = [
 ];
 
 /** Rows the period holds beyond what the sampled path returned — set by a test
- *  to make the Data Report's interval path fetch the whole period. */
+ *  so the sampled call's true total differs from what it returned (a RAW report
+ *  then sizes its whole-period read by it). */
 let extraTotal = 0;
+
 
 const overviewRow = {
   instrumentId: 'i-1', code: 'DEMO-TH-142', name: 'Demo', isActive: true, room: null,
@@ -81,6 +84,8 @@ function dataFor(key: string | null): any {
   if (!key) return undefined;
   if (key.includes('/telemetry-overview')) return { data: [overviewRow] };
   if (key.includes('/telemetry-keys')) return { data: [] };
+  // The interval Data Report's slot rows, answered by the server's rule (G1-01).
+  if (key.includes('/telemetry-report-rows?')) return reportRowsFake(history, key, extraTotal);
   if (key.includes('/telemetry?')) {
     // The paged path, asked for the whole period (`limit=<total>`), returns it
     // all; the sampled path reports how many the period holds beyond the sample.
@@ -460,18 +465,29 @@ describe('trend page downloads', () => {
     expect(screen.queryByLabelText(/^Interval$/)).toBeNull();
   });
 
-  it('fetches the WHOLE period, not the sample, before choosing each interval\'s first reading', async () => {
+  it('reads each interval\'s first instant from the SERVER, never the whole period (G1-01)', async () => {
+    // Until 2026-11-17 an interval report downloaded EVERY reading of the period
+    // (`limit=<total>`; 78 MB for 26 instruments x 7 days) and kept one per slot in
+    // the browser. The server now keeps them by the same rule
+    // (`/telemetry-report-rows`); the report above is identical either way.
     extraTotal = 5;
+    (apiClient.get as any).mockClear();
     try {
       renderPage(`${FIXED}&interval=5m`);
       await download(3);
       const urls = (apiClient.get as any).mock.calls.map((c: any[]) => String(c[0]));
-      const telemetryCalls = urls.filter((u: string) => u.includes('/telemetry?'));
-      // The sampled call (for the true total and the extremes) AND a paged call
-      // sized by that total.
-      expect(telemetryCalls.some((u: string) => u.includes('points='))).toBe(true);
-      // Seven fixture rows plus the five the period holds beyond them.
-      expect(telemetryCalls.some((u: string) => /[?&]limit=12\b/.test(u))).toBe(true);
+      // The sampled call is still made, for the true total and the extremes.
+      expect(urls.some((u: string) => u.includes('/telemetry?') && u.includes('points='))).toBe(true);
+      // ONE slot-rows call: this period, this interval, the report's keys.
+      const rowsCalls = urls.filter((u: string) => u.includes('/telemetry-report-rows?'));
+      expect(rowsCalls).toHaveLength(1);
+      const q = new URLSearchParams(rowsCalls[0].slice(rowsCalls[0].indexOf('?') + 1));
+      expect(q.get('intervalMs')).toBe('300000');
+      expect(q.get('from')).toBe('2026-08-24T00:10:00.000Z');
+      expect(q.get('to')).toBe('2026-08-24T01:00:00.000Z');
+      expect(q.get('keys')!.split(',').sort()).toEqual(['humidity', 'temperature']);
+      // And the whole period is NOT downloaded.
+      expect(urls.some((u: string) => u.includes('/telemetry?') && /[?&]limit=/.test(u))).toBe(false);
       expect(lastPdfText()).not.toMatch(/REPRESENTATIVE SAMPLE/);
     } finally {
       extraTotal = 0;
@@ -486,7 +502,8 @@ describe('trend page downloads', () => {
     // which drops a non-numeric reading before sampling — so the failure word
     // the operator asked to see in bold could never appear at Raw. Now every
     // stored reading is read on the paged path, sized by the sampled call's
-    // true total, at Raw and with an interval alike.
+    // true total. (An INTERVAL report reads only its slots' readings since
+    // 2026-11-17 — the test above; Raw prints every reading, so it reads them all.)
     extraTotal = 5;
     try {
       renderPage(FIXED);

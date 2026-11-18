@@ -33,6 +33,17 @@ interface LoginResponse {
   };
 }
 
+/**
+ * The server could not ANSWER (performance audit 2026-11-17): a read that timed out
+ * (`code: 'TIMEOUT'`, `lib/api-client.ts`) or a 503 DATABASE_UNAVAILABLE. Like a
+ * network error it says nothing about the session — before this, a database outage
+ * sent every signed-in user to /login with their token still in storage, to a login
+ * that could not succeed either. A 401 still ends the session (`sessionEnded`).
+ */
+export function isServerUnavailable(err: any): boolean {
+  return err?.code === 'TIMEOUT' || err?.status === 503;
+}
+
 /** Check if an error is a network failure (not a real API error like 401) */
 function isNetworkError(err: any): boolean {
   if (!err) return false;
@@ -180,16 +191,26 @@ export function useAuth() {
     return () => { clearInterval(interval); clearTimeout(initialRefresh); };
   }, [user]);
 
+  // SWR reports `isLoading` true at the start of EVERY revalidation while its
+  // cache holds no data — the cached user is `fallbackData`, which SWR ignores
+  // for this ("bypasses fallback data"). After `/api/auth/me` failed because the
+  // server could not answer, each retry and each window focus therefore put the
+  // WHOLE app back behind AppLayout's spinner, unmounting the page for up to
+  // another read bound (found re-checking the hung-database case, 2026-11-17). SWR
+  // keeps the last error until a fetch succeeds, so while it says "the server
+  // could not answer" and a cached user is held, the session is not "loading".
+  const holdingCachedSession = !!user && !!error && (isNetworkError(error) || isServerUnavailable(error));
+
   return {
     user,
-    isLoading,
+    isLoading: isLoading && !holdingCachedSession,
     // Network errors should NOT log the user out — only real 401s should.
     // When offline, SWR sets `error` to a TypeError("Failed to fetch"), but
     // we still have a cached user + token, so the user stays authenticated.
     // Token presence is required so a stale cached user (after a 401 cleared
     // the token) cannot keep the app authenticated and bounce between
     // /login → / → /login.
-    isAuthenticated: !!user && !!getToken() && (!error || isNetworkError(error)),
+    isAuthenticated: !!user && !!getToken() && (!error || isNetworkError(error) || isServerUnavailable(error)),
     login,
     logout,
     mutate,

@@ -8,6 +8,7 @@ import { useBranding } from '@/hooks/use-branding';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
+import { SettingsLoadGate } from '@/components/ui/settings-load-gate';
 
 type Draft = { companyName?: string; appName?: string };
 
@@ -23,7 +24,7 @@ export function ReportPageTitlesPage() {
   const perms = (user?.permissions as string[] | undefined) ?? [];
   const canWrite = user?.role === 'SUPER_ADMIN' || hasEffectivePermission(perms, 'CONFIG_UPDATE');
 
-  const { data, mutate } = useSWR<Draft>('/api/config/report-page-titles', { revalidateOnMount: true });
+  const { data, error, mutate } = useSWR<Draft>('/api/config/report-page-titles', { revalidateOnMount: true });
   const [draft, setDraft] = useState<Draft>({});
   const [saving, setSaving] = useState(false);
 
@@ -60,6 +61,9 @@ export function ReportPageTitlesPage() {
 
   return (
     <div className="space-y-5">
+      {/* G4-01: Save PUTs the whole row; before it loads the draft is `{}`, so a
+          save then would blank whichever name was not typed. */}
+      <SettingsLoadGate what="the report identity" data={data} error={error} onRetry={() => void mutate()}>
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <p className="text-sm text-slate-500 max-w-2xl">Company &amp; application name shown in the header and footer of every report. Leave blank to use the values from <span className="font-medium text-slate-600">Branding</span>; the logo always comes from Branding.</p>
         <Button className="shrink-0" onClick={save} disabled={!canWrite || !dirty || saving}
@@ -92,6 +96,7 @@ export function ReportPageTitlesPage() {
         })}
       </div>
 
+      </SettingsLoadGate>
       <ReauthDialog
         open={reauth.isOpen}
         password={reauth.password}

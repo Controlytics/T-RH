@@ -16,6 +16,7 @@ import {
   type WIDGET_BAR_AGGS, type WIDGET_BAR_BUCKETS, type WIDGET_BAR_GROUPS,
 } from '@digilog/shared';
 import { apiClient } from '@/lib/api-client';
+import { READ_TIMEOUT_MS } from '@/lib/read-bounds';
 import { useTelemetryOverview, useTelemetrySettings, type OverviewRow } from '../use-telemetry';
 import { ALARM_REFRESH_MS, alarmScopeSelectsNothing, applyAlarmScope, type AlarmScope } from '../alarm-scope';
 import { widgetPolling } from '@/lib/polling';
@@ -209,7 +210,7 @@ export function catalogueUrl(selector: CatalogueSelector): string | null {
 /** Every key the selected instruments have sent or carry — a new key appears by itself. */
 export function useKeyCatalogue(selector: CatalogueSelector): { keys: DataKeyInfo[]; loading: boolean } {
   const url = catalogueUrl(selector);
-  const { data, isLoading } = useSWR<{ data: DataKeyInfo[] }>(url, (u: string) => apiClient.get<{ data: DataKeyInfo[] }>(u));
+  const { data, isLoading } = useSWR<{ data: DataKeyInfo[] }>(url, (u: string) => apiClient.get<{ data: DataKeyInfo[] }>(u, { timeoutMs: READ_TIMEOUT_MS }));
   return { keys: data?.data ?? [], loading: isLoading };
 }
 
@@ -439,7 +440,7 @@ export function useTelemetryBuckets(
   const url = telemetryBucketsUrl(ids, keys, range, bucket, agg, groupBy);
   const { data, error, isLoading } = useSWR<{ response: TelemetryBuckets; request: BucketRequest }>(
     url,
-    async (u: string) => ({ response: await apiClient.get<TelemetryBuckets>(u), request: bucketRequestOf(u) }),
+    async (u: string) => ({ response: await apiClient.get<TelemetryBuckets>(u, { timeoutMs: READ_TIMEOUT_MS }), request: bucketRequestOf(u) }),
     polling,
   );
   // `keepPreviousData` hands a NULL key the last key's data: asking nothing must
@@ -468,7 +469,7 @@ export function useAlarmCounts(selection: AlarmScope): { data: AlarmCounts | und
   const url = alarmCountsUrl(selection);
   const { data, error, isLoading } = useSWR<AlarmCounts>(
     url,
-    (u: string) => apiClient.get<AlarmCounts>(u),
+    (u: string) => apiClient.get<AlarmCounts>(u, { timeoutMs: READ_TIMEOUT_MS }),
     { ...polling, ...THIS_REQUEST_ONLY },
   );
   // An empty list counts nothing, never the previous selection's alarms.

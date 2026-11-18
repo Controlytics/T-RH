@@ -52,7 +52,13 @@ const ICON: Record<AlarmQuadrant, string> = {
 export function AlarmStatCards({
   counts, selected, onSelect,
 }: {
-  counts: Record<AlarmQuadrant, number>;
+  /**
+   * `null` = the counts are NOT KNOWN (still loading, or the load failed) — shown as
+   * "—", never 0. A failed load used to render four zeros on this page, a claim that
+   * the plant had no alarms made by a screen that could not read them (performance
+   * audit 2026-11-17, found by the hung-database check).
+   */
+  counts: Record<AlarmQuadrant, number> | null;
   selected: AlarmQuadrant | null;
   onSelect: (q: AlarmQuadrant | null) => void;
 }) {
@@ -84,7 +90,7 @@ export function AlarmStatCards({
                 {q.label}
               </span>
               <span className={`mt-0.5 block text-3xl font-bold leading-none tabular-nums ${p.value}`}>
-                {counts[q.id]}
+                {counts ? counts[q.id] : <span aria-label="not known" title="Not loaded">—</span>}
               </span>
             </span>
           </button>

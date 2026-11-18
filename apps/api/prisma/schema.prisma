@@ -811,6 +811,8 @@ model Alarm {
 
   @@index([state, raisedAt(sort: Desc)])
   @@index([instrumentId, raisedAt(sort: Desc)])
+  /// The default alarm order (newest first, then id) for every state at once — performance audit 2026-11-17, G2-03.
+  @@index([raisedAt(sort: Desc), id(sort: Desc)], map: "alarms_raised_at_id_idx")
   @@index([acknowledgedAt])
   @@index([source, instrumentId, metric, limitKind, state])
   /// DB-MANAGED UNIQUENESS, not expressible here: the partial unique index

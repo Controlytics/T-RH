@@ -6,6 +6,7 @@ import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
+import { SettingsLoadGate } from '@/components/ui/settings-load-gate';
 
 interface RolePanels { role: string; panels: string[] | null }
 interface UserPanels { userId: string; username: string; fullName: string | null; role: string; panels: string[] | null }
@@ -108,7 +109,7 @@ function PanelEditor({
 export function PanelAccessTab() {
   const { toast } = useToast();
   const reauth = useReauth();
-  const { data, mutate } = useSWR<{ roles: RolePanels[]; users: UserPanels[] }>('/api/roles/panel-access');
+  const { data, error: loadError, mutate } = useSWR<{ roles: RolePanels[]; users: UserPanels[] }>('/api/roles/panel-access');
   const [saving, setSaving] = useState<string | null>(null);
 
   const describe = (panels: string[] | null, inheritFrom?: string | null) => {
@@ -141,6 +142,13 @@ export function PanelAccessTab() {
       onCancel: () => setSaving(null),
     });
   };
+
+  // A failed load used to render an EMPTY list here — "no users" to someone who
+  // merely could not read them (G4-01's sibling; rows only exist once loaded, so
+  // nothing could be overwritten).
+  if (data === undefined) {
+    return <SettingsLoadGate what="the panel assignments" data={data} error={loadError} onRetry={() => void mutate()}>{null}</SettingsLoadGate>;
+  }
 
   return (
     <div className="space-y-6">

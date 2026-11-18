@@ -20,7 +20,8 @@ import { prisma } from '../../lib/prisma.js';
 import { getAttributeKeyCatalogue, getKeyCatalogue, getLatestFor, getLatestKeysByInstrument } from './telemetry.repository.js';
 import { loadMeasurementTypes, slotConfigLookup } from './profile-measurements.js';
 import { offsetKeyTest } from './load-offsets.js';
-import { buildTelemetryOverview, type OverviewRow } from './telemetry-overview.js';
+import { type OverviewRow } from './telemetry-overview.js';
+import { sharedTelemetryOverview } from './overview-share.js';
 import { annotateAttribute } from './decimals.js';
 
 /** The measurement-type code each phase-1 slot carries (`measurement_types.code`). */
@@ -199,7 +200,9 @@ export async function buildLatestValues(opts: {
   isSuperAdmin: boolean;
   visibilityWhere?: object;
 }): Promise<LatestValuesRow[]> {
-  const rows = await buildTelemetryOverview({ instrumentIds: opts.instrumentIds, visibilityWhere: opts.visibilityWhere });
+  // Shared per selection for 5 s (performance audit R1, P-02 / G2-01): every viewer
+  // of a built dashboard asks the same question per widget.
+  const rows = await sharedTelemetryOverview({ instrumentIds: opts.instrumentIds, visibilityWhere: opts.visibilityWhere });
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.instrumentId);
   const telemetryKeys = [...new Set(opts.keys.filter((k) => k.source === 'telemetry').map((k) => k.key))];

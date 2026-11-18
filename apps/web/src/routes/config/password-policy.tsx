@@ -11,6 +11,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { PageHero } from '@/components/ui/page-hero';
+import { SettingsLoadGate } from '@/components/ui/settings-load-gate';
 
 export function PasswordPolicyPage() {
   const navigate = useNavigate();
@@ -27,7 +28,7 @@ export function PasswordPolicyPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const reauth = useReauth();
-  const { data } = useSWR('/api/config/password-policy', { revalidateOnMount: true, dedupingInterval: 5000 });
+  const { data, error: loadError, mutate: revalidate } = useSWR('/api/config/password-policy', { revalidateOnMount: true, dedupingInterval: 5000 });
 
   const { register, handleSubmit, watch, reset, formState: { errors, isSubmitting, isDirty } } = useForm<PasswordPolicyConfig>({
     resolver: zodResolver(passwordPolicySchema),
@@ -67,6 +68,9 @@ export function PasswordPolicyPage() {
         }
       />
 
+      {/* G4-01: the form opens only on the STORED settings — after a failed GET
+          it held the useForm defaults, and one edit + Save wrote them all. */}
+      <SettingsLoadGate what="the password policy" data={data} error={loadError} onRetry={() => void revalidate()}>
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Status Messages */}
         {error && (
@@ -362,6 +366,7 @@ export function PasswordPolicyPage() {
           </Button>
         </div>
       </form>
+      </SettingsLoadGate>
 
       <ReauthDialog
         open={reauth.isOpen}

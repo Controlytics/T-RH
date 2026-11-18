@@ -10,6 +10,7 @@ import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useAuth } from '@/hooks/use-auth';
 import { PageHero } from '@/components/ui/page-hero';
+import { SettingsLoadGate } from '@/components/ui/settings-load-gate';
 
 interface UserIdConfig {
   format: string;
@@ -52,7 +53,7 @@ export function UserIdConfigPage() {
   const reauth = useReauth();
   const isSuperAdmin = user?.role === 'SUPER_ADMIN' || hasEffectivePermission(user?.permissions ?? [], 'CONFIG_UPDATE');
 
-  const { data: config, mutate } = useSWR<UserIdConfig>('/api/config/user-id');
+  const { data: config, error: configError, mutate } = useSWR<UserIdConfig>('/api/config/user-id');
   const { data: nextIdData } = useSWR<{ autoGenerate: boolean; nextId: string | null }>(
     config?.autoGenerate ? '/api/config/user-id/next' : null
   );
@@ -182,6 +183,10 @@ export function UserIdConfigPage() {
         </div>
       )}
 
+      {/* G4-01: no form — and so no Save — until the stored format has loaded.
+          The defaults below were shown after a failed GET and Save (gated only
+          on `saving`) wrote them over the real format. */}
+      <SettingsLoadGate what="the User ID format" data={config} error={configError} onRetry={() => void mutate()}>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Configuration */}
         <div className="lg:col-span-2 space-y-6">
@@ -509,6 +514,7 @@ export function UserIdConfigPage() {
           </Card>
         </div>
       </div>
+      </SettingsLoadGate>
       <ReauthDialog
         open={reauth.isOpen}
         password={reauth.password}

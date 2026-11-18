@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { createPortal } from 'react-dom';
 import useSWR from 'swr';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
@@ -204,7 +205,13 @@ export function SelectionAlarms({ functionalLocationId: homeLocationId, scope, o
     scope?.initialStatus ? { ...EMPTY_WIDGET_FILTERS, status: scope.initialStatus } : EMPTY_WIDGET_FILTERS,
   );
   const toolbarSlot = usePanelToolbarSlot();
-  useEffect(() => { onFiltersChange?.(filters); }, [filters, onFiltersChange]);
+  // The filters the QUERY uses: the search settles for 300 ms first, so a word
+  // typed into the box is one request, not one per keystroke (performance audit
+  // 2026-11-17, G1-09). What a built table's report is told is this — the set
+  // the table is actually showing.
+  const search = useDebouncedValue(filters.search, 300);
+  const queryFilters = useMemo(() => ({ ...filters, search }), [filters, search]);
+  useEffect(() => { onFiltersChange?.(queryFilters); }, [queryFilters, onFiltersChange]);
 
   // The scope comes from the ONE builder `/api/alarms/counts` uses too (the home
   // panel's is its location alone).
@@ -213,7 +220,7 @@ export function SelectionAlarms({ functionalLocationId: homeLocationId, scope, o
   const nothingInScope = alarmScopeSelectsNothing(scope);
 
   const { data, error, mutate } = useSWR<{ data: AlarmRow[]; total: number }>(
-    alarmListUrl(scope ?? { functionalLocationId }, filters, page, pageSize),
+    alarmListUrl(scope ?? { functionalLocationId }, queryFilters, page, pageSize),
     {
       // THE dashboards' polling and retry policy (R7-11), for the home panel and
       // the alarm table widget alike: a failure is retried at the panel's cadence
@@ -236,9 +243,14 @@ export function SelectionAlarms({ functionalLocationId: homeLocationId, scope, o
    * end of the new one, and the panel would open empty on a location that has
    * alarms.
    */
-  useEffect(() => {
+  // Adjusted during RENDER, not in an effect (G1-09): the effect let one request go
+  // out at the stale page before the reset landed — two requests per change.
+  const resetKey = `${functionalLocationId}|${pageSize}|${search}|${filters.type}|${filters.status}`;
+  const [seenResetKey, setSeenResetKey] = useState(resetKey);
+  if (seenResetKey !== resetKey) {
+    setSeenResetKey(resetKey);
     setPage(1);
-  }, [functionalLocationId, pageSize, filters.search, filters.type, filters.status]);
+  }
 
   /**
    * Acknowledging here is the SAME §11 signature as on the Alarms page, and is

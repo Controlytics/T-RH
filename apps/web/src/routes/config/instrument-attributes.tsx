@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Toggle } from '@/components/ui/toggle';
 import { Card, CardContent } from '@/components/ui/card';
 import { FormSection } from '@/components/ui/form-section';
+import { SettingsLoadGate } from '@/components/ui/settings-load-gate';
 import { PageHero } from '@/components/ui/page-hero';
 import { SkeletonCard } from '@/components/ui/skeleton';
 import { RemarkDialog } from '@/routes/instruments/remark-dialog';
@@ -152,10 +153,10 @@ export function InstrumentAttributesConfigPage() {
   // `UPDATE_INSTRUMENT_PROFILE` is an admin-configurable re-auth action
   // (audit 2026-10-03, SEC-7); the server checks it first on the profile PUT.
   const reauth = useReauth();
-  const { data: profileList, mutate: mutateProfiles } = useSWR<{ data: Profile[] }>('/api/instrument-profiles');
+  const { data: profileList, error: profileListError, mutate: mutateProfiles } = useSWR<{ data: Profile[] }>('/api/instrument-profiles');
   // The SUPER_ADMIN editor endpoint for the display-name map (this page is
   // SUPER_ADMIN); every other screen reads the narrow-slice route instead.
-  const { data: labelsRow, mutate: mutateLabels } = useSWR<{ labels?: unknown }>('/api/config/dynamic/attribute-labels');
+  const { data: labelsRow, error: labelsError, mutate: mutateLabels } = useSWR<{ labels?: unknown }>('/api/config/dynamic/attribute-labels');
   const storedLabels = coerceAttributeLabels(labelsRow);
   const storedHidden = coerceSettingsHidden(labelsRow);
 
@@ -239,6 +240,16 @@ export function InstrumentAttributesConfigPage() {
   }
 
   if (rows === null) {
+    // A failed load used to leave this skeleton up for good (G4-01's sibling:
+    // nothing could be overwritten, but nothing said the load had failed).
+    if (profileListError || labelsError) {
+      return (
+        <SettingsLoadGate what="the instrument attribute settings" data={undefined} error={profileListError ?? labelsError}
+          onRetry={() => { void mutateProfiles(); void mutateLabels(); }}>
+          {null}
+        </SettingsLoadGate>
+      );
+    }
     return (
       <div className="space-y-3">
         {Array.from({ length: 4 }, (_, i) => <SkeletonCard key={i} lines={1} />)}

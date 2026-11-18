@@ -1,5 +1,201 @@
 # Changelog
 
+## [Unreleased] - Performance audit R1: capacity and the heaviest paths (2026-11-17)
+
+Operator: "continue" (R1 of `docs/audit/2026-11-17-performance-reliability-audit.md`), then chose the recommended
+design for the three items that change behaviour: P-04 reserved pool + limits, P-02 share + compress, G1-01 / G1-05
+server-built Data Report rows. **Migrations 56 → 57; web hooks 26 → 27; one API endpoint added
+(`GET /api/instruments/:id/telemetry-report-rows`); no model, enum, permission, reauth action, module, def, page or web
+route moved.** Each item below has a test that fails without it (mutation-checked) unless it says otherwise. Rules for
+the next change: `docs/feature-notes.md` PERFORMANCE AUDIT R1.
+
+- **P-08 / S2-H5 — the instrument detail page polled EVERY reading the instrument ever sent, every 15 s** (9.2 MB and a
+  1.3 s event-loop stall per open page at 87k readings), to show only the latest values. It asks for one history row
+  (`?limit=1`); `detail-latest-only.test.tsx`.
+- **G2-03 — no index served the default alarm order.** Migration `20261117120000_alarms_raised_at_id_idx`
+  (`alarms (raised_at DESC, id DESC)`, hand-authored, applied to `compliance_core_db` and `_test`, drift guard PASS):
+  an Alarms page at 106,822 alarms went from 47 ms (parallel seq scan + sort) to 0.075 ms (index-only scan);
+  `e2e/alarm-order-index.e2e.test.ts` EXPLAINs both directions. **The AWS deploy must apply it.**
+- **G2-03 — `/api/alarms/counts` ran 1 + 7 scans of the same set** in a RepeatableRead batch, per alarm widget per
+  viewer every 30 s. Now ONE `groupBy` by state / source / metric / limit_kind, each group classified by
+  `matchesTypeToken` — which reads the SAME `TYPE_WHERE` table the `type` filter is built from, so counts and list cannot
+  drift (it throws if an entry stops being plain equality). 118 → 50–72 ms at 106,822 alarms; the 14 alarm e2e files
+  (238 tests, incl. exact per-type numbers and visibility scoping) unchanged and green.
+- **G2-04 — a signed alarm report paged by OFFSET over a non-unique order.** Every alarm order now ends in the unique
+  `id`, and the alarm-table widget's report pins every page to the instant the export started (`to=`), so a row raised
+  mid-export cannot shift the pages. **Still open:** under the Status / Cleared sorts a row whose state changes
+  mid-export can move between pages — only keyset paging closes that.
+- **G1-09 — every keystroke in the dashboard alarm panel's and the trend alarms widget's search was a request**, and a
+  filter change sent a second one at the stale page. `useDebouncedValue` (300 ms, new hook) and the page reset moved into
+  render (the trend page's pattern).
+- **P-04 — one pool of 9 connections served everything** (E2: under a slow database the dashboard / alarm / bell polls
+  held all of them and sign-in and health failed with a pool timeout). `lib/prisma.ts` now keeps THREE pools and
+  `prisma` is the client of the pool the current request runs in (AsyncLocalStorage; a route opts in with
+  `config: { dbPool }`, so everything it calls — `auditLog`, config loaders — lands on the same pool, unchanged at 113
+  call sites):
+  - `general` (10) — everything else; `critical` (3, RESERVED, opened at boot) — sign-in / sign-out / refresh / me,
+    `/api/health`, alarm acknowledgement; `long` (2) — backup export / restore / validate, chain verification, partition
+    maintenance (task and boot), with NO time limit.
+  - Time limits per CONNECTION (`options=-c statement_timeout`, `socket_timeout`), never on the `digilog` role the sibling
+    DigiLog app shares: 5 min on `general` and `critical` (the longest read the browser waits for, so no legitimate
+    report is cut); `socket_timeout` ends a HUNG connection, which a statement limit cannot (measured: 3 s bound → 3,067 ms;
+    none → 24 s). A cut statement is a 503 — the three Prisma shapes of a timeout were measured and mapped
+    (`databaseUnavailable`); any other raw-query failure stays a 500.
+  - The reserved pool also gets 15 s to open a connection and 15 s / 60 s for an interactive transaction (Prisma's
+    2 s / 5 s lost a sign-in's audit transaction under the retest); the other pools keep Prisma's defaults.
+  - Every rule-engine flow runs on `general` whatever request emitted it (the dispatch inherits the context of whoever
+    pushed last — not separately tested). Shutdown now closes all three pools.
+  - **Runtime (E2 at 1 s per round trip, the general pool saturated):** `/api/health` 200 in ~4 s and sign-in 200
+    (45 s / 73 s — every round trip costs 2 s) — before, both failed with a pool timeout at 10 s; the polls fail fast with
+    503 + `Retry-After`. `e2e/db-pools.e2e.test.ts` (each pool's limits and name in `pg_stat_activity`; the hook, the
+    handler and the connection agree; the real routes' pools pinned) and `lib/__tests__/prisma-pools.test.ts`.
+  - Connection budget per API process: 10 + 3 + 2 Prisma + graphile-worker's own pool. The AWS RDS is a db.t3.micro —
+    read `SHOW max_connections` there before the deploy.
+- **P-02 — the overview was recomputed for EVERY viewer every 5 s** (~0.9 s of single-threaded work at 1,013
+  instruments and ~1 MB of JSON per poll; 50 viewers took p50 to 5.9 s, 500 got connection errors — the API's CPU, not
+  the database, was the ceiling). Two changes, the operator's "share + compress":
+  - `modules/instruments/overview-share.ts`: `/api/instruments/telemetry-overview` and `POST /latest-values` call
+    `sharedTelemetryOverview` — ONE computation per (caller's visibility, selection) per 5 s, single-flight (callers
+    asking while it runs share it), a failed computation never kept, at most 256 selections held. The key is every
+    option the builder takes; the visibility filter is plain id lists, so two scopes cannot share a key. Readings may be
+    up to 5 s old — the staleness the 5 s poll already has. The rows are frozen so a caller mutating them fails loudly
+    instead of changing another viewer's response. The alarm evaluator still calls `buildTelemetryOverview` directly.
+    `OVERVIEW_SHARE_MS` overrides the window; `vitest.env.ts` sets 0 (share only what is in flight).
+    `__tests__/overview-share.test.ts` (7).
+  - `lib/compress-json.ts`: a JSON response of 16 KB or more is gzipped (Node's zlib, fastest level, off the event loop)
+    when the request accepts it, with `Vary: Accept-Encoding`; a streamed body (the backup download) or an
+    already-encoded one is untouched. Registered in `app.ts` AND `e2e/test-helper.ts`. `lib/__tests__/compress-json.test.ts` (9).
+  - **Retest (2026-11-18, E4 again: same probe, same load model, same perf copy at 1,013 instruments; R0 + R1 in;
+    the dev stack running beside it):** 50 viewers p50 5,899 → **73 ms**, p95 10,235 → 241 ms, event loop p50 1,137 →
+    2 ms, 13.3 → 21.9 rps (it now keeps up with the offered load); 100 viewers p50 6,202 → **490 ms**, p95 12,906 →
+    1,212 ms, no errors; every overview gzipped (998 KB of JSON → ~70 KB on the wire). A second pass with each
+    dashboard viewer on a different Area (8 in the copy — different share keys) behaved the same (100: p50 689 ms).
+    **500 viewers still fail:** 68.4 % → 54.7 % connection errors (`vary` 43.5 %), event loop p50 ~1 s — the ceiling
+    moved from under 50 to between 100 and 500 on this laptop, where the client and the server share one CPU, so that
+    step is not conclusive. Memory after it: 704 MB working set (797 MB on 2026-11-17). Scripts and raw results:
+    `docs/audit/2026-11-17-perf-audit-scripts/r1-retest-*`.
+- **G1-01 — an interval Data Report downloaded every reading of the period into the browser** (78 MB for 26
+  instruments × 7 days) to keep one reading per slot. New `GET /api/instruments/:id/telemetry-report-rows`
+  (`report-rows-routes.ts`, a child plugin of the instruments routes; `INSTRUMENT_READ`, visibility-scoped like
+  `/:id/telemetry` — 404 out of scope): the server keeps each slot's FIRST millisecond instant carrying one of the
+  report's keys, anchored on the period's first instant — the browser's own `scheduleRows` rule — and returns every
+  reading of those keys at it, raw; `historyTotal` is still every reading in the period. The web
+  (`data-report-fetch.ts`) uses it whenever an interval is set, and builds the report exactly as before (same pivot,
+  same schedule, same NA rows); a RAW report still reads every reading. Checked against the browser's rule on 83,522
+  readings of the perf copy (7 / 15 / 60-minute intervals: identical instants); `e2e/report-rows.e2e.test.ts` (5) is
+  the oracle, `data-report-fetch.test.ts`.
+  - **Retest (2026-11-18, perf copy, 30 instruments × the 7 days ending at the generated history's last reading, warm
+    cache, old and new in ONE run, 4 at a time like the page):** whole period 564,536 rows / 93.3 MB of JSON / 11.3 s;
+    slot rows at 5 min 112,952 rows / 39.7 MB / 6.6 s, at 15 min 37,688 / 33.9 MB / 5.6 s, at 1 h 9,464 / 31.7 MB /
+    5.8 s; at **1 minute NOTHING is gained** (this data is one instant a minute — every instant is its own slot). The
+    retest showed the floor of ~31 MB was the SAMPLED chart call (`points=5000`), made only for `historyTotal` and the
+    SQL `summaries` and its rows thrown away — so it now asks for **`points=2`** (`SUMMARY_ONLY_POINTS` in
+    `data-report-fetch.ts`; both values are SQL over every reading whatever `points` is, `lttb` keeps first + last):
+    15 min **3.0 MB / 4.6 s**, 1 h 0.78 MB / 4.2 s, 5 min 8.8 MB / 4.8 s, 1 min 44 MB / 7.9 s. Pinned on BOTH sides,
+    each mutation-checked: the client asks 2 (`data-report-fetch.test.ts`); the server returns the same `historyTotal`
+    and `summaries` (Max / Min / MKT) at 2 points as at 5,000 for the report's exact call
+    (`e2e/instrument-telemetry-range.test.ts`; a total taken from the sampled rows fails it, 3 ≠ 5). The ~4 s left is the server reading every row for the summaries.
+    On the wire (gzip): one instrument's whole period 151 KB, its 15-minute slot rows 9.3 KB.
+- **G1-05 — NOT DONE, now measured.** The Data Report TABLE still pages by OFFSET and recounts every instant on every
+  page (perf copy, 30 instruments × 30 days: page ≈ 4.2 s + count ≈ 5.4 s per click). A query rewrite measured no
+  gain (1,529 → 1,724 ms), and so did the `(instrument_id, ts DESC)` index this entry first named (built, measured,
+  dropped on the perf copy: 4,157 / 5,409 ms). **An index in the query's own order, `(ts DESC, instrument_id)`, takes
+  page 1 to 1.7 ms and page 50 to 16 ms** and leaves sparse selections on the existing index (1.5–10.9 ms either
+  way); it does not touch the count. Build: ~10 s on 2.71 M readings, blocking writes unless built per partition
+  CONCURRENTLY. Waiting for the operator. WA-26 (450 ids → HTTP 431) is also still open.
+- **Verification (2026-11-18):** api `npm run lint` and web `tsc --noEmit` clean; full single-fork API run
+  312 / 312 files, 4,427 / 4,427 tests, 0 skipped (EMQX up, so `device-certificate-emqx` ran). Web, every file on its
+  own (exit code read straight off vitest): 251 / 252 files — **`trend-downloads.test.tsx` was red (4), a G1-01
+  regression in the TEST, not the page**: its fake API did not know `/telemetry-report-rows`, so the interval download
+  read the instrument row as its readings and never saved (3 timeouts; the 4th failed only after them and passes
+  alone), and one test pinned the old contract ("fetches the WHOLE period"). The fake now answers the endpoint by the
+  server's rule; that test now pins the new one (ONE slot-rows call with the period, interval and keys; NO
+  whole-period `limit=` call) and fails when the client is put back on the whole-period path (mutation-checked; the
+  other 32 stay green under the mutant — the printed report is the same either way). 33 / 33. **Final tree (after
+  `points=2` and the two new tests), web re-run file by file: 252 / 252 files, 3,353 passed, 0 failed**; api lint and
+  web tsc clean; the one API file touched after the full API run (`instrument-telemetry-range`) 33 / 33.
+  The Data Report PAGE (`generate-report-card.test.tsx`) had no interval test at all — its fake would have answered the
+  new endpoint with `{}`; it gained one (one `/telemetry-report-rows` call per instrument with the period, interval and
+  keys, no whole-period read), killed by the same mutant. The fake is shared: `src/test-support/report-rows-fake.ts`.
+  Rest of the sweep: shared 993 / 993; queue 16 / 16 (with `TEST_DATABASE_URL`; it was RED — a Batch 1 regression in
+  `crontab-handlers.test.ts`, fixed and staged with Batch 1, see that entry); `--project integration` 2 skipped by design.
+
+## [Unreleased] - Performance audit R0: the four first fixes (2026-11-17)
+
+Operator: "fix those first" — the R0 group of `docs/audit/2026-11-17-performance-reliability-audit.md`. **No
+migration; no model, enum, permission, reauth action, module, def, page or route count moved** (one new web
+component, the shared `components/ui/settings-load-gate.tsx`, and one lib file, `lib/read-bounds.ts` — `ls apps/web/src/lib/`
+30 → 31; plus test files). Each fix below has a test that fails
+without it (mutation-checked) EXCEPT three, said where they occur: the 503 wiring in `app.ts` / `e2e/test-helper.ts`
+(the mapper is unit-tested; the wiring is shown by the E1 re-run only — no e2e drives a route to 503), `useBranding`'s
+`res.ok` fix and the Sidebar tab's stuck `isTransitioning` (both by reading only). The runtime results are from the
+isolated perf copy (`compliance_core_db_perf`, perf API :3201, fault proxy).
+
+- **G4-01 (CRITICAL) — a configuration form whose load FAILED could save its defaults over the stored settings.**
+  Reproduced in the audit: Telemetry Retention 36 → 12 months. One gate now decides it for every page —
+  `SettingsLoadGate` (`data !== undefined` → the form; no data + an error → "Could not load … Nothing has been
+  changed" with Try again; otherwise "Loading …"; a failed REVALIDATION after a good load keeps the form). Applied to
+  the dynamic config page (also: nothing seeded until the stored row arrives; the registry gets its own load error
+  instead of "Configuration not found"), LDAP, User ID, Pagination (all three saved defaults with NO edit), Export
+  Options and Configuration Access (Save PUT the whole matrix as `{}` + one tick), Report Page Titles, Action
+  Re-authentication and Roles & Access → Re-authentication (`config ?? {}`: one tick + Save switched §11
+  re-authentication off for every other action), Branding, Date / Time, Password Policy, E-mail and SMS settings
+  (react-hook-form defaults). Every `routes/config` page was checked, not only the six the audit named; the ones that
+  could not overwrite (row editors, Layout Designer — its annotations PUT carries `expectedUpdatedAt` — Audit
+  Templates, Profile Measurements, the template editor) were left alone, and the ones that showed an EMPTY list or an
+  endless skeleton on a failed load (Report Settings, Instrument Attributes, Field IDs, the Panels / Instrument
+  visibility / Attribute access / per-user attribute tabs) now say the load failed. Runtime (B2): with the database
+  cut, Telemetry Retention shows the error and no Save; after Try again the form opens on the stored 36; the row's
+  `updated_at` is unchanged. Pinned by `config/__tests__/config-load-failure.test.tsx` (46: every page, failed and
+  pending). Server-side merge / `expectedUpdatedAt` for config PUTs (S8-23) is NOT done — a residual.
+- **Found while gating it — Roles & Access → Permissions could write one role's permissions to another.** The
+  toggles were seeded in SWR's `onSuccess`, which fires only when a fetch completes: switching to a role whose
+  config was cached showed the PREVIOUS role's ticks under the new name until the revalidation landed, and a tick +
+  Save in that window wrote them. The Permissions and Sidebar tabs now seed from the SELECTED key's data and show
+  the editor (and, through `canSave`, the Save button) only once seeded for that key; a failed load during a sidebar
+  role switch no longer leaves the role buttons disabled for good (not tested). `permissions-tab-role-switch.test.tsx`
+  fails on the old code.
+- **Also found by the hung-database check — the Alarms page showed 0 / 0 / 0 / 0 when the alarms could not be
+  loaded.** The cards now show "—" until the server answers (`alarm-stat-cards.tsx`; `alarms-page.test.tsx`).
+- **P-01 — every audit write sequentially scanned the whole audit trail under the global chain lock.** The
+  chain-head read was `ORDER BY chain_position DESC NULLS LAST`, which the ascending index cannot serve. It is now
+  `WHERE chain_position IS NOT NULL ORDER BY chain_position DESC` (`AUDIT_CHAIN_HEAD_SQL`, `lib/audit.ts`; the
+  column is NOT NULL, so the head is the same row). Measured on 107,311 rows: **0.046 ms (Index Scan Backward) vs
+  106 ms (Seq Scan + sort)**. `e2e/audit-chain-head.e2e.test.ts` EXPLAINs the shipped text.
+- **P-05 — a database that cannot answer is a 503, not a 500.** `databaseUnavailable()` (`lib/errors.ts`) maps P1001 /
+  P1002 / P1008 / P1017 / P2024 (read from `code` or `errorCode`) to `503 DATABASE_UNAVAILABLE` + `Retry-After: 5`
+  in `app.ts` AND `e2e/test-helper.ts` (wiring shown by E1 only); still logged and SYSTEM_ERROR-notified. P2028 deliberately not mapped. The body
+  no longer carries Prisma's text (file paths, source) to the browser in development. Runtime (E1): during a 5 s and
+  a 60 s cut every route answered 503 in < 150 ms (before: health 503, the rest 500); every route 200 on the first
+  tick after each restore.
+- **P-03 — reads are bounded in the browser.** `apiClient` aborts a READ that has not finished — headers AND body —
+  in its bound, failing with `code: 'TIMEOUT'`: every SWR page load 30 s (`READ_TIMEOUT_MS`); an explicit
+  `apiClient.get` (reports, downloads) and the Data Report / time-series `telemetry-history` reads 5 min
+  (`LONG_READ_TIMEOUT_MS`, G1-05 measured 12.6 s a page); the backup download none. **Writes are NOT bounded in the
+  browser on purpose** (an aborted POST may still commit; a retry could record it twice) — that needs the server-side
+  statement bound below. `useBranding` reads through the client (its raw `fetch` cached a 503's ERROR body as the
+  branding, under the key the Branding page reads — not tested; the route is public and ignores the token). `use-auth`
+  keeps a cached session on a TIMEOUT or a 503 as it does on a network error (a database outage used to send every
+  signed-in user to /login), and does not report `isLoading` for a RETRY after such an error while it holds a cached
+  user — SWR sets `isLoading` on every revalidation when its cache is empty (fallback data does not count), so each
+  retry and window focus put the whole app back behind the shell's spinner (`use-auth-server-unavailable.test.tsx`,
+  mutation-checked). Runtime (B4, sampled to 36 s, before that last fix): with the database hung, the shell's
+  "Loading…" — which never ended before — ended at 30 s with the page's errors shown. A WRITE on a hung connection is
+  still unbounded everywhere until R1.
+- **G4-02 / G4-03 — LDAP and the OAuth2 e-mail token request had no operation time limit.** ldapts gets `timeout:
+  LDAP_OPERATION_TIMEOUT_MS` (10 s) and the client is released in `finally` on every path (a failed bind left the
+  socket open); every OAuth2 token request (three refreshes + the authorization-code exchange) carries
+  `AbortSignal.timeout(OAUTH_TOKEN_TIMEOUT_MS)` (15 s, the SMS gateway's bound). Pinned against a silent TCP
+  listener and a silent HTTP server (`e2e/ldap-timeout.e2e.test.ts`, `email-oauth-token-timeout.test.ts`).
+- **Verified:** API single-fork run 306 / 306 files, 4,373 tests (303 / 4,348 before — the difference is exactly the
+  three new files); web: every file one at a time, then one full run 3,345 / 3,346 (the one: a Register Map Editor case
+  timing out at 5 s under load — it passes alone 2 / 2 and R0 does not touch it); `npm run lint` clean in both. The
+  bounds live in `lib/read-bounds.ts`, not in `api-client.ts`: a hundred tests mock the client with a factory that
+  returns only `apiClient`, and Vitest throws on any other export of such a mock (inside an SWR fetcher, silently).
+- **Not in R0, on purpose:** a database-level statement bound (it needs exemptions for backup / restore / partition
+  maintenance / verify-chain, and `ALTER ROLE digilog` would also bound the sibling DigiLog app, which shares the
+  role) — R1, with the P-04 pool split; Fastify's `requestTimeout` (it bounds RECEIVING a request, not the handler).
+
 ## [Unreleased] - The local checkout moved (2026-11-17)
 
 Operator moved the checkout from `C:\Users\hello\compliance-core` to

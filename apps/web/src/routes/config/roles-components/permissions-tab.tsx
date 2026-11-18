@@ -13,6 +13,7 @@ import { groupFeaturePrivilegesByTree } from './permission-tree-grouping';
 import type { TreePermissionNode } from './permission-tree-grouping';
 import { heldToggles, heldCaption } from './held-toggles';
 import { SkeletonRows } from '@/components/ui/skeleton';
+import { SettingsLoadGate } from '@/components/ui/settings-load-gate';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -123,10 +124,25 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
     const reauth = useReauth();
 
     // Load role config — contract: SWR /api/config/roles/${role} → data.permissions
-    const { data: roleConfig, isLoading: permLoading, mutate: reloadRoleConfig } = useSWR(
+    const { data: roleConfig, error: roleConfigError, mutate: reloadRoleConfig } = useSWR(
       `/api/config/roles/${permSelectedRole}`,
-      { onSuccess: (data) => { setPermissions(data.permissions || {}); setPermDirty(false); } }
     );
+    // The toggles are seeded from the SELECTED role's stored config, and the tree
+    // is shown only once they have been seeded FOR THAT ROLE (performance audit
+    // 2026-11-17, G4-01). They used to be seeded in SWR's `onSuccess`, which
+    // fires only when a fetch completes: after a FAILED load the tree showed `{}`
+    // (one tick + Save then stripped the role), and on switching to a role whose
+    // config was cached it showed the PREVIOUS role's ticks under the new name
+    // until the revalidation landed — a tick + Save in that window wrote role A's
+    // permissions to role B.
+    const [seededFor, setSeededFor] = useState<string | null>(null);
+    useEffect(() => {
+      if (roleConfig === undefined) return;
+      setPermissions(roleConfig.permissions || {});
+      setPermDirty(false);
+      setSeededFor(permSelectedRole);
+    }, [roleConfig, permSelectedRole]);
+    const permReady = roleConfig !== undefined && seededFor === permSelectedRole;
 
     // Save — contract: PUT /api/config/roles/${role} with { permissions, reason }.
     // The server demands a REASON whenever the permission SET changes (audit
@@ -367,10 +383,18 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
         {/* Permissions Tree — Sidebar → Page → Action */}
         <Card className="border-0 shadow-[var(--elev-2)] overflow-hidden">
           <CardContent className="p-0">
-            {permLoading ? (
-              <div className="p-16 text-center">
+            {!permReady ? (
+              roleConfigError ? (
+                <div className="p-6">
+                  <SettingsLoadGate what={`the ${permSelectedRole} permissions`} data={undefined} error={roleConfigError} onRetry={() => void reloadRoleConfig()}>
+                    {null}
+                  </SettingsLoadGate>
+                </div>
+              ) : (
+                <div className="p-16 text-center">
 <SkeletonRows rows={6} columns={2} />
 </div>
+              )
             ) : (
               <div className="divide-y divide-slate-100">
 

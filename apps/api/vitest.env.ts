@@ -85,5 +85,10 @@ if (!/_test(\?|$)|test_db(\?|$)|digilog_test_db/.test(finalUrl)) {
 // Ensure JWT secrets exist for tests that import lib/jwt.ts before the prisma
 // client (some service tests construct tokens during fixture setup).
 process.env.JWT_SECRET ??= 'TEST_JWT_SECRET_AT_LEAST_32_CHARACTERS_LONG_FOR_HS256_SUITE';
+// The dashboard overview is shared per selection for 5 s in the running app
+// (performance audit R1, P-02). Here only a computation IN FLIGHT is shared: an e2e
+// writes and then reads, and must see what it wrote. The window itself is pinned by
+// `modules/instruments/__tests__/overview-share.test.ts`.
+process.env.OVERVIEW_SHARE_MS ??= '0';
 // (VERIFICATION_TOKEN_SECRET used to be set here too; nothing reads it since
 // POST /api/auth/verify was removed — audit 2026-10-03, SEC-5.)

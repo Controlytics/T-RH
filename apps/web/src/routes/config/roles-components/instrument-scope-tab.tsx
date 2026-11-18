@@ -5,6 +5,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
+import { SettingsLoadGate } from '@/components/ui/settings-load-gate';
 
 /** The server's bound on the reason (`lib/require-reason.ts`). */
 export const SCOPE_REASON_MAX = 500;
@@ -307,7 +308,7 @@ export function InstrumentScopeTab() {
   // Deliberately the UNSCOPED admin listing, not /api/instruments: an admin who is
   // themselves scoped would otherwise build a scope from half the plant and not know.
   const { data: instrumentList } = useSWR<{ data: PickerInstrument[] }>('/api/roles/instrument-scope/instruments');
-  const { data, mutate } = useSWR<{ roles: RoleScope[]; users: UserScope[] }>('/api/roles/instrument-scope');
+  const { data, error: loadError, mutate } = useSWR<{ roles: RoleScope[]; users: UserScope[] }>('/api/roles/instrument-scope');
   const [saving, setSaving] = useState<string | null>(null);
 
   const locations = tree?.data ?? [];
@@ -353,6 +354,13 @@ export function InstrumentScopeTab() {
       onCancel: () => setSaving(null),
     });
   };
+
+  // A failed load used to render an EMPTY list here — "no users" to someone who
+  // merely could not read them (G4-01's sibling; rows only exist once loaded, so
+  // nothing could be overwritten).
+  if (data === undefined) {
+    return <SettingsLoadGate what="the instrument visibility settings" data={data} error={loadError} onRetry={() => void mutate()}>{null}</SettingsLoadGate>;
+  }
 
   return (
     <div className="space-y-6">

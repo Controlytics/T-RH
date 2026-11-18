@@ -120,7 +120,8 @@ export function BackupRestorePage() {
       // with the server's message, which `onError` below shows.
       const headers: Record<string, string> = {};
       if (password) headers['x-reauth-password'] = password;
-      const response = await apiClient.getRaw(`/api/backup/export?format=${selectedFormat}`, { headers });
+      // No client time limit: a whole-database download is legitimately long (P-03).
+      const response = await apiClient.getRaw(`/api/backup/export?format=${selectedFormat}`, { headers }, { timeoutMs: 0 });
 
       const blob = await response.blob();
       const contentDisposition = response.headers.get('Content-Disposition');

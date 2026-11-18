@@ -1,5 +1,97 @@
 # tasks/todo.md
 
+## 2026-11-17 — Performance, query, API, database & reliability audit (operator's 20-section brief)
+
+Operator decisions (2026-11-17): **extend** the 2026-11-07 audit in a NEW report
+`docs/audit/2026-11-17-performance-reliability-audit.md` (untracked, like the last; audit only, NO code changes);
+runtime tests on a **throwaway DB** `compliance_core_db_perf` (pg_dump of dev) + a **second API/web** on spare ports
+through a cuttable TCP proxy — never dev DB, AWS, the shared test DB or the operator's 3001/5176; **no installs**
+(Node fetch scripts, the connected Playwright tool); **me + 4 subagents**. Working files:
+`.superpowers/sdd/2026-11-17-perf-audit/` (git-ignored). Leave the git index alone (Batch 1 waits for "commit").
+
+- [x] A. Page tracing by 4 read-only subagents → 68 findings (6 HIGH / 29 MED / 33 LOW), copied to
+      `docs/audit/2026-11-17-perf-audit-tracing/`; every HIGH re-checked by the lead (8 of 10 measured/reproduced)
+- [x] B. Backend-wide: timeout table (§T), pool 9 / pool_timeout 10 s, caches, error mapping, rate limit 5,000/min/IP
+- [x] C. Perf env: `compliance_core_db_perf` (pg_dump of dev), isolated (971 jobs deleted, webhook off, Modbus reader
+      OFF — it was ON), perf API :3201 (own env file via DOTENV_CONFIG_PATH; no MQTT/TCP/EMQX admin — verified),
+      fault proxy :55432/:55433, perf web :5189, probe user `perfprobe` (perf DB only)
+- [x] D. Growth: 1,013 instruments, 2.71 M readings, 106,822 alarms, 107,303 audit rows (temporary chain index added
+      and DROPPED before measuring — exposed P-01)
+- [x] E. E1 outage, E2 slow/hung, E3/E3b large data, E4 concurrency (+500 causes), E-LDAP, B1–B5 browser
+- [x] F. Report `docs/audit/2026-11-17-performance-reliability-audit.md` (untracked): 77 findings: 1 CRITICAL (G4-01), 8 HIGH, 1 HIGH-if-confirmed (G2-02);
+      remediation plan R0–R3; scripts + raw results in `docs/audit/2026-11-17-perf-audit-scripts/`
+- [x] Perf API / web / proxy STOPPED; perf.env + dump deleted
+- [ ] Operator: drop the database `compliance_core_db_perf` (kept) — on their word
+- [x] Operator: which remediation to start → "fix those first" = R0 (2026-11-17)
+
+### R0 — built 2026-11-17, UNSTAGED (Batch 1 stays its own commit; R0 is a separate commit. MM files — staged Batch 1
+### hunks + unstaged hunks: CHANGELOG.md, CLAUDE.md, tasks/todo.md, docs/feature-notes.md, apps/api/src/app.ts,
+### email-channel.ts, notification-delivery/routes.ts, apps/web/src/lib/api-client.ts — hunk-level separation)
+- [x] P-01 chain head through the index — `AUDIT_CHAIN_HEAD_SQL`; 0.046 ms vs 106 ms on 107,311 rows; EXPLAIN e2e, mutation-checked
+- [x] P-05 503 DATABASE_UNAVAILABLE + Retry-After (`databaseUnavailable`, app.ts + test-helper); 29 unit; E1 re-run: every route 503 < 150 ms in both cuts
+- [x] G4-02 LDAP operation timeout 10 s + release in finally (silent-listener e2e, mutation-checked); G4-03 OAuth2 token timeout 15 s, all four sites (silent-HTTP test, mutation-checked)
+- [x] G4-01 `SettingsLoadGate` on every config page that could save defaults (+ empty-list / endless-skeleton pages); `config-load-failure.test.tsx` 46; B2 re-run on the perf copy: error, no Save; Try again → stored 36; row untouched
+- [x] Found + fixed: Permissions-tab role switch wrote role A's ticks to role B (seed per key); Sidebar tab same + stuck `isTransitioning`; Alarms cards "0" on a failed load → "—"; `useBranding` cached a 503 body as branding
+- [x] P-03 read bounds in `apiClient` (30 s page load / 5 min explicit / writes unbounded); `use-auth` keeps the session on TIMEOUT / 503; B4 re-run: hung DB → errors at 30 s (was "Loading…" forever)
+- [x] Perf services stopped again; throwaway vite config deleted; `compliance_core_db_perf` kept (retention row set to 36 for B2)
+- [x] Full API single-fork run: 306/306 files, 4,373 tests (was 303 / 4,348)
+- [x] Retry flap found by the advisor's check: SWR sets isLoading on every revalidation of an empty cache → use-auth
+      `holdingCachedSession` (unit, mutation-checked; NOT re-run in the browser)
+- [x] Web: every file one at a time (the loop's `$?` after `| sed` hid 5 red files — fixed: the bounds moved to
+      `lib/read-bounds.ts`, 2 assertions now expect the bound) + one full run 3,345 / 3,346 (register-map-editor 5 s
+      timeout under load; passes alone 2/2; not R0); web + api lint clean
+
+### R1 — started 2026-11-17 (operator: "continue"), UNSTAGED like R0. Order: small and safe first; P-02 and G1-01/05
+### change visible behaviour → confirm the design with the operator before building them.
+- [x] P-08 / S2-H5 detail page polls `?limit=1` (was every reading, 9.2 MB / 1.3 s per 15 s) — `detail-latest-only.test.tsx`, mutation-checked
+- [x] G2-03 migration `20261117120000_alarms_raised_at_id_idx` (both local DBs + the perf copy; drift guard PASS) — list page 47 → 0.075 ms at 106,822 alarms; `alarm-order-index.e2e.test.ts`
+- [x] G2-03 `/counts` = ONE groupBy classified by `matchesTypeToken` (same TYPE_WHERE table) — 118 → 50–72 ms; 14 alarm e2e files / 238 tests green; mutation-checked
+- [x] G2-04 every alarm order ends in `id` (unique) — list-query tests updated
+- [x] G1-09 `useDebouncedValue` (300 ms) + page reset during render in the dashboard panel and the trend alarms widget — tests updated, mutation-checked
+- [x] G2-04 (part 2) the alarm-table widget report pins every page to the export's start (`to=`) — test, mutation-checked. OPEN: a row changing STATE mid-export still moves under the Status / Cleared sorts (keyset paging only)
+- [x] Counts re-derived: migrations 56 → 57, web hooks 26 → 27, web lib 30 → 31 (CLAUDE.md, apps/web/CLAUDE.md, R0 CHANGELOG corrected)
+- [ ] **AWS deploy must apply migration `20261117120000_alarms_raised_at_id_idx`** (deploy-on-ubuntu runs migrate deploy — confirm in the log)
+- Operator decisions 2026-11-17 (all "(Recommended)"): P-04 = reserved pool + per-statement limits + an unlimited maintenance connection; P-02 = share once per scope ≤ 5 s + compress; G1-01/05 = the server builds the report rows (PDF unchanged, checked on fixtures)
+- [x] P-04 DONE: `lib/prisma.ts` three pools behind ONE `prisma` Proxy (AsyncLocalStorage; route `config: { dbPool }`; `registerDbPoolHook` before the auth plugin in app.ts AND test-helper; `runOnPool` for the partition worker; rule-engine flows pinned to general). general 10 / critical 3 (warmed at boot, connect 15 s, tx 15 s/60 s) / long 2 (no limits); 5-min statement + socket limits per connection; `application_name` per pool; timeout shapes → 503 (measured). Proxy honours own props (get/has/getOwnPropertyDescriptor/defineProperty — spies & shadows). E2 retest at 1 s: health 200 ~4 s, sign-in 200 (45/73 s) — before: both failed at 10 s. Tests: db-pools.e2e (8), prisma-pools (7), prisma-error-mapping (34). Full API run after P-04 (before the proxy-trap fix): 305/309, the 4 red files fixed and re-run green (58/58)
+- [x] P-02 BUILT, NOT YET RUN AT SCALE: `overview-share.ts` (single-flight + 5 s, key = visibility + selection, rows frozen) wired into `/telemetry-overview` and `latest-values`; alarm evaluator untouched; `OVERVIEW_SHARE_MS=0` in vitest.env.ts; `lib/compress-json.ts` gzip ≥16 KB JSON (app.ts + test-helper). Unit 16/16. **OWED: E4 retest (50/100 users) on the perf copy**
+- [x] G1-01 DONE: `report-rows.ts` + `report-rows-routes.ts` GET /:id/telemetry-report-rows (first ms-instant per slot, same rule as scheduleRows); verified on 83,522 readings (7/15/60 min identical); e2e oracle report-rows.e2e (5, mutation-checked); web `data-report-fetch.ts` uses it when an interval is set (data-report-fetch.test 3/3). OWED: E3b retest (78 MB case)
+- [ ] **G1-05 (table cursor paging) NOT STARTED — measured on the perf copy, 27 inst × 30 d: page 1 1,529 ms, count 3,078 ms; "instants first" rewrite 1,724 ms = NO gain. Indexes are only (instrument_id, key, ts) / (…, ts DESC); no (instrument_id, ts) — an index on the partitioned history table is the real lever (heavy migration: decide with the operator). The operator was promised "the table pages with a cursor" — say plainly it is not done.** Also WA-26 (450 ids → 431, POST the id list)
+- [x] 2026-11-18: api lint + web tsc clean; full single-fork API run 312 / 312 files, 4,427 / 4,427, 0 skipped (EMQX up);
+      web one file at a time (exit code straight off vitest): 251 / 252 — `trend-downloads.test.tsx` red (4): its fake API
+      did not know `/telemetry-report-rows` (3 timeouts + 1 cascade that passes alone) and one test pinned "fetches the WHOLE
+      period". Fake answers by the server rule; the test now pins ONE slot-rows call + NO whole-period `limit=`;
+      mutation-checked (client forced back to whole-period → only that test fails). 33 / 33; web 3,351 passed
+- [x] 2026-11-18: CHANGELOG R1 entry completed (P-02, G1-01, G1-05 NOT DONE, verification; "no route moved" corrected —
+      one API endpoint added); feature-notes PERFORMANCE AUDIT R1 note + R0's Open line; CLAUDE.md topic index;
+      apps/api/CLAUDE.md `prisma.ts` pointer; endpoints.md (new route row + the shared overview);
+      `data-report-fetch.ts` comment (`coverage.returned` = KEPT readings for an interval report — not truncation).
+      Counts: no `<Route`, module, model, enum, def or page moved (API endpoints are not counted in CLAUDE.md)
+- [x] 2026-11-18 E3b / G1-01 retest on the perf copy (perf API :3201 via proxy :55432, isolation re-verified: 16
+      connections all to the proxy, EMQX 1 client, Modbus OFF, 0 webhooks): 30 inst × 7 d whole period 93.3 MB / 11.3 s
+      → slot rows 15 min 33.9 MB / 5.6 s; the floor was the discarded sampled call → `points=2` → 15 min 3.0 MB / 4.6 s;
+      1 minute gains nothing (data is per minute). Pinned + mutation-checked
+- [x] 2026-11-18 E4 / P-02 retest: 50 users p50 5.9 s → 73 ms, 100 users 6.2 s → 490 ms, 0 errors; `vary` (8 Areas)
+      the same; 500 users still 54.7 % connection errors (was 68.4 %) — laptop-bound, not conclusive. 704 MB RSS.
+      Scripts + raw results `docs/audit/2026-11-17-perf-audit-scripts/r1-retest-*`; report §"R1 retest". Perf API /
+      proxy STOPPED (the node child needed a Stop-Process — TaskStop only ended the wrapper), perf.env deleted, DB kept
+- [x] 2026-11-18 (advisor's sweep): the Data Report PAGE had no interval test — added (`generate-report-card.test.tsx`,
+      shared fake `src/test-support/report-rows-fake.ts`), mutation-checked with the trend one. shared 993 / 993;
+      integration 2 skipped by design; **queue was RED (2): Batch 1's supervisor made `taskList` a constant and
+      `crontab-handlers.test.ts`'s parser threw** — parser reads both shapes + asserts first / last entry; ghost-task
+      mutation caught; queue 16 / 16 with TEST_DATABASE_URL. STAGED INTO BATCH 1 (72 files) + Batch 1's CHANGELOG
+      "Tests added" line and CLAUDE.md's task-count command (it returned 0) patched in the INDEX and the tree alike
+- [x] 2026-11-18 G1-05 MEASURED on the perf copy (indexes built, measured, DROPPED — 0 left): `(instrument_id, ts DESC)`
+      = no gain; `(ts DESC, instrument_id)` = page 1 4,185 → 1.7 ms, page 50 → 16 ms, sparse selections unchanged
+      (planner keeps the instrument index); the per-page COUNT (5.4 s) is untouched — needs count-once. Build ~10 s /
+      2.71 M rows, blocks writes unless per-partition CONCURRENTLY. Report §"R1 retest", `r1-retest-g105*`
+- [ ] Operator decision G1-05: ts-first index + count once per selection + POST id list (WA-26)? — asked 2026-11-18
+- [ ] Waiting for the operator: "commit". Plan: (1) Batch 1 = the 72 STAGED files; (2) `apps/api/vitest.global-setup.ts`
+      (harness reset); (3) CSV time-zone fix; (4) folder-move docs; (5) **R0 + R1 as ONE commit** — they share hunks
+      line by line (`app.ts` / `test-helper.ts` imports, `lib/errors.ts`, the CLAUDE.md topic line, feature-notes'
+      R0 "Open" line), a split would be line-level surgery. (2)-(4) still share CHANGELOG / todo hunks with R0+R1 →
+      hunk-level staging for those two files. The G1-05 index decision
+- [ ] Later: S8-23 config merge; contact-admin raw fetches; R2
+
 ## 2026-11-17 — Checkout moved (operator: "entire folder moved to another path and renamed … update everything")
 
 `C:\Users\hello\compliance-core` → `…\SIVA_M_WORK\T&RH Application` → renamed by the operator to

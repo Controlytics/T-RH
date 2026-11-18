@@ -6,6 +6,7 @@ import {
 } from '@digilog/shared';
 import { PageHero } from '@/components/ui/page-hero';
 import { FormSection } from '@/components/ui/form-section';
+import { SettingsLoadGate } from '@/components/ui/settings-load-gate';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Toggle } from '@/components/ui/toggle';
 import { Select } from '@/components/ui/select';
@@ -53,8 +54,8 @@ export function ReportSettingsConfigPage() {
   const { toast } = useToast();
   const reauth = useReauth();
   const { data: manifest } = useSWR<ManifestEntry[]>('/api/config/registry/manifest');
-  const { data: approversRow, mutate: mutateApprovers } = useSWR<unknown>('/api/config/dynamic/report-approvers');
-  const { data: downloadsRow, mutate: mutateDownloads } = useSWR<unknown>('/api/config/dynamic/report-downloads');
+  const { data: approversRow, error: approversError, mutate: mutateApprovers } = useSWR<unknown>('/api/config/dynamic/report-approvers');
+  const { data: downloadsRow, error: downloadsError, mutate: mutateDownloads } = useSWR<unknown>('/api/config/dynamic/report-downloads');
   const { data: rolesData } = useSWR<Role[]>('/api/roles/active');
   const { data: candidates } = useSWR<Option[]>('/api/config/report-approvers/candidates');
   // The SERVER's answer to "can this approver actually approve?" (2026-10-24):
@@ -143,7 +144,12 @@ export function ReportSettingsConfigPage() {
       {error && <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
 
       {loading ? (
-        <p className="text-sm text-slate-500">Loading…</p>
+        // Save is already disabled while loading; this makes a FAILED load say so
+        // instead of reading "Loading…" for good (G4-01's sibling).
+        <SettingsLoadGate what="the report settings" data={undefined} error={approversError ?? downloadsError}
+          onRetry={() => { void mutateApprovers(); void mutateDownloads(); }}>
+          {null}
+        </SettingsLoadGate>
       ) : (
         <>
           <FormSection title="Approvers" columns={1}>

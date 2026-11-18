@@ -12,7 +12,7 @@
  * months means one missed maintenance run cannot cause that.
  */
 import { Prisma } from '@prisma/client';
-import { prisma } from '../lib/prisma.js';
+import { prisma, runOnPool } from '../lib/prisma.js';
 import { auditLog } from '../lib/audit.js';
 import { configRepository } from '../modules/config/config.repository.js';
 import { TELEMETRY_RETENTION_DEFAULTS, type TelemetryRetentionSettings } from '../modules/config/defs/telemetry-retention.def.js';
@@ -111,7 +111,7 @@ export async function ensurePartitions(
  * installers through the bootstrap migration. Idempotent; never throws — a
  * failure is logged loudly and the cron keeps trying.
  */
-export async function ensurePartitionsAtBoot(
+async function ensurePartitionsAtBootOnPool(
   log: { info: (o: unknown, m: string) => void; error: (o: unknown, m: string) => void },
 ): Promise<string[]> {
   try {
@@ -239,8 +239,7 @@ export async function pruneDeadLetters(opts: {
   return { expired, overflow };
 }
 
-/** graphile-worker task. Registered as `telemetry_partition_maintenance`. */
-export const telemetryPartitionTask = async (
+const telemetryPartitionTaskOnPool = async (
   _payload: unknown,
   helpers?: { logger?: { info: (m: string) => void; error: (m: string) => void } },
 ): Promise<void> => {
@@ -280,3 +279,17 @@ export const telemetryPartitionTask = async (
     log?.error(`failed to drop expired telemetry partitions: ${(err as Error).message}`);
   }
 };
+
+/**
+ * Both entry points run on the unlimited `long` database pool (performance audit
+ * 2026-11-17, P-04): partition DDL and a retention drop are never cut by the
+ * 5-minute statement limit, and never take a request's connection. Every query
+ * they make — retention settings, the audit row of a drop — follows them there.
+ */
+export function ensurePartitionsAtBoot(...args: Parameters<typeof ensurePartitionsAtBootOnPool>): ReturnType<typeof ensurePartitionsAtBootOnPool> {
+  return runOnPool('long', () => ensurePartitionsAtBootOnPool(...args));
+}
+
+/** graphile-worker task. Registered as `telemetry_partition_maintenance`. */
+export const telemetryPartitionTask = (...args: Parameters<typeof telemetryPartitionTaskOnPool>): ReturnType<typeof telemetryPartitionTaskOnPool> =>
+  runOnPool('long', () => telemetryPartitionTaskOnPool(...args));

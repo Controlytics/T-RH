@@ -1,5 +1,7 @@
 import { useEffect } from 'react';
 import useSWR from 'swr';
+import { apiClient } from '@/lib/api-client';
+import { READ_TIMEOUT_MS } from '@/lib/read-bounds';
 import { type BrandingConfig, BRANDING_TAB_TITLE_DEFAULT } from '@digilog/shared';
 import { getThemeById, applyTheme, DEFAULT_THEME_ID } from '@/lib/themes';
 import { applyDocumentIdentity } from '@/lib/document-identity';
@@ -40,8 +42,12 @@ export const defaultBranding: BrandingConfig = {
 
 export function useBranding() {
   const { data, error, isLoading, mutate } = useSWR<BrandingConfig>('/api/config/branding', {
-    // Don't require auth for this endpoint
-    fetcher: (url: string) => fetch(url).then(res => res.json()),
+    // A public endpoint, read through the API client (performance audit 2026-11-17):
+    // the raw `fetch(url).then(res => res.json())` never checked `res.ok`, so a 503's
+    // ERROR body was cached as the branding — under the SAME key the Branding config
+    // page reads, where it would have opened the form on an error object — and it had
+    // no time limit. The client sends no Authorization header when there is no token.
+    fetcher: (url: string) => apiClient.get<BrandingConfig>(url, { timeoutMs: READ_TIMEOUT_MS }),
     // Cache for 5 minutes, revalidate in background
     revalidateOnFocus: false,
     revalidateOnMount: true, dedupingInterval: 5000,

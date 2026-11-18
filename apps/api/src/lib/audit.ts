@@ -75,6 +75,31 @@ export type AuditTx = Prisma.TransactionClient;
 const AUDIT_CHAIN_LOCK_ID = 7421151037n;
 
 /**
+ * The chain head: the checksum of the row with the highest `chain_position`,
+ * read on EVERY audit write while the chain lock is held.
+ *
+ * It must be served by `audit_trail_chain_position_idx (chain_position)` read
+ * backwards (performance audit 2026-11-17, P-01). It used to say
+ * `ORDER BY chain_position DESC NULLS LAST`: an ascending index read backwards
+ * yields DESC NULLS FIRST, so that order could not use it and every audit write
+ * sequentially scanned the whole trail under the lock — 49 ms at 107k rows,
+ * growing with the trail, for every audited action in the system.
+ * `WHERE chain_position IS NOT NULL` keeps the old meaning (a NULL position never
+ * wins) while letting the index serve it. The column is NOT NULL in the
+ * database (every migration strips the DROP NOT NULL Prisma proposes); the
+ * predicate keeps this correct even if that ever slips.
+ *
+ * Exported so `e2e/audit-chain-head.e2e.test.ts` EXPLAINs this exact text.
+ */
+export const AUDIT_CHAIN_HEAD_SQL = Prisma.sql`
+    SELECT checksum
+    FROM audit_trail
+    WHERE chain_position IS NOT NULL
+    ORDER BY chain_position DESC
+    LIMIT 1
+  `;
+
+/**
  * Standalone audit logging function. Writes a chained audit row.
  *
  * Two modes:
@@ -188,13 +213,9 @@ async function writeAuditRow(
   // expects rows and Prisma's deserializer rejects 'void' column type.
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(${AUDIT_CHAIN_LOCK_ID})`;
 
-  // Read the latest chain row's checksum to link this row to it.
-  const prior = await tx.$queryRaw<Array<{ checksum: string | null }>>`
-    SELECT checksum
-    FROM audit_trail
-    ORDER BY chain_position DESC NULLS LAST
-    LIMIT 1
-  `;
+  // Read the latest chain row's checksum to link this row to it (index-served —
+  // see AUDIT_CHAIN_HEAD_SQL).
+  const prior = await tx.$queryRaw<Array<{ checksum: string | null }>>(AUDIT_CHAIN_HEAD_SQL);
   const previousChecksum: string | null = prior[0]?.checksum ?? null;
 
   // Keyed (V3, HMAC) checksum when AUDIT_CHAIN_KEY is configured, else the

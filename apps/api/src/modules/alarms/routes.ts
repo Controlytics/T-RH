@@ -19,7 +19,7 @@ import { loadProfileMeasurements } from '../instruments/profile-measurements.js'
 import { slotConfigFromMeasurements } from '@digilog/shared';
 import {
   ALARM_TYPE_TOKENS, ALARM_STATUS_TOKENS, UUID_RE,
-  parseAlarmListQuery, buildAlarmWhere, buildAlarmOrderBy, pageBounds,
+  parseAlarmListQuery, buildAlarmWhere, buildAlarmOrderBy, pageBounds, matchesTypeToken, type AlarmTypeColumns,
 } from './list-query.js';
 
 /**
@@ -378,50 +378,44 @@ export default async function alarmRoutes(app: FastifyInstance) {
     if (!resolved) return reply;
     const { q, locationIds, visibility } = resolved;
 
-    // ACTIVE and unacknowledged are independent axes: one groupBy by state, with the
-    // not-null count of acknowledgedAt, gives both for any where.
-    const byState = (where: Record<string, unknown>) => prisma.alarm.groupBy({
-      by: ['state'],
-      where: where as never,
+    // ONE query, one snapshot (performance audit 2026-11-17, G2-03): every alarm the
+    // filter matches — the type left out — grouped by state and by the three
+    // columns a type token tests, with the not-null count of acknowledgedAt (the
+    // acknowledgement axis). This was 1 + 7 groupBy scans of the same set in a
+    // RepeatableRead batch holding one pooled connection, per widget per viewer
+    // every 30 s. Each group is classified by `matchesTypeToken`, which reads the
+    // SAME table the `type` filter is built from, so the counts cannot drift from
+    // the list. A query that names a type counts only that token; the others are
+    // zero, as before.
+    const groups = await prisma.alarm.groupBy({
+      by: ['state', 'source', 'metric', 'limitKind'],
+      where: scopedToVisible(buildAlarmWhere({ ...q, type: undefined }, { locationIds }), visibility) as never,
       _count: { _all: true, acknowledgedAt: true },
     });
-
-    // ONE snapshot for every query: quadrants and byType describe the same set of
-    // alarms and this page polls beside a live evaluator. The token -> rows mapping
-    // is buildAlarmWhere's `type` handling and nothing here; a query that already
-    // names a type queries only that token (the others are zero, not a second
-    // reading of the filter).
-    const tokens = ALARM_TYPE_TOKENS.filter((t) => !q.type || q.type === t);
-    const [quadrantRows, ...tokenRows] = await prisma.$transaction(
-      [
-        byState(scopedToVisible(buildAlarmWhere(q, { locationIds }), visibility)),
-        ...tokens.map((token) => byState(scopedToVisible(buildAlarmWhere({ ...q, type: token }, { locationIds }), visibility))),
-      ],
-      { isolationLevel: 'RepeatableRead' },
-    );
-    const typeRows = ALARM_TYPE_TOKENS.map((t) => {
-      const at = tokens.indexOf(t);
-      return at === -1 ? [] : tokenRows[at];
-    });
+    const inToken = (token: (typeof ALARM_TYPE_TOKENS)[number]) =>
+      groups.filter((g) => matchesTypeToken(token, g as AlarmTypeColumns));
+    const inQuery = q.type ? inToken(q.type) : groups;
 
     const quadrants = { activeUnack: 0, activeAck: 0, clearedUnack: 0, clearedAck: 0 };
-    for (const g of quadrantRows) {
+    for (const g of inQuery) {
       const acked = g._count.acknowledgedAt;
       if (g.state === 'ACTIVE') {
-        quadrants.activeAck = acked;
-        quadrants.activeUnack = g._count._all - acked;
+        quadrants.activeAck += acked;
+        quadrants.activeUnack += g._count._all - acked;
       } else {
-        quadrants.clearedAck = acked;
-        quadrants.clearedUnack = g._count._all - acked;
+        quadrants.clearedAck += acked;
+        quadrants.clearedUnack += g._count._all - acked;
       }
     }
 
-    const byType = ALARM_TYPE_TOKENS.map((type, i) => {
+    const byType = ALARM_TYPE_TOKENS.map((type) => {
       let active = 0;
       let unacknowledged = 0;
-      for (const g of typeRows[i]) {
-        if (g.state === 'ACTIVE') active = g._count._all;
-        unacknowledged += g._count._all - g._count.acknowledgedAt;
+      if (!q.type || q.type === type) {
+        for (const g of inToken(type)) {
+          if (g.state === 'ACTIVE') active += g._count._all;
+          unacknowledged += g._count._all - g._count.acknowledgedAt;
+        }
       }
       return { type, active, unacknowledged };
     });
@@ -430,6 +424,9 @@ export default async function alarmRoutes(app: FastifyInstance) {
   });
 
   app.post('/:id/acknowledge', {
+    // The reserved database pool (performance audit 2026-11-17, P-04): this must keep
+    // answering when heavy reads hold every general connection.
+    config: { dbPool: 'critical' },
     preHandler: [app.requirePermission('ALARM_ACKNOWLEDGE')],
     schema: {
       tags: ['Alarms'],

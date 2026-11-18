@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { apiClient } from '@/lib/api-client';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { SkeletonRows } from '@/components/ui/skeleton';
+import { SettingsLoadGate } from '@/components/ui/settings-load-gate';
 
 interface FieldConfig {
   id: string;
@@ -47,7 +48,7 @@ export function FieldIdsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeModule, setActiveModule] = useState<string | null>(null);
 
-  const { data: fields, isLoading } = useSWR<FieldConfig[]>('/api/config/field-ids', { revalidateOnMount: true, dedupingInterval: 0 });
+  const { data: fields, error: fieldsError, isLoading, mutate: reloadFields } = useSWR<FieldConfig[]>('/api/config/field-ids', { revalidateOnMount: true, dedupingInterval: 0 });
 
   const modules = useMemo(() => {
     if (!fields) return [];
@@ -202,8 +203,11 @@ export function FieldIdsPage() {
         </CardContent>
       </Card>
 
-      {/* Fields grouped by module */}
-      {isLoading ? (
+      {/* Fields grouped by module. A FAILED load used to fall to the empty state
+          below — "no fields" to someone who merely could not read them. */}
+      {fields === undefined && fieldsError ? (
+        <SettingsLoadGate what="the field IDs" data={undefined} error={fieldsError} onRetry={() => void reloadFields()}>{null}</SettingsLoadGate>
+      ) : isLoading ? (
         <Card className="border-0 shadow-[var(--elev-2)] overflow-hidden">
           <CardContent className="p-16 text-center">
 <SkeletonRows rows={5} columns={3} />

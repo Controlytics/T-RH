@@ -425,10 +425,18 @@ const REPORT_PAGE = 500;
 export async function fetchAllAlarms(scope: AlarmScope, filters: AlarmWidgetFilterValue): Promise<{ rows: AlarmRow[]; total: number }> {
   const rows: AlarmRow[] = [];
   let total = 0;
+  // Every page is pinned to the instant the export STARTED (performance audit
+  // 2026-11-17, G2-04): the table has no period, so an alarm raised while the pages
+  // were being fetched shifted every later page by one — a signed report could list
+  // one alarm twice and omit another under a footer saying "N of M". The unique
+  // order (`id` last) closes ties; this closes arrivals. A row that changes STATE
+  // mid-export still moves under the Status / Cleared sorts — only keyset paging
+  // closes that.
+  const asOf = new Date().toISOString();
   for (let page = 1; rows.length < ALARM_REPORT_MAX; page += 1) {
     const url = alarmListUrl(scope, filters, page, REPORT_PAGE);
     if (!url) return { rows: [], total: 0 };
-    const res = await apiClient.get<{ data: AlarmRow[]; total: number }>(url);
+    const res = await apiClient.get<{ data: AlarmRow[]; total: number }>(`${url}&to=${encodeURIComponent(asOf)}`);
     total = res.total ?? 0;
     rows.push(...(res.data ?? []));
     if ((res.data ?? []).length < REPORT_PAGE || rows.length >= total) break;

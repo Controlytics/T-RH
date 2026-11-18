@@ -112,8 +112,14 @@ export function InstrumentDetailPage() {
   const { formatDate, formatTime } = useDatetimeFormat();
 
   const { data: inst, mutate } = useSWR<Instrument>(id ? `/api/instruments/${id}` : null);
-  const { data: telemetry } = useSWR<{ latest: Reading[]; history: Reading[]; historyTotal: number }>(
-    id ? `/api/instruments/${id}/telemetry?${ALL_RECORDS_PARAM}` : null,
+  // Only `latest` is shown here (the latest-telemetry card). This used to ask for
+  // EVERY reading the instrument ever sent (`ALL_RECORDS_PARAM`) and poll it every
+  // 15 s — 9.2 MB and a 1.3 s event-loop stall per open page for an 87k-reading
+  // instrument, stalling every other user's requests with it (performance audit
+  // 2026-11-17, P-08 / S2-H5) — and drew nothing from `history`. `limit=1` keeps the
+  // route's table path to one row; `latest` comes from the latest-values table.
+  const { data: telemetry } = useSWR<{ latest: Reading[] }>(
+    id ? `/api/instruments/${id}/telemetry?limit=1` : null,
     { refreshInterval: 15_000 },
   );
   const { data: dead } = useSWR<{ data: DeadLetter[]; total: number }>(

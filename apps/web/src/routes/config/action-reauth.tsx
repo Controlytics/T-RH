@@ -10,6 +10,7 @@ import { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES } from '@digilog/shared';
 import type { ReauthAction, ReauthActionCategory } from '@digilog/shared';
 import type { RoleData } from '@digilog/shared';
 import { PageHero } from '@/components/ui/page-hero';
+import { SettingsLoadGate } from '@/components/ui/settings-load-gate';
 import { SkeletonCard } from '@/components/ui/skeleton';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 
@@ -85,8 +86,8 @@ const actionsByCategory = REAUTH_ACTION_CATEGORIES.map((category) => ({
 })).filter(g => g.actions.length > 0);
 
 export function ActionReauthPage() {
-  const { data: config, isLoading: configLoading } = useSWR<ActionReauthConfig>('/api/config/action-reauth', { revalidateOnMount: true, dedupingInterval: 0 });
-  const { data: rolesData, isLoading: rolesLoading } = useSWR<RoleData[]>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
+  const { data: config, error: configError, mutate: revalidateConfig, isLoading: configLoading } = useSWR<ActionReauthConfig>('/api/config/action-reauth', { revalidateOnMount: true, dedupingInterval: 0 });
+  const { data: rolesData, error: rolesError, mutate: revalidateRoles, isLoading: rolesLoading } = useSWR<RoleData[]>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
 
   const reauth = useReauth();
   const [localConfig, setLocalConfig] = useState<ActionReauthConfig | null>(null);
@@ -253,6 +254,20 @@ export function ActionReauthPage() {
     return (
       <div className="space-y-4">
         {Array.from({ length: 3 }, (_, i) => <SkeletonCard key={i} lines={3} />)}
+      </div>
+    );
+  }
+
+  // G4-01: a FAILED load used to fall through to the matrix with `{}` as the
+  // stored config — one tick + Save then wrote a matrix in which only that action
+  // asked for a password, switching §11 re-authentication off everywhere else.
+  if (config === undefined || rolesData === undefined) {
+    return (
+      <div className="mx-auto max-w-2xl py-16">
+        <SettingsLoadGate what="the re-authentication settings" data={undefined} error={configError ?? rolesError}
+          onRetry={() => { void revalidateConfig(); void revalidateRoles(); }}>
+          {null}
+        </SettingsLoadGate>
       </div>
     );
   }

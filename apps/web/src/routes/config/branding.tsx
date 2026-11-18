@@ -8,6 +8,7 @@ import { apiClient } from '@/lib/api-client';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
+import { SettingsLoadGate } from '@/components/ui/settings-load-gate';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -26,7 +27,7 @@ export function BrandingConfigPage() {
   const [showSuccessPopup, setShowSuccessPopup] = useState(false);
   const [showErrorPopup, setShowErrorPopup] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { data, mutate } = useSWR('/api/config/branding', { revalidateOnMount: true, dedupingInterval: 5000 });
+  const { data, error: loadError, mutate } = useSWR('/api/config/branding', { revalidateOnMount: true, dedupingInterval: 5000 });
 
   const { register, handleSubmit, watch, setValue, reset, formState: { errors, isSubmitting, isDirty } } = useForm<BrandingConfig>({
     resolver: zodResolver(brandingConfigSchema),
@@ -97,6 +98,9 @@ export function BrandingConfigPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* G4-01: the form opens only on the STORED branding — after a failed GET
+          it held the schema defaults, and one edit + Save wrote them all. */}
+      <SettingsLoadGate what="the branding" data={data} error={loadError} onRetry={() => void mutate()}>
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Two Column Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -315,6 +319,7 @@ export function BrandingConfigPage() {
           </div>
         </div>
       </form>
+      </SettingsLoadGate>
 
       {/* Success Popup */}
       <Dialog open={showSuccessPopup} onClose={() => setShowSuccessPopup(false)}>

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ALARM_TYPE_TOKENS, ALARM_STATUS_TOKENS,
   parseAlarmListQuery, buildAlarmWhere, buildAlarmOrderBy, quadrantWhere, pageBounds,
+  matchesTypeToken, ALARM_TYPE_TOKENS,
 } from '../list-query.js';
 
 describe('parseAlarmListQuery', () => {
@@ -222,17 +223,22 @@ describe('quadrantWhere', () => {
 });
 
 describe('buildAlarmOrderBy', () => {
-  it('defaults to newest first', () => {
-    expect(buildAlarmOrderBy('raisedAt', 'desc')).toEqual([{ raisedAt: 'desc' }]);
+  it('defaults to newest first, then id — the order alarms_raised_at_id_idx serves', () => {
+    expect(buildAlarmOrderBy('raisedAt', 'desc')).toEqual([{ raisedAt: 'desc' }, { id: 'desc' }]);
+    expect(buildAlarmOrderBy('raisedAt', 'asc')).toEqual([{ raisedAt: 'asc' }, { id: 'asc' }]);
   });
 
-  it('breaks every tie on raisedAt so paging cannot repeat or drop a row', () => {
-    // Without a unique-enough tiebreak, two pages of a non-unique sort can show
-    // the same alarm twice and omit another entirely.
-    for (const key of ['clearedAt', 'instrumentCode', 'type', 'status'] as const) {
-      const order = buildAlarmOrderBy(key, 'asc');
-      expect(order[order.length - 1]).toEqual({ raisedAt: 'desc' });
+  it('ends EVERY order in the unique id so paging cannot repeat or drop a row (G2-04)', () => {
+    // raisedAt alone is not unique: a pass raises several alarms in one
+    // millisecond, and two offset pages of a signed report could then show one
+    // alarm twice and omit another.
+    for (const key of ['raisedAt', 'clearedAt', 'instrumentCode', 'type', 'status'] as const) {
+      for (const dir of ['asc', 'desc'] as const) {
+        const order = buildAlarmOrderBy(key, dir);
+        expect(Object.keys(order[order.length - 1]!)).toEqual(['id']);
+      }
     }
+    expect(buildAlarmOrderBy('status', 'asc').slice(-2)).toEqual([{ raisedAt: 'desc' }, { id: 'desc' }]);
   });
 
   it('sorts by the related instrument code, not the raw foreign key', () => {
@@ -280,5 +286,37 @@ describe('instrumentIds and profileId', () => {
   it('a bad id is an error on instrumentIds; a bad profile on profileId', () => {
     expect(parseAlarmListQuery({ instrumentIds: 'nope' }).error?.field).toBe('instrumentIds');
     expect(parseAlarmListQuery({ profileId: 'nope' }).error?.field).toBe('profileId');
+  });
+});
+
+/**
+ * Performance audit 2026-11-17, G2-03: the counts route groups ONCE by the columns
+ * a type token tests and classifies each group with matchesTypeToken, which reads
+ * the same table the `type` filter is built from.
+ */
+describe('matchesTypeToken', () => {
+  const row = (source: string, metric: string, limitKind: string | null) => ({ source, metric, limitKind });
+
+  it.each([
+    ['TEMP_HIGH', row('INSTRUMENT_LIMIT', 'TEMPERATURE', 'HIGH'), true],
+    ['TEMP_HIGH', row('INSTRUMENT_LIMIT', 'TEMPERATURE', 'LOW'), false],
+    ['TEMP_LOW', row('INSTRUMENT_LIMIT', 'TEMPERATURE', 'LOW'), true],
+    ['RH_HIGH', row('INSTRUMENT_LIMIT', 'HUMIDITY', 'HIGH'), true],
+    ['RH_LOW', row('INSTRUMENT_LIMIT', 'HUMIDITY', 'HIGH'), false],
+    ['OFFLINE', row('INACTIVITY', 'OFFLINE', null), true],
+    ['RS485', row('RS485_FAILURE', 'TEMPERATURE', null), true],
+    ['RS485', row('INSTRUMENT_LIMIT', 'TEMPERATURE', 'HIGH'), false],
+    ['RANGE', row('SENSOR_RANGE', 'HUMIDITY', null), true],
+  ] as const)('%s on %o is %s', (token, r, expected) => {
+    expect(matchesTypeToken(token, r)).toBe(expected);
+  });
+
+  it('agrees with the filter: for every token, a row built from its filter matches it', () => {
+    for (const token of ALARM_TYPE_TOKENS) {
+      const where = (buildAlarmWhere(parseAlarmListQuery({ type: token }), {}).AND as Record<string, unknown>[])
+        .find((f) => 'source' in f || 'metric' in f) as Partial<{ source: string; metric: string; limitKind: string | null }>;
+      const r = { source: where.source ?? 'ANY', metric: where.metric ?? 'ANY', limitKind: where.limitKind ?? null };
+      expect(matchesTypeToken(token, r)).toBe(true);
+    }
   });
 });

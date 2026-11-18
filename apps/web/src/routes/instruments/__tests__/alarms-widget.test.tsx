@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, within, fireEvent } from '@testing-library/react';
+import { render, screen, within, fireEvent, waitFor } from '@testing-library/react';
 import { resolveTrendWidgetTexts } from '@digilog/shared';
 
 /**
@@ -532,12 +532,13 @@ describe('AlarmsWidget — the toolbar is the SHARED one', () => {
     expect(labels.some((l) => /cleared/i.test(l ?? ''))).toBe(true);
   });
 
-  it('still sends its filters to the server', () => {
+  it('still sends its filters to the server — the search once it settles (G1-09)', async () => {
     renderWith([alarm]);
     fireEvent.change(screen.getByRole('searchbox', { name: /search this instrument/i }), {
       target: { value: 'chiller' },
     });
-    expect(new URL(alarmsKey()!, 'https://x').searchParams.get('search')).toBe('chiller');
+    expect(new URL(alarmsKey()!, 'https://x').searchParams.get('search')).toBeNull();
+    await waitFor(() => expect(new URL(alarmsKey()!, 'https://x').searchParams.get('search')).toBe('chiller'));
   });
 
   it('keeps the export icon and the settings pencil beside the filters', () => {

@@ -280,7 +280,8 @@ export default function AlarmsPage() {
     toast[notice.tone](notice.title, notice.message);
   };
 
-  const counts = data?.counts ?? { 'active-unack': 0, 'active-ack': 0, 'cleared-unack': 0, 'cleared-ack': 0 };
+  // Unknown until the server answers — never zeros (see AlarmStatCards).
+  const counts = data?.counts ?? null;
 
   const acknowledge = async (reason: string, password: string) => {
     if (!target) return;

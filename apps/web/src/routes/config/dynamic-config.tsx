@@ -10,6 +10,7 @@ import { Toggle } from '@/components/ui/toggle';
 import { FormField, FormSection, FormActions } from '@/components/ui/form-field';
 import { PageHero } from '@/components/ui/page-hero';
 import { EmptyState, ErrorState } from '@/components/ui/empty-state';
+import { SettingsLoadGate } from '@/components/ui/settings-load-gate';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
@@ -81,7 +82,7 @@ export function DynamicConfigPage() {
   const canWrite = isSuperAdmin || hasEffectivePermission(perms, 'CONFIG_UPDATE');
   const reauth = useReauth();
 
-  const { data: manifest } = useSWR<ManifestEntry[]>(
+  const { data: manifest, error: manifestError, mutate: mutateManifest } = useSWR<ManifestEntry[]>(
     '/api/config/registry/manifest',
     { revalidateOnMount: true, dedupingInterval: 5000 }
   );
@@ -148,7 +149,10 @@ export function DynamicConfigPage() {
   }, [moduleDef]);
 
   useEffect(() => {
-    if (!moduleDef) return;
+    // Nothing is seeded until the stored row has ARRIVED (G4-01): seeding the
+    // defaults alone after a failed GET is what let Save write them over the
+    // real settings. `null` is an answer (no row yet); `undefined` is not.
+    if (!moduleDef || savedValues === undefined) return;
     // Defaults UNDER the stored value, never instead of it.
     //
     // The API returns the stored row verbatim with no merge, and a row written
@@ -166,6 +170,18 @@ export function DynamicConfigPage() {
     setValues(merged);
     setBaseline(JSON.stringify(merged));
   }, [savedValues, moduleDef]);
+
+  if (manifest === undefined) {
+    // The registry has not arrived (or failed). Until it has, "this module does
+    // not exist" would be a claim nobody can make.
+    return (
+      <div className="mx-auto max-w-2xl py-16">
+        <SettingsLoadGate what="the configuration registry" data={manifest} error={manifestError} onRetry={() => void mutateManifest()}>
+          {null}
+        </SettingsLoadGate>
+      </div>
+    );
+  }
 
   if (!moduleDef) {
     // A module that is not in the manifest is a FAULT, not an empty screen —
@@ -314,6 +330,8 @@ export function DynamicConfigPage() {
         </div>
       )}
 
+      {/* G4-01: no form — and so no Save — until the stored settings have loaded. */}
+      <SettingsLoadGate what={`the ${moduleDef.moduleName} settings`} data={savedValues} error={savedValuesError} onRetry={() => void mutate()}>
       {groups.map(group => (
         <FormSection key={group.name} title={group.name} columns={2}>
             {group.items
@@ -529,6 +547,7 @@ export function DynamicConfigPage() {
           {dirty ? 'Save Changes' : 'Saved'}
         </Button>
       </FormActions>
+      </SettingsLoadGate>
 
       <ReauthDialog
         open={reauth.isOpen}

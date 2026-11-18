@@ -1,5 +1,6 @@
 import { type SWRConfiguration } from 'swr';
 import { apiClient } from './api-client';
+import { READ_TIMEOUT_MS } from './read-bounds';
 
 /**
  * Module-level toast callback registered by ToastProvider at mount.
@@ -10,7 +11,9 @@ export function registerSwrToast(fn: (title: string, message?: string) => void) 
 export function unregisterSwrToast() { _toastError = null; }
 
 export const swrConfig: SWRConfiguration = {
-  fetcher: (url: string) => apiClient.get(url),
+  // A page LOAD is bounded at READ_TIMEOUT_MS (performance audit 2026-11-17, P-03):
+  // with the database hung the whole UI used to sit on "Loading…" indefinitely.
+  fetcher: (url: string) => apiClient.get(url, { timeoutMs: READ_TIMEOUT_MS }),
   revalidateOnFocus: true,
   shouldRetryOnError: true,
   errorRetryCount: 2,

@@ -224,11 +224,32 @@ function matchesLdapGroup(group: string, ldapGroupLower: string): boolean {
  * defaulting to true. An operator choosing `ldap://` has chosen cleartext, and
  * a TLS setting was never going to protect them.
  */
+/**
+ * How long one LDAP operation (bind, search, unbind) may take once connected
+ * (performance audit 2026-11-17, G4-02). ldapts defaults `timeout` to NONE, and
+ * only the connect phase was bounded: a directory that accepted the connection
+ * and never answered held Test Connection — and every directory user's login and
+ * e-signature re-authentication, which use the same client — open for as long as
+ * the socket lived (measured: no answer in 90 s). 10 s is far above a healthy
+ * directory's bind or search time.
+ */
+export const LDAP_OPERATION_TIMEOUT_MS = 10_000;
+
+/** Best-effort unbind: a client that never bound, or whose socket the server dropped, rejects unbind(). */
+async function closeQuietly(client: Client): Promise<void> {
+  try {
+    await client.unbind();
+  } catch {
+    // Nothing to release that the rejection did not already release.
+  }
+}
+
 function buildClient(cfg: Pick<LdapConfig, 'serverUrl' | 'connectionTimeout' | 'tlsRejectUnauthorized'>): Client {
   const isSecure = cfg.serverUrl.trim().toLowerCase().startsWith('ldaps:');
   return new Client({
     url: cfg.serverUrl,
     connectTimeout: cfg.connectionTimeout || 5000,
+    timeout: LDAP_OPERATION_TIMEOUT_MS,
     ...(isSecure
       ? { tlsOptions: { rejectUnauthorized: cfg.tlsRejectUnauthorized ?? true } }
       : {}),
@@ -313,10 +334,12 @@ export const ldapService = {
 
     try {
       await client.bind(cfg.bindDN, cfg.bindPassword);
-      await client.unbind();
       return { success: true, message: 'Successfully connected and authenticated to LDAP server' };
     } catch (err: any) {
       return { success: false, message: `LDAP connection failed: ${err.message || err}` };
+    } finally {
+      // Released on success AND failure (a failed bind used to leave the socket open).
+      await closeQuietly(client);
     }
   },
 
@@ -388,9 +411,10 @@ export const ldapService = {
 
       try {
         await userClient.bind(userDn, password);
-        await userClient.unbind();
       } catch {
-        return null; // Invalid password
+        return null; // Invalid password (or the directory did not answer in LDAP_OPERATION_TIMEOUT_MS)
+      } finally {
+        await closeQuietly(userClient);
       }
 
       // Access gate — checked AFTER the user's own bind succeeds, deliberately.

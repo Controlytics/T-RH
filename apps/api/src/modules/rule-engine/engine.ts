@@ -1,5 +1,5 @@
 import { ruleNodeConfigWithDefaults, RULE_NODE_TYPE_BY_ID, type RuleChainNode, type RuleDebugMode } from '@digilog/shared';
-import { prisma } from '../../lib/prisma.js';
+import { prisma, runOnPool } from '../../lib/prisma.js';
 import { logger } from '../../lib/logger.js';
 import { getChain as cachedChain, getRootChain as cachedRootChain, invalidateChainCache, type LoadedRuleChain } from './service.js';
 import { getRuleEngineConfig, RULE_ENGINE_CONFIG_DEFAULTS, type RuleEngineConfig } from './config.js';
@@ -576,7 +576,12 @@ class RuleEngineImpl implements RuleEngine {
    * last, so a flow must never take its depth from the context it starts in.
    */
   private runFlow(item: QueueItem): Promise<void> {
-    return runInFlow({ reentryDepth: item.reentryDepth, admittedOrigin: item.admittedOrigin }, () => this.runFlowInContext(item));
+    // And ALWAYS on the general database pool (performance audit 2026-11-17, P-04),
+    // for the same reason: the dispatch inherits the context of whatever pushed
+    // last, and an acknowledgement or a sign-in runs on the RESERVED critical pool —
+    // a flow must never take that pool from the request that happened to emit it.
+    return runOnPool('general', () =>
+      runInFlow({ reentryDepth: item.reentryDepth, admittedOrigin: item.admittedOrigin }, () => this.runFlowInContext(item)));
   }
 
   private async runFlowInContext(item: QueueItem): Promise<void> {

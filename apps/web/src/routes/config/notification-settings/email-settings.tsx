@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
 import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
 import { PageHero } from '@/components/ui/page-hero';
+import { SettingsLoadGate } from '@/components/ui/settings-load-gate';
 import { Tabs } from '@/components/ui/tabs';
 
 // ─── Email Types & Constants ──────────────────────────────────────────
@@ -148,7 +149,7 @@ function EmailTab() {
   const [testResult, setTestResult] = useState<{ success: boolean; message?: string; error?: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const { data, mutate } = useSWR('/api/notification-settings/email', { revalidateOnMount: true, dedupingInterval: 0 });
+  const { data, error: loadError, mutate } = useSWR('/api/notification-settings/email', { revalidateOnMount: true, dedupingInterval: 0 });
   const { data: redirectData } = useSWR('/api/notification-settings/email/oauth2/redirect-uri', { revalidateOnMount: true, dedupingInterval: 0 });
   const { data: oauth2Status, mutate: mutateOAuth2Status } = useSWR<OAuth2Status>('/api/notification-settings/email/oauth2/status', { revalidateOnMount: true, dedupingInterval: 0 });
 
@@ -273,6 +274,9 @@ function EmailTab() {
       {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>}
       {success && <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm">{success}</div>}
 
+      {/* G4-01: the form opens only on the STORED settings — after a failed GET
+          it held the useForm defaults, and one edit + Save wrote them all. */}
+      <SettingsLoadGate what="the e-mail settings" data={data} error={loadError} onRetry={() => void mutate()}>
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Enable toggle */}
         <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-6 shadow-[var(--elev-1)]">
@@ -583,6 +587,7 @@ function EmailTab() {
           </Button>
         </div>
       </form>
+      </SettingsLoadGate>
 
       {/* Test Section */}
       <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-6 shadow-[var(--elev-1)] space-y-4">
@@ -680,7 +685,7 @@ function SmsTab() {
   const [testPhone, setTestPhone] = useState('');
   const [testResult, setTestResult] = useState<{ success: boolean; message?: string; error?: string } | null>(null);
 
-  const { data, mutate } = useSWR('/api/notification-settings/sms', { revalidateOnMount: true, dedupingInterval: 0 });
+  const { data, error: loadError, mutate } = useSWR('/api/notification-settings/sms', { revalidateOnMount: true, dedupingInterval: 0 });
 
   const defaultValues: SmsConfig = {
     provider: 'http-gateway', enabled: false, defaultCountryCode: '+91', senderId: 'DigiLog',
@@ -741,6 +746,9 @@ function SmsTab() {
       {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>}
       {success && <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm">{success}</div>}
 
+      {/* G4-01: the form opens only on the STORED settings — after a failed GET
+          it held the useForm defaults, and one edit + Save wrote them all. */}
+      <SettingsLoadGate what="the SMS settings" data={data} error={loadError} onRetry={() => void mutate()}>
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Enable toggle */}
         <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-6 shadow-[var(--elev-1)]">
@@ -877,6 +885,7 @@ function SmsTab() {
           </Button>
         </div>
       </form>
+      </SettingsLoadGate>
 
       {/* Test Section */}
       <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-6 shadow-[var(--elev-1)] space-y-4">

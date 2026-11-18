@@ -598,7 +598,7 @@ describe('SelectionAlarms — the shared widget filters', () => {
     expect(labels.filter((l) => /cleared/i.test(l ?? ''))).toHaveLength(2);
   });
 
-  it('sends each filter to the SERVER, not to the rows in hand', () => {
+  it('sends each filter to the SERVER, not to the rows in hand', async () => {
     // A client-side filter on a paged panel narrows ONE PAGE while reading as a
     // filter of the selection — the defect the Alarms page was rebuilt to remove.
     renderWith([active]);
@@ -608,8 +608,11 @@ describe('SelectionAlarms — the shared widget filters', () => {
     fireEvent.change(screen.getByRole('combobox', { name: /filter by status/i }), {
       target: { value: 'active-unack' },
     });
+    // The search settles for 300 ms before it becomes a request — one request per
+    // word, not per keystroke (performance audit 2026-11-17, G1-09).
+    expect(new URL(alarmsKey!, 'https://x').searchParams.get('search')).toBeNull();
+    await waitFor(() => expect(new URL(alarmsKey!, 'https://x').searchParams.get('search')).toBe('CWH/RDU/006'));
     const q = new URL(alarmsKey!, 'https://x').searchParams;
-    expect(q.get('search')).toBe('CWH/RDU/006');
     expect(q.get('status')).toBe('active-unack');
     // And the scope is still the panel's own: the location, and no state pin.
     expect(q.get('functionalLocationId')).toBe('fl-1');

@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { SWRConfig, useSWRConfig } from 'swr';
 import { registerSwrToast, swrConfig, unregisterSwrToast } from '@/lib/swr-config';
+import { READ_TIMEOUT_MS } from '@/lib/read-bounds';
 
 const get = vi.fn();
 const post = vi.fn();
@@ -125,7 +126,8 @@ describe('the key catalogue', () => {
     get.mockResolvedValue({ data: [{ source: 'telemetry', key: 'p' }] });
     const { result } = renderHook(() => useKeyCatalogue({ all: true }), { wrapper });
     await waitFor(() => expect(result.current.keys).toHaveLength(1));
-    expect(get).toHaveBeenCalledWith('/api/instruments/data-keys?all=true');
+    // A page load: bounded at READ_TIMEOUT_MS (performance audit 2026-11-17, P-03).
+    expect(get).toHaveBeenCalledWith('/api/instruments/data-keys?all=true', { timeoutMs: READ_TIMEOUT_MS });
   });
 });
 
@@ -226,6 +228,7 @@ describe('useAlarmCounts', () => {
     await waitFor(() => expect(result.current.data).toEqual(COUNTS));
     expect(get).toHaveBeenCalledWith(
       '/api/alarms/counts?functionalLocationId=fl-1&functionalLocationDirect=true&profileId=p-1&instrumentIds=a%2Cb',
+      { timeoutMs: READ_TIMEOUT_MS },
     );
   });
 

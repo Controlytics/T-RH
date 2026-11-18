@@ -48,7 +48,9 @@ import { sessionSweepTask } from './workers/session-sweep.worker.js';
 import { telemetryPartitionTask, ensurePartitionsAtBoot } from './workers/telemetry-partition.worker.js';
 import { startJobRunner, stopJobRunner, type StartJobRunnerOptions } from '@digilog/queue';
 import { superviseJobRunner, type JobRunnerSupervisor } from './lib/job-runner-supervisor.js';
-import { AppError, prismaErrorToResponse } from './lib/errors.js';
+import { AppError, databaseUnavailable, prismaErrorToResponse } from './lib/errors.js';
+import { registerDbPoolHook, disconnectAllPrisma, warmPool } from './lib/prisma.js';
+import { registerJsonCompression } from './lib/compress-json.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
 import { reconcileNotificationRetries } from './modules/notification-delivery/delivery.service.js';
 import adminRequestRoutes from './modules/admin-requests/routes.js';
@@ -213,6 +215,11 @@ await app.register(fastifyStatic, {
 });
 
 // Plugins
+// BEFORE the auth plugin: a route's database pool (config.dbPool) is entered for the
+// whole request, so a critical route's session check runs on the reserved pool too.
+registerDbPoolHook(app);
+// gzip a large JSON response for a client that accepts it (performance audit R1, P-02).
+registerJsonCompression(app);
 await app.register(authPlugin);
 await app.register(rbacPlugin);
 
@@ -315,6 +322,13 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
       );
     });
   }
+  // The database could not serve the request (unreachable, timed out, pool
+  // exhausted): a 503 with Retry-After, never a 500 (performance audit
+  // 2026-11-17, P-05). Logged and notified above like any other failure.
+  const unavailable = databaseUnavailable(err);
+  if (unavailable) {
+    return reply.code(unavailable.status).header('Retry-After', String(unavailable.retryAfterSeconds)).send(unavailable.body);
+  }
   return reply.code(err.statusCode ?? 500).send({
     error: 'INTERNAL_ERROR',
     message: process.env.NODE_ENV === 'development' ? (err.message || 'Internal server error').substring(0, 500) : 'Internal server error',
@@ -342,6 +356,9 @@ let jobRunnerStatus: 'starting' | 'running' | 'failed' = 'starting';
 let jobRunnerSupervisor: JobRunnerSupervisor | null = null;
 
 app.get('/api/health', {
+  // The reserved database pool (performance audit 2026-11-17, P-04): the deploy and
+  // installer probe must answer while heavy reads hold every general connection.
+  config: { dbPool: 'critical' },
   schema: {
     tags: ['Health'],
     summary: 'Health check',
@@ -621,6 +638,13 @@ try {
   // also creates them runs on the 1st/15th, and a fresh install between those
   // dates refused every reading until then. Never throws.
   await ensurePartitionsAtBoot(app.log);
+  // Open the RESERVED pool's connections now (performance audit R1, P-04): it exists
+  // for the moment the database is slow, which is when a new connection is slow to
+  // open. In the background — boot never waits on it — and a failure is logged.
+  void warmPool('critical').then(
+    (n) => app.log.info({ connections: n }, 'reserved (critical) database pool opened'),
+    (warmErr) => app.log.warn({ err: warmErr }, 'reserved (critical) database pool could not be opened at boot; it opens on first use'),
+  );
 } catch (err) {
   app.log.error(err);
   process.exit(1);
@@ -775,6 +799,11 @@ const shutdown = async (signal: string) => {
       await closeProducer();
     } catch (qErr) {
       app.log.error({ err: qErr }, 'Shutdown: closeProducer (graphile-worker) failed');
+    }
+    try {
+      await disconnectAllPrisma();
+    } catch (dbErr) {
+      app.log.error({ err: dbErr }, 'Shutdown: closing the database pools failed');
     }
     
   } catch (err) {

@@ -6,6 +6,7 @@ import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
 import { PageHero } from '@/components/ui/page-hero';
+import { SettingsLoadGate } from '@/components/ui/settings-load-gate';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
 
 type Matrix = Record<string, string[]>;
@@ -25,9 +26,13 @@ interface Module {
 export function AccessMatrixPage() {
   const { toast } = useToast();
   const reauth = useReauth();
-  const { data: matrixData, mutate } = useSWR<Matrix>('/api/config/access-matrix');
-  const { data: rolesData } = useSWR<Role[]>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
-  const { data: manifest } = useSWR<any[]>('/api/config/registry/manifest');
+  const { data: matrixData, error: matrixError, mutate } = useSWR<Matrix>('/api/config/access-matrix');
+  const { data: rolesData, error: rolesError, mutate: mutateRoles } = useSWR<Role[]>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
+  const { data: manifest, error: manifestError, mutate: mutateManifest } = useSWR<any[]>('/api/config/registry/manifest');
+  // G4-01: Save PUTs the WHOLE matrix. Before the stored one arrives the draft
+  // is `{}`, and one tick + Save wrote `{module: [role]}` over every other
+  // module's grants. Nothing is editable until all three loads have answered.
+  const loaded = matrixData !== undefined && rolesData !== undefined && manifest !== undefined;
 
   const [draft, setDraft] = useState<Matrix>({});
   const [saving, setSaving] = useState(false);
@@ -147,7 +152,7 @@ export function AccessMatrixPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
           </svg>
         }
-        actions={
+        actions={!loaded ? undefined : (
           <>
             <div className="flex items-center gap-2">
               <Button className="text-white hover:bg-white/15 hover:text-white" variant="ghost"
@@ -166,9 +171,12 @@ export function AccessMatrixPage() {
               </Button>
             </div>
           </>
-        }
+        )}
       />
 
+      <SettingsLoadGate what="the configuration access matrix" data={loaded ? matrixData : undefined}
+        error={matrixError ?? rolesError ?? manifestError}
+        onRetry={() => { void mutate(); void mutateRoles(); void mutateManifest(); }}>
       {roles.length === 0 ? (
         <div className="bg-white rounded-[var(--radius-card)] border border-slate-200 p-8 text-center text-slate-500">
           No assignable roles found. SUPER_ADMIN always has access.
@@ -237,6 +245,7 @@ export function AccessMatrixPage() {
           </div>
         </div>
       )}
+      </SettingsLoadGate>
 
       <ReauthDialog
         open={reauth.isOpen}

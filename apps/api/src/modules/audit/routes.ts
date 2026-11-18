@@ -824,6 +824,9 @@ export default async function auditRoutes(app: FastifyInstance) {
   // the auditor-facing read view. See apps/api/src/lib/audit-verify.ts for
   // detection semantics.
   app.get('/verify-chain', {
+    // Its own unlimited database pool (performance audit 2026-11-17, P-04): never cut
+    // by the 5-minute statement limit, and never holding a request's connection.
+    config: { dbPool: 'long' },
     preHandler: [app.requireSuperAdmin()],
     schema: {
       tags: ['Audit'],

@@ -13,6 +13,17 @@ import { getEmailConfig } from '../config-loader.js';
 // and torn down on every OAuth refresh.
 import { prisma } from '../../../lib/prisma.js';
 
+/**
+ * How long one OAuth2 token request may take (performance audit 2026-11-17,
+ * G4-03) — the same bound the SMS gateway calls carry (`SMS_HTTP_TIMEOUT_MS`).
+ * There was none: a token endpoint that accepted the connection and never
+ * answered held the e-mail send, the notification job and its retry — and, from
+ * the settings page, the administrator's "Connect" request — open indefinitely.
+ * Used by the three token refreshes here and the authorization-code exchange in
+ * `../routes.ts`.
+ */
+export const OAUTH_TOKEN_TIMEOUT_MS = 15_000;
+
 let transporter: Mail | null = null;
 let currentConfigHash = "";
 
@@ -102,6 +113,7 @@ async function fetchOAuth2Token(config: EmailConfig): Promise<string> {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString().replace(/%7E/gi, '~'),
+      signal: AbortSignal.timeout(OAUTH_TOKEN_TIMEOUT_MS),
     });
 
     if (!res.ok) {
@@ -147,6 +159,7 @@ async function fetchOAuth2Token(config: EmailConfig): Promise<string> {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString().replace(/%7E/gi, '~'),
+      signal: AbortSignal.timeout(OAUTH_TOKEN_TIMEOUT_MS),
     });
 
     if (!res.ok) {
@@ -177,6 +190,7 @@ async function fetchOAuth2Token(config: EmailConfig): Promise<string> {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString().replace(/%7E/gi, '~'),
+      signal: AbortSignal.timeout(OAUTH_TOKEN_TIMEOUT_MS),
     });
 
     if (!res.ok) {

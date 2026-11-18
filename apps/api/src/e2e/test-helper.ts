@@ -34,8 +34,9 @@ import notificationRulesRoutes from '../modules/notification-rules/routes.js';
 import adminRequestRoutes from '../modules/admin-requests/routes.js';
 import ldapRoutes from '../modules/ldap/routes.js';
 import debugTraceRoutes from '../modules/debug-traces/routes.js';
-import { prisma } from '../lib/prisma.js';
-import { AppError, prismaErrorToResponse } from '../lib/errors.js';
+import { prisma, registerDbPoolHook } from '../lib/prisma.js';
+import { registerJsonCompression } from '../lib/compress-json.js';
+import { AppError, databaseUnavailable, prismaErrorToResponse } from '../lib/errors.js';
 
 /** Default admin password used in tests */
 export const ADMIN_PASSWORD = 'Admin@123';
@@ -52,6 +53,9 @@ let configsDiscovered = false;
  * Build a Fastify instance for integration testing.
  * Uses app.inject() — no actual HTTP server is started.
  */
+/** Route → database pool, per app built by `buildApp` (see the onRoute hook there). */
+export const routeDbPools = new WeakMap<FastifyInstance, Map<string, string>>();
+
 export async function buildApp(
   /**
    * `wsIngest` lets a WebSocket test build an app whose auth deadline, frame
@@ -68,6 +72,14 @@ export async function buildApp(
       },
     },
   });
+  // Every route's database pool, as registered (performance audit 2026-11-17, P-04)
+  // — read by `e2e/db-pools.e2e.test.ts` to pin which routes run on which pool.
+  const pools = new Map<string, string>();
+  routeDbPools.set(app, pools);
+  app.addHook('onRoute', (route) => {
+    const methods = Array.isArray(route.method) ? route.method : [route.method];
+    for (const m of methods) pools.set(`${m} ${route.url}`, (route.config as { dbPool?: string } | undefined)?.dbPool ?? 'general');
+  });
 
   await app.register(cors, { origin: true, credentials: true });
   await app.register(multipart, { limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
@@ -78,6 +90,9 @@ export async function buildApp(
   await app.register(websocket, { options: { maxPayload: 1024 * 1024 } });
 
   // Plugins
+  // As in app.ts: the route's database pool, entered before the auth plugin (P-04).
+  registerDbPoolHook(app);
+  registerJsonCompression(app);
   await app.register(authPlugin);
   await app.register(rbacPlugin);
 
@@ -102,6 +117,11 @@ export async function buildApp(
     const prismaMapped = prismaErrorToResponse(err);
     if (prismaMapped) {
       return reply.code(prismaMapped.status).send(prismaMapped.body);
+    }
+    // Same 503 as app.ts for a database that cannot serve the request (P-05).
+    const unavailable = databaseUnavailable(err);
+    if (unavailable) {
+      return reply.code(unavailable.status).header('Retry-After', String(unavailable.retryAfterSeconds)).send(unavailable.body);
     }
     const status = err.statusCode ?? 500;
     return reply.code(status).send({ error: err.message || 'Internal Server Error' });

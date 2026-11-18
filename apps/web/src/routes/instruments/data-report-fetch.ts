@@ -1,4 +1,14 @@
-import { MAX_SERIES_POINTS } from '@digilog/shared';
+/**
+ * The sampled CHART call is made for `historyTotal` and `summaries` ONLY — the server
+ * computes both in SQL over EVERY reading of the period whatever `points` is
+ * (`getRangeSummary`'s `count(*)`, Min / Max / MKT) — and its rows are thrown away
+ * (see below). So it asks for the fewest points the chart path returns: `lttb` keeps
+ * just the first and last reading of a key at 2. At `MAX_SERIES_POINTS` (5,000 a key)
+ * those discarded rows were ~1 MB of JSON per instrument — 30 of the 34 MB a
+ * 30-instrument, 7-day, 15-minute report parsed after G1-01 (performance audit R1
+ * retest, 2026-11-18: 34 → 3 MB). The server still reads every row for that call.
+ */
+const SUMMARY_ONLY_POINTS = 2;
 import { apiClient } from '@/lib/api-client';
 import { scheduleRows, type ReportSlotRow } from './data-report';
 import { toTableRowsWithErrors, type TableRow } from './trend-series';
@@ -26,14 +36,19 @@ export interface ServerSlotSummary {
  *     reading, which the parameter block prints). Its rows are NOT used: it
  *     drops a non-numeric reading before sampling, so the failure word could
  *     never print from it.
- *  2. The paged TABLE path, asked for the WHOLE period in one request sized by
- *     that count (no ceiling since 2026-09-02) — every stored reading, raw,
- *     pivoted with `toTableRowsWithErrors` (the on-screen table's own builder)
- *     and laid on the interval schedule.
+ *  2. The ROWS, pivoted with `toTableRowsWithErrors` (the on-screen table's own
+ *     builder) and laid on the interval schedule:
+ *     - an INTERVAL report reads `/telemetry-report-rows` — only the readings
+ *       `scheduleRows` keeps (each slot's first instant), chosen by the server
+ *       with the same rule (performance audit 2026-11-17, G1-01);
+ *     - a RAW report reads the paged TABLE path for the WHOLE period in one
+ *       request sized by that count (no ceiling since 2026-09-02) — every
+ *       stored reading, raw.
  *
- * `coverage` reports what the paged call returned against the true total, so a
- * ceiling anywhere would still be disclosed in the report rather than assumed
- * away.
+ * `coverage` is what the rows call returned against the period's true total. For
+ * a RAW report a shortfall is a ceiling, disclosed rather than assumed away; for
+ * an INTERVAL report `returned` is the KEPT readings, so `returned < total` is
+ * expected there and is not a truncation. (No report prints it since 2026-10-06.)
  */
 export async function fetchDataReportRows(input: {
   instrumentId: string;
@@ -51,13 +66,24 @@ export async function fetchDataReportRows(input: {
     history: TelemetryLongRow[];
     historyTotal?: number;
     summaries?: Record<string, ServerSlotSummary>;
-  }>(`/api/instruments/${input.instrumentId}/telemetry?${range}&points=${MAX_SERIES_POINTS}`);
+  }>(`/api/instruments/${input.instrumentId}/telemetry?${range}&points=${SUMMARY_ONLY_POINTS}`);
   const trueTotal = sampled.historyTotal ?? sampled.history.length;
-  const whole = trueTotal > 0
-    ? await apiClient.get<{ history: TelemetryLongRow[]; historyTotal?: number }>(
-      `/api/instruments/${input.instrumentId}/telemetry?${range}&limit=${trueTotal}&offset=0`,
-    )
-    : { history: [] as TelemetryLongRow[], historyTotal: 0 };
+  const interval = input.intervalMs !== null && input.intervalMs > 0 ? input.intervalMs : null;
+  const whole = trueTotal === 0
+    ? { history: [] as TelemetryLongRow[], historyTotal: 0 }
+    : interval !== null
+      // An INTERVAL report prints the first reading of each slot (`scheduleRows`), so
+      // the server returns exactly those readings, chosen by the same rule
+      // (performance audit 2026-11-17, G1-01: the whole period was 78 MB for 26
+      // instruments x 7 days). `scheduleRows` below then builds the identical report —
+      // same anchor, same slots, same NA rows — from a fraction of the data.
+      ? await apiClient.get<{ history: TelemetryLongRow[]; historyTotal?: number }>(
+        `/api/instruments/${input.instrumentId}/telemetry-report-rows?${range}&intervalMs=${interval}&keys=${encodeURIComponent(input.slotKeys.join(','))}`,
+      )
+      // RAW prints every stored reading, so the whole period it is.
+      : await apiClient.get<{ history: TelemetryLongRow[]; historyTotal?: number }>(
+        `/api/instruments/${input.instrumentId}/telemetry?${range}&limit=${trueTotal}&offset=0`,
+      );
   return {
     rows: scheduleRows(toTableRowsWithErrors(whole.history, input.slotKeys), input.intervalMs, input.to),
     coverage: { returned: whole.history.length, total: whole.historyTotal ?? whole.history.length },

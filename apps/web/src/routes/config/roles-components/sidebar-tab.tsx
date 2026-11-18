@@ -10,6 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { SIDEBAR_ITEMS } from '@digilog/shared';
 import type { RoleData } from '@digilog/shared';
 import { SkeletonCard } from '@/components/ui/skeleton';
+import { SettingsLoadGate } from '@/components/ui/settings-load-gate';
 
 interface User {
   id: string;
@@ -53,21 +54,42 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
 
     const { data: usersData, isLoading: loadingUsers } = useSWR('/api/users');
 
-    const { data: sidebarRoleConfig, isLoading: loadingSidebarRoleConfig, isValidating: validatingSidebarRoleConfig } = useSWR(
+    const { data: sidebarRoleConfig, error: sidebarRoleConfigError, mutate: reloadSidebarRoleConfig } = useSWR(
       sidebarSubTab === 'role' && sidebarSelectedRole ? `/api/config/roles/${sidebarSelectedRole}` : null,
-      {
-        revalidateOnMount: true, dedupingInterval: 0,
-        onSuccess: (data) => { setEnabledItems(data.sidebarItems || SIDEBAR_ITEMS.map(i => i.id)); setSidebarDirty(false); setIsTransitioning(false); },
-      }
+      { revalidateOnMount: true, dedupingInterval: 0 },
     );
 
-    const { data: userConfig, isLoading: loadingUserConfig, isValidating: validatingUserConfig } = useSWR(
+    const { data: userConfig, error: userConfigError, mutate: reloadUserConfig } = useSWR(
       sidebarSubTab === 'user' && selectedUser ? `/api/config/users/${selectedUser.id}` : null,
-      {
-        revalidateOnMount: true, dedupingInterval: 0,
-        onSuccess: (data) => { setEnabledItems(data.sidebarItems || []); setSidebarDirty(false); setIsTransitioning(false); },
-      }
+      { revalidateOnMount: true, dedupingInterval: 0 },
     );
+
+    // The items are seeded from the SELECTED role's / user's stored config, and
+    // the editor — and Save, through `canSave` — exists only once they have been
+    // seeded FOR THAT KEY (performance audit 2026-11-17, G4-01). They used to be
+    // seeded in SWR's `onSuccess`: after a FAILED first load every loading flag
+    // went false and the cards rendered `[]` (one tick + Save left the role with
+    // one sidebar item), and a failed load during a switch left `isTransitioning`
+    // on for good, disabling the role buttons.
+    const currentKey = sidebarSubTab === 'role'
+      ? (sidebarSelectedRole ? `role:${sidebarSelectedRole}` : null)
+      : (selectedUser ? `user:${selectedUser.id}` : null);
+    const currentData = sidebarSubTab === 'role' ? sidebarRoleConfig : userConfig;
+    const currentError = sidebarSubTab === 'role' ? sidebarRoleConfigError : userConfigError;
+    const [seededFor, setSeededFor] = useState<string | null>(null);
+    useEffect(() => {
+      if (currentKey === null || currentData === undefined) return;
+      const stored = (currentData as { sidebarItems?: string[] }).sidebarItems;
+      setEnabledItems(stored || (sidebarSubTab === 'role' ? SIDEBAR_ITEMS.map(i => i.id) : []));
+      setSidebarDirty(false);
+      setIsTransitioning(false);
+      setSeededFor(currentKey);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentData, currentKey]);
+    useEffect(() => {
+      if (currentError && currentData === undefined) setIsTransitioning(false);
+    }, [currentError, currentData]);
+    const sidebarReady = currentKey !== null && currentData !== undefined && seededFor === currentKey;
 
     const handleSidebarRoleChange = useCallback((role: string) => {
       if (role !== sidebarSelectedRole) { setIsTransitioning(true); setEnabledItems([]); setSidebarDirty(false); setSidebarSelectedRole(role); }
@@ -136,11 +158,11 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
       u.username.toLowerCase().includes(searchQuery.toLowerCase()) || u.fullName.toLowerCase().includes(searchQuery.toLowerCase())
     ) || [];
 
-    const sidebarIsLoading = sidebarSubTab === 'role'
-      ? (loadingSidebarRoleConfig || validatingSidebarRoleConfig || isTransitioning)
-      : (loadingUserConfig || validatingUserConfig || isTransitioning);
+    const sidebarIsLoading = !sidebarReady;
+    const sidebarLoadFailed = !sidebarReady && Boolean(currentError);
+    const retrySidebar = () => { void (sidebarSubTab === 'role' ? reloadSidebarRoleConfig() : reloadUserConfig()); };
     const handleSaveSidebar = sidebarSubTab === 'role' ? handleSaveSidebarRole : handleSaveSidebarUser;
-    const canSave = sidebarSubTab === 'role' || !!selectedUser;
+    const canSave = sidebarReady && (sidebarSubTab === 'role' || !!selectedUser);
 
     useEffect(() => {
       onStateChange({ dirty: sidebarDirty, saving: sidebarSaving, canSave });
@@ -362,7 +384,9 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
                 </div>
               </div>
 
-              {sidebarIsLoading ? (
+              {sidebarLoadFailed ? (
+                <SettingsLoadGate what={`the ${sidebarSelectedRole} sidebar`} data={undefined} error={currentError} onRetry={retrySidebar}>{null}</SettingsLoadGate>
+              ) : sidebarIsLoading ? (
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {Array.from({ length: 6 }, (_, i) => <SkeletonCard key={i} lines={2} />)}
                 </div>
@@ -452,7 +476,9 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
                       </div>
                     </div>
 
-                    {sidebarIsLoading ? (
+                    {sidebarLoadFailed ? (
+                      <SettingsLoadGate what="this user's sidebar" data={undefined} error={currentError} onRetry={retrySidebar}>{null}</SettingsLoadGate>
+                    ) : sidebarIsLoading ? (
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         {Array.from({ length: 4 }, (_, i) => <SkeletonCard key={i} lines={2} />)}
                       </div>

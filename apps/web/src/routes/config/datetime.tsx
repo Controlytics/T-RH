@@ -11,6 +11,7 @@ import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
 import { PageHero } from '@/components/ui/page-hero';
+import { SettingsLoadGate } from '@/components/ui/settings-load-gate';
 
 export function DatetimeConfigPage() {
   const navigate = useNavigate();
@@ -21,7 +22,7 @@ export function DatetimeConfigPage() {
   const canWrite = isSuperAdmin || hasEffectivePermission(perms, 'CONFIG_UPDATE');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const { data } = useSWR('/api/config/datetime', { revalidateOnMount: true, dedupingInterval: 0 });
+  const { data, error: loadError, mutate: revalidate } = useSWR('/api/config/datetime', { revalidateOnMount: true, dedupingInterval: 0 });
   const reauth = useReauth();
 
   const { register, handleSubmit, watch, reset, formState: { isSubmitting, isDirty } } = useForm<DatetimeConfig>({
@@ -107,6 +108,9 @@ export function DatetimeConfigPage() {
         }
       />
 
+      {/* G4-01: the form opens only on the STORED settings — after a failed GET
+          it held the useForm defaults, and one edit + Save wrote them all. */}
+      <SettingsLoadGate what="the date and time settings" data={data} error={loadError} onRetry={() => void revalidate()}>
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Status Messages */}
         {error && (
@@ -289,6 +293,7 @@ export function DatetimeConfigPage() {
           </Button>
         </div>
       </form>
+      </SettingsLoadGate>
       <ReauthDialog
         open={reauth.isOpen}
         password={reauth.password}

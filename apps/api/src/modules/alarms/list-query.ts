@@ -169,6 +169,28 @@ const TYPE_WHERE: Record<AlarmTypeToken, Record<string, unknown>> = {
   RANGE: { source: 'SENSOR_RANGE' },
 };
 
+/** The columns a type token may test — every TYPE_WHERE entry is plain equality on these. */
+export type AlarmTypeColumns = { source: string; metric: string; limitKind: string | null };
+const TYPE_COLUMNS = new Set<string>(['source', 'metric', 'limitKind']);
+
+/**
+ * Does a row with these column values belong to `token`? Read from the SAME table
+ * the `type` filter is built from (performance audit 2026-11-17, G2-03): the
+ * counts route groups once by these columns and classifies each group here,
+ * instead of running one query per token, and the two cannot drift because there
+ * is one table. A row matching two tokens counts in both, exactly as two filtered
+ * queries would. Throws on an entry that is not equality on these columns — the
+ * classification would silently stop agreeing with the filter.
+ */
+export function matchesTypeToken(token: AlarmTypeToken, row: AlarmTypeColumns): boolean {
+  return Object.entries(TYPE_WHERE[token]).every(([column, value]) => {
+    if (!TYPE_COLUMNS.has(column) || (typeof value !== 'string' && value !== null)) {
+      throw new Error(`TYPE_WHERE.${token}.${column} is not plain equality on source / metric / limitKind`);
+    }
+    return row[column as keyof AlarmTypeColumns] === value;
+  });
+}
+
 /**
  * One quadrant as a where fragment. The two axes stay separate on purpose: a
  * CLEARED-but-UNACKNOWLEDGED alarm is the overnight excursion nobody answered
@@ -273,23 +295,28 @@ export function buildAlarmWhere(q: AlarmListQuery, opts: WhereOptions = {}): { A
 }
 
 export function buildAlarmOrderBy(sort: AlarmSortKey, dir: SortDir): Record<string, unknown>[] {
-  // raisedAt is the tiebreak on every branch. Without one, two pages of a
-  // non-unique sort can show the same alarm twice and omit another entirely.
-  const tiebreak = { raisedAt: 'desc' as const };
+  // Every branch ends in `id`, the one UNIQUE key (performance audit 2026-11-17,
+  // G2-04). `raisedAt` was the only tiebreak and is not unique (alarms are inserted
+  // one at a time with a default timestamp, and a pass raises several in the same
+  // millisecond): with offset paging two pages could then show one alarm twice and
+  // omit another — in a signed report, under a footer saying "N of M". The default
+  // order is served by `alarms_raised_at_id_idx (raised_at DESC, id DESC)`, read
+  // backwards for ascending.
+  const tiebreak = [{ raisedAt: 'desc' as const }, { id: 'desc' as const }];
   const nullsLast = { sort: dir, nulls: 'last' as const };
 
   switch (sort) {
     case 'clearedAt':
-      return [{ clearedAt: nullsLast }, tiebreak];
+      return [{ clearedAt: nullsLast }, ...tiebreak];
     case 'instrumentCode':
-      return [{ instrument: { code: dir } }, tiebreak];
+      return [{ instrument: { code: dir } }, ...tiebreak];
     case 'type':
-      return [{ metric: dir }, { limitKind: dir }, tiebreak];
+      return [{ metric: dir }, { limitKind: dir }, ...tiebreak];
     case 'status':
-      return [{ state: dir }, { acknowledgedAt: nullsLast }, tiebreak];
+      return [{ state: dir }, { acknowledgedAt: nullsLast }, ...tiebreak];
     case 'raisedAt':
     default:
-      return [{ raisedAt: dir }];
+      return [{ raisedAt: dir }, { id: dir }];
   }
 }
 

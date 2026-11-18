@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { builtinReportTemplate } from '@digilog/shared';
 import { brandingFetch } from '@/test-support/branding-stub';
+import { reportRowsFake } from '@/test-support/report-rows-fake';
 
 // Branding and its logo answer: a report made now REFUSES when either cannot be
 // read (ruling F-1, extended 2026-11-03).
@@ -81,6 +82,8 @@ function dataFor(key: string | null): any {
     const rows = historyRows.filter((r) => ids.includes(r.instrumentId));
     return { data: rows, total: rows.length };
   }
+  // An INTERVAL report's slot rows, answered by the server's rule (G1-01, 2026-11-17).
+  if (key.includes('/telemetry-report-rows?')) return reportRowsFake(longHistory, key);
   if (key.includes('/telemetry?')) {
     return { latest: [], history: longHistory, historyTotal: longHistory.length, summaries: { temperature: { min: 26, max: 26 }, humidity: { min: 45, max: 45 } } };
   }
@@ -305,6 +308,34 @@ describe('GenerateReportCard', () => {
     expect(lastPages).toBe(1);
     expect(lastPdf).toContain(A.code);
     expect(lastPdf).not.toContain(B.code);
+  });
+
+  it('an INTERVAL report reads each instrument\'s slot rows from the server, never the whole period (G1-01)', async () => {
+    // The page the 78 MB finding came from (performance audit 2026-11-17): an
+    // interval report kept one reading per slot after downloading every reading of
+    // the period. The server now keeps them; the raw report above still reads all.
+    renderBoth();
+    pickArea();
+    fireEvent.click(screen.getByRole('button', { name: 'Export as PDF' }));
+    fireEvent.change(document.getElementById('report-download-interval') as HTMLSelectElement, { target: { value: String(3_600_000) } });
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: 'hourly review' } });
+    fireEvent.change(document.getElementById('report-download-password') as HTMLInputElement, { target: { value: 'Secret@123' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Request approval' }));
+    await waitFor(() => expect(saved.length).toBe(1), { timeout: 5000 });
+
+    for (const id of [A.id, B.id]) {
+      const rowsCalls = requested.filter((u) => u.includes(`/api/instruments/${id}/telemetry-report-rows?`));
+      expect(rowsCalls).toHaveLength(1);
+      const q = new URLSearchParams(rowsCalls[0].slice(rowsCalls[0].indexOf('?') + 1));
+      expect(q.get('intervalMs')).toBe('3600000');
+      expect(q.get('from')).toBe('2026-08-24T00:00:00.000Z');
+      expect(q.get('to')).toBe('2026-08-24T01:00:00.000Z');
+      expect(q.get('keys')!.split(',').sort()).toEqual(['humidity', 'temperature']);
+    }
+    // The whole period is read for NEITHER instrument.
+    expect(requested.some((u) => u.includes('/telemetry?') && /[?&]limit=/.test(u))).toBe(false);
+    expect(lastPages).toBe(2);
+    expect(lastPdf).toContain('1 hour');
   });
 
   // ── Report templates (2026-11-03, page reports on templates) ──────────────
