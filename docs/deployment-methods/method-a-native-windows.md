@@ -32,7 +32,7 @@ Factory IT teams manage Active Directory, printers, and Windows updates. They un
 This pro is now realised as the **`DigiLog-Setup-<ver>.exe`** installer — even less for client IT to do than the loose scripts this doc originally listed:
 - `scripts/build-installer.ps1` — builds the bundle + portable Postgres + `Setup.exe` (Inno Setup)
 - `scripts/install.ps1` → `provision-db.ps1` + `register-services.ps1` — run by the installer (DB + `DigiLogDB`/`DigiLogAPI` services)
-- `scripts/upgrade.ps1` — data-safe in-place upgrade
+- `scripts/upgrade.ps1` — in-place upgrade: pre-upgrade `pg_dump`, forward-only migrations; since 2026-11-16 the reseed keeps every stored setting, field label and help article and creates no account (older builds reset five security settings and re-created / re-enabled `superadmin` — see `DEPLOY-WINDOWS.md`), and it passes only when the job runner reports `running`
 - `docs/PHARMA_DEPLOYMENT_21CFR.md` — deployment runbook + printable 21 CFR checklist
 - *(the original loose scripts `package-for-production.ps1` / `install-on-target.ps1` / `start-digilog.bat` / `stop-digilog.bat` were removed)*
 

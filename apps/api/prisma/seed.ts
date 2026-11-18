@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { defaultRoles } from './default-roles.js';
 import { roleUpsertArgs } from './seed-roles.js';
+import { systemConfigUpsertArgs, ensureSuperadmin, fieldIdUpsertArgs, helpArticleUpsertArgs } from './seed-config.js';
 
 const prisma = new PrismaClient();
 
@@ -58,41 +59,17 @@ async function main() {
   }
   const passwordHash = await bcrypt.hash(defaultPassword, 12);
 
-  await prisma.user.upsert({
-    where: { username: 'superadmin' },
-    update: {
-      fullName: 'System Administrator',
-      email: 'admin@digilog.local',
-      role: 'SUPER_ADMIN',
-      status: 'ENABLED',
-      forcePasswordChange: false,
-      isTemporaryPassword: false,
-    },
-    create: {
-      username: 'superadmin',
-      fullName: 'System Administrator',
-      email: 'admin@digilog.local',
-      passwordHash,
-      role: 'SUPER_ADMIN',
-      status: 'ENABLED',
-      forcePasswordChange: false,
-      isTemporaryPassword: false,
-      createdBy: 'system',
-    },
-  });
-
-  // Add to password history
-  const admin = await prisma.user.findUnique({ where: { username: 'superadmin' } });
-  if (admin) {
-    const existingHistory = await prisma.passwordHistory.findFirst({ where: { userId: admin.id } });
-    if (!existingHistory) {
-      await prisma.passwordHistory.create({
-        data: { userId: admin.id, passwordHash },
-      });
-    }
+  // Only on a database with NO users (./seed-config.ts, audit 2026-11-07 S2-C1):
+  // an upgrade never creates, re-creates, re-enables or rewrites an account.
+  const createdAdmin = await ensureSuperadmin(prisma, passwordHash);
+  if (createdAdmin) {
+    // Its first password in the history — only for the account just created.
+    const admin = await prisma.user.findUniqueOrThrow({ where: { username: 'superadmin' } });
+    await prisma.passwordHistory.create({ data: { userId: admin.id, passwordHash } });
+    console.log('  Created default admin user (superadmin / ******* — set INITIAL_ADMIN_PASSWORD env var)');
+  } else {
+    console.log('  Users exist — no account created (an upgrade never creates or changes one)');
   }
-
-  console.log('  Created default admin user (superadmin / ******* — set INITIAL_ADMIN_PASSWORD env var)');
 
   // 3. System configurations
   const configs = [
@@ -139,7 +116,9 @@ async function main() {
       configValue: {
         dateFormat: 'DD/MM/YYYY',
         timeFormat: '24-hour',
-        timezone: 'UTC',
+        // The only zone datetimeConfigSchema accepts (audit 2026-11-07, S10-20:
+        // a seeded 'UTC' was refused by the screens and used by the server).
+        timezone: 'Asia/Kolkata',
       },
       configType: 'display',
       requiresReauth: false,
@@ -163,16 +142,10 @@ async function main() {
     },
   ];
 
+  // Create-only: an upgrade never writes the shipped defaults over a stored
+  // setting (./seed-config.ts, audit 2026-11-07 S2-C1).
   for (const config of configs) {
-    await prisma.systemConfig.upsert({
-      where: { configKey: config.configKey },
-      update: {
-        configValue: config.configValue,
-        configType: config.configType,
-        requiresReauth: config.requiresReauth,
-      },
-      create: config,
-    });
+    await prisma.systemConfig.upsert(systemConfigUpsertArgs(config));
   }
   console.log('  Created default system configurations');
 
@@ -225,17 +198,9 @@ async function main() {
     //  Equipment/PM/Filter Profile — removed with the domain strip 2026-07-18.)
   ];
 
+  // The administrator's display name is never rewritten (./seed-config.ts).
   for (const field of fieldIds) {
-    await prisma.fieldIdConfig.upsert({
-      where: { fieldId: field.fieldId },
-      update: {
-        defaultName: field.defaultName,
-        displayName: field.displayName,
-        module: field.module,
-        description: field.description,
-      },
-      create: field,
-    });
+    await prisma.fieldIdConfig.upsert(fieldIdUpsertArgs(field));
   }
   console.log('  Created default field ID configurations');
 
@@ -248,23 +213,10 @@ async function main() {
     { key: 'users.roles', title: 'User Roles & Permissions', category: 'users', sortOrder: 1 },
   ];
 
+  // Create-only: an administrator's edits are never rewritten (./seed-config.ts).
   for (const article of helpArticles) {
-    await prisma.helpArticle.upsert({
-      where: { key: article.key },
-      update: {
-        title: article.title,
-        content: `# ${article.title}\n\nThis article covers the key concepts and usage guidelines for ${article.title.toLowerCase()}. For detailed instructions, please refer to the system documentation or contact your administrator.`,
-        category: article.category,
-        sortOrder: article.sortOrder,
-      },
-      create: {
-        key: article.key,
-        title: article.title,
-        content: `# ${article.title}\n\nThis article covers the key concepts and usage guidelines for ${article.title.toLowerCase()}. For detailed instructions, please refer to the system documentation or contact your administrator.`,
-        category: article.category,
-        sortOrder: article.sortOrder,
-      },
-    });
+    const content = `# ${article.title}\n\nThis article covers the key concepts and usage guidelines for ${article.title.toLowerCase()}. For detailed instructions, please refer to the system documentation or contact your administrator.`;
+    await prisma.helpArticle.upsert(helpArticleUpsertArgs(article, content));
   }
   console.log('  Created default help articles (33 articles)');
 

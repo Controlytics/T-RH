@@ -90,13 +90,15 @@ async function isNamedZone(tz: unknown): Promise<boolean> {
 /**
  * The zone bucket edges are local to: the `datetime` config's `timezone`, read
  * through `getDatetimeConfig()` — the server's one reader of that row, the one
- * notifications format with. (`GET /api/config/datetime/current` parses the same
- * row through the shared schema, whose `timezone` is the literal `Asia/Kolkata`,
- * so a stored zone that is not Kolkata reads there as Kolkata; the config's own
- * PUT refuses any other, so through the API the two agree.)
+ * notifications format with. It resolves the row through the same shared schema
+ * as `GET /api/config/datetime/current` (`resolveDatetimeConfig`, audit
+ * 2026-11-07 S10-20), so a stored zone the schema refuses — the seed used to write
+ * 'UTC' — buckets on the zone every screen shows, never on one no screen shows.
  *
- * An unknown zone is `UTC`, and the response says `timezone: 'UTC'` — the same
- * fallback `formatConfiguredDateTime` makes for an invalid zone.
+ * A zone Postgres does not know is `UTC`, and the response says `timezone: 'UTC'`
+ * — the same fallback `formatConfiguredDateTime` makes for an invalid zone. With
+ * today's schema (the literal `Asia/Kolkata`) that branch is unreachable; it guards
+ * a future schema that admits more zones.
  */
 export async function bucketTimezone(): Promise<string> {
   const { timezone } = await getDatetimeConfig();

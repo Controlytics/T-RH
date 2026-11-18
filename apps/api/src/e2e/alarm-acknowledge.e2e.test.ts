@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp, loginAs } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 import { fixtureProfileId } from '../test-support/fixture-profile.js';
+import { invalidateReauthCache } from '../lib/reauth-check.js';
 
 /**
  * Acknowledgement is a 21 CFR §11 e-signature, so what is asserted here is not just
@@ -174,5 +175,59 @@ describe('POST /api/alarms/:id/acknowledge', () => {
   it('404s an unknown alarm', async () => {
     const res = await ack('00000000-0000-4000-8000-000000000000', 'Acknowledging a ghost');
     expect(res.statusCode).toBe(404);
+  });
+});
+
+/**
+ * Audit 2026-11-07, S6-4 (audit probe K) — operator decision 2026-11-16: an
+ * acknowledgement is a §11.200 signature, so the password is ALWAYS demanded and
+ * verified. It was policy-driven (`enforceReauth('ACKNOWLEDGE_ALARM')`), and the
+ * shipped policy is EMPTY: a wrong password — or none — signed the alarm.
+ */
+describe('acknowledgement always verifies the password, whatever the re-auth policy says', () => {
+  let policyBefore: { configValue: unknown } | null = null;
+
+  beforeAll(async () => {
+    const row = await prisma.systemConfig.findUnique({ where: { configKey: 'action-reauth' } });
+    policyBefore = row ? { configValue: row.configValue } : null;
+    await prisma.systemConfig.upsert({
+      where: { configKey: 'action-reauth' },
+      update: { configValue: {} },
+      create: { configKey: 'action-reauth', configValue: {}, configType: 'security', requiresReauth: false },
+    });
+    invalidateReauthCache();
+  });
+
+  afterAll(async () => {
+    // Restore FIRST: other suites read this row.
+    if (policyBefore) {
+      await prisma.systemConfig.update({ where: { configKey: 'action-reauth' }, data: { configValue: policyBefore.configValue as never } });
+    } else {
+      await prisma.systemConfig.deleteMany({ where: { configKey: 'action-reauth' } });
+    }
+    invalidateReauthCache();
+  });
+
+  const ackWith = (id: string, password?: string) => app.inject({
+    method: 'POST', url: `/api/alarms/${id}/acknowledge`,
+    headers: { ...auth, ...(password === undefined ? {} : { 'x-reauth-password': password }) },
+    payload: { reason: 'Signed acknowledgement test' },
+  });
+
+  it('a WRONG password is refused (401) and the alarm stays unacknowledged', async () => {
+    const id = await raise();
+    const res = await ackWith(id, 'not-the-password');
+    expect(res.statusCode).toBe(401);
+    expect((await prisma.alarm.findUniqueOrThrow({ where: { id } })).acknowledgedAt).toBeNull();
+    // The right one signs — and clears the failed-attempt streak on the shared admin.
+    expect((await ackWith(id, 'Admin@123')).statusCode).toBe(200);
+  });
+
+  it('NO password is refused with REAUTH_REQUIRED', async () => {
+    const id = await raise();
+    const res = await ackWith(id);
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error).toBe('REAUTH_REQUIRED');
+    expect((await prisma.alarm.findUniqueOrThrow({ where: { id } })).acknowledgedAt).toBeNull();
   });
 });

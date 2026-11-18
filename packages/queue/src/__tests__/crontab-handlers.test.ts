@@ -37,7 +37,11 @@ function scheduledTasks(): string[] {
 
 function registeredHandlers(): string[] {
   const src = readFileSync(appTsPath, 'utf8');
-  const block = src.match(/taskList:\s*\{([\s\S]*?)\n\s*\},/);
+  // Two shapes: the inline property (`taskList: { … },`) it was until 2026-11-16, and
+  // the constant it is since the job-runner supervisor (audit S2-H1:
+  // `const taskList: StartJobRunnerOptions['taskList'] = { … };`). The first refactor
+  // made this throw — and nobody ran this suite, so it went unseen until 2026-11-18.
+  const block = src.match(/taskList\b[^{\n]*\{([\s\S]*?)\n\s*\}[,;]/);
   if (!block) throw new Error('could not locate the taskList block in app.ts');
   return [...block[1].matchAll(/^\s*([a-z_]+):/gm)].map((m) => m[1]);
 }
@@ -63,6 +67,10 @@ describe('crontab ↔ taskList', () => {
     // vacuously — which is exactly how this class of gap survives.
     expect(scheduledTasks().length).toBeGreaterThan(0);
     expect(registeredHandlers().length).toBeGreaterThan(0);
+    // The WHOLE block, not a fragment of it: its first and its last entry. A
+    // pattern that stopped early would still return a non-empty list.
+    expect(registeredHandlers()).toContain('notification');
+    expect(registeredHandlers()).toContain('rule_engine_debug_sweep');
   });
 
   it('the surviving tasks are the expected set', () => {

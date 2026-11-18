@@ -322,3 +322,53 @@ describe('per-bound enable flags', () => {
     expect(await openHigh()).toHaveLength(1);
   });
 });
+
+/**
+ * Audit 2026-11-07, S8-1 (runtime-proven by probe P, AT-1): the latest table keeps
+ * EVERY key a device ever sent. A device that once sent `temperature` and now sends
+ * `t` resolved to the frozen `temperature` row for good, so its live breaching
+ * readings never alarmed. The NEWEST of the slot's keys is the reading now.
+ */
+describe('a stale alias key never hides a live breaching reading', () => {
+  let staleId = '';
+
+  beforeAll(async () => {
+    const inst = await app.inject({
+      method: 'POST', url: '/api/instruments', headers: auth,
+      payload: {
+        name: 'Limit e2e stale alias', code: `LIMIT-ALIAS-${Date.now()}`,
+        profileId: await fixtureProfileId('fixture:instrument-limit-alarms'),
+      },
+    });
+    expect(inst.statusCode).toBe(201);
+    staleId = inst.json().id;
+    await prisma.instrumentAttribute.create({ data: { instrumentId: staleId, key: 'High Temperature Limit', value: '25' } });
+    const now = new Date();
+    await prisma.instrumentTelemetryLatest.createMany({
+      data: [
+        // In spec, but three hours old: the key this device used to send.
+        { instrumentId: staleId, key: 'temperature', value: 22, valueType: 'number', ts: new Date(now.getTime() - 3 * 3600_000) },
+        // The key it sends now, breaching.
+        { instrumentId: staleId, key: 't', value: 40, valueType: 'number', ts: now },
+      ],
+    });
+    await prisma.instrument.update({ where: { id: staleId }, data: { lastSeenAt: now } });
+  });
+
+  afterAll(async () => {
+    if (!staleId) return;
+    await prisma.alarm.deleteMany({ where: { instrumentId: staleId } });
+    await prisma.instrumentTelemetryLatest.deleteMany({ where: { instrumentId: staleId } });
+    await prisma.instrumentAttribute.deleteMany({ where: { instrumentId: staleId } });
+    await app.inject({ method: 'DELETE', url: `/api/instruments/${staleId}`, headers: auth });
+  });
+
+  it('raises on the newest temperature key (t = 40), not the stale one (temperature = 22)', async () => {
+    await evaluateAlarms();
+    const alarms = await prisma.alarm.findMany({ where: { instrumentId: staleId } });
+    expect(alarms).toHaveLength(1);
+    expect(alarms[0]).toMatchObject({
+      source: 'INSTRUMENT_LIMIT', metric: 'TEMPERATURE', limitKind: 'HIGH', triggeredValue: 40,
+    });
+  });
+});

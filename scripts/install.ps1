@@ -185,6 +185,10 @@ if (Test-Path $envFile) {
   # table is empty, so the keyed era starts at 0 (every row, forever).
   $auditKey      = NewSecret 48
   $dbUrl = "postgresql://digilog:$appDbPassword@localhost:$PgPort/digilog_db?schema=public"
+  # The job runner's crontab, where stage-runtime.ps1 puts it (audit 2026-11-07,
+  # S9-1). The API's built-in default is a monorepo path that does not exist in
+  # an install, and without the crontab the job runner never starts.
+  $crontabPath = Join-Path $InstallDir 'runtime\queue\crontab.txt'
   # Permanent deletion of audit records is NOT an environment setting since
   # 2026-10-12: it is the Configuration -> Audit Hard Delete toggle, OFF on a
   # fresh install (system_config 'audit-hard-delete'). AUDIT_HARD_DELETE_ENABLED
@@ -204,6 +208,7 @@ TLS_CERT_PATH=$srvCrt
 SERVE_WEB=true
 WEB_DIST_DIR=$webDist
 UPLOAD_DIR=$uploadDir
+MAINTENANCE_CRONTAB_PATH=$crontabPath
 ALLOWED_ORIGINS=https://localhost:$ApiPort,https://${lanIp}:$ApiPort,https://localhost,capacitor://localhost,http://localhost
 "@
   if ($DryRun) { Write-Host "[dry-run] write $envFile (secrets generated, app-db password random)" -ForegroundColor Yellow }
@@ -222,7 +227,11 @@ if ($dbAlreadyInit) {
     PgBin = $pgBin; DataDir = $dbDir; Port = $PgPort;
     AppPassword = $appDbPassword; SuperPassword = (NewSecret 18);
     AdminPassword = $AdminPassword; ApiDir = $apiDir; LogDir = $logDir;
-    NodeExe = $nodeExe
+    NodeExe = $nodeExe;
+    # Stop the standalone cluster when done (audit 2026-11-07, S9-5): step 4
+    # registers and STARTS the database service on the same data directory, and
+    # a second postmaster there refuses to start.
+    StopWhenDone = $true
   }
   if ($DryRun) { Write-Host "[dry-run] provision-db.ps1 (DataDir=$dbDir Port=$PgPort ApiDir=$apiDir)" -ForegroundColor Yellow }
   else {
@@ -264,19 +273,34 @@ else {
   netsh advfirewall firewall add rule name="DigiLog API" dir=in action=allow protocol=TCP localport=$ApiPort | Out-Null
 }
 
-# 6. Health check.
+# 6. Health check. HTTP 200 is not enough (audit 2026-11-07, S9-1): the API
+#    answers while its job runner is down, and then no alarm pass, OFFLINE
+#    detection, notification or partition maintenance runs. /api/health reports
+#    `jobRunner`; the install passes only when it reads 'running'. 60 s, because
+#    the API retries a failed runner start after 5 s and then 15 s.
 if (-not $DryRun) {
-  Write-Host "==> Waiting for API health..." -ForegroundColor Cyan
+  Write-Host "==> Waiting for API health (and its job runner)..." -ForegroundColor Cyan
   $ok = $false
-  foreach ($i in 1..30) {
-    try { $r = Invoke-WebRequest "https://localhost:$ApiPort/api/health" -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -eq 200) { $ok = $true; break } } catch {}
+  $runner = $null
+  foreach ($i in 1..60) {
+    try {
+      $r = Invoke-WebRequest "https://localhost:$ApiPort/api/health" -UseBasicParsing -TimeoutSec 2
+      if ($r.StatusCode -eq 200) {
+        $runner = (ConvertFrom-Json $r.Content).jobRunner
+        if ($runner -eq 'running') { $ok = $true; break }
+      }
+    } catch {}
     Start-Sleep -Seconds 1
   }
   if ($ok) {
     Write-Host "`nDigiLog is running. Open https://localhost:$ApiPort  (login: superadmin)" -ForegroundColor Green
     Write-Host "MQTT broker: mqtt://<this-host>:1883 and mqtts://<this-host>:8883; dashboard http://127.0.0.1:18083 (admin / EMQX_DASHBOARD_PASSWORD in $envFile)" -ForegroundColor Gray
   }
-  else { Write-Host "`nWARN: API did not report healthy within 30s. Check $logDir." -ForegroundColor Yellow; exit 1 }
+  elseif ($runner) {
+    Write-Host "`nFAILED: the API answers but its job runner is '$runner' - alarms, notifications and scheduled jobs will NOT run. Check $logDir." -ForegroundColor Red
+    exit 1
+  }
+  else { Write-Host "`nWARN: API did not report healthy within 60s. Check $logDir." -ForegroundColor Yellow; exit 1 }
 }
 
 Write-Host "Install orchestration complete." -ForegroundColor Green

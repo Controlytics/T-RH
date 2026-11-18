@@ -1,5 +1,104 @@
 # Changelog
 
+## [Unreleased] - Audit remediation, Batch 1 (2026-11-16)
+
+The clear-cut defects of the 2026-11-07 technical audit (`docs/audit/2026-11-07-technical-audit.md`, FINAL REPORT
+Priority 1 and 2), plan `docs/superpowers/plans/2026-11-16-audit-remediation-batch1.md`, every ruling in
+`.superpowers/sdd/2026-11-16-audit-remediation-batch1/progress.md`. Operator decisions: "Batch 1: clear-cut bugs",
+S6-4 "Always require a password". **Not committed, not pushed, not deployed. No migration.** One count moved: re-auth
+actions **59 → 56** (8 categories unchanged; `grep -cE "^\s+[A-Z_]+:" packages/shared/src/types/reauth-actions.ts`).
+
+- **S2-C1 (CRITICAL) — an upgrade no longer resets what administrators set, or creates an account.** The seed (which
+  every upgrade runs, `apps/api/prisma/seed-config.ts`): `system_config` CREATE-ONLY (`systemConfigUpsertArgs`) — it
+  wrote the shipped defaults over `password-policy`, `login-security`, `session`, `datetime` and `action-reauth`
+  (→ `{}`); `superadmin` created ONLY on a database with no users (`ensureSuperadmin`) — it was set ENABLED again
+  and re-created when deleted or renamed; field labels keep their administered `displayName` (`fieldIdUpsertArgs`);
+  help articles CREATE-ONLY (`helpArticleUpsertArgs`) — all with no audit row before. `configService.getConfig`
+  fills a key a stored row predates from the schema default (pinned); the RAW readers of those rows
+  (`password-validator.ts`, `auth.repository.ts`, `plugins/auth.ts`, `password-expiry-sweep.ts`, `auth/routes.ts`,
+  `user.repository.ts`) do NOT — nothing diverges today, but adding a key to one of those rows must route them
+  through the schema. `seed-config.test.ts`. Docs (S10-1): `DEPLOY-WINDOWS.md`, `method-a-native-windows.md`, `method-c-ubuntu-deb.md`,
+  `apps/api/CLAUDE.md`, `docs/recreation/05-database/README.md` no longer call the old upgrade "data-safe" and say what to
+  check after upgrading FROM an older build.
+- **S9-1 (CRITICAL), S9-5, S9-14 — the Windows installer.** `install.ps1` writes `MAINTENANCE_CRONTAB_PATH` (the API's
+  default crontab path does not exist in an install, so the job runner never started: no alarm pass, no OFFLINE
+  detection, no notifications); passes `StopWhenDone` to `provision-db.ps1` (its standalone Postgres was still running
+  when the service for the same data directory started); `upgrade.ps1` appends `MAINTENANCE_CRONTAB_PATH` when absent and
+  probes `https://` (it probed `http://`, which the API does not serve). Both poll up to 60 s and pass only when
+  `/api/health` reports `jobRunner: running`. Pinned as text by `installer-contract.test.ts`; both scripts parse
+  (PowerShell `Parser::ParseFile`, 0 errors). **Never run here — a clean-VM install is still owed (P1-3).** The `.deb`
+  already set the variable.
+- **S2-H1 — the job runner is restarted, and graphile's crash path on a database drop is closed.**
+  `apps/api/src/lib/job-runner-supervisor.ts`: a failed start (the database not up when the service starts) is retried
+  after 5 s, 15 s, 30 s, then every 60 s, and so is a runner that dies mid-run (`startJobRunner`'s new `onExit` →
+  `notifyExit`); `/api/health` reports it (`starting` once, then `failed` until `running`; always HTTP 200). The mid-run
+  half needed graphile-worker fixed (2026-11-17, operator: "Patch 0.16.6 at install"): in 0.16.6 a dropped database
+  rejects the runner's cron or worker-pool promise and graphile's own `.finally()` on each (`dist/runner.js`) left an
+  unhandled rejection that ended the process before `onExit` ran. `patches/graphile-worker+0.16.6.patch` adds the `.catch`
+  graphile 0.18 has; the root `postinstall` applies it (`patch-package --error-on-fail --error-on-warn`, `patch-package`
+  8.0.1 exact as a PRODUCTION dependency, because both installers and the `.deb` run `npm ci --omit=dev`), so every
+  `npm install` / `npm ci` — this laptop, the AWS deploy, both installer builds — patches it and fails on a patch that no
+  longer applies (a graphile upgrade has to drop it). `.gitattributes` keeps `patches/` LF; `build-deb.sh` copies
+  `patches/` into its clean room (it copied manifests only — the `.deb` would have shipped unpatched, patch-package
+  exiting 0 with no patch); both installer builds refuse a clean room without the patch. Not chosen: upgrading to 0.18
+  (two graphile schema migrations on every database, runner API changes). Pinned by
+  `e2e/job-runner-db-drop.e2e.test.ts` — real graphile, real supervisor, the test database behind a TCP proxy cut mid-run
+  and restored: no unhandled rejection, `failed`, then `running` (mutation-checked: the unpatched `runner.js` fails it
+  with the unhandled `read ECONNRESET`) — and `installer-contract.test.ts` (4 more). A clean-room `npm ci --omit=dev`
+  was run (Windows, in a scratch folder) and applied the patch; no Linux / `.deb` CI / AWS run has applied it yet.
+  **Not tested: a whole-API database outage.** The test cuts only the runner's connection; Prisma, the MQTT bridge, the
+  Modbus reader and the rule engine kept theirs. Before this fix a drop exited the process and the service manager
+  restarted everything at once; now the process stays up, so each of those has to recover on its own.
+- **Batch 1 review minors (2026-11-17).** `configService` keeps a stored re-auth policy key only when `REAUTH_ACTIONS`
+  OWNS it (`Object.hasOwn`; `in` let `constructor` / `toString` through — `config.service.test.ts`, watched fail first).
+  S8-1's "newest" compares DEVICE stamps — a device whose clock runs behind keeps the old key winning until its stamps
+  pass it: recorded in `docs/feature-notes.md` and on `resolveSlot`, not changed.
+- **S2-H2 — one failed MQTT message no longer stops the bridge.** `mqtt-bridge.ts`: a message is handled by
+  `handleMessage`; `drain` catches per message and logs `message FAILED — not processed`. A throw outside the ingest call
+  (the instrument lookup, the RTC publish) was an unhandled rejection and stranded every queued message.
+- **S6-4 (operator decision) — §11 signatures always verify the password.** Alarm acknowledge and report approve /
+  reject use `enforceReauthAlways`: none → 401 `REAUTH_REQUIRED`, wrong → 401. With the shipped (empty) policy a wrong
+  password, or none, signed. `ACKNOWLEDGE_ALARM`, `APPROVE_REPORT`, `REJECT_REPORT` left `REAUTH_ACTIONS` (59 → 56) and
+  the permission tree; `configService.getActionReauth` / `getMyActions` return registry keys only, so a stored policy
+  naming them is ignored and dropped on the next save. No web change (the dialogs always sent the password).
+- **S6-3 — on the e-mail, SMS and alarm-webhook settings, a kept (masked) secret never follows a new destination.**
+  (Rule-node credentials, S6-13, and an edited backup restore, S6-2, are separate and still open.) `urlOrigin` /
+  `sameSecretDestination` (`lib/mask-secrets.ts`). SMTP password ↔ host + port; OAuth2 client secret ↔ provider,
+  tenant, token-URL host AND the SMTP host + port, because the access token is presented to the SMTP server (a
+  provider-issued refresh token is DROPPED for a new destination, not refused); the e-mail channel's cached OAuth2
+  access token belongs to the destination it was issued for and is never handed to another (`email-channel.ts`,
+  `email-oauth-token-cache.test.ts` — it was module state returned for ANY config, so a host change alone sent the
+  live token to the new host on the next mail); SMS gateway headers / URL / template secrets
+  ↔ the gateway host; alarm webhook headers (masked OR omitted from a partial PUT) and URL secrets ↔ the target host.
+  A changed destination with a kept secret is 400 `VALIDATION_ERROR` naming the field; a new PATH on the same host keeps it.
+- **S8-1 — the freshest alias key is the reading.** `resolveSlot` (`@digilog/shared`): among a slot's keys the NEWEST
+  reading wins, ties in the profile's order. The latest table keeps every key ever sent, so a device that moved from
+  `temperature` to `t` resolved to the frozen old row and its live breaching readings never alarmed. `resolvedSlotFor`
+  takes `{key, ts}`; the three route callers pass the latest-table `ts`. **Behaviour change:** an instrument holding two
+  keys of one slot now follows the newest on the dashboard, trend page AND alarm evaluator (dev: 1 such for temperature,
+  1 for humidity; AWS unchecked).
+- **S8-5 — `NLT-15` is 15, not -15.** `FIRST_NUMBER` (`alarm-limits.ts`): a sign counts only when no letter precedes it;
+  `NLT -15` is still -15. **Check limit attributes of the form `NLT-…` / `NMT-…` before deploying** (dev: none on a limit
+  key).
+- **S8-22 — `claimClear` is one statement** (`updateManyAndReturn`, `UPDATE … RETURNING`): a failed re-read after the
+  claim left an alarm CLEARED with nothing announced.
+- **S10-20 — one reading of the time zone.** `format-datetime.ts` resolves the `datetime` row through
+  `datetimeConfigSchema` (`resolveDatetimeConfig`), exactly as the screens do; the seed writes `Asia/Kolkata`. **Behaviour
+  change:** where the row holds `UTC` (a fresh seed, an upgraded install), alarm e-mail / SMS / webhook times and bar-chart
+  bucket edges move from UTC to IST, matching every screen. `telemetry-buckets.e2e` re-pinned to that agreement (the
+  session-zone guard now calls the query with `UTC` directly).
+- **S2-H7 — the token refresh guard always clears** (`apps/web/src/lib/api-client.ts`): a refresh attempted before a
+  token existed made every later refresh return `false` without trying.
+
+Tests added or changed: `seed-config`, `format-datetime`, `job-runner-supervisor`, `installer-contract`,
+`mask-secrets` (unit); `instrument-limit-alarms`, `alarm-claim-clear`, `mqtt-ingest`, `notification-config-audit-masking`,
+`alarm-webhooks`, `alarm-acknowledge`, `report-reviews`, `action-reauth-registry` (new), `telemetry-buckets` (e2e);
+shared `alarm-limits`, `telemetry-slots`, `reauth-actions`, `permission-tree`; web `api-client-refresh` (new); queue
+`crontab-handlers` (2026-11-18: the supervisor made `app.ts`'s `taskList` a constant and the test's parser threw
+"could not locate the taskList block" — 2 red, unseen because the queue suite is not part of `npm test` in apps/api or
+apps/web; the parser now reads both shapes and asserts the block's first and last entries; a crontab task with no
+handler still fails it, mutation-checked; queue 16 / 16 with `TEST_DATABASE_URL` set).
+
 ## [Unreleased] - RULE CHAINS — final fix wave (2026-11-05)
 
 The fixes after the three read-only whole-branch reviews of the rule-chains build (`whole-review-a.md` API core,

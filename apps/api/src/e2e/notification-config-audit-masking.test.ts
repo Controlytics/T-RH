@@ -200,9 +200,11 @@ describe('notification config PUT — audit secret masking (L136)', () => {
       method: 'PUT', url: '/api/notification-settings/email', headers: auth(),
       payload: { host: 'smtp.e2e.example', enabled: false, password: 'E2E-STORED-PASSWORD' },
     });
+    // An UNRELATED field: since audit 2026-11-07 S6-3 a changed host with the
+    // mask is refused (see the destination describe below).
     const res = await app.inject({
       method: 'PUT', url: '/api/notification-settings/email', headers: auth(),
-      payload: { host: 'smtp.changed.example', enabled: false, password: MASK },
+      payload: { host: 'smtp.e2e.example', enabled: false, password: MASK, fromName: 'Changed Sender' },
     });
     expect(res.statusCode).toBe(200);
 
@@ -213,6 +215,166 @@ describe('notification config PUT — audit secret masking (L136)', () => {
     // ...and it did NOT reach the audit trail.
     const row = await latestRow('UPDATE_EMAIL_CONFIG');
     expect(serializeRow(row)).not.toContain('E2E-STORED-PASSWORD');
-    expect((row!.afterValue as any).host).toBe('smtp.changed.example');
+    expect((row!.afterValue as any).fromName).toBe('Changed Sender');
+  });
+
+  /**
+   * Audit 2026-11-07, S6-3 (runtime-proven for SMTP and OAuth): the mask means
+   * "keep the stored secret", and the kept secret went wherever the request now
+   * pointed. A CONFIG_UPDATE holder could send `host: <theirs>, password: <mask>`
+   * and have the next mail deliver the real SMTP password to their server. A kept
+   * secret now goes only where it went before.
+   */
+  describe('a kept secret never follows a new destination', () => {
+    const MASK = '••••••••';
+    let emailBefore: unknown = undefined;
+    let smsBefore: unknown = undefined;
+
+    beforeAll(async () => {
+      emailBefore = (await prisma.systemConfig.findUnique({ where: { configKey: 'notification-email' } }))?.configValue ?? null;
+      smsBefore = (await prisma.systemConfig.findUnique({ where: { configKey: 'notification-sms' } }))?.configValue ?? null;
+    });
+    afterAll(async () => {
+      // Restore FIRST, each on its own guard (a suite hands back what it touched).
+      for (const [key, before] of [['notification-email', emailBefore], ['notification-sms', smsBefore]] as const) {
+        if (before === null) {
+          await prisma.systemConfig.deleteMany({ where: { configKey: key } });
+        } else {
+          await prisma.systemConfig.updateMany({ where: { configKey: key }, data: { configValue: before as never } });
+        }
+      }
+    });
+
+    const putEmail = (payload: Record<string, unknown>) =>
+      app.inject({ method: 'PUT', url: '/api/notification-settings/email', headers: auth(), payload });
+    const storedEmail = async () =>
+      (await prisma.systemConfig.findUnique({ where: { configKey: 'notification-email' } }))!.configValue as Record<string, unknown>;
+
+    it('SMTP: a masked password with a changed port is refused, and nothing is written', async () => {
+      expect((await putEmail({ host: 'smtp.dest.example', port: 587, enabled: false, password: 'DEST-PW' })).statusCode).toBe(200);
+      const res = await putEmail({ host: 'smtp.dest.example', port: 2525, enabled: false, password: MASK });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().field).toBe('password');
+      expect(await storedEmail()).toMatchObject({ port: 587, password: 'DEST-PW' });
+    });
+
+    it('SMTP: a masked password with a changed host is refused', async () => {
+      const res = await putEmail({ host: 'smtp.attacker.example', port: 587, enabled: false, password: MASK });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().field).toBe('password');
+      expect((await storedEmail()).host).toBe('smtp.dest.example');
+    });
+
+    it('SMTP: the same host in other case keeps the stored password', async () => {
+      const res = await putEmail({ host: 'SMTP.Dest.example', port: 587, enabled: false, password: MASK, fromName: 'X' });
+      expect(res.statusCode).toBe(200);
+      expect((await storedEmail()).password).toBe('DEST-PW');
+    });
+
+    it('OAuth2: a masked client secret with a new token URL host is refused', async () => {
+      expect((await putEmail({
+        host: 'smtp.dest.example', port: 587, enabled: false, authType: 'oauth2',
+        oauth2Provider: 'custom', tokenUrl: 'https://login.dest.example/oauth/token',
+        clientSecret: 'DEST-CS', refreshToken: 'DEST-RT',
+      })).statusCode).toBe(200);
+      const res = await putEmail({
+        host: 'smtp.dest.example', port: 587, enabled: false, authType: 'oauth2',
+        oauth2Provider: 'custom', tokenUrl: 'https://login.attacker.example/oauth/token',
+        clientSecret: MASK, refreshToken: MASK,
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().field).toBe('clientSecret');
+      expect(await storedEmail()).toMatchObject({
+        clientSecret: 'DEST-CS', refreshToken: 'DEST-RT', tokenUrl: 'https://login.dest.example/oauth/token',
+      });
+    });
+
+    it('OAuth2: a NEW client secret for a new provider is saved, and the old refresh token is NOT carried to it', async () => {
+      const res = await putEmail({
+        host: 'smtp.dest.example', port: 587, enabled: false, authType: 'oauth2',
+        oauth2Provider: 'custom', tokenUrl: 'https://login.other.example/oauth/token',
+        clientSecret: 'NEW-CS', refreshToken: MASK,
+      });
+      expect(res.statusCode).toBe(200);
+      const stored = await storedEmail();
+      expect(stored.clientSecret).toBe('NEW-CS');
+      expect(stored.refreshToken).toBeUndefined();
+      expect(stored.oauth2Configured).not.toBe(true);
+    });
+
+    // Final review #1: with OAuth2 the ACCESS TOKEN is presented to the SMTP
+    // host:port (XOAUTH2), so a new SMTP host is a new destination for it too.
+    it('OAuth2: a masked client secret with only the SMTP host or port changed is refused', async () => {
+      expect((await putEmail({
+        host: 'smtp.dest.example', port: 587, enabled: false, authType: 'oauth2',
+        oauth2Provider: 'custom', tokenUrl: 'https://login.dest.example/oauth/token',
+        clientSecret: 'HOST-CS', refreshToken: 'HOST-RT',
+      })).statusCode).toBe(200);
+      for (const moved of [{ host: 'smtp.attacker.example', port: 587 }, { host: 'smtp.dest.example', port: 2525 }]) {
+        const res = await putEmail({
+          ...moved, enabled: false, authType: 'oauth2',
+          oauth2Provider: 'custom', tokenUrl: 'https://login.dest.example/oauth/token',
+          clientSecret: MASK, refreshToken: MASK,
+        });
+        expect(res.statusCode).toBe(400);
+        expect(res.json().field).toBe('clientSecret');
+      }
+      expect(await storedEmail()).toMatchObject({ host: 'smtp.dest.example', port: 587, clientSecret: 'HOST-CS', refreshToken: 'HOST-RT' });
+    });
+
+    it('OAuth2: a new token URL PATH on the same host keeps the stored secrets', async () => {
+      expect((await putEmail({
+        host: 'smtp.dest.example', port: 587, enabled: false, authType: 'oauth2',
+        oauth2Provider: 'custom', tokenUrl: 'https://login.other.example/oauth/token',
+        clientSecret: 'KEEP-CS', refreshToken: 'KEEP-RT',
+      })).statusCode).toBe(200);
+      const res = await putEmail({
+        host: 'smtp.dest.example', port: 587, enabled: false, authType: 'oauth2',
+        oauth2Provider: 'custom', tokenUrl: 'https://login.other.example/v2/oauth/token',
+        clientSecret: MASK, refreshToken: MASK,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(await storedEmail()).toMatchObject({ clientSecret: 'KEEP-CS', refreshToken: 'KEEP-RT' });
+    });
+
+    const putSms = (payload: Record<string, unknown>) =>
+      app.inject({ method: 'PUT', url: '/api/notification-settings/sms', headers: auth(), payload });
+    const storedSms = async () =>
+      (await prisma.systemConfig.findUnique({ where: { configKey: 'notification-sms' } }))!.configValue as Record<string, unknown>;
+
+    it('SMS gateway: masked headers or URL secrets with a new gateway host are refused', async () => {
+      expect((await putSms({
+        provider: 'http-gateway', enabled: false,
+        httpGatewayUrl: 'https://sms.dest.example/send?apikey=DEST-KEY&to={phone}',
+        httpGatewayHeaders: { Authorization: 'Bearer DEST-BEARER' },
+      })).statusCode).toBe(200);
+      const viaHeader = await putSms({
+        provider: 'http-gateway', enabled: false,
+        httpGatewayUrl: 'https://sms.attacker.example/send?to={phone}',
+        httpGatewayHeaders: { Authorization: MASK },
+      });
+      expect(viaHeader.statusCode).toBe(400);
+      expect(viaHeader.json().field).toBe('httpGatewayHeaders');
+      const viaUrl = await putSms({
+        provider: 'http-gateway', enabled: false,
+        httpGatewayUrl: `https://sms.attacker.example/send?apikey=${MASK}&to={phone}`,
+        httpGatewayHeaders: { Authorization: 'Bearer typed-again' },
+      });
+      expect(viaUrl.statusCode).toBe(400);
+      expect(viaUrl.json().field).toBe('httpGatewayUrl');
+      expect((await storedSms()).httpGatewayUrl).toBe('https://sms.dest.example/send?apikey=DEST-KEY&to={phone}');
+    });
+
+    it('SMS gateway: the same host with masked secrets keeps them', async () => {
+      const res = await putSms({
+        provider: 'http-gateway', enabled: false,
+        httpGatewayUrl: `https://sms.dest.example/v2/send?apikey=${MASK}&to={phone}`,
+        httpGatewayHeaders: { Authorization: MASK },
+      });
+      expect(res.statusCode).toBe(200);
+      const stored = await storedSms();
+      expect(stored.httpGatewayUrl).toBe('https://sms.dest.example/v2/send?apikey=DEST-KEY&to={phone}');
+      expect(stored.httpGatewayHeaders).toEqual({ Authorization: 'Bearer DEST-BEARER' });
+    });
   });
 });

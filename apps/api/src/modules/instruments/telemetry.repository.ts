@@ -456,11 +456,17 @@ export async function getLatestFor(
     WHERE instrument_id IN (${Prisma.join(instrumentIds)}) AND key IN (${Prisma.join(keys)})`;
 }
 
-/** Which keys each instrument's latest table holds — the input `resolvedSlotFor` needs per instrument. */
-export async function getLatestKeysByInstrument(instrumentIds: string[]): Promise<{ instrumentId: string; key: string }[]> {
+/**
+ * Which keys each instrument's latest table holds, and when each last arrived —
+ * the input `resolvedSlotFor` needs per instrument (the newest of a slot's keys
+ * is its reading, audit 2026-11-07 S8-1).
+ */
+export async function getLatestKeysByInstrument(
+  instrumentIds: string[],
+): Promise<{ instrumentId: string; key: string; ts: Date }[]> {
   if (instrumentIds.length === 0) return [];
-  return prisma.$queryRaw<{ instrumentId: string; key: string }[]>`
-    SELECT instrument_id AS "instrumentId", key
+  return prisma.$queryRaw<{ instrumentId: string; key: string; ts: Date }[]>`
+    SELECT instrument_id AS "instrumentId", key, ts
     FROM instrument_telemetry_latest
     WHERE instrument_id IN (${Prisma.join(instrumentIds)})`;
 }

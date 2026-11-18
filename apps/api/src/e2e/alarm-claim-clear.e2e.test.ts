@@ -6,7 +6,7 @@
  * (`updateMany … WHERE state = 'ACTIVE'`): exactly one caller gets the row,
  * every other gets null and announces nothing.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp, loginAs } from './test-helper.js';
 import { fixtureProfileId } from '../test-support/fixture-profile.js';
@@ -67,5 +67,37 @@ describe('claimClear', () => {
     expect(await claimClear(alarm.id, { clearedValue: 99 })).toBeNull();
     const row = await prisma.alarm.findUniqueOrThrow({ where: { id: alarm.id } });
     expect(Number(row.clearedValue)).toBe(45);
+  });
+
+  // Audit 2026-11-07, S8-22: the claim was two statements — the UPDATE committed,
+  // then a re-read fetched the row. A failed re-read left the alarm CLEARED while
+  // the caller saw an error and announced nothing: no clear e-mail, no hooter
+  // "off". The claim and the row it hands back are now ONE statement.
+  it('a failing re-read cannot leave a cleared alarm unannounced', async () => {
+    const alarm = await prisma.alarm.create({
+      data: {
+        instrumentId, metric: 'TEMPERATURE', severity: 'CRITICAL', state: 'ACTIVE',
+        source: 'INSTRUMENT_LIMIT', limitKind: 'HIGH', triggeredValue: 31,
+        ruleSnapshot: { description: 'e2e' },
+      },
+    });
+    // A spy on a Prisma model delegate does NOT call through (it returns
+    // undefined), and `mockRestore` leaves the method undefined: the spy is given
+    // the bound original as its implementation and handed back to it after.
+    const original = prisma.alarm.findUniqueOrThrow.bind(prisma.alarm);
+    const spy = vi.spyOn(prisma.alarm, 'findUniqueOrThrow')
+      .mockImplementation(original as never)
+      .mockRejectedValueOnce(new Error('connection lost after the claim'));
+    try {
+      const won = await claimClear(alarm.id, { state: 'CLEARED', clearedAt: new Date(), clearedValue: 22 });
+      expect(won?.id).toBe(alarm.id);
+      expect(won?.state).toBe('CLEARED');
+      expect(Number(won?.clearedValue)).toBe(22);
+    } finally {
+      spy.mockReset();
+      spy.mockImplementation(original as never);
+    }
+    const row = await prisma.alarm.findUniqueOrThrow({ where: { id: alarm.id } });
+    expect(row.state).toBe('CLEARED');
   });
 });

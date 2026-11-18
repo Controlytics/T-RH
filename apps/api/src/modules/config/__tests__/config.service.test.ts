@@ -52,6 +52,10 @@ vi.mock('@digilog/shared', async (importOriginal) => {
     // the Permissions tab runs it too) — it reads the real tree, not the
     // stand-in maps below.
     rebuildRolePermissions: real.rebuildRolePermissions,
+    // The REAL registry (2026-11-17): getActionReauth / getMyActions keep only
+    // the policy keys REAUTH_ACTIONS names (audit 2026-11-07 S6-4), so a
+    // stand-in registry would decide what this file's assertions see.
+    REAUTH_ACTIONS: real.REAUTH_ACTIONS,
     getDefaultTemplates: mockGetDefaultTemplates,
     // role.service.ts (imported for assertRoleWithinCallerPrivilege since the
     // 2026-10-03 API-1 fix) builds its permission catalogue from this at import
@@ -315,6 +319,24 @@ describe('configService', () => {
       const result = await configService.getMyActions('ADMIN');
       expect(result.actions).toContain('DELETE_USER');
       expect(result.actions).toContain('CREATE_USER');
+    });
+
+    it('leaves out a stored key that is no longer a re-auth action', async () => {
+      // ACKNOWLEDGE_ALARM left REAUTH_ACTIONS on 2026-11-16 (its password is now
+      // always verified); a stored policy may still name it.
+      mockGetActionReauthConfig.mockResolvedValue({ DELETE_USER: ['ADMIN'], ACKNOWLEDGE_ALARM: ['ADMIN'] });
+
+      const result = await configService.getMyActions('ADMIN');
+      expect(result.actions).toEqual(['DELETE_USER']);
+    });
+
+    it('leaves out a stored key that only an inherited Object property answers to', async () => {
+      // `key in REAUTH_ACTIONS` walked the prototype chain, so `constructor` /
+      // `toString` passed as registry actions (Batch 1 review, deferred minor #6).
+      mockGetActionReauthConfig.mockResolvedValue({ DELETE_USER: ['ADMIN'], constructor: ['ADMIN'], toString: ['ADMIN'] });
+
+      expect((await configService.getMyActions('ADMIN')).actions).toEqual(['DELETE_USER']);
+      expect(await configService.getActionReauth()).toEqual({ DELETE_USER: ['ADMIN'] });
     });
   });
 

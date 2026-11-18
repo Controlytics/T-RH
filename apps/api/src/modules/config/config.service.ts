@@ -4,7 +4,7 @@ import { auditLog } from '../../lib/audit.js';
 import { NotFoundError, ValidationError } from '../../lib/errors.js';
 import { configRepository } from './config.repository.js';
 import { getActionReauthConfig, invalidateReauthCache, isReauthRequired } from '../../lib/reauth-check.js';
-import { getDefaultTemplates, privilegeTogglesFromPermissions, rebuildRolePermissions } from '@digilog/shared';
+import { getDefaultTemplates, privilegeTogglesFromPermissions, rebuildRolePermissions, REAUTH_ACTIONS } from '@digilog/shared';
 import { validateUserId } from '../../lib/user-id-validator.js';
 import { prisma } from '../../lib/prisma.js';
 import { invalidateRolePermsCache } from '../../plugins/rbac.js';
@@ -28,6 +28,14 @@ export function redactConfigSecrets(value: any, secretKeys: Set<string>): any {
 // `primaryPermissionsForSidebarItem` in `@digilog/shared` since 2026-11-03 —
 // it moved there with `planRolePermissions`' rebuild so the Permissions tab
 // runs the same rule.
+
+/**
+ * The policy with every key that is not a REAUTH_ACTIONS entry left out. OWN keys
+ * only: `in` walks the prototype chain, so a stored `constructor` / `toString` passed.
+ */
+function registryPolicy(config: Record<string, string[]>): Record<string, string[]> {
+  return Object.fromEntries(Object.entries(config).filter(([action]) => Object.hasOwn(REAUTH_ACTIONS, action)));
+}
 
 export const configService = {
   async getConfig(key: string, schema: any, def?: { defaults?: any }) {
@@ -363,8 +371,14 @@ export const configService = {
   },
 
   // Action Reauth
+  //
+  // REGISTRY keys only (2026-11-16, audit 2026-11-07 S6-4). A stored policy may
+  // still name an action that has since left `REAUTH_ACTIONS` because its password
+  // is now always verified (ACKNOWLEDGE_ALARM, APPROVE_REPORT, REJECT_REPORT): it
+  // is no policy any more, so neither screen may count it, and the next save of
+  // either screen — which sends back what this returned — drops it.
   async getActionReauth() {
-    return getActionReauthConfig();
+    return registryPolicy(await getActionReauthConfig());
   },
 
   async updateActionReauth(data: any, schema: any, ctx: RequestContext) {
@@ -394,7 +408,7 @@ export const configService = {
   },
 
   async getMyActions(role: string) {
-    const config = await getActionReauthConfig();
+    const config = registryPolicy(await getActionReauthConfig());
     const actions: string[] = [];
     for (const [action, roles] of Object.entries(config)) {
       if (roles.includes(role)) actions.push(action);

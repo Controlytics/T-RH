@@ -249,8 +249,13 @@ migration flow trustworthy — a rebuild must keep an equivalent.**
 
 ## 7. Seed data
 
-`prisma/seed.ts` (+ `default-roles.ts`) is **all upserts**, so it is
-upgrade-safe and never overwrites an existing admin password.
+`prisma/seed.ts` (+ `default-roles.ts`) is **all upserts**; settings, roles and
+help articles are CREATE-ONLY, field labels keep their display name, and
+`superadmin` is created only on a database with no users (`seed-config.ts`,
+`seed-roles.ts`), so an upgrade's reseed keeps what an administrator set and
+creates no account. **Corrected 2026-11-16** — this said
+"upgrade-safe" while the seed's `update` branches rewrote five settings and
+re-enabled `superadmin` (audit 2026-11-07 S2-C1).
 
 Seeds: 6 roles · 1 admin user (`superadmin`, forced password change) ·
 21 system configs · 17 field-ID configs · 4 help articles · DB invariants.

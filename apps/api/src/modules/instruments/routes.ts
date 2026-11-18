@@ -1795,7 +1795,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     // the key the instrument's temperature RESOLVED to (the overview's and the
     // alarm evaluator's choice) is a temperature here; it is the one the trend
     // page charts and the one the breach counts are taken for.
-    const latestKeys = latest.map((r) => r.key);
+    const latestKeys = latest.map((r) => ({ key: r.key, ts: r.ts }));
     const slotFor = (key: string): 'temperature' | 'humidity' | null => resolvedSlotFor(slotCfg, key, latestKeys);
     /**
      * The band the breach counts are taken against: the instrument's OWN limits
@@ -2041,7 +2041,8 @@ export default async function instrumentRoutes(app: FastifyInstance) {
     const [slotCfg, keys, types] = await Promise.all([
       slotConfigForProfile(exists.profileId), getKeyCatalogue([id]), loadMeasurementTypes(),
     ]);
-    const keyNames = keys.map((k) => k.key);
+    // With ONE instrument, `lastSeen` is that instrument's arrival time for the key.
+    const keyNames = keys.map((k) => ({ key: k.key, ts: k.lastSeen }));
 
     return {
       data: keys.map((k) => {

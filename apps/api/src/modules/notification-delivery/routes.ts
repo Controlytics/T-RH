@@ -14,6 +14,7 @@ import { auditLog } from '../../lib/audit.js';
 import { NotFoundError } from '../../lib/errors.js';
 import {
   maskSecrets, SECRET_MASK, maskHeaderValues, restoreMaskedHeaders, maskUrlSecrets, restoreMaskedUrl,
+  sameSecretDestination, urlOrigin,
   maskTemplateSecrets, restoreMaskedTemplate,
 } from '../../lib/mask-secrets.js';
 
@@ -26,6 +27,22 @@ import { stripPrivateFields, enforceReauth } from '../../lib/reauth-check.js';
 
 // The one mask (lib/mask-secrets.ts) — the alarm-webhook routes use the same.
 const MASK = SECRET_MASK;
+
+/** Where the SMTP password goes (audit 2026-11-07, S6-3). */
+const EMAIL_SMTP_DESTINATION = ['host', 'port'] as const;
+/**
+ * Where the OAuth2 client secret and tokens go: the provider, tenant and token URL
+ * (compared by origin) — and the SMTP host and port, because the ACCESS TOKEN is
+ * presented to the SMTP server (XOAUTH2; final review of Batch 1).
+ */
+const EMAIL_OAUTH_DESTINATION = ['oauth2Provider', 'providerTenantId', 'tokenUrl', 'host', 'port'] as const;
+
+/** Does a submitted value still carry the mask (a header map, a URL, a template)? */
+function carriesMask(v: unknown): boolean {
+  if (typeof v === 'string') return v.includes(MASK);
+  if (v && typeof v === 'object') return Object.values(v as Record<string, unknown>).some(carriesMask);
+  return false;
+}
 
 /**
  * The public origin of THIS server, for the OAuth2 redirect URI the provider
@@ -138,21 +155,38 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     const body = req.body as Record<string, unknown>;
     const ctx = buildContext(req);
 
-    // Preserve masked secrets — don't overwrite with bullet characters
+    // Preserve masked secrets — don't overwrite with bullet characters. A kept
+    // secret goes ONLY where it went before (audit 2026-11-07, S6-3): the SMTP
+    // password to the same host and port; the OAuth2 client secret and tokens to
+    // the same provider, tenant and token-URL host.
     const secretFields = ['password', 'clientSecret', 'refreshToken'];
     const hasMaskedSecret = secretFields.some(f => body[f] === MASK);
     if (hasMaskedSecret) {
       const existing = await prisma.systemConfig.findUnique({ where: { configKey: 'notification-email' } });
       const existingValue = (existing?.configValue ?? {}) as Record<string, unknown>;
+      const sameSmtp = sameSecretDestination(existingValue, body, EMAIL_SMTP_DESTINATION);
+      const sameOauth = sameSecretDestination(existingValue, body, EMAIL_OAUTH_DESTINATION);
+      // What the operator TYPES must be typed again for a new destination.
+      if (body.password === MASK && existingValue.password && !sameSmtp) {
+        return reply.code(400).send({ error: 'VALIDATION_ERROR', field: 'password', message: 'The SMTP host or port changed: type the password again — a saved password is never sent to a new server.' });
+      }
+      if (body.clientSecret === MASK && existingValue.clientSecret && !sameOauth) {
+        return reply.code(400).send({ error: 'VALIDATION_ERROR', field: 'clientSecret', message: 'The OAuth2 provider, tenant, token URL or SMTP server changed: type the client secret again — a saved secret is never sent to a new destination.' });
+      }
       for (const field of secretFields) {
         if (body[field] === MASK) {
-          body[field] = existingValue[field];
+          // The refresh token is the PROVIDER's, issued by the old one: for a new
+          // provider it is dropped, not refused, and the provider is authorised again.
+          body[field] = field === 'refreshToken' && !sameOauth ? undefined : existingValue[field];
         }
       }
-      // Also preserve OAuth2 tokens that frontend doesn't send
-      for (const tokenField of ['accessToken', 'refreshToken', 'tokenExpiresAt', 'oauth2Configured']) {
-        if (existingValue[tokenField] !== undefined && body[tokenField] === undefined) {
-          body[tokenField] = existingValue[tokenField];
+      // Also preserve OAuth2 tokens that frontend doesn't send — for the SAME
+      // provider only; a new provider starts unauthorised.
+      if (sameOauth) {
+        for (const tokenField of ['accessToken', 'refreshToken', 'tokenExpiresAt', 'oauth2Configured']) {
+          if (existingValue[tokenField] !== undefined && body[tokenField] === undefined) {
+            body[tokenField] = existingValue[tokenField];
+          }
         }
       }
     }
@@ -488,6 +522,19 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     const existing = await prisma.systemConfig.findUnique({ where: { configKey: 'notification-sms' } });
     const existingValue = (existing?.configValue ?? {}) as Record<string, unknown>;
     for (const key of sensitiveKeys) { if (body[key] === MASK) body[key] = existingValue[key]; }
+    // A kept gateway secret goes ONLY to the gateway host it was saved for
+    // (audit 2026-11-07, S6-3). Twilio / Vonage tokens above go to fixed vendor
+    // hosts and need no such check.
+    if (typeof body.httpGatewayUrl === 'string'
+      && urlOrigin(body.httpGatewayUrl) !== urlOrigin(existingValue.httpGatewayUrl)) {
+      const moved = 'The gateway URL now points at another host: type it again — a saved secret is never sent to a new host.';
+      for (const field of ['httpGatewayHeaders', 'httpGatewayUrl', 'httpGatewayBodyTemplate'] as const) {
+        if (carriesMask(body[field])) {
+          const what = field === 'httpGatewayHeaders' ? 'Header values' : field === 'httpGatewayUrl' ? "The URL's secret values" : "The body template's secret values";
+          return reply.code(400).send({ error: 'VALIDATION_ERROR', field, message: `${what}: ${moved}` });
+        }
+      }
+    }
     // Mask-means-keep for the gateway headers and URL (see GET /sms). A mask with
     // nothing stored behind it is refused rather than saved as bullets.
     if (body.httpGatewayHeaders && typeof body.httpGatewayHeaders === 'object') {

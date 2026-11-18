@@ -43,17 +43,46 @@ export function parseTelemetryAliases(raw: string | null | undefined): string[] 
   return out;
 }
 
+/** A reading's instant in ms; no or unreadable timestamp = never newer than anything. */
+function instantOf(ts: Date | string | number | null | undefined): number {
+  if (ts === null || ts === undefined) return Number.NEGATIVE_INFINITY;
+  const ms = ts instanceof Date ? ts.getTime() : typeof ts === 'number' ? ts : Date.parse(ts);
+  return Number.isFinite(ms) ? ms : Number.NEGATIVE_INFINITY;
+}
+
 /**
- * First alias that any reading matches wins — NOT first reading that matches any
- * alias. A device sending both `temperature` and `temp` must resolve the same
- * way on every request, and only the alias order can guarantee that.
+ * Which of an instrument's readings is the slot's reading: among the readings
+ * whose key is ANY of the aliases, the NEWEST wins; readings at the same instant
+ * (one message carrying both `temperature` and `temp`) — or with no timestamp —
+ * fall back to alias order, so the answer is the same on every request.
+ *
+ * Audit 2026-11-07, S8-1: this used to be alias order alone. The latest table
+ * keeps every key a device ever sent, so a device that once sent `temperature`
+ * and now sends `t` resolved to the frozen `temperature` row for good — the
+ * dashboard showed it, and the alarm evaluator never saw the live breaching `t`.
+ *
+ * "Newest" is the stored `ts` — the DEVICE's stamp. A device whose clock runs
+ * behind keeps the old key winning until its new key's stamps pass the old row's
+ * (see `docs/feature-notes.md`, the S8-1 sentence under WIDGET DATA KEYS).
  */
-export function resolveSlot<T extends { key: string }>(aliases: string[], readings: T[]): T | null {
-  for (const alias of aliases) {
-    const hit = readings.find((r) => r.key.toLowerCase() === alias);
-    if (hit) return hit;
+export function resolveSlot<T extends { key: string; ts?: Date | string | number | null }>(
+  aliases: string[],
+  readings: T[],
+): T | null {
+  let best: T | null = null;
+  let bestRank = Number.POSITIVE_INFINITY;
+  let bestAt = Number.NEGATIVE_INFINITY;
+  for (const r of readings) {
+    const rank = aliases.indexOf(r.key.toLowerCase());
+    if (rank < 0) continue;
+    const at = instantOf(r.ts);
+    if (best === null || at > bestAt || (at === bestAt && rank < bestRank)) {
+      best = r;
+      bestRank = rank;
+      bestAt = at;
+    }
   }
-  return null;
+  return best;
 }
 
 export type InstrumentStatus = 'OUT_OF_SPEC' | 'STALE' | 'NO_DATA' | 'PARTIAL' | 'OK';

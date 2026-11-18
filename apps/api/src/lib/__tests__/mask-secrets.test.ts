@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { maskSecrets, REDACTED } from '../mask-secrets.js';
+import { maskSecrets, REDACTED, urlOrigin, sameSecretDestination } from '../mask-secrets.js';
 
 /**
  * Audit L136 regression coverage. These tests pin the leak fix for the two
@@ -186,5 +186,47 @@ describe('maskSecrets', () => {
       expect(out.secure).toBe(false);
       expect(out.fromName).toBeNull();
     });
+  });
+});
+
+// Audit 2026-11-07, S6-3: a masked secret means "keep the stored one" — and the
+// stored one went wherever the request now pointed (a new SMTP host, a new OAuth
+// token URL, a new webhook host). A kept secret may only go where it went before.
+describe('urlOrigin', () => {
+  it('is the lower-cased scheme, host and EFFECTIVE port — never the path or query', () => {
+    expect(urlOrigin('https://x.com/a?k=1')).toBe('https://x.com:443');
+    expect(urlOrigin('HTTP://X.com/')).toBe('http://x.com:80');
+    expect(urlOrigin('https://x.com:8443/token')).toBe('https://x.com:8443');
+  });
+
+  it('is null for anything that is not an absolute URL', () => {
+    expect(urlOrigin('not a url')).toBeNull();
+    expect(urlOrigin('')).toBeNull();
+    expect(urlOrigin(undefined)).toBeNull();
+    expect(urlOrigin(42)).toBeNull();
+  });
+});
+
+describe('sameSecretDestination', () => {
+  const smtp = ['host', 'port'] as const;
+
+  it('ignores case and surrounding blanks, and a number against its text', () => {
+    expect(sameSecretDestination({ host: 'smtp.a.com', port: 587 }, { host: ' SMTP.A.com ', port: '587' }, smtp)).toBe(true);
+  });
+
+  it('a changed port or host is a new destination', () => {
+    expect(sameSecretDestination({ host: 'smtp.a.com', port: 587 }, { host: 'smtp.a.com', port: 2525 }, smtp)).toBe(false);
+    expect(sameSecretDestination({ host: 'smtp.a.com', port: 587 }, { host: 'smtp.b.com', port: 587 }, smtp)).toBe(false);
+  });
+
+  it('a field removed is a change; a field absent on both sides is not', () => {
+    expect(sameSecretDestination({ host: 'smtp.a.com', port: 587 }, { port: 587 }, smtp)).toBe(false);
+    expect(sameSecretDestination({ port: 587 }, { port: 587 }, smtp)).toBe(true);
+  });
+
+  it('compares a URL-valued field by origin: a new path is the same destination, a new host is not', () => {
+    const f = ['tokenUrl'] as const;
+    expect(sameSecretDestination({ tokenUrl: 'https://login.x.com/t1/token' }, { tokenUrl: 'https://LOGIN.x.com/t2/token' }, f)).toBe(true);
+    expect(sameSecretDestination({ tokenUrl: 'https://login.x.com/token' }, { tokenUrl: 'https://evil.example/token' }, f)).toBe(false);
   });
 });

@@ -26,7 +26,22 @@ const ipv4Lookup: any = (hostname: any, options: any, callback: any) => {
   }
   return dns.lookup(hostname, options, callback as any);
 };
-let cachedOAuthToken: { token: string; expiresAt: number } | null = null;
+/**
+ * The access token, and the DESTINATION it was issued for (final review of audit
+ * remediation Batch 1, S6-3). The token is presented to the SMTP server, so it
+ * belongs to the provider, tenant, token URL, client, mailbox AND the SMTP host
+ * and port: a token cached for one is never handed to another. Until 2026-11-16
+ * it was returned for ANY config, so re-pointing the SMTP host sent the live
+ * token there on the next mail with no secret typed.
+ */
+let cachedOAuthToken: { token: string; expiresAt: number; forKey: string } | null = null;
+
+function oauthDestinationKey(config: EmailConfig): string {
+  return JSON.stringify([
+    config.oauth2Provider ?? '', config.providerTenantId ?? '', config.tokenUrl ?? '',
+    config.clientId ?? '', config.username ?? '', config.host ?? '', config.port ?? '',
+  ]);
+}
 
 function configHash(config: EmailConfig): string {
   // #notif-1 fix: include the basic-auth password so a password rotation busts the
@@ -41,8 +56,10 @@ function configHash(config: EmailConfig): string {
  * Fetch OAuth2 access token from Microsoft Azure AD or Google.
  */
 async function fetchOAuth2Token(config: EmailConfig): Promise<string> {
-  // Return cached token if still valid (with 60s buffer)
-  if (cachedOAuthToken && cachedOAuthToken.expiresAt > Date.now() + 60000) {
+  // Return cached token if still valid (with 60s buffer) AND issued for this
+  // very destination — never one cached for another host or provider.
+  const forKey = oauthDestinationKey(config);
+  if (cachedOAuthToken && cachedOAuthToken.forKey === forKey && cachedOAuthToken.expiresAt > Date.now() + 60000) {
     return cachedOAuthToken.token;
   }
 
@@ -57,7 +74,7 @@ async function fetchOAuth2Token(config: EmailConfig): Promise<string> {
 
     if (savedToken && savedExpiry && savedExpiry > Date.now() + 60000) {
       // Use saved access token (still valid)
-      cachedOAuthToken = { token: savedToken, expiresAt: savedExpiry };
+      cachedOAuthToken = { token: savedToken, expiresAt: savedExpiry, forKey };
       return savedToken;
     }
 
@@ -96,6 +113,7 @@ async function fetchOAuth2Token(config: EmailConfig): Promise<string> {
     cachedOAuthToken = {
       token: data.access_token,
       expiresAt: Date.now() + (data.expires_in * 1000),
+      forKey,
     };
 
     // Persist new tokens back to DB if we got a refresh token
@@ -140,6 +158,7 @@ async function fetchOAuth2Token(config: EmailConfig): Promise<string> {
     cachedOAuthToken = {
       token: data.access_token,
       expiresAt: Date.now() + (data.expires_in * 1000),
+      forKey,
     };
     return data.access_token;
 
@@ -169,6 +188,7 @@ async function fetchOAuth2Token(config: EmailConfig): Promise<string> {
     cachedOAuthToken = {
       token: data.access_token,
       expiresAt: Date.now() + (data.expires_in * 1000),
+      forKey,
     };
     return data.access_token;
   }

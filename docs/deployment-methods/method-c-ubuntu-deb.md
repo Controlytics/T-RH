@@ -67,7 +67,13 @@ sudo apt install ./digilog_1.1.0_amd64.deb
 `prerm upgrade` stops only the API (the database stays up); `postinst configure
 <old-version>` takes a `pg_dump` to `/var/lib/digilog/backups/pre-upgrade-v…`
 **before** any schema change, runs the forward-only `migrate deploy` + reseed
-(never touches an existing superadmin password), re-renders the broker config
+(since 2026-11-16 the reseed only CREATES a missing setting or help article,
+keeps field labels, and creates `superadmin` only on a database with no users —
+builds before that reset `password-policy`, `login-security`, `session`,
+`datetime` and the e-signature matrix `action-reauth`, re-enabled or re-created
+`superadmin` and reset field labels, so after upgrading FROM such a build check
+those settings, the user list and the labels; audit 2026-11-07 S2-C1 / S10-1),
+re-renders the broker config
 from the new templates, restarts the broker and starts the API. A failed backup
 aborts before any schema change.
 

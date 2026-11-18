@@ -252,9 +252,11 @@ class ApiClient {
   refreshToken(): Promise<boolean> {
     if (this.inFlightRefresh) return this.inFlightRefresh;
     this.inFlightRefresh = (async () => {
-      const token = this.getToken();
-      if (!token) return false;
       try {
+        // INSIDE the try (audit 2026-11-07, S2-H7): an early return outside it
+        // skipped the `finally` below, so the guard was never cleared — one call
+        // before a token existed made every later refresh return that `false`.
+        if (!this.getToken()) return false;
         const data = await this.post<{ token?: string }>('/api/auth/refresh', {});
         if (data?.token) {
           safeStorage.session.set('access_token', data.token);

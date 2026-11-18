@@ -510,6 +510,66 @@ describe('alarm webhook targets', () => {
   });
 
   /**
+   * Audit 2026-11-07, S6-3: a kept header value (the mask, or a header the PUT
+   * does not mention) and a masked URL secret went to whatever host the PUT now
+   * named. A kept secret now goes only to the host it was saved for.
+   */
+  it('refuses a masked header when the URL moves to another host, and writes nothing', async () => {
+    const id = (await newTarget({ headers: { Authorization: 'Bearer stays-home' } })).json().id;
+    const otherHost = hooterUrl.replace('127.0.0.1', 'localhost');
+    const res = await app.inject({
+      method: 'PUT', url: `/api/alarm-webhooks/${id}`, headers: headers(),
+      payload: { url: otherHost, headers: { Authorization: SECRET_MASK } },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().field).toBe('headers');
+    const stored = await prisma.alarmWebhookTarget.findUnique({ where: { id } });
+    expect(stored!.url).toBe(hooterUrl);
+    expect(stored!.headers).toEqual({ Authorization: 'Bearer stays-home' });
+  });
+
+  it('refuses a PUT that moves the URL to another host and leaves the stored headers to follow it', async () => {
+    const id = (await newTarget({ headers: { Authorization: 'Bearer stays-home' } })).json().id;
+    const res = await app.inject({
+      method: 'PUT', url: `/api/alarm-webhooks/${id}`, headers: headers(),
+      payload: { url: hooterUrl.replace('127.0.0.1', 'localhost') },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().field).toBe('headers');
+  });
+
+  it('refuses a masked URL secret when the URL moves to another host', async () => {
+    const id = (await newTarget({ url: `${hooterUrl}?token=real-token` })).json().id;
+    const res = await app.inject({
+      method: 'PUT', url: `/api/alarm-webhooks/${id}`, headers: headers(),
+      payload: { url: `${hooterUrl.replace('127.0.0.1', 'localhost')}?token=${SECRET_MASK}` },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().field).toBe('url');
+    expect((await prisma.alarmWebhookTarget.findUnique({ where: { id } }))!.url).toBe(`${hooterUrl}?token=real-token`);
+  });
+
+  it('keeps a masked header when only the PATH of the URL changes', async () => {
+    const id = (await newTarget({ headers: { Authorization: 'Bearer same-host' } })).json().id;
+    const res = await app.inject({
+      method: 'PUT', url: `/api/alarm-webhooks/${id}`, headers: headers(),
+      payload: { url: `${hooterUrl}/v2`, headers: { Authorization: SECRET_MASK } },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((await prisma.alarmWebhookTarget.findUnique({ where: { id } }))!.headers).toEqual({ Authorization: 'Bearer same-host' });
+  });
+
+  it('a host change with every secret typed again is saved', async () => {
+    const id = (await newTarget({ headers: { Authorization: 'Bearer old' } })).json().id;
+    const res = await app.inject({
+      method: 'PUT', url: `/api/alarm-webhooks/${id}`, headers: headers(),
+      payload: { url: hooterUrl.replace('127.0.0.1', 'localhost'), headers: { Authorization: 'Bearer typed-again' } },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((await prisma.alarmWebhookTarget.findUnique({ where: { id } }))!.headers).toEqual({ Authorization: 'Bearer typed-again' });
+  });
+
+  /**
    * Audit 2026-10-12 #7 — the update audit row recorded only name/url/method/
    * isActive, so a change of SCOPE (which instruments sound this hooter) or of a
    * fire flag left no before/after in the §11 trail.

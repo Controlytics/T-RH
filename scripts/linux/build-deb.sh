@@ -91,9 +91,13 @@ cp apps/web/package.json "$CLEAN/apps/web/"
 cp packages/shared/package.json "$CLEAN/packages/shared/"
 cp packages/queue/package.json "$CLEAN/packages/queue/"
 cp -r apps/api/prisma "$CLEAN/apps/api/prisma"
+# The root postinstall (patch-package) applies patches/ — without them here it finds no
+# patch, exits 0, and the package ships graphile-worker unpatched (audit 2026-11-07 S2-H1).
+cp -r patches "$CLEAN/patches"
 ( cd "$CLEAN" && npm ci --omit=dev --no-audit --no-fund && npx prisma generate --schema apps/api/prisma/schema.prisma )
 test -f "$CLEAN/node_modules/.prisma/client/index.js" || { echo "FATAL: generated Prisma client missing in the clean room" >&2; exit 1; }
 ls "$CLEAN"/node_modules/.prisma/client/*.node >/dev/null 2>&1 || { echo "FATAL: no Prisma query engine (.node) in the clean room" >&2; exit 1; }
+grep -qF "compliance-core patch (patches/graphile-worker+0.16.6.patch" "$CLEAN/node_modules/graphile-worker/dist/runner.js" || { echo "FATAL: the graphile-worker patch (patches/) is not applied in the clean room - the runner would exit the API on a database drop" >&2; exit 1; }
 
 # ── 3. Vendor downloads (cached in $DL) ─────────────────────────────────────
 fetch() { local url="$1" out="$2"; if [ ! -s "$out" ]; then step "download $(basename "$out")"; curl -fsSL --retry 3 -o "$out" "$url"; fi; }

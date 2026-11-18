@@ -26,8 +26,9 @@
 .PARAMETER AdminPassword   INITIAL_ADMIN_PASSWORD for the app seed
 .PARAMETER ApiDir    apps/api (for prisma schema, extensions.sql, seed)
 .PARAMETER NodeExe   node.exe to run prisma/seed with (default: 'npx'/'node' on PATH)
-.PARAMETER StopWhenDone   Stop the cluster after provisioning (installer leaves
-                          it for the service in M4; the test stops it)
+.PARAMETER StopWhenDone   Stop the cluster after provisioning. install.ps1 passes
+                          it since 2026-11-16 (audit S9-5): the database SERVICE for
+                          the same data directory is registered and started next.
 #>
 [CmdletBinding()]
 param(

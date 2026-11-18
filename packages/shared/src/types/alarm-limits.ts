@@ -116,8 +116,13 @@ export function parseLimitKeys(raw: string | null | undefined): string[] {
 /** A string that is nothing but a number: `25`, `-5.5`, `.5`, `0`. */
 const BARE_NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)$/;
 
-/** The FIRST numeric token anywhere in a string. */
-const FIRST_NUMBER = /[+-]?(?:\d+\.?\d*|\.\d+)/;
+/**
+ * The FIRST numeric token anywhere in a string. Its sign counts only when no
+ * LETTER precedes it: `NLT-15` is "not less than 15" (a hyphen glued to a word is
+ * a separator), while `NLT -15`, `limit -40` and `-5.5` are minus. Audit
+ * 2026-11-07, S8-5: `NLT-15` read as -15 and a 15 °C low bound never fired.
+ */
+const FIRST_NUMBER = /(?:(?<![A-Za-z])[+-])?(?:\d+\.?\d*|\.\d+)/;
 
 /**
  * A limit value, or null when there is not one.
@@ -127,7 +132,9 @@ const FIRST_NUMBER = /[+-]?(?:\d+\.?\d*|\.\d+)/;
  * `NMT 27`, `25 C`. The number is the bound the alarm evaluator, the dashboard
  * status and the report extremes work from; the text is what the set point
  * PRINTS (see {@link limitDisplayText}). So this takes the FIRST numeric token
- * in the string: `60 (For Reference)` → 60, `limit -40` → -40. Stated plainly:
+ * in the string: `60 (For Reference)` → 60, `limit -40` → -40, `NLT-15` → 15
+ * (a hyphen glued to a word is a separator — write `NLT -15` for minus fifteen,
+ * audit 2026-11-07 S8-5). Stated plainly:
  * a value with two numbers (`v2 limit 60`) resolves to the first one — keep the
  * number first, or alone.
  *

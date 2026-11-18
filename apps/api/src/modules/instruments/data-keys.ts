@@ -49,28 +49,33 @@ export function measuredSlotFor(cfg: InstrumentSlotConfig, key: string): Telemet
  * `rawSlots`, which apply it). NOT yet used by `floorplans/room-history.ts` or
  * `telemetry-aggregate.ts`, which still take every device key of a slot.
  *
- * Decided from the LATEST table, which keeps every key ever sent: an instrument
- * that once sent the preferred key and has since moved to another resolves to
- * the old one — exactly as the overview and the alarm evaluator already do.
- *
- * The profile may list several device keys for one measurement; an instrument
- * still has ONE temperature: the first of them it has sent, in the profile's
+ * Decided from the LATEST table, which keeps every key ever sent. The profile may
+ * list several device keys for one measurement; an instrument still has ONE
+ * temperature: the one of them that arrived MOST RECENTLY, ties in the profile's
  * order (`resolveSlot`, exactly as `buildTelemetryOverview` and therefore the
- * alarm evaluator pick it). Any OTHER of those keys is raw on that instrument —
- * judging it too would let a chart count breaches, or a card paint a status,
- * on a key no alarm is ever raised on. A slot with no reading yet resolves
- * nothing, so every listed key still carries the measurement's bounds.
+ * alarm evaluator pick it). An instrument that once sent the preferred key and has
+ * since moved to another resolves to the NEW one (audit 2026-11-07 S8-1 — until
+ * then the frozen old key won for good, and live breaching readings never
+ * alarmed). Any OTHER of those keys is raw on that instrument — judging it too
+ * would let a chart count breaches, or a card paint a status, on a key no alarm is
+ * ever raised on. A slot with no reading yet resolves nothing, so every listed key
+ * still carries the measurement's bounds.
  *
- * `instrumentKeys` = the keys in the instrument's latest table.
+ * `instrumentKeys` = the keys in the instrument's latest table, each with its `ts`
+ * where the caller has it. A bare key has no instant and falls back to the
+ * profile's order (`modbus/routes.ts`: one fresh register read, all one instant).
  */
 export function resolvedSlotFor(
   cfg: InstrumentSlotConfig,
   key: string,
-  instrumentKeys: readonly string[],
+  instrumentKeys: readonly (string | { key: string; ts?: Date | string | null })[],
 ): TelemetrySlot | null {
   const slot = measuredSlotFor(cfg, key);
   if (!slot) return null;
-  const resolved = resolveSlot(cfg.aliases[slot], instrumentKeys.map((k) => ({ key: k })));
+  const resolved = resolveSlot(
+    cfg.aliases[slot],
+    instrumentKeys.map((k) => (typeof k === 'string' ? { key: k } : k)),
+  );
   return resolved === null || resolved.key === key ? slot : null;
 }
 
@@ -109,17 +114,18 @@ export async function buildKeyCatalogue(opts: {
 
   // A key is MEASURED in this set when it is the resolved key of its slot on at
   // least one instrument (`resolvedSlotFor`, per instrument and its profile).
-  const keysOf = new Map<string, string[]>();
+  const keysOf = new Map<string, { key: string; ts: Date }[]>();
   for (const r of perInstrument) {
+    const entry = { key: r.key, ts: r.ts };
     const list = keysOf.get(r.instrumentId);
-    if (list) list.push(r.key);
-    else keysOf.set(r.instrumentId, [r.key]);
+    if (list) list.push(entry);
+    else keysOf.set(r.instrumentId, [entry]);
   }
   const measuredSlot = new Map<string, TelemetrySlot>();
   for (const inst of opts.instruments) {
     const cfg = slotOf(inst.profileId);
     const mine = keysOf.get(inst.id) ?? [];
-    for (const key of mine) {
+    for (const { key } of mine) {
       const slot = resolvedSlotFor(cfg, key, mine);
       if (slot && !measuredSlot.has(key)) measuredSlot.set(key, slot);
     }

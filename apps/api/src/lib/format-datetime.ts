@@ -6,6 +6,7 @@
  * notification message (built server-side at emit time) matches what the UI
  * shows everywhere else. Default timezone is Asia/Kolkata (IST), NOT UTC.
  */
+import { datetimeConfigSchema } from '@digilog/shared';
 import { prisma } from './prisma.js';
 
 interface DatetimeConfig {
@@ -14,13 +15,20 @@ interface DatetimeConfig {
   timezone: string;
 }
 
-// Matches datetime.def.ts defaults (stored config wins; this is only the
-// fallback when the row is missing).
-const DEFAULT_CONFIG: DatetimeConfig = {
-  dateFormat: 'DD/MM/YYYY',
-  timeFormat: '12-hour',
-  timezone: 'Asia/Kolkata',
-};
+/**
+ * The stored `datetime` row resolved EXACTLY as the screens resolve it
+ * (`configService.getConfig` → `datetimeConfigSchema`): a valid row as stored,
+ * anything the schema refuses → the schema's own defaults. Audit 2026-11-07,
+ * S10-20: this formatter read the RAW row, so a seeded `timezone: 'UTC'` — which
+ * the schema refuses — made e-mails, SMS, webhook times and chart buckets UTC while
+ * every screen showed IST. One reading, one answer.
+ */
+export function resolveDatetimeConfig(raw: unknown): DatetimeConfig {
+  const parsed = datetimeConfigSchema.safeParse(raw ?? {});
+  return parsed.success ? parsed.data : datetimeConfigSchema.parse({});
+}
+
+const DEFAULT_CONFIG: DatetimeConfig = resolveDatetimeConfig(undefined);
 
 function formatDateValue(date: Date, dateFormat: string, timezone: string): string {
   const opts: Intl.DateTimeFormatOptions = { timeZone: timezone };
@@ -55,12 +63,7 @@ function formatTimeValue(date: Date, timeFormat: string, timezone: string): stri
 export async function getDatetimeConfig(): Promise<DatetimeConfig> {
   try {
     const row = await prisma.systemConfig.findUnique({ where: { configKey: 'datetime' } });
-    const v = (row?.configValue as Partial<DatetimeConfig> | null) ?? {};
-    return {
-      dateFormat: v.dateFormat || DEFAULT_CONFIG.dateFormat,
-      timeFormat: v.timeFormat || DEFAULT_CONFIG.timeFormat,
-      timezone: v.timezone || DEFAULT_CONFIG.timezone,
-    };
+    return resolveDatetimeConfig(row?.configValue);
   } catch {
     return DEFAULT_CONFIG;
   }

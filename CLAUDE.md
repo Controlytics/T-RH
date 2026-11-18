@@ -20,7 +20,7 @@ re-derive any count from live code before repeating it.
 ```
 apps/api/         — Fastify backend (TypeScript, port 3001)
 apps/web/         — React SPA (Vite, port 5176 dev)
-packages/shared/  — Permissions (48), reauth actions (59), sidebar items (16),
+packages/shared/  — Permissions (48), reauth actions (56), sidebar items (16),
                     permission tree, rule node catalogue, zod schemas
                     (counts re-derived 2026-11-05; read 45 / 57 / 15, stale since 2026-10-30)
 packages/queue/   — graphile-worker job queue (Postgres-backed)
@@ -43,6 +43,7 @@ is meant to be smoke-installed on the runner by the workflow — **but no `build
 a CI install. `docs/deployment-methods/method-c-ubuntu-deb.md` is the runbook.
 
 - Node.js **24.x** (pinned in root `package.json` `engines` + `.nvmrc` since 2026-10-05 — the `.deb` build refuses any other major and the Windows installer's Node zip must match the native-module ABI), PostgreSQL 18
+- **Every `npm install` / `npm ci` patches graphile-worker** (since 2026-11-17, audit S2-H1): the root `postinstall` runs `patch-package --error-on-fail --error-on-warn` over `patches/` — `graphile-worker+0.16.6.patch` stops graphile's stray rejection on a database drop from exiting the API (the runner is restarted in-process; a whole-API database outage is untested). `patch-package` is a PRODUCTION dependency (installers run `npm ci --omit=dev`); `build-deb.sh` copies `patches/` into its clean room and both installer builds refuse a runtime without the patch. **Upgrading graphile-worker makes the install FAIL until the patch is dropped** — then re-check how the new runner reports a death (`lib/job-runner-supervisor.ts`).
 - **No Redis dependency.** Phase 2 of windows-friendly-rewrite moved the job
   queue to graphile-worker on Postgres. Phase 4 (2026-05-01) retired Redis
   for pub/sub too (in-process EventEmitter bus); `ioredis` is no longer in
@@ -175,7 +176,7 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
   Only `compliance_core_db` + `compliance_core_db_test` exist — **no TimescaleDB,
   no `digilog_tsdb`**. The test database is migrated **separately**; a migration
   applied to only one of them makes every instrument-touching e2e 500.
-- **Permissions:** **48** constants, **59** reauth actions in **8** categories (57 → 58 on 2026-11-02: `UPDATE_REPORT_TEMPLATE` under the EXISTING `Reports` category, ships OFF),
+- **Permissions:** **48** constants, **56** reauth actions in **8** categories (59 → 56 on 2026-11-16: `ACKNOWLEDGE_ALARM`, `APPROVE_REPORT`, `REJECT_REPORT` left the registry — always verified, audit 2026-11-07 S6-4; categories unchanged — Reports and Configuration keep members; 57 → 58 on 2026-11-02: `UPDATE_REPORT_TEMPLATE` under the EXISTING `Reports` category, ships OFF),
   **16** sidebar items (`grep -cE` against `permissions.ts` / `reauth-actions.ts`
   / `sidebar-items.ts`), **16** permission-tree groups / **58** nodes / **41** feature
   privileges (groups / nodes counted over `PERMISSION_TREE`, privileges = `FEATURE_PRIVILEGES.length`, pinned 41 by `legacy-maps-derived.test.ts`), **42** shared type files (`ls packages/shared/src/types/*.ts | grep -v test | wc -l`; 40 → 42 on 2026-11-03: `rule-nodes.ts`, `rule-chain-document.ts`; this line read 39, stale since 2026-11-02's `report-templates.ts`; 38 → 39 on 2026-10-31: `modbus.ts`).
@@ -309,7 +310,7 @@ of this same file, which says 3001.** `apps/api/.env` is the authority:
 - **Frontend:** **59** `<Route`s in `main.tsx` (`grep -cE "<Route" apps/web/src/main.tsx`; 57 → 59, 2026-11-04, re-derived 2026-11-05: `/rule-chains` and `/rule-chains/:id`, the rule chains list and canvas editor; 56 → 57, 2026-11-02: `/config/report-templates`; 54 → 56, 2026-10-29: `/dashboards` and `/dashboards/:id`, the dashboard builder; 53 → 54, 2026-10-24: `/config/attribute-access`; 52 → 53, 2026-10-01: `/config/report-settings`; 53 → 52, 2026-09-19: `/home`, the
   Module Guide, removed with the `home` sidebar item; a `/config/attribute-labels` route existed for a few hours on 2026-09-16 and was removed the same day — unchanged; 52 → 53, 2026-09-08: `/settings`; 51 → 52, 2026-09-07: `/reports`; 50 → 51 the same day: `/data-report`) (51 → 50, 2026-08-31: `/config/alarm-rules` removed with the rule feature) (50 → 51, 2026-08-29: `/config/export-options`, a page that had a config def and a dashboard card but no route, so it was unreachable. Earlier 49 → 50, 2026-08-27:
   `/config/alarm-webhooks`).
-- **Queue backend:** graphile-worker (Postgres-backed), **9** tasks (7 → 9 on 2026-11-03, re-derived 2026-11-05 with `sed -n '/taskList: {/,/^      },/p' apps/api/src/app.ts | grep -cE "^\s+[a-z_]+: [a-zA-Z]+Task,"`: `rule_engine_message`, the durable Delay / Checkpoint path, event-driven, on the named queue `rule-engine:<originatorId>`, and `rule_engine_debug_sweep`, hourly — the fifth `crontab.txt` identifier on its sixth schedule line (`telemetry_partition_maintenance` has two); 6 → 7 on 2026-10-12: `notification_retry`, the durable email/SMS retry, event-driven, no crontab line).
+- **Queue backend:** graphile-worker (Postgres-backed), **9** tasks (7 → 9 on 2026-11-03, re-derived 2026-11-18 with `sed -n '/const taskList/,/^    };/p' apps/api/src/app.ts | grep -cE "^\s+[a-z_]+: [a-zA-Z]+Task,"` — the `/taskList: {/` pattern used until then returns **0** since the job-runner supervisor (audit S2-H1, Batch 1) made `taskList` a constant; the same change broke `packages/queue`'s `crontab-handlers.test.ts` parser, fixed 2026-11-18: `rule_engine_message`, the durable Delay / Checkpoint path, event-driven, on the named queue `rule-engine:<originatorId>`, and `rule_engine_debug_sweep`, hourly — the fifth `crontab.txt` identifier on its sixth schedule line (`telemetry_partition_maintenance` has two); 6 → 7 on 2026-10-12: `notification_retry`, the durable email/SMS retry, event-driven, no crontab line).
 - **Tenancy:** single-tenant, single-site. JWT `scope` always stamps `GLOBAL`.
 - **Themes:** 10 preset colour themes.
 

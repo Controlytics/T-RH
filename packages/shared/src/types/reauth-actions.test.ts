@@ -30,8 +30,10 @@ describe('REAUTH_ACTIONS — instrument registry (SEC-7)', () => {
   // The counts root CLAUDE.md states. Re-derive before moving either.
   // 57 → 58 on 2026-11-02: UPDATE_REPORT_TEMPLATE (Reports).
   // 58 → 59 on 2026-11-03: UPDATE_RULE_CHAIN (Configuration).
-  it('holds 59 actions in 8 categories', () => {
-    expect(Object.keys(REAUTH_ACTIONS)).toHaveLength(59);
+  // 59 → 56 on 2026-11-16: ACKNOWLEDGE_ALARM, APPROVE_REPORT, REJECT_REPORT left —
+  // always verified (audit 2026-11-07 S6-4), so no policy toggle may exist for them.
+  it('holds 56 actions in 8 categories', () => {
+    expect(Object.keys(REAUTH_ACTIONS)).toHaveLength(56);
     expect(REAUTH_ACTION_CATEGORIES).toHaveLength(8);
   });
 

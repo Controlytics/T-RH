@@ -1,0 +1,28 @@
+diff --git a/node_modules/graphile-worker/dist/runner.js b/node_modules/graphile-worker/dist/runner.js
+index 49f82e8..233df9a 100644
+--- a/node_modules/graphile-worker/dist/runner.js
++++ b/node_modules/graphile-worker/dist/runner.js
+@@ -121,16 +121,21 @@ function buildRunner(input) {
+             throw new Error("Runner is already stopped");
+         }
+     };
++    // compliance-core patch (patches/graphile-worker+0.16.6.patch, audit 2026-11-07 S2-H1):
++    // each .finally() returns a NEW promise that re-rejects with the same error, and nothing
++    // handled it — Node exited the process on a database drop before `promise` below could
++    // report the error. `promise` still rejects with it. graphile-worker 0.18 does the same
++    // (`.catch(noop)` on both). Remove this patch when upgrading past 0.16.6.
+     workerPool.promise.finally(() => {
+         if (running) {
+             stop();
+         }
+-    });
++    }).catch(() => { /* reported through `promise` */ });
+     cron.promise.finally(() => {
+         if (running) {
+             stop();
+         }
+-    });
++    }).catch(() => { /* reported through `promise` */ });
+     const promise = Promise.all([cron.promise, workerPool.promise]).then(() => {
+         /* noop */
+     }, async (error) => {

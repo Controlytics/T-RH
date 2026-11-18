@@ -192,6 +192,20 @@ if ($envRaw -match '^\s*AUDIT_CHAIN_KEY\s*=\s*\S') {
   }
 }
 
+# 5a. The job runner's crontab (audit 2026-11-07, S9-1). An install made before
+#     2026-11-16 has no MAINTENANCE_CRONTAB_PATH, so its job runner never
+#     started (no alarm pass, no OFFLINE detection, no notifications). Appended
+#     only when absent; an existing value is kept.
+$crontabPath = Join-Path $InstallDir 'runtime\queue\crontab.txt'
+if ((Get-Content $envFile) -match '^\s*MAINTENANCE_CRONTAB_PATH\s*=\s*\S') {
+  Write-Host "==> MAINTENANCE_CRONTAB_PATH present - preserved" -ForegroundColor Cyan
+} elseif ($DryRun) {
+  Write-Host "[dry-run] append MAINTENANCE_CRONTAB_PATH=$crontabPath to $envFile" -ForegroundColor Yellow
+} else {
+  Add-Content -Path $envFile -Value "MAINTENANCE_CRONTAB_PATH=$crontabPath" -Encoding ascii
+  Write-Host "==> Appended MAINTENANCE_CRONTAB_PATH=$crontabPath to $envFile" -ForegroundColor Cyan
+}
+
 # 5b. Re-provision the bundled EMQX broker from the (possibly newer) templates:
 #     appends any MQTT/EMQX env key this install predates, re-renders
 #     emqx.conf + acl.conf, re-registers and restarts the service. Retained
@@ -203,20 +217,36 @@ if ($DryRun) { $mqArgs['DryRun'] = $true }
 if ($LASTEXITCODE -ne 0) { Write-Host "FATAL: EMQX provisioning failed; the API was NOT started. Backup at $backupFile." -ForegroundColor Red; exit 1 }
 
 # 6. Start the API service + health check.
-if ($DryRun) { Write-Host "[dry-run] sc start $ApiService; poll http://localhost:$ApiPort/api/health" -ForegroundColor Yellow; exit 0 }
+#    HTTPS: the API serves nothing on plain HTTP (API_HTTPS=true), so the http://
+#    probe used here until 2026-11-16 failed every upgrade (audit 2026-11-07,
+#    S9-14). install.ps1 trusted the install's CA in LocalMachine\Root, which this
+#    probe relies on. And 200 is not enough: the job runner must be 'running'
+#    (S9-1). 60 s, because the API retries a failed runner start after 5 s, 15 s.
+if ($DryRun) { Write-Host "[dry-run] sc start $ApiService; poll https://localhost:$ApiPort/api/health for jobRunner=running" -ForegroundColor Yellow; exit 0 }
 Write-Host "==> Starting $ApiService" -ForegroundColor Cyan
 sc.exe start $ApiService | Out-Null
 $ok = $false
-foreach ($i in 1..30) {
-  try { $r = Invoke-WebRequest "http://localhost:$ApiPort/api/health" -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -eq 200) { $ok = $true; break } } catch {}
+$runner = $null
+foreach ($i in 1..60) {
+  try {
+    $r = Invoke-WebRequest "https://localhost:$ApiPort/api/health" -UseBasicParsing -TimeoutSec 2
+    if ($r.StatusCode -eq 200) {
+      $runner = (ConvertFrom-Json $r.Content).jobRunner
+      if ($runner -eq 'running') { $ok = $true; break }
+    }
+  } catch {}
   Start-Sleep -Seconds 1
 }
 if ($ok) {
-  Write-Host "`nUpgrade to v$Version complete. API healthy at http://localhost:$ApiPort" -ForegroundColor Green
+  Write-Host "`nUpgrade to v$Version complete. API healthy at https://localhost:$ApiPort (job runner running)" -ForegroundColor Green
   Write-Host "Pre-upgrade backup retained: $backupFile" -ForegroundColor Gray
   exit 0
+} elseif ($runner) {
+  Write-Host "`nFAILED: the API answers but its job runner is '$runner' - alarms, notifications and scheduled jobs will NOT run." -ForegroundColor Red
+  Write-Host "Migrations applied + backup at $backupFile. Check $DataRoot\logs, then restart $ApiService." -ForegroundColor Yellow
+  exit 1
 } else {
-  Write-Host "`nWARN: API did not report healthy within 30s after upgrade." -ForegroundColor Yellow
+  Write-Host "`nWARN: API did not report healthy within 60s after upgrade." -ForegroundColor Yellow
   Write-Host "Migrations applied + backup at $backupFile. Check $DataRoot\logs, then restart $ApiService." -ForegroundColor Yellow
   exit 1
 }

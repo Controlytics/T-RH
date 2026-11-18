@@ -88,6 +88,54 @@ export function restoreMaskedHeaders(
   return { headers: out };
 }
 
+// ─── Where a KEPT secret may go (audit 2026-11-07, S6-3) ──────────────────────
+//
+// The mask means "keep the stored secret" — and the kept secret used to go
+// wherever the same request now pointed: a new SMTP host or port, a new OAuth
+// token URL, a new SMS gateway or webhook host. A CONFIG_UPDATE holder could
+// send `host: <theirs>, password: <mask>` and receive the real password with the
+// next mail. A kept secret may only go to the destination it was saved for; a
+// request that changes the destination must carry its own secret (the LDAP bind
+// password's rule, `resolveBindPassword`, since 2026-10-12).
+
+const DEFAULT_PORT: Record<string, string> = { 'http:': '80', 'https:': '443' };
+
+/**
+ * `scheme://host:port`, lower-cased, with the scheme's default port filled in —
+ * the destination a secret is sent to. Path, query and userinfo are not part of
+ * it. `null` for anything that is not an absolute URL.
+ */
+export function urlOrigin(u: unknown): string | null {
+  if (typeof u !== 'string' || !u.includes('://')) return null;
+  try {
+    const url = new URL(u.trim());
+    const port = url.port || DEFAULT_PORT[url.protocol] || '';
+    return `${url.protocol}//${url.hostname}:${port}`.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function destinationValue(v: unknown): string {
+  const origin = urlOrigin(v);
+  if (origin !== null) return origin;
+  return v === null || v === undefined ? '' : String(v).trim().toLowerCase();
+}
+
+/**
+ * Do `stored` and `next` name the same destination? Each field is compared
+ * trimmed and case-insensitively (`587` equals `'587'`; absent equals blank); a
+ * URL-valued field is compared by {@link urlOrigin}, so a new PATH on the same
+ * host is the same destination and a new host is not.
+ */
+export function sameSecretDestination(
+  stored: Record<string, unknown>,
+  next: Record<string, unknown>,
+  fields: readonly string[],
+): boolean {
+  return fields.every((f) => destinationValue(stored[f]) === destinationValue(next[f]));
+}
+
 /** `{phone}`, `{message}` — a gateway template placeholder, not a secret. */
 const PLACEHOLDER = /^\{[A-Za-z_]+\}$/;
 

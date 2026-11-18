@@ -173,7 +173,7 @@ Counts quoted inside them are historical — the live numbers are in `CLAUDE.md`
 
 - **WIDGET DATA KEYS — any key an instrument sends, in any widget (2026-10-28, phase 1 of 4 = server only; operator: "… in future new key was came to instrument, how can i see that new key data in dashboard … like in thingsboard").** Spec `docs/superpowers/specs/2026-10-28-widget-data-keys-design.md`.
   - **Ingest already stored every key**; what was missing was a way to name one. `GET /api/instruments/data-keys` lists telemetry keys (latest table) and attribute keys; `POST /api/instruments/latest-values` reads them; `keys` filters both history routes. Module `modules/instruments/data-keys.ts` + child plugin `data-keys-routes.ts`; `keys-param.ts`.
-  - **Measured vs raw** is the whole rule, and it is ONE function on the key-naming routes — `resolvedSlotFor` (`data-keys.ts`; NOT yet used by `floorplans/room-history.ts` or `telemetry-aggregate.ts`, which still treat every device key of a slot as that measurement (pre-existing; raised as a follow-up)): measured = the profile maps the key to a slot AND it is the key that slot RESOLVED to on this instrument (or the slot has no reading yet); unit, decimals, bounds, fault flags come from `buildTelemetryOverview()`. Raw = `unit` / `decimals` / `judged` null — shown, never judged, never green; limits/alarms on a new quantity are profile-measurements phase 2. The catalogue, `telemetry-keys` (`slot`), latest-values and the `/:id/telemetry` chart/table annotation all use it — which fixed the trend page charting (and counting breaches for) the wrong one of two device keys. A two-key case in the resolver-agreement e2e pins it. It decides from the LATEST table (every key ever sent), so a device that moved from the preferred key to another resolves to the OLD one — as the overview and alarms already do; local check 2026-10-28 found no such instrument, AWS unchecked.
+  - **Measured vs raw** is the whole rule, and it is ONE function on the key-naming routes — `resolvedSlotFor` (`data-keys.ts`; NOT yet used by `floorplans/room-history.ts` or `telemetry-aggregate.ts`, which still treat every device key of a slot as that measurement (pre-existing; raised as a follow-up)): measured = the profile maps the key to a slot AND it is the key that slot RESOLVED to on this instrument (or the slot has no reading yet); unit, decimals, bounds, fault flags come from `buildTelemetryOverview()`. Raw = `unit` / `decimals` / `judged` null — shown, never judged, never green; limits/alarms on a new quantity are profile-measurements phase 2. The catalogue, `telemetry-keys` (`slot`), latest-values and the `/:id/telemetry` chart/table annotation all use it — which fixed the trend page charting (and counting breaches for) the wrong one of two device keys. A two-key case in the resolver-agreement e2e pins it. It decides from the LATEST table (every key ever sent). **Since 2026-11-16 the NEWEST of a slot's keys wins** (`resolveSlot` in `@digilog/shared`, ties in the profile's order; audit 2026-11-07 S8-1): a device that moved from the preferred key to another resolves to the NEW one. Until then the frozen OLD key won for good — the dashboard showed it and the alarm evaluator never saw the live, breaching key (runtime-proven, probe AT-1). The overview passes each reading's `ts`; the routes pass the latest-table `ts`; a bare key (Modbus Test) has no instant and keeps the profile's order. Local check 2026-11-16: one instrument holds two temperature keys and one two humidity keys; AWS unchecked. **"Newest" is the readings' STORED `ts`, which is the DEVICE's stamp** (replaced by arrival time only when it is before 2000 or more than 10 min ahead — see device timestamp handling): a device whose clock runs BEHIND, or a gateway still replaying older stamps, keeps the old frozen key winning until the new key's stamps pass the old row's. Judging by arrival instead would need the latest table to record arrival time; not done (Batch 1 review, deferred minor #7 — recorded 2026-11-17).
   - **An empty id list is an empty answer** (200 `[]`) on both routes — a selection can hold nothing.
   - **`value_type` is not "is it a number"** — gateways quote every reading, so `"21.5"` is stored `string`. `numeric` uses `NUMERIC_READING`.
   - **Decided (operator, 2026-10-28):** only a SUPER_ADMIN builds dashboard widgets (the 2026-08-29 Arrange rule stands) and shares them as a role's default; trend-page extra keys are per PROFILE. Phase 2 (dashboard widgets) was built the same day and phase 3 (trend page) on 2026-10-29 — below; phase 4 (downloads) is not built yet.
@@ -553,8 +553,9 @@ GET    /api/report-reviews/:id                  — the full row with its snapsh
                                                     (party = signer, SUPER_ADMIN, or requester's role / approver in scope)
 POST   /api/report-reviews/:id/approve | reject — assignee only, never the requester — EXCEPT SUPER_ADMIN,
                                                     who may decide ANY pending request, their own included (2026-09-08);
-                                                    approve: REPORT_REVIEW_APPROVE + APPROVE_REPORT reauth;
-                                                    reject: REPORT_REVIEW_REJECT + REJECT_REPORT reauth
+                                                    approve: REPORT_REVIEW_APPROVE; reject: REPORT_REVIEW_REJECT;
+                                                    the password is ALWAYS verified (`enforceReauthAlways`,
+                                                    2026-11-16, S6-4 — no re-auth policy; it shipped OFF)
                                                     (two permissions since 2026-10-26);
                                                     one decision (409 on a second); audited; requester notified
 POST   /api/report-reviews/:id/download-log     — a party downloading the APPROVED copy; written BEFORE save
@@ -740,6 +741,16 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
     the ONE reader; `boundText` in `routes/dashboard/set-point.ts` the ONE
     browser rule. Notifications, webhooks and the room-detail band stay
     numeric on purpose. No count moved.
+  - **A hyphen glued to a WORD is a separator, not a minus sign (2026-11-16,
+    audit 2026-11-07 S8-5).** `NLT-15` / `NMT-27` read as 15 / 27; until then
+    `NLT-15` ("not less than 15") read as **-15**, so a 15 °C low bound became
+    -15 °C and never fired. The sign counts only when no letter precedes it
+    (`FIRST_NUMBER` in `alarm-limits.ts`): `NLT -15`, `limit -40`, `(-20)` and
+    `-5.5` are still negative. **To enter minus fifteen with a word in front,
+    put a space before the sign.** The printed text is unchanged — only the
+    enforced number moved. An install whose limit attributes hold `NLT-…` /
+    `NMT-…` will see those bounds change from negative to positive on deploy,
+    and alarms may raise that did not before; check before deploying.
 - **Sensor RANGE alarms — a FIFTH alarm source (2026-08-31).** `AlarmSource`
   gains `SENSOR_RANGE` (enum VALUE — models stay 36, enums stay 13). Config def
   `sensor-range-alarms` (27 → 28 defs). Raised when a reading falls outside the
@@ -907,6 +918,19 @@ GET    /api/config/report-downloads/current     — (2026-10-01) per report KIND
   same word the Alarms page uses), "Not set" for an absent attribute. No CSS was
   added: both columns take the existing `tv-h-loc` hue, because the `.tv-*` block
   is deliberately UNLAYERED and a new rule there is not a free edit.
+- **§11 SIGNATURES ALWAYS VERIFY THE PASSWORD (2026-11-16, audit 2026-11-07 S6-4,
+  operator: "Always require a password").** Acknowledging an alarm
+  (`POST /api/alarms/:id/acknowledge`) and approving / rejecting a report
+  (`POST /api/report-reviews/:id/approve | reject`) use `enforceReauthAlways`:
+  no password is 401 `REAUTH_REQUIRED`, a wrong one 401 (and counts toward
+  lockout). They were POLICY-driven and the shipped policy is empty, so a wrong
+  password — or none — signed (probe K). `ACKNOWLEDGE_ALARM`, `APPROVE_REPORT` and
+  `REJECT_REPORT` LEFT `REAUTH_ACTIONS` (59 → 56; the token actions' precedent: a
+  toggle for an always-on gate would do nothing) and the three tree nodes lost
+  their `reauthAction`. A stored policy that still names them is ignored —
+  `configService.getActionReauth` / `getMyActions` return registry keys only, and
+  the next save of either policy screen drops them. No web change: the dialogs
+  always asked for the password.
 - **REPORT REVIEW WORKFLOW (2026-09-07, operator: "when ever user click on
   download then directly pdf should not download, as per requested time period
   data should go per review once review completed and approved then user and

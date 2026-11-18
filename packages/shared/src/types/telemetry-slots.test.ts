@@ -65,6 +65,39 @@ describe('resolveSlot', () => {
   it('returns null for an empty alias list rather than guessing', () => {
     expect(resolveSlot([], [{ key: 'temp' }])).toBeNull();
   });
+
+  // Audit 2026-11-07, S8-1: the latest table keeps EVERY key ever sent. A device
+  // that once sent `temperature` and now sends `t` resolved to the frozen
+  // `temperature` reading for good — its live breaching readings never alarmed.
+  it('takes the NEWEST reading among the aliases, not the first alias ever stored', () => {
+    const readings = [
+      { key: 'temperature', ts: '2026-11-16T08:00:00Z' },
+      { key: 't', ts: '2026-11-16T11:00:00Z' },
+    ];
+    expect(resolveSlot(aliases, readings)?.key).toBe('t');
+  });
+
+  it('compares Date and epoch timestamps as instants', () => {
+    const readings = [
+      { key: 'temp', ts: new Date('2026-11-16T11:00:00Z') },
+      { key: 'temperature', ts: Date.parse('2026-11-16T08:00:00Z') },
+    ];
+    expect(resolveSlot(aliases, readings)?.key).toBe('temp');
+  });
+
+  it('falls back to alias order when two aliases arrived at the same instant', () => {
+    // One message carrying both keys must resolve the same way on every request.
+    const readings = [
+      { key: 't', ts: '2026-11-16T11:00:00Z' },
+      { key: 'temperature', ts: '2026-11-16T11:00:00.000Z' },
+    ];
+    expect(resolveSlot(aliases, readings)?.key).toBe('temperature');
+  });
+
+  it('a reading with no timestamp never beats one that has one', () => {
+    const readings = [{ key: 'temperature' }, { key: 't', ts: '2026-11-16T11:00:00Z' }];
+    expect(resolveSlot(aliases, readings)?.key).toBe('t');
+  });
 });
 
 describe('computeInstrumentStatus', () => {

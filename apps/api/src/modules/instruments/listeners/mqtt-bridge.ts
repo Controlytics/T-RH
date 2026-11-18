@@ -432,82 +432,99 @@ export async function startMqttBridge(
     void drain();
   });
 
+  /**
+   * One delivered message, start to finish. Every outcome that is not a thrown
+   * error is handled (and logged) in here; `drain` catches the rest.
+   */
+  async function handleMessage(topic: string, payload: Buffer): Promise<void> {
+    // RTC request (2026-09-05): `{"method":"getTime"}` on
+    // `instruments/<code>/rtc-request` → the time goes out on the GLOBAL
+    // time topic at once. Any active instrument may ask; anything else on
+    // the topic is ignored, and an unknown code is dropped with a log.
+    const rtcCode = parseRtcRequestTopic(topic);
+    if (rtcCode) {
+      const asker = await lookupByCode(rtcCode);
+      if (!asker) {
+        log('rtc request dropped — no active instrument with that code', { topic, code: rtcCode });
+      } else if (!isGetTimeRequest(payload)) {
+        log('rtc request ignored — not {"method":"getTime"}', { instrument: asker.code });
+      } else {
+        await publishTime(new Date(), log);
+      }
+      return;
+    }
+
+    // Attribute REPORT first — see `parseAttributeReportTopic` for why it
+    // must precede the downlink check.
+    const reportCode = parseAttributeReportTopic(topic);
+    if (reportCode) {
+      const reporter = await lookupByCode(reportCode);
+      if (!reporter) {
+        log('attribute report dropped — no active instrument with that code', { topic, code: reportCode });
+        return;
+      }
+      try {
+        const outcome = await ingestAttributeReport({ identity: reporter, raw: payload, log });
+        if (!outcome.ok) log('attribute report refused', { code: outcome.code, instrument: reporter.code });
+        else if (outcome.refused > 0) log('attribute report: keys refused', { instrument: reporter.code, refused: outcome.refused });
+      } catch (e) {
+        log('attribute report FAILED — not written', { instrument: reporter.code, err: (e as Error).message });
+      }
+      return;
+    }
+
+    const code = parseTelemetryTopic(topic);
+    if (!code) {
+      // Our own retained downlinks never reach the queue (`isBridgeEcho`
+      // in the message handler); this guard stays so a reordering there
+      // cannot turn them into a logged drop apiece.
+      if (!isDownlinkTopic(topic)) {
+        log('message dropped — topic does not match instruments/<code>/telemetry', { topic });
+      }
+      return;
+    }
+
+    const identity = await lookupByCode(code);
+    if (!identity) {
+      // Dropped, not dead-lettered: a dead-letter is filed AGAINST an
+      // instrument, and there is no instrument here to file it against.
+      // Inventing one would be a fabricated record in a §11 system, and
+      // auto-creating from a payload is forbidden on every transport.
+      log('message dropped — no active instrument with that code', { topic, code });
+      return;
+    }
+
+    try {
+      const outcome = await ingestPayload({ identity, raw: payload, transport: 'mqtt' });
+      // A refusal means the core RECORDED the problem correctly (UNPARSEABLE
+      // and NOT_A_GATEWAY are both dead-lettered in there). There is no
+      // connection to drop here anyway — one bad message from one device
+      // must not disturb the shared subscription.
+      if (!outcome.ok) log('reading refused', { code: outcome.code, instrument: identity.code });
+    } catch (e) {
+      // A throw out of ingestPayload (a DB outage, say) must not become an
+      // unhandled rejection and must not stop the queue: the next message
+      // may be from a different device entirely.
+      log('ingest failed', { topic, err: (e as Error).message });
+    }
+  }
+
   async function drain(): Promise<void> {
     if (draining) return;
     draining = true;
     try {
       while (queue.length > 0 && !closing) {
         const { topic, payload } = queue.shift() as { topic: string; payload: Buffer };
-
-        // RTC request (2026-09-05): `{"method":"getTime"}` on
-        // `instruments/<code>/rtc-request` → the time goes out on the GLOBAL
-        // time topic at once. Any active instrument may ask; anything else on
-        // the topic is ignored, and an unknown code is dropped with a log.
-        const rtcCode = parseRtcRequestTopic(topic);
-        if (rtcCode) {
-          const asker = await lookupByCode(rtcCode);
-          if (!asker) {
-            log('rtc request dropped — no active instrument with that code', { topic, code: rtcCode });
-          } else if (!isGetTimeRequest(payload)) {
-            log('rtc request ignored — not {"method":"getTime"}', { instrument: asker.code });
-          } else {
-            await publishTime(new Date(), log);
-          }
-          continue;
-        }
-
-        // Attribute REPORT first — see `parseAttributeReportTopic` for why it
-        // must precede the downlink check.
-        const reportCode = parseAttributeReportTopic(topic);
-        if (reportCode) {
-          const reporter = await lookupByCode(reportCode);
-          if (!reporter) {
-            log('attribute report dropped — no active instrument with that code', { topic, code: reportCode });
-            continue;
-          }
-          try {
-            const outcome = await ingestAttributeReport({ identity: reporter, raw: payload, log });
-            if (!outcome.ok) log('attribute report refused', { code: outcome.code, instrument: reporter.code });
-            else if (outcome.refused > 0) log('attribute report: keys refused', { instrument: reporter.code, refused: outcome.refused });
-          } catch (e) {
-            log('attribute report FAILED — not written', { instrument: reporter.code, err: (e as Error).message });
-          }
-          continue;
-        }
-
-        const code = parseTelemetryTopic(topic);
-        if (!code) {
-          // Our own retained downlinks never reach the queue (`isBridgeEcho`
-          // in the message handler); this guard stays so a reordering there
-          // cannot turn them into a logged drop apiece.
-          if (!isDownlinkTopic(topic)) {
-            log('message dropped — topic does not match instruments/<code>/telemetry', { topic });
-          }
-          continue;
-        }
-
-        const identity = await lookupByCode(code);
-        if (!identity) {
-          // Dropped, not dead-lettered: a dead-letter is filed AGAINST an
-          // instrument, and there is no instrument here to file it against.
-          // Inventing one would be a fabricated record in a §11 system, and
-          // auto-creating from a payload is forbidden on every transport.
-          log('message dropped — no active instrument with that code', { topic, code });
-          continue;
-        }
-
         try {
-          const outcome = await ingestPayload({ identity, raw: payload, transport: 'mqtt' });
-          // A refusal means the core RECORDED the problem correctly (UNPARSEABLE
-          // and NOT_A_GATEWAY are both dead-lettered in there). There is no
-          // connection to drop here anyway — one bad message from one device
-          // must not disturb the shared subscription.
-          if (!outcome.ok) log('reading refused', { code: outcome.code, instrument: identity.code });
+          await handleMessage(topic, payload);
         } catch (e) {
-          // A throw out of ingestPayload (a DB outage, say) must not become an
-          // unhandled rejection and must not stop the queue: the next message
-          // may be from a different device entirely.
-          log('ingest failed', { topic, err: (e as Error).message });
+          // Audit 2026-11-07, S2-H2: a throw outside the ingest call (the
+          // instrument lookup, the RTC publish) used to leave this loop through
+          // the `finally` alone — an unhandled rejection that exits the process,
+          // and every message still queued stranded. That ONE message is lost
+          // and said so; the loop goes on, because the next message may be from
+          // a different device entirely.
+          log('message FAILED — not processed', { topic, err: (e as Error).message });
         }
       }
     } finally {

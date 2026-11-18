@@ -10,7 +10,7 @@
  */
 import { type FastifyInstance } from 'fastify';
 import { buildContext } from '../../lib/build-context.js';
-import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
+import { enforceReauthAlways } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { resolvePageSize } from '../../lib/page-size.js';
@@ -189,7 +189,10 @@ export default async function reportReviewRoutes(app: FastifyInstance) {
         response: { 200: summarySchema, ...errorResponses },
       },
     }, async (req, reply) => {
-      const { ok } = await enforceReauth(action, req, reply);
+      // ALWAYS verified (audit 2026-11-07 S6-4, operator decision 2026-11-16): a
+      // decision is a §11.200 signature; a policy that is off must not let a
+      // wrong password, or none, sign it.
+      const { ok } = await enforceReauthAlways(action, req, reply);
       if (!ok) return;
       const { id } = req.params as { id: string };
       const remarks = requireRemarks((req.body as { remarks?: unknown }).remarks);

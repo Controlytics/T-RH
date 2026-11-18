@@ -31,6 +31,17 @@ export interface StartJobRunnerOptions {
   concurrency?: number;
   /** Optional absolute path to a crontab file (see `packages/queue/crontab.txt`). */
   crontabPath?: string;
+  /**
+   * Called when the RUNNING runner dies — its `promise` rejects (audit 2026-11-07,
+   * S2-H1: that rejection was unhandled and nothing noticed the runner was gone).
+   * A graceful `stopJobRunner()` resolves the promise and does not call it. The
+   * cached runner is cleared first, so the next `startJobRunner` starts a new one.
+   * Reachable only with the root `patches/graphile-worker+0.16.6.patch` applied:
+   * unpatched, graphile's own `.finally()` on its cron / worker-pool promise left
+   * an unhandled rejection that exited the process first — see the API's
+   * `lib/job-runner-supervisor.ts` and `src/e2e/job-runner-db-drop.e2e.test.ts`.
+   */
+  onExit?: (err: unknown) => void;
 }
 
 /**
@@ -40,7 +51,9 @@ export interface StartJobRunnerOptions {
  */
 /**
  * Free the named queues (and any job locked in them) that a DEAD worker left
- * locked. Called once at boot, before the runner starts.
+ * locked. Called before EVERY start — at boot, and before a supervisor retry in
+ * the same process (the API's `lib/job-runner-supervisor.ts`), when this process's
+ * previous runner failed to start or is gone.
  *
  * WHY. `alarm_evaluation` runs on one serial named queue (ALARM_EVALUATION_QUEUE,
  * audit 2026-10-12 #2). graphile-worker frees a queue whose worker died only
@@ -97,8 +110,16 @@ export async function startJobRunner(opts: StartJobRunnerOptions): Promise<Runne
   // an originator's durable rule-engine queue (a Delay, a Checkpoint) — for
   // graphile's four-hour stale-lock window. See releaseQueueLocks.
   await releaseQueueLocks(runnerOptions.connectionString!, [ALARM_EVALUATION_QUEUE], [RULE_ENGINE_QUEUE_PREFIX]);
-  runner = await run({ ...runnerOptions, noHandleSignals: true });
-  return runner;
+  const started = await run({ ...runnerOptions, noHandleSignals: true });
+  runner = started;
+  started.promise.then(
+    () => undefined,
+    (err: unknown) => {
+      if (runner === started) runner = null;
+      opts.onExit?.(err);
+    },
+  );
+  return started;
 }
 
 export async function stopJobRunner(): Promise<void> {

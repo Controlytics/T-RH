@@ -117,6 +117,13 @@ Step "Clean-room npm ci --omit=dev" {
     # it is present here. This is separate from the query-engine .node (staged by
     # stage-runtime) and from the schema engine (used only by migrate deploy).
     if ($LASTEXITCODE -eq 0) { node node_modules/prisma/build/index.js generate --schema apps/api/prisma/schema.prisma }
+    # graphile-worker 0.16.6 is patched by the root postinstall (patch-package, patches/;
+    # audit 2026-11-07 S2-H1). With no patch it exits 0 - refuse a runtime that would let a
+    # database drop exit the API.
+    if ($LASTEXITCODE -eq 0 -and -not (Select-String -LiteralPath 'node_modules\graphile-worker\dist\runner.js' -SimpleMatch -Quiet -Pattern 'compliance-core patch (patches/graphile-worker+0.16.6.patch')) {
+      Write-Host "The graphile-worker patch (patches/) is NOT applied in the clean room." -ForegroundColor Red
+      $global:LASTEXITCODE = 1
+    }
     Pop-Location
   } finally { Pop-Location }
 }

@@ -7,6 +7,7 @@ import { prisma } from '../lib/prisma.js';
 import { hashPassword } from '../lib/password.js';
 import { invalidateRolePermsCache } from '../plugins/rbac.js';
 import { ensurePartitions } from '../workers/telemetry-partition.worker.js';
+import { getTelemetryBuckets } from '../modules/instruments/telemetry-buckets.js';
 
 /**
  * GET /api/instruments/telemetry-buckets — the bar chart's data (dashboard builder
@@ -326,26 +327,45 @@ describe('telemetry-buckets: local edges (Review Focus 2)', () => {
 });
 
 describe('telemetry-buckets: another zone, and an unknown one', () => {
+  // The session-zone guard (see the file header). The `datetime` config can no
+  // longer hand the query a zone other than Asia/Kolkata (audit 2026-11-07,
+  // S10-20: the server reads the row through the same schema as the screens), so
+  // the query is given UTC DIRECTLY — it must bin on the zone it is passed, not on
+  // this database's session zone.
   it('UTC: the same readings bin on UTC midnight and a UTC Monday', async () => {
-    await setZone('UTC');
-    const day = await buckets(`instrumentIds=${A}&keys=tz_probe&${DAY_WINDOW}&bucket=day`);
-    expect(day.json().timezone).toBe('UTC');
-    expect((day.json().series as Series[])[0].points).toEqual([
+    const common = { instrumentIds: [A], groupBy: 'instrument' as const, timezone: 'UTC' };
+    const day = await getTelemetryBuckets({
+      ...common, keys: ['tz_probe'], bucket: 'day', agg: 'avg',
+      from: new Date('2026-10-01T00:00:00.000Z'), to: new Date('2026-10-03T00:00:00.000Z'),
+    });
+    expect(day[0].points).toEqual([
       { ts: '2026-10-01T00:00:00.000Z', value: 15, readings: 2, instruments: 1 },
     ]);
-    const week = await buckets(`instrumentIds=${A}&keys=tz_week&${WEEK_WINDOW}&bucket=week&agg=max`);
-    expect((week.json().series as Series[])[0].points).toEqual([
+    const week = await getTelemetryBuckets({
+      ...common, keys: ['tz_week'], bucket: 'week', agg: 'max',
+      from: new Date('2026-09-28T00:00:00.000Z'), to: new Date('2026-10-12T00:00:00.000Z'),
+    });
+    expect(week[0].points).toEqual([
       { ts: '2026-09-28T00:00:00.000Z', value: 3, readings: 2, instruments: 1 },
     ]);
   });
 
-  for (const bad of ['Mars/Phobos', '+05:30']) {
-    it(`an unknown zone (${bad}) falls back to UTC and says so`, async () => {
-      await setZone(bad);
+  // S10-20: a stored zone the datetime schema refuses — the seed used to write
+  // 'UTC'; a hand edit or an old backup can write anything — is read EXACTLY as the
+  // screens read it. The chart must bin on the zone every screen prints, never on
+  // a zone no screen shows.
+  for (const refused of ['UTC', 'Mars/Phobos', '+05:30']) {
+    it(`a stored zone the schema refuses (${refused}) bins on the zone the screens show`, async () => {
+      await setZone(refused);
+      const screens = await app.inject({ method: 'GET', url: '/api/config/datetime/current', headers: sa });
+      expect(screens.statusCode).toBe(200);
+      const screenZone = screens.json().timezone;
+      expect(screenZone).toBe('Asia/Kolkata');
       const res = await buckets(`instrumentIds=${A}&keys=tz_probe&${DAY_WINDOW}&bucket=day`);
       expect(res.statusCode).toBe(200);
-      expect(res.json().timezone).toBe('UTC');
-      expect((res.json().series as Series[])[0].points.map((p) => p.ts)).toEqual(['2026-10-01T00:00:00.000Z']);
+      expect(res.json().timezone).toBe(screenZone);
+      expect((res.json().series as Series[])[0].points.map((p) => p.ts))
+        .toEqual(['2026-09-30T18:30:00.000Z', '2026-10-01T18:30:00.000Z']);
     });
   }
 });

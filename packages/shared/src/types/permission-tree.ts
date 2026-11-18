@@ -400,7 +400,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         gate: ['ALARM_READ'], configurable: true },
       { id: 'alarms.acknowledge', label: 'Acknowledge Alarms', sidebarId: 'alarms', page: 'Alarms', action: 'Acknowledge',
         icon: 'check', category: 'Alarms', permissions: ['ALARM_ACKNOWLEDGE', 'ALARM_READ'], enforce: 'a',
-        gate: ['ALARM_ACKNOWLEDGE'], reauthAction: 'ACKNOWLEDGE_ALARM', configurable: true },
+        gate: ['ALARM_ACKNOWLEDGE'], configurable: true }, // password ALWAYS verified (S6-4, 2026-11-16)
     ],
   },
 
@@ -441,10 +441,10 @@ export const PERMISSION_TREE: SidebarGroup[] = [
       // approver for a request — see `approvalPermissionsMissing` in the API.
       { id: 'reports.approve', label: 'Approve Reports', sidebarId: 'reports', page: 'Reports', action: 'Approve',
         icon: 'check', category: 'Reports', permissions: ['REPORT_REVIEW_APPROVE', 'REPORT_REVIEW_READ'], enforce: 'a',
-        gate: ['REPORT_REVIEW_APPROVE'], reauthAction: 'APPROVE_REPORT', configurable: true },
+        gate: ['REPORT_REVIEW_APPROVE'], configurable: true }, // password ALWAYS verified (S6-4, 2026-11-16)
       { id: 'reports.reject', label: 'Reject Reports', sidebarId: 'reports', page: 'Reports', action: 'Reject',
         icon: 'x-circle', category: 'Reports', permissions: ['REPORT_REVIEW_REJECT', 'REPORT_REVIEW_READ'], enforce: 'a',
-        gate: ['REPORT_REVIEW_REJECT'], reauthAction: 'REJECT_REPORT', configurable: true },
+        gate: ['REPORT_REVIEW_REJECT'], configurable: true }, // password ALWAYS verified (S6-4, 2026-11-16)
     ],
   },
   // 2026-09-08 — Settings. Operator: "in side bar add settings, in that page

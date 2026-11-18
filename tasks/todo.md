@@ -1,5 +1,33 @@
 # tasks/todo.md
 
+## 2026-11-16 — Audit remediation, Batch 1 (operator: "fix" → "Batch 1: clear-cut bugs")
+
+Plan `docs/superpowers/plans/2026-11-16-audit-remediation-batch1.md`, executed inline (ledger
+`.superpowers/sdd/2026-11-16-audit-remediation-batch1/progress.md`). Working tree only — nothing committed.
+
+- [x] T1 S2-C1 seed create-only (settings + superadmin)
+- [x] T2 S10-20 one time-zone reader; seed writes Asia/Kolkata
+- [x] T3 S8-5 `NLT-15` → 15
+- [x] T4 S8-1 newest alias key wins
+- [x] T5 S8-22 claimClear one statement
+- [x] T6 S2-H2 MQTT drain per-message catch; S2-H1 job-runner supervisor
+- [x] T7 S6-3 kept secret never follows a new destination
+- [x] T8 S6-4 acknowledge / approve / reject always verify the password (reauth 59 → 56)
+- [x] T9 S2-H7 refresh guard
+- [x] T10 S9-1 / S9-5 / S9-14 Windows installer scripts (contract-tested, parsed, NOT run)
+- [x] T11 docs (S10-1), CHANGELOG, feature notes, audit report remediation log
+- [x] Whole-branch review + fix pass (2026-11-16); full API run 2026-11-17 4,326 / 1 (fixed) / 3 skipped
+- [x] 2026-11-17 "Finish Batch 1": S2-H1's graphile crash path CLOSED (whole-API DB outage NOT tested) —
+      `patches/graphile-worker+0.16.6.patch` via root `postinstall`
+      (patch-package 8.0.1, prod dep), `.gitattributes` LF, `build-deb.sh` copies `patches/`, both installer builds check
+      the marker, `e2e/job-runner-db-drop.e2e.test.ts` (mutation-checked), contract tests, clean-room `npm ci --omit=dev`
+      verified; minor #6 `Object.hasOwn` (test RED first); minor #7 S8-1 device-clock note
+- [x] One full API run on the final tree (2026-11-17 15:16–15:40): 303 / 303 files, 4,348 / 4,348 tests, 0 skipped
+      (device-certificate-emqx ran against the live broker; EMQX config intact after)
+- [ ] The operator's "commit" (4 commits: Batch 1 index; vitest.global-setup.ts; CSV time zone; folder-move docs)
+- [ ] Owed outside this batch: a clean Windows VM install (P1-3); check AWS for `NLT-`/`NMT-` limit values, two-key
+      instruments and a `UTC` datetime row before deploying (read-only)
+
 ## 2026-11-03 .. 2026-11-05 — RULE CHAINS (a ThingsBoard-style rule engine) — built, not pushed, not deployed
 
 Operator: "add rule chains how in thingsboard has same add rule chains and what ever rule nodes are in thingsboard those all

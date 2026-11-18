@@ -28,8 +28,10 @@
                           prisma/schema.prisma, prisma/seed.mjs, package.json.
 .PARAMETER DatabaseUrl    Full postgres connection string for the target DB.
 .PARAMETER AdminPassword  INITIAL_ADMIN_PASSWORD for the seed. On upgrade pass a
-                          throwaway value: the seed's superadmin upsert never
-                          overwrites an existing password (seed.ts update branch).
+                          throwaway value: since 2026-11-16 the seed creates
+                          superadmin ONLY on a database with no users
+                          (prisma/seed-config.ts ensureSuperadmin), so an upgrade
+                          never creates, re-creates or changes an account.
 .PARAMETER DryRun         Print the plan without executing.
 #>
 [CmdletBinding()]

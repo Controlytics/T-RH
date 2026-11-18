@@ -10,6 +10,7 @@
     "packages/*"
   ],
   "scripts": {
+    "postinstall": "patch-package --error-on-fail --error-on-warn",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "lint": "turbo run lint",
@@ -25,5 +26,8 @@
   "devDependencies": {
     "madge": "^8.0.0",
     "turbo": "^2.4.0"
+  },
+  "dependencies": {
+    "patch-package": "8.0.1"
   }
 }

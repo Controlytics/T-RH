@@ -25,7 +25,7 @@ PostgreSQL database, Turborepo for task running. Windows-first local dev.
 |---|---|
 | `apps/api/` | Fastify backend. Auth, RBAC, audit chain, notifications, instruments, ingest, alarm webhooks, TCP/IP (Modbus) reading, report templates, the rule engine (rule chains). **28** modules (`ls apps/api/src/modules/ \| wc -l`, re-derived 2026-11-05; read 26 until then). Prisma schema + migrations live here. |
 | `apps/web/` | React SPA (Vite, Tailwind 4, SWR, react-router). **59** `<Route>` elements (`grep -cE "<Route" apps/web/src/main.tsx`, re-derived 2026-11-05; 57 → 59 on 2026-11-04, the Rule Chains pages; 56 → 57 on 2026-11-02, Report Templates; 54 → 56 on 2026-10-29, the Dashboards pages; 53 → 54 on 2026-10-24). |
-| `packages/shared/` | Contracts both sides import: **48** permissions, **59** reauth actions, **16** sidebar items (re-derived 2026-11-05; read 46 / 57 / 15 until then), the permission tree, the rule node catalogue, Zod schemas. |
+| `packages/shared/` | Contracts both sides import: **48** permissions, **56** reauth actions, **16** sidebar items (59 → 56 on 2026-11-16: `ACKNOWLEDGE_ALARM`, `APPROVE_REPORT`, `REJECT_REPORT` left the registry — always verified, audit 2026-11-07 S6-4; re-derived 2026-11-05; read 46 / 57 / 15 until then), the permission tree, the rule node catalogue, Zod schemas. |
 | `packages/queue/` | graphile-worker producer + runner. Postgres-backed — no Redis. |
 | `docs/` | Project docs. `docs/recreation/` is the verified inventory. |
 | `scripts/` | PowerShell scripts for start/stop, DB provisioning, migration verification, packaging. |

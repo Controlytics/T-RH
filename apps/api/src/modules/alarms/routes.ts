@@ -4,7 +4,7 @@ import { prisma } from '../../lib/prisma.js';
 import { loadAlarmTypeNames, alarmDisplayName } from './load-type-names.js';
 import { auditLog } from '../../lib/audit.js';
 import { buildContext } from '../../lib/build-context.js';
-import { enforceReauth } from '../../lib/reauth-check.js';
+import { enforceReauthAlways } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
 import { resolveLocationIds, type FlNode } from '../functional-locations/tree.js';
@@ -448,7 +448,10 @@ export default async function alarmRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', properties: alarmProps }, ...errorResponses },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('ACKNOWLEDGE_ALARM', req, reply);
+    // ALWAYS verified (audit 2026-11-07 S6-4, operator decision 2026-11-16): an
+    // acknowledgement is a §11.200 signature, so a policy that is off — the
+    // shipped default — must not let a wrong password, or none, sign it.
+    const { ok } = await enforceReauthAlways('ACKNOWLEDGE_ALARM', req, reply);
     if (!ok) return;
     const { id } = req.params as { id: string };
     const ctx = buildContext(req);

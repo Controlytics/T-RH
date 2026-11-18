@@ -833,3 +833,39 @@ describe('Approve and Reject are separate permissions', () => {
     expect(roles[ROLE_APPROVE_ONLY]).toEqual([]);
   });
 });
+
+/**
+ * Audit 2026-11-07, S6-4 — operator decision 2026-11-16: approving or rejecting a
+ * report is a §11.200 signature, so the password is ALWAYS demanded and verified.
+ * It was policy-driven (`enforceReauth('APPROVE_REPORT' | 'REJECT_REPORT')`) and the
+ * shipped policy is EMPTY: with no entry for the approver's role a wrong password —
+ * or none — signed the decision. This file's own policy names those two keys; here
+ * the policy is EMPTY, as shipped.
+ */
+describe('a decision always verifies the password, whatever the re-auth policy says', () => {
+  const decideWith = (id: string, verb: 'approve' | 'reject', password?: string) =>
+    app.inject({ method: 'POST', url: `/api/report-reviews/${id}/${verb}`, headers: bearer(tok.APPR, password), payload: { remarks: 'signed decision test' } });
+
+  beforeAll(async () => {
+    await setConfig('action-reauth', {}, 'security');
+    invalidateReauthCache();
+  });
+
+  for (const verb of ['approve', 'reject'] as const) {
+    it(`${verb}: a WRONG password is 401 and NO password is REAUTH_REQUIRED — nothing is decided`, async () => {
+      const res = await submit(tok.REQ);
+      expect(res.statusCode).toBe(201);
+      const id = res.json().id as string;
+      created.push(id);
+
+      expect((await decideWith(id, verb, 'not-the-password')).statusCode).toBe(401);
+      const none = await decideWith(id, verb);
+      expect(none.statusCode).toBe(401);
+      expect(none.json().error).toBe('REAUTH_REQUIRED');
+      expect((await prisma.reportReview.findUniqueOrThrow({ where: { id } })).status).toBe('PENDING');
+
+      // The right password signs (and clears the failed-attempt streak).
+      expect((await decideWith(id, verb, PASSWORD)).statusCode).toBe(200);
+    });
+  }
+});

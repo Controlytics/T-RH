@@ -256,24 +256,27 @@ describe('reports group (2026-09-07)', () => {
   // docs/superpowers/specs/2026-09-07-report-review-workflow-design.md
   const group = PERMISSION_TREE.find((g) => g.sidebarId === 'reports');
 
-  it('has a View node, and SEPARATE Approve and Reject nodes each with its own gate and re-auth', () => {
+  it('has a View node, and SEPARATE Approve and Reject nodes each with its own gate', () => {
     // Two toggles since 2026-10-26 (one "Approve / Reject Reports" until then).
     expect(group).toBeTruthy();
     expect(group!.nodes.map((n) => n.id)).toEqual(['reports.view', 'reports.approve', 'reports.reject']);
     expect(resolveNodeGate('reports.view')).toEqual([PERMISSIONS.REPORT_REVIEW_READ]);
     expect(resolveNodeGate('reports.approve')).toEqual([PERMISSIONS.REPORT_REVIEW_APPROVE]);
     expect(resolveNodeGate('reports.reject')).toEqual([PERMISSIONS.REPORT_REVIEW_REJECT]);
-    expect(group!.nodes[1].reauthAction).toBe('APPROVE_REPORT');
-    expect(group!.nodes[2].reauthAction).toBe('REJECT_REPORT');
+    // No re-auth POLICY on either: the decision's password is ALWAYS verified
+    // (audit 2026-11-07 S6-4, 2026-11-16) — a policy toggle would do nothing.
+    expect(group!.nodes[1].reauthAction).toBeUndefined();
+    expect(group!.nodes[2].reauthAction).toBeUndefined();
     // Neither grant carries the other: approving does not let you reject.
     expect(group!.nodes[1].permissions).not.toContain(PERMISSIONS.REPORT_REVIEW_REJECT);
     expect(group!.nodes[2].permissions).not.toContain(PERMISSIONS.REPORT_REVIEW_APPROVE);
     expect(group!.visibilityPrivilegeIds).toEqual(['reports.view', 'reports.approve', 'reports.reject']);
   });
 
-  it('registers the two decision re-auth actions under Reports and the four audit actions with templates', () => {
-    expect(REAUTH_ACTIONS.APPROVE_REPORT.category).toBe('Reports');
-    expect(REAUTH_ACTIONS.REJECT_REPORT.category).toBe('Reports');
+  it('the decision actions and the acknowledgement are NOT re-auth policies — always verified (S6-4)', () => {
+    for (const key of ['APPROVE_REPORT', 'REJECT_REPORT', 'ACKNOWLEDGE_ALARM']) {
+      expect(Object.keys(REAUTH_ACTIONS)).not.toContain(key);
+    }
   });
 });
 

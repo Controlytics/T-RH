@@ -166,6 +166,30 @@ describe('MQTT ingest bridge', () => {
     await waitFor(async () => (await latestKeys(plainId)).some((r) => r.key === 'mqttafterbad'));
   });
 
+  // Audit 2026-11-07, S2-H2: a throw OUTSIDE the ingest call (the instrument
+  // lookup, the RTC publish) left the drain loop through a try/finally with no
+  // catch — an unhandled rejection (the process exits on one) and every message
+  // still queued stranded until the next one arrived.
+  it('a failed lookup loses that ONE message, logs it, and the queue keeps draining', async () => {
+    // A spy on a Prisma model delegate does NOT call through (it returns
+    // undefined), and `mockRestore` leaves the method undefined: the spy is given
+    // the bound original as its implementation and handed back to it after.
+    const original = prisma.instrument.findUnique.bind(prisma.instrument);
+    const spy = vi.spyOn(prisma.instrument, 'findUnique')
+      .mockImplementation(original as never)
+      .mockRejectedValueOnce(new Error('database went away for a moment'));
+    try {
+      publish(`instruments/${PLAIN_CODE}/telemetry`, { lookupfails: 1 });
+      publish(`instruments/${PLAIN_CODE}/telemetry`, { lookupafter: 2 });
+      await waitFor(async () => (await latestKeys(plainId)).some((r) => r.key === 'lookupafter'));
+    } finally {
+      spy.mockReset();
+      spy.mockImplementation(original as never);
+    }
+    expect((await latestKeys(plainId)).some((r) => r.key === 'lookupfails')).toBe(false);
+    expect(logs.some((l) => l.msg.includes('message FAILED'))).toBe(true);
+  });
+
   it('fans a gateway batch out to its children', async () => {
     publish(`instruments/${GW_CODE}/telemetry`, { devices: { [CHILD_CODE]: { pressure: 4 } } });
     await waitFor(async () => (await latestKeys(childId)).some((r) => r.key === 'pressure'));

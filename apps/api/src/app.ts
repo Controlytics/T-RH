@@ -46,7 +46,8 @@ import { notificationRetryTask } from './workers/notification-retry.worker.js';
 import { passwordExpiryCheckTask } from './workers/password-expiry.worker.js';
 import { sessionSweepTask } from './workers/session-sweep.worker.js';
 import { telemetryPartitionTask, ensurePartitionsAtBoot } from './workers/telemetry-partition.worker.js';
-import { startJobRunner, stopJobRunner } from '@digilog/queue';
+import { startJobRunner, stopJobRunner, type StartJobRunnerOptions } from '@digilog/queue';
+import { superviseJobRunner, type JobRunnerSupervisor } from './lib/job-runner-supervisor.js';
 import { AppError, prismaErrorToResponse } from './lib/errors.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
 import { reconcileNotificationRetries } from './modules/notification-delivery/delivery.service.js';
@@ -335,6 +336,10 @@ app.addHook('onRequest', (_req, _reply, done) => {
 // stopped with nothing to notice it — the session sweep writes the LOGOUT audit
 // rows, so its silent death is a §11 gap.
 let jobRunnerStatus: 'starting' | 'running' | 'failed' = 'starting';
+// Retries a failed runner start, and restarts a runner that dies mid-run, until the
+// database answers (audit 2026-11-07, S2-H1 — see lib/job-runner-supervisor.ts).
+// Set at boot, stopped first on shutdown.
+let jobRunnerSupervisor: JobRunnerSupervisor | null = null;
 
 app.get('/api/health', {
   schema: {
@@ -497,85 +502,103 @@ try {
   // Phase 2 — single graphile-worker Runner registers ALL task identifiers
   // and the maintenance crontab (Task 2.8). The legacy BullMQ path was
   // dropped in Task 2.10; graphile-worker is the only queue backend now.
-  try {
+  {
     // crontab.txt lives at <repo>/packages/queue/crontab.txt; src/app.ts is
     // at <repo>/apps/api/src/app.ts so the relative hop is 3 dot-dots.
     // Override via MAINTENANCE_CRONTAB_PATH for non-default monorepo layouts.
     const crontabPath =
       process.env.MAINTENANCE_CRONTAB_PATH ??
       path.resolve(__dirname, '../../../packages/queue/crontab.txt');
-    await startJobRunner({
-      taskList: {
-        
-        // `notification` task handler — closes the producer/consumer gap
-        // flagged in the 2026-05-12 deep review. Before this commit
-        // `enqueueNotificationJob` posted to a task name with no handler
-        // and jobs leaked into graphile_worker.jobs forever. See
-        // apps/api/src/workers/notification.worker.ts for the mapping
-        // from queue payload to `dispatchNotification` event types.
-        notification: notificationTask,
+    const taskList: StartJobRunnerOptions['taskList'] = {
+      // `notification` task handler — closes the producer/consumer gap
+      // flagged in the 2026-05-12 deep review. Before this commit
+      // `enqueueNotificationJob` posted to a task name with no handler
+      // and jobs leaked into graphile_worker.jobs forever. See
+      // apps/api/src/workers/notification.worker.ts for the mapping
+      // from queue payload to `dispatchNotification` event types.
+      notification: notificationTask,
 
-        // Durable email/SMS retry (audit 2026-10-12 #3) — event-driven, enqueued
-        // by delivery.service.ts with runAt = next_retry_at. Replaces in-process
-        // setTimeout retries that every restart dropped. No crontab entry.
-        notification_retry: notificationRetryTask,
+      // Durable email/SMS retry (audit 2026-10-12 #3) — event-driven, enqueued
+      // by delivery.service.ts with runAt = next_retry_at. Replaces in-process
+      // setTimeout retries that every restart dropped. No crontab entry.
+      notification_retry: notificationRetryTask,
 
-        password_expiry_check: passwordExpiryCheckTask,
-        session_sweep: sessionSweepTask,
+      password_expiry_check: passwordExpiryCheckTask,
+      session_sweep: sessionSweepTask,
 
-        // Telemetry partition maintenance. NOT housekeeping: an insert whose
-        // `ts` falls outside every partition of instrument_telemetry_history is
-        // REJECTED by Postgres, so without a future partition device ingestion
-        // stops dead at 00:00 on the 1st. Runs ahead by several months so one
-        // missed run cannot cause that.
-        telemetry_partition_maintenance: telemetryPartitionTask,
+      // Telemetry partition maintenance. NOT housekeeping: an insert whose
+      // `ts` falls outside every partition of instrument_telemetry_history is
+      // REJECTED by Postgres, so without a future partition device ingestion
+      // stops dead at 00:00 on the 1st. Runs ahead by several months so one
+      // missed run cannot cause that.
+      telemetry_partition_maintenance: telemetryPartitionTask,
 
-        // Alarm evaluation — every minute. Raises and clears alarms from the
-        // configurable rules. Registered HERE and in packages/queue/crontab.txt
-        // together: that file warns that an identifier with no handler is enqueued
-        // and never completed, which once left 51,798 orphan jobs.
-        alarm_evaluation: alarmEvaluationTask,
+      // Alarm evaluation — every minute. Raises and clears alarms from the
+      // configurable rules. Registered HERE and in packages/queue/crontab.txt
+      // together: that file warns that an identifier with no handler is enqueued
+      // and never completed, which once left 51,798 orphan jobs.
+      alarm_evaluation: alarmEvaluationTask,
 
-        // Alarm webhook annunciator — event-driven, NOT cron. Enqueued by the alarm
-        // evaluator and the acknowledge route. Retry is bounded inside the task, so
-        // this is enqueued with maxAttempts: 1: a buzzer that sounds twenty minutes
-        // late announces a condition that no longer exists.
-        alarm_webhook: alarmWebhookTask,
+      // Alarm webhook annunciator — event-driven, NOT cron. Enqueued by the alarm
+      // evaluator and the acknowledge route. Retry is bounded inside the task, so
+      // this is enqueued with maxAttempts: 1: a buzzer that sounds twenty minutes
+      // late announces a condition that no longer exists.
+      alarm_webhook: alarmWebhookTask,
 
-        // Rule chains (2026-11-03) — the DURABLE path: the Checkpoint and Delay
-        // nodes hand a message here (queueName rule-engine:<originatorId>); it
-        // re-enters the engine after that node. Event-driven, no crontab entry.
-        rule_engine_message: ruleEngineMessageTask,
+      // Rule chains (2026-11-03) — the DURABLE path: the Checkpoint and Delay
+      // nodes hand a message here (queueName rule-engine:<originatorId>); it
+      // re-enters the engine after that node. Event-driven, no crontab entry.
+      rule_engine_message: ruleEngineMessageTask,
 
-        // Rule chains — hourly sweep of rule_node_debug_events by age and per-node
-        // cap. Registered HERE and in packages/queue/crontab.txt together.
-        rule_engine_debug_sweep: ruleEngineDebugSweepTask,
+      // Rule chains — hourly sweep of rule_node_debug_events by age and per-node
+      // cap. Registered HERE and in packages/queue/crontab.txt together.
+      rule_engine_debug_sweep: ruleEngineDebugSweepTask,
+    };
+
+    // SUPERVISED (audit 2026-11-07, S2-H1). The runner used to be started once: a
+    // start that failed — the database not up yet when the service came up — was
+    // never retried, while /api/health answered 200, and a runner that died MID-RUN
+    // exited the whole process (graphile 0.16.6's stray rejection, now handled by
+    // patches/graphile-worker+0.16.6.patch — see lib/job-runner-supervisor.ts). Both
+    // are retried below until the database answers. Not fatal either way — the HTTP surface stays
+    // usable and this is a single-process local API — but it IS an error: every
+    // scheduled job (alarm passes incl. OFFLINE detection, notifications, the
+    // partition maintenance, the LOGOUT-writing session sweep) is dead until the
+    // runner is back. /api/health reports `jobRunner` (always 200: the installers
+    // and the deploy probe it).
+    jobRunnerSupervisor = superviseJobRunner(
+      () => startJobRunner({
+        taskList,
+        crontabPath,
+        onExit: (err) => jobRunnerSupervisor?.notifyExit(err),
+      }),
+      (status, err) => {
+        jobRunnerStatus = status;
+        if (status === 'failed') {
+          app.log.error(
+            { err },
+            'graphile-worker job runner FAILED — all scheduled jobs (alarm passes, notifications, partition maintenance, password expiry, session sweep) are NOT running. Retrying.',
+          );
+          return;
+        }
+        if (status !== 'running') return;
+        app.log.info('graphile-worker job runner started');
+        // Every RETRYING email/SMS row gets its durable retry job (or FAILED if its
+        // attempts are spent) — rows left by the pre-2026-10-12 setTimeout retries,
+        // or whose job was lost. Idempotent, so it runs on every (re)start. Not
+        // awaited: a slow reconcile must not hold the server's start; its failure
+        // is logged and the next start retries it.
+        reconcileNotificationRetries()
+          .then((r) => {
+            if (r.scheduled || r.failed) app.log.info(`notification retries reconciled: ${r.scheduled} scheduled, ${r.failed} marked FAILED`);
+          })
+          .catch((reconcileErr) => app.log.error({ err: reconcileErr }, 'notification retry reconciliation failed — RETRYING rows may have no job until the next start'));
       },
-      crontabPath,
-    });
-    jobRunnerStatus = 'running';
-    app.log.info('graphile-worker job runner started');
-    // Every RETRYING email/SMS row gets its durable retry job (or FAILED if its
-    // attempts are spent) — rows left by the pre-2026-10-12 setTimeout retries,
-    // or whose job was lost. Idempotent, so it runs on every start. Not awaited:
-    // a slow reconcile must not hold the server's start; its failure is logged
-    // and the next start retries it.
-    reconcileNotificationRetries()
-      .then((r) => {
-        if (r.scheduled || r.failed) app.log.info(`notification retries reconciled: ${r.scheduled} scheduled, ${r.failed} marked FAILED`);
-      })
-      .catch((err) => app.log.error({ err }, 'notification retry reconciliation failed — RETRYING rows may have no job until the next start'));
-  } catch (runnerErr) {
-    // Not fatal — the HTTP surface is still usable and this is a single-process
-    // local API, so exiting would take the whole app down over background jobs.
-    // But it IS an error, not a warning: every scheduled job (notifications, the
-    // PM-overdue sweep, password-expiry warnings, the LOGOUT-writing session
-    // sweep) is dead until this is fixed. /api/health reports `jobRunner`.
-    jobRunnerStatus = 'failed';
-    app.log.error(
-      { err: runnerErr },
-      'graphile-worker job runner FAILED to start — all scheduled jobs (notifications, PM overdue, password expiry, session sweep) will not run. Server continuing.',
     );
+    // The first attempt, success or failure, before the rule engine starts (its
+    // durable jobs run on this runner; a job taken before the engine is up is
+    // rescheduled, ruling RE-2). Never rejects.
+    await jobRunnerSupervisor.ready;
   }
 
   // The RULE ENGINE (rule chains, 2026-11-03; spec §6) — after the job runner,
@@ -705,6 +728,8 @@ const shutdown = async (signal: string) => {
       app.log.error({ err: engineErr }, 'Shutdown: rule engine stop failed');
     }
 
+    // No restart while shutting down, then the runner itself.
+    jobRunnerSupervisor?.stop();
     await stopJobRunner();
 
     // Before app.close(): net.Server.close() only stops ACCEPTING, so the

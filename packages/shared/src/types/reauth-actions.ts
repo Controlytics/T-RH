@@ -119,16 +119,14 @@ export const REAUTH_ACTIONS = {
   UPDATE_FUNCTIONAL_LOCATION: { label: 'Update Functional Location / Instrument Links', category: 'Configuration' },
   DELETE_FUNCTIONAL_LOCATION: { label: 'Delete Functional Location', category: 'Configuration' },
   MANAGE_ALARM_RULE: { label: 'Create / Update / Delete Alarm Rule', category: 'Configuration' },
-  ACKNOWLEDGE_ALARM: { label: 'Acknowledge Alarm', category: 'Configuration' },
   // Disabling or re-pointing a target silences a plant-floor buzzer, and a test fire
   // sounds a real one. Both are signed acts, not preference toggles.
   MANAGE_ALARM_WEBHOOK: { label: 'Create / Update / Delete / Test Alarm Webhook', category: 'Configuration' },
 
   DOWNLOAD_REPORT: { label: 'Download / Generate a Report', category: 'Reports' },
   // 2026-09-07 — the report review workflow. DOWNLOAD_REPORT keeps gating the
-  // REQUEST (its label already reads "Generate"); these two are the decision.
-  APPROVE_REPORT: { label: 'Approve a Report Request', category: 'Reports' },
-  REJECT_REPORT: { label: 'Reject a Report Request', category: 'Reports' },
+  // REQUEST (its label already reads "Generate"). The DECISION (APPROVE_REPORT /
+  // REJECT_REPORT) left this registry on 2026-11-16 — always verified, see below.
   // 2026-11-02 — report templates per instrument profile × widget type: create,
   // update, delete and set-default of a template (SUPER_ADMIN only). Ships OFF.
   UPDATE_REPORT_TEMPLATE: { label: 'Update Report Template', category: 'Reports' },
@@ -159,6 +157,14 @@ export const REAUTH_ACTIONS = {
   // `TOGGLE_SUPER_ADMIN_API_ACCESS` — the other always-on gate — is absent for
   // the same reason. The action strings still travel in the 401 bodies. See
   // `apps/api/src/modules/instruments/routes.ts`.
+  //
+  // `ACKNOWLEDGE_ALARM`, `APPROVE_REPORT` and `REJECT_REPORT` are absent for the
+  // same reason since 2026-11-16 (audit 2026-11-07 S6-4, operator decision:
+  // "always require a password"). Each is a §11.200 signature, and as a policy
+  // they shipped OFF — a wrong password, or none, signed an alarm or a report.
+  // Their routes now use `enforceReauthAlways`. A stored policy that still
+  // names them is ignored: `configService.getActionReauth` / `getMyActions`
+  // return registry keys only, and the next save of either policy screen drops them.
 } as const;
 
 export type ReauthAction = keyof typeof REAUTH_ACTIONS;

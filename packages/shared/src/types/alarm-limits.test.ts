@@ -75,6 +75,23 @@ describe('parseLimitValue', () => {
   it('takes the FIRST number when there are several — keep the number first', () => {
     expect(parseLimitValue('v2 limit 60')).toBe(2);
   });
+
+  // Audit 2026-11-07, S8-5: `NLT-15` (not less than 15) read as -15, so a low
+  // bound of 15 °C became -15 °C and never fired. A hyphen GLUED to a word is a
+  // separator; a sign is a sign only when no letter precedes it.
+  it('reads a hyphen glued to a word as a separator, not a minus sign', () => {
+    expect(parseLimitValue('NLT-15')).toBe(15);
+    expect(parseLimitValue('NMT-27')).toBe(27);
+    expect(parseLimitValue('NLT-15.5')).toBe(15.5);
+  });
+
+  it('still reads a sign after a space, or at the start, as a sign', () => {
+    expect(parseLimitValue('NLT -15')).toBe(-15);
+    expect(parseLimitValue('limit -40')).toBe(-40);
+    expect(parseLimitValue('-5.5')).toBe(-5.5);
+    expect(parseLimitValue('+5')).toBe(5);
+    expect(parseLimitValue('(-20)')).toBe(-20);
+  });
 });
 
 describe('limitDisplayText', () => {

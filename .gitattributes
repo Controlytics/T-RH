@@ -5,3 +5,6 @@ scripts/linux/** text eol=lf
 scripts/emqx/** text eol=lf
 .github/workflows/** text eol=lf
 scripts/aws/** text eol=lf
+# patch-package patches apply to LF files in node_modules: a CRLF checkout (core.autocrlf, or the
+# Windows installer's `git archive`) would fail to apply them (audit 2026-11-07 S2-H1).
+patches/** text eol=lf

@@ -93,17 +93,21 @@ function snapshotDecimals(snapshot: unknown): number | null {
  * caller). Without it both could read the same alarm ACTIVE and both clear it —
  * two emails, two hooter "off" posts, two delivery rows, `cleared` counted
  * twice. The raise paths were already guarded by the partial unique indexes;
- * the five clear paths were plain updates. `updateMany … WHERE state =
- * 'ACTIVE'` lets exactly one pass win; the loser gets `null` and announces
- * nothing. The same shape as the acknowledge route's claim.
+ * the five clear paths were plain updates. `UPDATE … WHERE state = 'ACTIVE'`
+ * lets exactly one pass win; the loser gets `null` and announces nothing. The
+ * same shape as the acknowledge route's claim.
+ *
+ * ONE statement (`updateManyAndReturn` = `UPDATE … RETURNING`; audit 2026-11-07,
+ * S8-22). It was an update followed by a re-read: a failed re-read left the
+ * alarm CLEARED in the table while the caller saw an error and announced
+ * nothing — no clear notification, no hooter "off" post, ever.
  */
 export async function claimClear(
   id: string,
   data: Prisma.AlarmUpdateManyMutationInput,
 ): Promise<Alarm | null> {
-  const { count } = await prisma.alarm.updateMany({ where: { id, state: 'ACTIVE' }, data });
-  if (count === 0) return null;
-  return prisma.alarm.findUniqueOrThrow({ where: { id } });
+  const [won] = await prisma.alarm.updateManyAndReturn({ where: { id, state: 'ACTIVE' }, data });
+  return won ?? null;
 }
 
 export interface AlarmEvaluationResult {

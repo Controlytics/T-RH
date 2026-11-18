@@ -11,7 +11,7 @@ import { clampSignature } from '../alarms/validation.js';
 import { resolveVisibility } from '../instruments/visibility.js';
 import { validateTargetDraft, type TargetDraft, type TargetFieldError } from './validation.js';
 import { resolveBlockedReason } from '../../lib/outbound-guard.js';
-import { maskHeaderValues, restoreMaskedHeaders, maskUrlSecrets, restoreMaskedUrl } from '../../lib/mask-secrets.js';
+import { maskHeaderValues, restoreMaskedHeaders, maskUrlSecrets, restoreMaskedUrl, SECRET_MASK, urlOrigin } from '../../lib/mask-secrets.js';
 
 /**
  * The target URL as it may be SHOWN — on a response, in the delivery log, in the
@@ -189,6 +189,32 @@ function resolveHeaders(
     };
   }
   draft.headers = r.headers;
+  return null;
+}
+
+/**
+ * A KEPT secret goes only to the host it was saved for (audit 2026-11-07, S6-3).
+ * Kept = a header value sent back as the mask, every stored header when the PUT
+ * does not mention `headers` (a partial update keeps them), or a URL secret sent
+ * back as the mask. When the URL's scheme, host or port changes, each of those
+ * must be typed again; a new PATH on the same host is the same destination.
+ */
+function refuseSecretsToNewHost(
+  body: Record<string, unknown>,
+  draft: TargetDraft,
+  storedUrl: string,
+  storedHeaders: Record<string, string>,
+): TargetFieldError | null {
+  if (urlOrigin(draft.url) === urlOrigin(storedUrl)) return null;
+  const keepsHeader = body.headers === undefined
+    ? Object.values(storedHeaders).some((v) => v)
+    : Object.values(draft.headers).some((v) => v === SECRET_MASK);
+  if (keepsHeader) {
+    return { field: 'headers', message: 'The URL now points at another host: type the header values again — a saved value is never sent to a new host.' };
+  }
+  if (draft.url.includes(SECRET_MASK)) {
+    return { field: 'url', message: "The URL now points at another host: type the URL's secret values again — a saved value is never sent to a new host." };
+  }
   return null;
 }
 
@@ -497,7 +523,8 @@ export default async function alarmWebhookRoutes(app: FastifyInstance) {
       scopeLocationIds: asStringArray(current.scopeLocationIds),
       scopeInstrumentIds: asStringArray(current.scopeInstrumentIds),
     });
-    const refusal = resolveHeaders(draft, asHeaders(current.headers)) ?? resolveUrl(draft, current.url) ?? await refuseDraft(draft);
+    const refusal = refuseSecretsToNewHost(body, draft, current.url, asHeaders(current.headers))
+      ?? resolveHeaders(draft, asHeaders(current.headers)) ?? resolveUrl(draft, current.url) ?? await refuseDraft(draft);
     if (refusal) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', message: refusal.message, field: refusal.field });
     }
