@@ -108,6 +108,34 @@ export default async function setup(): Promise<void> {
         isTemporaryPassword: false,
       },
     });
+
+    // RB0001's ROLE is reset to the shipped OPERATOR too (2026-11-17). Suites
+    // change the shared OPERATOR role (permissions, instrument scope) and hand
+    // it back in `afterAll` — which never runs when a run is KILLED mid-file.
+    // Every later suite that snapshots "before" and restores it then saves the
+    // changed value as its baseline and faithfully writes it back, so one
+    // killed run poisons every run after it. Seen 2026-11-16: a stopped run left
+    // OPERATOR holding functional-location-scoped-membership's grant set
+    // (INSTRUMENT_READ + FUNCTIONAL_LOCATION_READ/UPDATE), and
+    // instruments.test.ts's permission gate answered 200 for "a non-privileged
+    // role" — which read as a broken gate, not a dirty fixture. The list is read
+    // from default-roles.ts, never retyped, so it cannot drift from the seed.
+    const { Prisma } = await import('@prisma/client');
+    const { defaultRoles } = await import('./prisma/default-roles.js');
+    const shippedOperator = defaultRoles.find((r) => r.name === 'OPERATOR');
+    if (!shippedOperator) {
+      throw new Error('vitest globalSetup: OPERATOR missing from prisma/default-roles.ts');
+    }
+    await prisma.role.update({
+      where: { name: 'OPERATOR' },
+      data: { permissions: [...shippedOperator.permissions] },
+    });
+    // No row = unrestricted, and a row with NULL scope = unrestricted: clear an
+    // existing row's scope, never create one.
+    await prisma.roleConfig.updateMany({
+      where: { role: 'OPERATOR' },
+      data: { instrumentScope: Prisma.DbNull },
+    });
   } finally {
     await prisma.$disconnect();
   }

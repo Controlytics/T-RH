@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased] - Test harness: the shared OPERATOR role is reset at the start of every run (2026-11-17)
+
+`apps/api/vitest.global-setup.ts` now resets the test database's OPERATOR role to `prisma/default-roles.ts` (read, never
+retyped) and clears its instrument scope before every run. A run KILLED mid-file never runs its `afterAll`, so the role
+kept that file's grants — and every later suite that snapshots "before" and restores it then ratcheted the dirty value in
+(2026-11-16: `instruments.test.ts`'s permission gate answered 200 for "a non-privileged role", which read as a broken
+gate). Proven: that file red alone → 39 / 39 with the reset. Test infrastructure only; no product code changed.
+
 ## [Unreleased] - Audit remediation, Batch 1 (2026-11-16)
 
 The clear-cut defects of the 2026-11-07 technical audit (`docs/audit/2026-11-07-technical-audit.md`, FINAL REPORT
