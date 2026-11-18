@@ -86,7 +86,12 @@ jobs:
           systemctl is-active digilog-db digilog-emqx digilog-api
           code=$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:3000/api/health); echo "health=$code"; [ "$code" = 200 ]
           login=$(curl -sk -o /dev/null -w '%{http_code}' -H 'content-type: application/json' -d '{"username":"superadmin","password":"Ci-Smoke-Test-1"}' https://127.0.0.1:3000/api/auth/login); echo "login=$login"; [ "$login" = 200 ] || [ "$login" = 409 ]
-          sudo /opt/digilog/scripts/digilog-backup.sh && cat /var/lib/digilog/backups/LAST-BACKUP-STATUS.txt
+          # The backup as production runs it: the oneshot unit, as user `digilog` (systemctl
+          # waits for a oneshot and fails if it fails). /var/lib/digilog is the digilog
+          # user's alone (0750) — the status file is read with sudo, never made readable.
+          sudo systemctl start digilog-backup.service
+          sudo cat /var/lib/digilog/backups/LAST-BACKUP-STATUS.txt
+          sudo grep -q ' OK backup complete ' /var/lib/digilog/backups/LAST-BACKUP-STATUS.txt
           sudo apt-get purge -y digilog
           test ! -d /var/lib/digilog
 
