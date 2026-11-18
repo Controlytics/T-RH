@@ -6,6 +6,9 @@ import { auditLog } from '../lib/audit.js';
 import { verifyAuditChain } from '../lib/audit-verify.js';
 import { __setAuditChainKeyedFromForTest } from '../lib/hash-chain.js';
 import { verifyBackupAuditChain } from '../modules/backup/backup.repository.js';
+import AdmZip from 'adm-zip';
+import { generateCsv, zonedIsoFormatter } from '../modules/backup/backup.helpers.js';
+import { parseBackupFile } from '../modules/backup/backup.service.js';
 
 /**
  * Audit 2026-10-12 #3, #4 — ONE chain walk for the live trail and for a
@@ -203,5 +206,68 @@ describe('#3 — the restore pre-check is the live verifier, run over the archiv
     await writeRow(`${TAG}_ARC_DEL_C`);
     const rows = (await archiveRows(from, await maxPosition())).filter((r) => r.id !== victim.id);
     await expect(verifyBackupAuditChain(rows)).rejects.toMatchObject({ statusCode: 400, message: expect.stringMatching(/CHAIN_LINK_MISMATCH|CHAIN_POSITION_GAP/) });
+  });
+});
+
+/**
+ * 2026-11-17 — the CSV backup writes timestamps in the configured zone with its
+ * offset (`2026-11-16T19:58:00.020+05:30`), not UTC. The checksum was computed
+ * over the instant's UTC ISO form, and the walk hashes a string timestamp as
+ * written — so the pre-check must read an offset-carrying string as the instant
+ * it names, and must still refuse a different instant or a string with no zone.
+ */
+describe('the restore pre-check reads a CSV archive\'s zoned timestamps as instants', () => {
+  const zoned = zonedIsoFormatter('Asia/Kolkata');
+  const rewrite = (rows: Array<Record<string, unknown>>, fn: (ts: string) => string) =>
+    rows.map((r) => ({ ...r, timestamp: fn(String(r.timestamp)) }));
+
+  it('a genuine slice written with +05:30 timestamps passes', async () => {
+    const from = (await maxPosition()) + 1;
+    await writeRow(`${TAG}_ARC_TZ_A`);
+    await writeRow(`${TAG}_ARC_TZ_B`);
+    const rows = rewrite(await archiveRows(from, await maxPosition()), (ts) => zoned(new Date(ts)));
+    expect(String(rows[0].timestamp)).toMatch(/\+05:30$/);
+    const res = await verifyBackupAuditChain(rows);
+    expect(res.chainedRows).toBe(2);
+  });
+
+  it('refuses a timestamp moved to another instant (same wall time, another offset)', async () => {
+    const from = (await maxPosition()) + 1;
+    await writeRow(`${TAG}_ARC_TZ_MOVE`);
+    const rows = rewrite(await archiveRows(from, await maxPosition()), (ts) => zoned(new Date(ts)).replace(/\+05:30$/, '+05:00'));
+    await expect(verifyBackupAuditChain(rows)).rejects.toMatchObject({ statusCode: 400, message: expect.stringMatching(/PER_ROW_CHECKSUM_MISMATCH/) });
+  });
+
+  it('a CSV file of the slice — UTC as before, or zoned — parses back and passes', async () => {
+    const from = (await maxPosition()) + 1;
+    await writeRow(`${TAG}_ARC_TZ_CSV_A`);
+    await writeRow(`${TAG}_ARC_TZ_CSV_B`);
+    // What fetchAllTablesRaw hands the writer: SELECT * rows, Date timestamps.
+    const raw = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
+      'SELECT * FROM audit_trail WHERE chain_position BETWEEN $1 AND $2 ORDER BY id ASC', from, await maxPosition());
+    expect(raw[0].timestamp).toBeInstanceOf(Date);
+    const rows = raw.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, typeof v === 'bigint' ? v.toString() : v])));
+    for (const formatDate of [undefined, zoned]) {
+      const zip = new AdmZip();
+      zip.addFile('audit_trail.csv', Buffer.from(generateCsv(rows, formatDate), 'utf-8'));
+      const parsed = parseBackupFile(zip.toBuffer());
+      const ts = String(parsed.data.audit_trail[0].timestamp);
+      expect(ts).toMatch(formatDate ? /\+05:30$/ : /Z$/);
+      const res = await verifyBackupAuditChain(parsed.data.audit_trail);
+      expect(res.chainedRows).toBe(2);
+    }
+  });
+
+  it('refuses a timestamp with no zone rather than guessing one', async () => {
+    const from = (await maxPosition()) + 1;
+    await writeRow(`${TAG}_ARC_TZ_NAIVE`);
+    // Two naive spellings, so the case holds whatever zone the machine runs in:
+    // `new Date()` reads a naive string in the SERVER's zone, so on an IST
+    // machine the IST wall time would match if it were guessed, and on a UTC
+    // machine the UTC one would.
+    const archived = await archiveRows(from, await maxPosition());
+    for (const naive of [(ts: string) => zoned(new Date(ts)).replace(/\+05:30$/, ''), (ts: string) => ts.replace(/Z$/, '')]) {
+      await expect(verifyBackupAuditChain(rewrite(archived, naive))).rejects.toMatchObject({ statusCode: 400, message: expect.stringMatching(/PER_ROW_CHECKSUM_MISMATCH/) });
+    }
   });
 });

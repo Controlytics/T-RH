@@ -5,6 +5,7 @@ import {
   escapeCsvValue,
   generateSqlInserts,
   generateCsv,
+  zonedIsoFormatter,
 } from '../backup.helpers.js';
 
 // Note: DB_TABLES and PRISMA_TO_DB were removed when the backup module
@@ -155,6 +156,48 @@ describe('backup.helpers', () => {
       expect(lines).toHaveLength(3); // header + 2 data rows
       expect(lines[1]).toContain('admin');
       expect(lines[2]).toContain('user');
+    });
+  });
+
+  // 2026-11-17 (operator: "in csv file date and time was coming wrong"): the CSV
+  // export wrote every timestamp as toISOString() — UTC — so an alarm raised at
+  // 19:58 IST read 14:28 in the file. It now writes the configured zone's wall
+  // time WITH its offset: the time the screens show, and still the same instant
+  // to Postgres (restore) and to `new Date()` (the restore's chain check).
+  describe('zonedIsoFormatter', () => {
+    const instant = new Date('2026-11-16T14:28:00.020Z');
+
+    it('writes the configured zone\'s wall time with its offset', () => {
+      expect(zonedIsoFormatter('Asia/Kolkata')(instant)).toBe('2026-11-16T19:58:00.020+05:30');
+    });
+
+    it('rolls the date over with the zone, not with UTC', () => {
+      // 20:00 UTC on the 16th is 01:30 on the 17th in India.
+      expect(zonedIsoFormatter('Asia/Kolkata')(new Date('2026-11-16T20:00:00.000Z'))).toBe('2026-11-17T01:30:00.000+05:30');
+    });
+
+    it('writes +00:00 for UTC and a negative offset west of it', () => {
+      expect(zonedIsoFormatter('UTC')(instant)).toBe('2026-11-16T14:28:00.020+00:00');
+      expect(zonedIsoFormatter('America/Sao_Paulo')(instant)).toBe('2026-11-16T11:28:00.020-03:00');
+    });
+
+    it('is the SAME instant when read back — what restore and the chain check rely on', () => {
+      for (const zone of ['Asia/Kolkata', 'UTC', 'America/New_York']) {
+        expect(new Date(zonedIsoFormatter(zone)(instant)).getTime()).toBe(instant.getTime());
+      }
+    });
+  });
+
+  describe('generateCsv with a date formatter', () => {
+    it('writes Date cells through the formatter, and nothing else', () => {
+      const rows = [{ id: 7, raised_at: new Date('2026-11-16T14:28:00.020Z'), note: '2026-11-16T14:28:00.020Z' }];
+      const lines = generateCsv(rows, zonedIsoFormatter('Asia/Kolkata')).split('\n');
+      expect(lines[1]).toBe('7,2026-11-16T19:58:00.020+05:30,2026-11-16T14:28:00.020Z');
+    });
+
+    it('keeps UTC ISO when no formatter is given', () => {
+      const lines = generateCsv([{ at: new Date('2026-11-16T14:28:00.020Z') }]).split('\n');
+      expect(lines[1]).toBe('2026-11-16T14:28:00.020Z');
     });
   });
 });

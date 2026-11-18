@@ -424,9 +424,13 @@ export async function verifyBackupAuditChain(rows: Array<Record<string, any>>): 
 }> {
   const { walkAuditChain, attestationsFromRows } = await import('../../lib/audit-verify.js');
   // SQL / CSV archives may carry the JSON columns as text; the walk (and the
-  // attestation lookup) needs them as values.
+  // attestation lookup) needs them as values. A CSV archive carries timestamps
+  // in the configured zone (`…+05:30`, since 2026-11-17) and the walk hashes a
+  // string timestamp as written — so it is handed the instant's canonical form.
+  // This working copy only: the rows restore inserts are untouched.
   const chainRows = rows.map((r) => ({
     ...r,
+    timestamp: canonicalTimestamp(r.timestamp),
     before_value: parseJsonColumn(r.before_value),
     after_value: parseJsonColumn(r.after_value),
   })) as unknown as Parameters<typeof walkAuditChain>[0];
@@ -442,6 +446,23 @@ export async function verifyBackupAuditChain(rows: Array<Record<string, any>>): 
     };
   }
   return { preChainRows: result.preChainRows, chainedRows: result.chainedRows };
+}
+
+/** An ISO-style timestamp naming its zone: `Z` or `±HH:MM` at the end. */
+const EXPLICIT_ZONE = /(?:Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * A timestamp string that NAMES its zone, as the UTC ISO form the checksum was
+ * computed over. A string with no zone is left as written — Node would read it
+ * in the server's zone and Postgres in the session's — so its checksum fails
+ * loudly instead of being guessed into a match; an unparseable one likewise.
+ * The same instant written another way is the same record: restore inserts
+ * exactly that instant into a timestamptz.
+ */
+function canonicalTimestamp(v: unknown): unknown {
+  if (typeof v !== 'string' || !EXPLICIT_ZONE.test(v)) return v;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? v : d.toISOString();
 }
 
 function parseJsonColumn(v: unknown): unknown {

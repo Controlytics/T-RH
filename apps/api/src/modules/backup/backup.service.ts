@@ -25,8 +25,10 @@ import {
   computeBackupChecksum,
   escapeSqlValue,
   generateCsv,
+  zonedIsoFormatter,
   type BackupData,
 } from './backup.helpers.js';
+import { getDatetimeConfig } from '../../lib/format-datetime.js';
 import { logger } from '../../lib/logger.js';
 
 // ---------------------------------------------------------------------------
@@ -328,7 +330,8 @@ function parseCsvZipBackup(rawBuffer: Buffer): BackupData {
   };
 }
 
-function parseBackupFile(rawBuffer: Buffer): BackupData {
+/** Any uploaded backup (ZIP of CSVs, .bak, JSON, SQL) → BackupData. Exported for the CSV round-trip test. */
+export function parseBackupFile(rawBuffer: Buffer): BackupData {
   // Detect ZIP (.csv backup) — ZIP magic bytes: 0x50 0x4b
   if (rawBuffer[0] === 0x50 && rawBuffer[1] === 0x4b) {
     return parseCsvZipBackup(rawBuffer);
@@ -559,9 +562,16 @@ export async function exportCsv(
 
   const zip = new AdmZip();
 
+  // Timestamps print in the configured zone WITH its offset — the time every
+  // screen shows, still the same instant to restore (zonedIsoFormatter). ONE
+  // formatter for the whole export. JSON / BAK / SQL stay UTC: they are read by
+  // machines, a CSV is opened by a person.
+  const { timezone } = await getDatetimeConfig();
+  const formatDate = zonedIsoFormatter(timezone);
+
   for (const table of tables) {
     const rows = rawData[table];
-    const csvContent = generateCsv(rows);
+    const csvContent = generateCsv(rows, formatDate);
     zip.addFile(`${table}.csv`, Buffer.from(csvContent, 'utf-8'));
   }
 
@@ -572,6 +582,7 @@ export async function exportCsv(
       timestamp: new Date().toISOString(),
       generatedBy: username,
       format: 'csv',
+      timeZone: timezone,
       tableCount: tables.length,
       totalRecords,
       tables: Object.fromEntries(tables.map(t => [t, rawData[t].length])),

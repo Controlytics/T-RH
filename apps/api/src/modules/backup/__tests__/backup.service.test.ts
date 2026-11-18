@@ -8,6 +8,8 @@ const { mockFetchPrisma, mockFetchRaw, mockRestoreFromBackup, mockAuditLog, mock
   mockAuditLog: vi.fn(),
   mockComputeChecksum: vi.fn(),
 }));
+const { mockGetDatetimeConfig } = vi.hoisted(() => ({ mockGetDatetimeConfig: vi.fn() }));
+vi.mock('../../../lib/format-datetime.js', () => ({ getDatetimeConfig: mockGetDatetimeConfig }));
 
 vi.mock('../backup.repository.js', () => ({
   fetchAllTablesPrisma: mockFetchPrisma,
@@ -25,7 +27,8 @@ vi.mock('../backup.helpers.js', async (importOriginal) => {
   };
 });
 
-import { validate, restore } from '../backup.service.js';
+import AdmZip from 'adm-zip';
+import { validate, restore, exportCsv } from '../backup.service.js';
 
 const ctx = { userId: 'admin', userSub: 'sub-1', userRole: 'ADMIN', ipAddress: '127.0.0.1', userAgent: 'test', sessionId: 'sess-1' };
 
@@ -214,6 +217,22 @@ describe('backup.service', () => {
 
       const passed = mockRestoreFromBackup.mock.calls[0][0];
       expect(passed.data.roles).toEqual([{ name: 'ADMIN' }]);
+    });
+  });
+
+  // 2026-11-17 (operator: "in csv file date and time was coming wrong"): the
+  // CSV export printed UTC; it prints the CONFIGURED zone with its offset.
+  describe('exportCsv', () => {
+    it('writes timestamps in the configured zone with its offset, and says which zone', async () => {
+      mockGetDatetimeConfig.mockResolvedValue({ dateFormat: 'DD/MM/YYYY', timeFormat: '12h', timezone: 'Asia/Kolkata' });
+      mockFetchRaw.mockResolvedValue({
+        alarms: [{ id: 'a1', raised_at: new Date('2026-11-16T14:28:00.020Z'), cleared_at: null }],
+      });
+      const { zipBuffer } = await exportCsv('admin', ctx);
+      const zip = new AdmZip(zipBuffer);
+      const lines = zip.getEntry('alarms.csv')!.getData().toString('utf-8').split('\n');
+      expect(lines).toEqual(['id,raised_at,cleared_at', 'a1,2026-11-16T19:58:00.020+05:30,']);
+      expect(JSON.parse(zip.getEntry('_metadata.json')!.getData().toString('utf-8')).timeZone).toBe('Asia/Kolkata');
     });
   });
 });

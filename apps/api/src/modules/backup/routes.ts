@@ -35,7 +35,7 @@ export default async function backupRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Backup'],
       summary: 'Export database backup',
-      description: 'Generates a backup of all database tables. Formats: **json** (full, restorable), **bak** (gzip-compressed JSON, ~7x smaller), **sql** (PostgreSQL INSERT statements), **csv** (ZIP of per-table CSVs). JSON and BAK include SHA-256 checksum for integrity verification.',
+      description: 'Generates a backup of all database tables. Formats: **json** (full, restorable), **bak** (gzip-compressed JSON, ~7x smaller), **sql** (PostgreSQL INSERT statements), **csv** (ZIP of per-table CSVs; timestamps in the configured time zone with their offset, e.g. `2026-11-16T19:58:00.020+05:30` — JSON / BAK / SQL keep UTC). JSON and BAK include SHA-256 checksum for integrity verification.',
       querystring: {
         type: 'object',
         properties: {

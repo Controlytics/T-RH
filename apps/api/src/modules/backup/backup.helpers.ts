@@ -51,10 +51,46 @@ export function escapeSqlValue(value: any): string {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
-/** Escape a value for CSV output. */
-export function escapeCsvValue(value: any): string {
+/** How a CSV cell prints a timestamp. */
+export type CsvDateFormatter = (date: Date) => string;
+
+const utcIso: CsvDateFormatter = (date) => date.toISOString();
+
+/**
+ * A formatter writing an instant as ISO 8601 in `timeZone` WITH that zone's
+ * offset — `2026-11-16T19:58:00.020+05:30` (2026-11-17, operator: "in csv file
+ * date and time was coming wrong": the CSV export wrote UTC, 5:30 behind every
+ * screen). The wall time is the one the screens show; the offset keeps it the
+ * SAME instant to Postgres (restore inserts it into a timestamptz) and to
+ * `new Date()` (the restore's audit-chain check). Never drop the offset: a bare
+ * wall time is read in the database session's zone — UTC on RDS — and would
+ * restore 5:30 wrong. The `T` is the shape ECMAScript guarantees to parse.
+ *
+ * Build ONE per export: the Intl formatter is the expensive part, and a backup
+ * carries hundreds of thousands of timestamps.
+ */
+export function zonedIsoFormatter(timeZone: string): CsvDateFormatter {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    timeZoneName: 'longOffset',
+  });
+  return (date) => {
+    const p: Record<string, string> = {};
+    for (const part of fmt.formatToParts(date)) p[part.type] = part.value;
+    // 'longOffset' names UTC as "GMT" and every other offset as "GMT±HH:MM".
+    // Anything else (a historical offset in seconds) has no ISO spelling: UTC.
+    const zone = p.timeZoneName === 'GMT' ? '+00:00' : /^GMT([+-]\d{2}:\d{2})$/.exec(p.timeZoneName ?? '')?.[1];
+    if (!zone) return date.toISOString();
+    const ms = String(date.getUTCMilliseconds()).padStart(3, '0');
+    return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}.${ms}${zone}`;
+  };
+}
+
+/** Escape a value for CSV output. A Date prints through `formatDate` (UTC ISO by default). */
+export function escapeCsvValue(value: any, formatDate: CsvDateFormatter = utcIso): string {
   if (value === null || value === undefined) return '';
-  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Date) return formatDate(value);
   if (typeof value === 'object') return `"${JSON.stringify(value).replace(/"/g, '""')}"`;
   const str = String(value);
   if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
@@ -83,14 +119,14 @@ export function generateSqlInserts(tableName: string, rows: Record<string, any>[
   return lines.join('\n');
 }
 
-/** Generate CSV content (header + rows) for a single table. */
-export function generateCsv(rows: Record<string, any>[]): string {
+/** Generate CSV content (header + rows) for a single table. Timestamps print through `formatDate`. */
+export function generateCsv(rows: Record<string, any>[], formatDate: CsvDateFormatter = utcIso): string {
   if (rows.length === 0) return '';
   const columns = Object.keys(rows[0]);
   const lines: string[] = [];
   lines.push(columns.join(','));
   for (const row of rows) {
-    lines.push(columns.map(col => escapeCsvValue(row[col])).join(','));
+    lines.push(columns.map(col => escapeCsvValue(row[col], formatDate)).join(','));
   }
   return lines.join('\n');
 }

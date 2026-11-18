@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased] - CSV backup: dates and times in the configured time zone (2026-11-17)
+
+Operator: "when im exporting csv file in csv file date and time was coming wrong". Config → Backup → **CSV** (the only
+CSV export; every other download is `.xlsx` or PDF) wrote every timestamp with `toISOString()` — UTC, `T…Z` — so an
+alarm raised at 19:58 IST read `2026-11-16T14:28:00.020Z`, 5:30 behind every screen. **Not committed, not pushed, not
+deployed. No migration, no count moved.**
+
+- **The CSV now writes the configured zone's wall time WITH its offset:** `2026-11-16T19:58:00.020+05:30`
+  (`zonedIsoFormatter`, `backup.helpers.ts`; the zone is `getDatetimeConfig()`'s — the one the screens use — and is
+  recorded as `timeZone` in `_metadata.json`). The offset is load-bearing: it keeps the value the SAME instant to
+  Postgres (restore inserts it into a `timestamptz`) and to `new Date()`. A bare wall time would restore 5:30 wrong on a
+  UTC database session (RDS). JSON / BAK / SQL backups keep UTC — machines read them.
+- **The restore pre-check reads those timestamps as instants.** It hashes a string timestamp exactly as written, so a
+  zoned CSV would have been refused as "tampered" (`PER_ROW_CHECKSUM_MISMATCH`, reproduced before the fix).
+  `verifyBackupAuditChain` now hands the walk the canonical UTC form of a timestamp that NAMES its zone (`Z` / `±HH:MM`),
+  in its working copy only; a timestamp moved to another instant, or one with no zone, is still refused. Older UTC CSV
+  backups verify as before.
+- Tests: `backup.helpers.test.ts` (formatter: offset, date roll-over, UTC / west of UTC, same instant read back),
+  `backup.service.test.ts` (`exportCsv` writes the zoned form + `timeZone`), `audit-chain-walk.e2e.test.ts` (zoned slice
+  passes; another instant / no zone refused; a CSV file of real rows — old UTC and new zoned — parses back through
+  `parseBackupFile`, now exported, and verifies). Each guard mutation-checked.
+- **Unchanged, stated:** timestamps INSIDE JSON columns (e.g. `after_value`) stay UTC — rewriting them would break their
+  checksums. Excel shows the offset strings as text, not as dates. CSV restore still breaks on multi-line text and on
+  empty strings (audit PL-6, open). The Audit Trail Excel FILE NAME takes its date in UTC (`audit-trail-YYYY-MM-DD`
+  says yesterday between 00:00 and 05:30 IST) — the rows inside are IST.
+
 ## [Unreleased] - Test harness: the shared OPERATOR role is reset at the start of every run (2026-11-17)
 
 `apps/api/vitest.global-setup.ts` now resets the test database's OPERATOR role to `prisma/default-roles.ts` (read, never
