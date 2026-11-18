@@ -206,6 +206,14 @@ class ApiClient {
   /** A read. Bounded at `LONG_READ_TIMEOUT_MS` unless told otherwise; SWR passes `READ_TIMEOUT_MS`. */
   get<T>(url: string, opts: ReadOptions = {}) { return this.request<T>(url, {}, opts.timeoutMs ?? LONG_READ_TIMEOUT_MS); }
   post<T>(url: string, body: unknown, headers?: Record<string, string>) { return this.request<T>(url, { method: 'POST', body: JSON.stringify(body), ...(headers && { headers }) }); }
+  /**
+   * A POST that only READS — the selection is in the body because it does not fit a URL (`/telemetry-history`,
+   * performance audit WA-26, 2026-11-18). Bounded like a GET (`LONG_READ_TIMEOUT_MS` unless `timeoutMs` says
+   * otherwise), never like a write: a hung database must end in an error here too, not "Loading…" forever.
+   */
+  postRead<T>(url: string, body: unknown, opts: ReadOptions = {}) {
+    return this.request<T>(url, { method: 'POST', body: JSON.stringify(body) }, opts.timeoutMs ?? LONG_READ_TIMEOUT_MS);
+  }
   put<T>(url: string, body: unknown, headers?: Record<string, string>) { return this.request<T>(url, { method: 'PUT', body: JSON.stringify(body), ...(headers && { headers }) }); }
   patch<T>(url: string, body: unknown) { return this.request<T>(url, { method: 'PATCH', body: JSON.stringify(body) }); }
   /**

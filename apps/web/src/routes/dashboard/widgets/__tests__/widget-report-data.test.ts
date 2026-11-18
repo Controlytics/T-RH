@@ -11,7 +11,8 @@ import type { BarModel } from '../bar-chart-model';
 import type { TrendPlotted } from '../trend-chart-widget';
 import type { InstrumentHistory, TimeseriesRow } from '../use-widget-data';
 
-const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
+// `postRead`: the merged history is a POST that only reads since 2026-11-18 (WA-26).
+const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), postRead: vi.fn() }));
 vi.mock('@/lib/api-client', () => ({ apiClient: api }));
 // The pictures: what the collector asks for, not the raster (svg-raster.test / chart-image.test).
 const pics = vi.hoisted(() => ({
@@ -52,7 +53,7 @@ const latestRow = (id: string, values: LatestKeyValue[], over: Partial<LatestVal
   reporting: true, lastSeenAt: TS, values, ...over,
 });
 
-beforeEach(() => { api.get.mockReset(); api.post.mockReset(); });
+beforeEach(() => { api.get.mockReset(); api.post.mockReset(); api.postRead.mockReset(); });
 
 describe('the row-grain contract shared with the PDF builder', () => {
   it("the group key is the builder's REPORT_ROW_GROUP (one constant, not a second spelling)", () => {
@@ -453,14 +454,18 @@ describe('collectWidgetReport — the widget asked again, at confirm, for the DI
   it('time series: every page of the period is walked, and a cut is SAID', async () => {
     api.post.mockImplementation(async (_u: string, body: { instrumentIds: string[] }) => latestFor(body.instrumentIds));
     const page = (n: number) => Array.from({ length: n }, (_, k) => ({ instrumentId: 'a', ts: new Date(Date.parse(PERIOD.to) - k * 60_000).toISOString(), values: { temp: 21 } }));
-    api.get.mockResolvedValueOnce({ data: page(500), total: 5600 }).mockResolvedValue({ data: page(500), total: 5600 });
+    api.postRead.mockImplementation(async (u: string) => {
+      if (u !== '/api/instruments/telemetry-history') throw new Error(`unexpected read POST ${u}`);
+      return { data: page(500), total: 5600 };
+    });
     const widget = { id: 'w', type: 'timeseries_table', title: 'TS', source: { mode: 'selection' }, keys: [T], options: {} } as CustomWidget;
     const out = await collectWidgetReport(base(widget));
-    const urls = api.get.mock.calls.map((c) => decodeURIComponent(String(c[0])));
-    expect(urls[0]).toContain(`from=${PERIOD.from}`);
-    expect(urls[0]).toContain('offset=0');
-    expect(urls[1]).toContain('offset=500');
-    expect(urls).toHaveLength(10);
+    // Each page is a POST read with the selection and the page in the body (WA-26, 2026-11-18).
+    const bodies = api.postRead.mock.calls.map((c) => c[1] as { from: string; offset: number; limit: number });
+    expect(bodies[0]).toMatchObject({ from: PERIOD.from, offset: 0, limit: 500 });
+    expect(bodies[1]).toMatchObject({ offset: 500 });
+    expect(bodies).toHaveLength(10);
+    expect(api.get.mock.calls.some((c) => String(c[0]).includes('/telemetry-history'))).toBe(false);
     expect(out.notes).toContain('The first 5,000 of 5,600 stored instants, newest first.');
   });
 

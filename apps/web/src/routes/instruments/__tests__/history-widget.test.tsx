@@ -59,15 +59,21 @@ let historyTotalOverride: number | null = null;
 /** The administered date/time settings; `{}` = the browser's zone (no timezone set). */
 let datetimeConfig: Record<string, string> = {};
 
-function dataFor(key: string | null): any {
+/** Every merged-history BODY posted, in order (2026-11-18: the selection rides in a POST body, WA-26). */
+const historyBodies: Array<{ instrumentIds: string[]; from: string; to: string; limit: number; offset: number }> = [];
+
+function dataFor(key: string | [string, any] | null): any {
   if (!key) return undefined;
-  requested.push(key);
-  if (key.includes('/telemetry-overview')) return { data: overview };
-  if (key.includes('/telemetry-history?')) {
-    const ids = new URLSearchParams(key.split('?')[1]).get('instrumentIds')!.split(',');
-    const rows = historyRows.filter((r) => ids.includes(r.instrumentId));
+  // The history widget's SWR key is [path, body] — answered by the body, the way the server does.
+  if (Array.isArray(key)) {
+    if (key[0] !== '/api/instruments/telemetry-history') throw new Error(`unexpected array key ${String(key[0])}`);
+    historyBodies.push(key[1]);
+    const rows = historyRows.filter((r) => key[1].instrumentIds.includes(r.instrumentId));
     return { data: rows, total: historyTotalOverride ?? rows.length };
   }
+  requested.push(key);
+  if (key.includes('/telemetry-overview')) return { data: overview };
+  if (key.includes('/telemetry-history')) throw new Error('the history is a POST now — a GET key here is a regression');
   if (key.includes('/telemetry?')) {
     return { latest: [], history: longHistory, historyTotal: longHistory.length, summaries: { temperature: { min: 26, max: 26 }, humidity: { min: 45, max: 45 } } };
   }
@@ -118,7 +124,7 @@ function pickArea() {
 }
 
 describe('InstrumentHistoryWidget', () => {
-  beforeEach(() => { requested.length = 0; });
+  beforeEach(() => { requested.length = 0; historyBodies.length = 0; });
 
   it('offers the Blocks, then the chosen Block\'s Areas, and asks the list route for the scope', () => {
     renderWidget();
@@ -145,25 +151,25 @@ describe('InstrumentHistoryWidget', () => {
   it('selects NOTHING until a Block or Area is chosen — no plant-wide query on page load', () => {
     renderWidget();
     expect(screen.getByTestId('history-selection-count')).toHaveTextContent('0 of 2 selected');
-    expect(requested.some((u) => u.includes('/telemetry-history?'))).toBe(false);
+    expect(historyBodies).toHaveLength(0);
     expect(screen.getByText('Select at least one instrument.')).toBeInTheDocument();
     // Ticking one by hand still works without a scope.
     fireEvent.click(screen.getByLabelText(A.code));
     expect(screen.getByTestId('history-selection-count')).toHaveTextContent('1 of 2 selected');
-    expect(requested.some((u) => u.includes('/telemetry-history?'))).toBe(true);
+    expect(historyBodies.length).toBeGreaterThan(0);
   });
 
   it('selects every instrument in scope until one is unticked, and narrows the history request to the ticked ones', async () => {
     renderWidget();
     pickArea();
     expect(screen.getByTestId('history-selection-count')).toHaveTextContent('2 of 2 selected');
-    let hist = requested.filter((u) => u.includes('/telemetry-history?')).pop()!;
-    expect(new URLSearchParams(hist.split('?')[1]).get('instrumentIds')).toBe(`${A.id},${B.id}`);
+    // The selection rides in the POST BODY (WA-26), never in a URL.
+    expect(historyBodies.at(-1)!.instrumentIds).toEqual([A.id, B.id]);
+    expect(historyBodies.at(-1)).toMatchObject({ limit: expect.any(Number), offset: 0 });
 
     fireEvent.click(screen.getByLabelText(B.code));
     expect(screen.getByTestId('history-selection-count')).toHaveTextContent('1 of 2 selected');
-    hist = requested.filter((u) => u.includes('/telemetry-history?')).pop()!;
-    expect(new URLSearchParams(hist.split('?')[1]).get('instrumentIds')).toBe(A.id);
+    expect(historyBodies.at(-1)!.instrumentIds).toEqual([A.id]);
   });
 
   it('judges each row with ITS OWN instrument\'s limits', () => {
@@ -275,7 +281,6 @@ describe('InstrumentHistoryWidget — the period pickers use the configured time
     expect(screen.getByLabelText('History to')).toHaveValue('2026-08-23T21:00');
     fireEvent.change(from, { target: { value: '2026-08-23T19:00' } });
     await waitFor(() => expect(screen.getByLabelText('History from')).toHaveValue('2026-08-23T19:00'));
-    const hist = requested.filter((k) => k.includes('/telemetry-history?')).at(-1)!;
-    expect(new URLSearchParams(hist.split('?')[1]).get('from')).toBe('2026-08-23T23:00:00.000Z');
+    expect(historyBodies.at(-1)!.from).toBe('2026-08-23T23:00:00.000Z');
   });
 });

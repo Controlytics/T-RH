@@ -59,9 +59,10 @@ import {
 } from './gateway-invariants.js';
 import {
   getLatest, getHistory, getDistinctKeys, getKeyCatalogue, getRangeRows, getRangeSummary, chartRangeTotal,
-  getMultiInstrumentHistory,
+  getMultiInstrumentHistoryPage,
   type TelemetryRow, type RangeSummary,
 } from './telemetry.repository.js';
+import { sharedHistoryCount } from './history-count-share.js';
 import { publishAttributeDownlink, publishRetained, attributeDownlinkTopic } from './attribute-downlink.js';
 import { publishChildRoster, clearChildRoster } from './child-roster.js';
 import { announceChildAttributeChange } from './child-attributes-bundle.js';
@@ -244,6 +245,12 @@ const readingProps = {
  * `historySampled` rather than quietly plotting a short window.
  */
 const CHART_HARD_CAP = 200_000;
+
+/**
+ * The most instruments one merged-history request may name (GET or POST, performance audit WA-26 / G1-05) — a
+ * Block of the perf copy holds ~250, the whole copy 1,013; the plant 320. A 400 beyond it, never a silent cut.
+ */
+export const HISTORY_IDS_MAX = 2_000;
 
 /**
  * A `RangeSummary` on the wire: the two timestamps as ISO strings, plus the
@@ -1550,6 +1557,71 @@ export default async function instrumentRoutes(app: FastifyInstance) {
    * `/telemetry-overview`, so Fastify's static-first matching keeps it off the
    * detail route.
    */
+  const historyResponse = {
+    200: {
+      type: 'object',
+      properties: {
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              instrumentId: { type: 'string' },
+              ts: { type: 'string', format: 'date-time' },
+              // Every key the instrument reported at this instant, raw.
+              // `additionalProperties` is what lets it through Fastify's
+              // serializer — an object schema with no properties declared
+              // and no additionalProperties would strip every key.
+              values: { type: 'object', additionalProperties: true },
+            },
+          },
+        },
+        total: { type: 'integer' },
+      },
+    },
+    ...errorResponses,
+  };
+
+  /**
+   * THE merged-history answer, for the GET (query string) and the POST (JSON body) alike — one implementation, so
+   * validation, the id cap, visibility, the page and the count cannot differ between them (performance audit G1-05).
+   * The page and the count run side by side; the count is shared per selection (`sharedHistoryCount`), so the second
+   * and later pages of one selection cost only their page.
+   */
+  async function answerHistory(
+    req: FastifyRequest,
+    reply: FastifyReply,
+    input: { ids: string[]; keys?: string; from?: string; to?: string; limit?: number; offset?: number },
+  ) {
+    const keyFilter = parseKeysParam(input.keys);
+    if ('error' in keyFilter) return reply.code(400).send({ error: 'VALIDATION_ERROR', message: keyFilter.error });
+    const asked = [...new Set(input.ids.map((s) => s.trim()).filter(Boolean))];
+    if (asked.length > HISTORY_IDS_MAX) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: `At most ${HISTORY_IDS_MAX} instruments per request.` });
+    }
+    const bad = asked.find((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
+    if (bad) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: `Not an instrument id: ${bad.slice(0, 80)}` });
+    }
+    const from = input.from ? new Date(input.from) : undefined;
+    const to = input.to ? new Date(input.to) : undefined;
+    if (from && to && from > to) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: '`from` must not be after `to`.' });
+    }
+    const { where: visibility } = await resolveVisibility(buildContext(req));
+    const visible = await prisma.instrument.findMany({
+      where: withVisibility({ id: { in: asked } }, visibility) as { id: { in: string[] } },
+      select: { id: true },
+    });
+    // AFTER visibility: the shared count is keyed on these ids, so two scopes never share a count.
+    const selection = { instrumentIds: visible.map((i) => i.id), keys: keyFilter.keys ?? undefined, from, to };
+    const [rows, total] = await Promise.all([
+      getMultiInstrumentHistoryPage({ ...selection, limit: input.limit, offset: input.offset }),
+      sharedHistoryCount(selection),
+    ]);
+    return { data: rows.map((r) => ({ instrumentId: r.instrumentId, ts: r.ts.toISOString(), values: r.values })), total };
+  }
+
   app.get('/telemetry-history', {
     preHandler: [app.requirePermission('INSTRUMENT_READ')],
     schema: {
@@ -1559,7 +1631,7 @@ export default async function instrumentRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['instrumentIds'],
         properties: {
-          /** Comma-separated instrument UUIDs. */
+          /** Comma-separated instrument UUIDs (at most 2,000 — a long list will not fit in a URL: use the POST). */
           instrumentIds: { type: 'string', minLength: 1 },
           /** Comma-separated telemetry keys, exactly as stored (2026-10-28). Absent = every key. */
           keys: { type: 'string' },
@@ -1569,57 +1641,44 @@ export default async function instrumentRoutes(app: FastifyInstance) {
           offset: { type: 'integer', default: 0, minimum: 0 },
         },
       },
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            data: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  instrumentId: { type: 'string' },
-                  ts: { type: 'string', format: 'date-time' },
-                  // Every key the instrument reported at this instant, raw.
-                  // `additionalProperties` is what lets it through Fastify's
-                  // serializer — an object schema with no properties declared
-                  // and no additionalProperties would strip every key.
-                  values: { type: 'object', additionalProperties: true },
-                },
-              },
-            },
-            total: { type: 'integer' },
-          },
-        },
-        ...errorResponses,
-      },
+      response: historyResponse,
     },
   }, async (req, reply) => {
     const q = req.query as { instrumentIds: string; keys?: string; from?: string; to?: string; limit?: number; offset?: number };
-    const keyFilter = parseKeysParam(q.keys);
-    if ('error' in keyFilter) return reply.code(400).send({ error: 'VALIDATION_ERROR', message: keyFilter.error });
-    const asked = [...new Set(q.instrumentIds.split(',').map((s) => s.trim()).filter(Boolean))];
-    const bad = asked.find((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
-    if (bad) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: `Not an instrument id: ${bad.slice(0, 80)}` });
-    }
-    const from = q.from ? new Date(q.from) : undefined;
-    const to = q.to ? new Date(q.to) : undefined;
-    if (from && to && from > to) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: '`from` must not be after `to`.' });
-    }
-    const { where: visibility } = await resolveVisibility(buildContext(req));
-    const visible = await prisma.instrument.findMany({
-      where: withVisibility({ id: { in: asked } }, visibility) as { id: { in: string[] } },
-      select: { id: true },
+    return answerHistory(req, reply, { ...q, ids: q.instrumentIds.split(',') });
+  });
+
+  /**
+   * POST /api/instruments/telemetry-history — the SAME answer with the selection in the body (performance audit
+   * WA-26, 2026-11-18): a Block of 450 instruments put 450 ids in the GET's URL and the server answered HTTP 431.
+   * A read: nothing is written and nothing audited, like `POST /latest-values`. `keys` is an array here; it is
+   * judged by the GET's own rules (`parseKeysParam`), so a key may not contain a comma on either route.
+   */
+  app.post('/telemetry-history', {
+    preHandler: [app.requirePermission('INSTRUMENT_READ')],
+    schema: {
+      tags: ['Instruments'],
+      summary: 'Merged, paged readings of several instruments, newest first — the selection in the body',
+      body: {
+        type: 'object',
+        required: ['instrumentIds'],
+        additionalProperties: false,
+        properties: {
+          instrumentIds: { type: 'array', items: { type: 'string' }, minItems: 1 },
+          keys: { type: 'array', items: { type: 'string' } },
+          from: { type: 'string', format: 'date-time' },
+          to: { type: 'string', format: 'date-time' },
+          limit: { type: 'integer', default: 50 },
+          offset: { type: 'integer', default: 0, minimum: 0 },
+        },
+      },
+      response: historyResponse,
+    },
+  }, async (req, reply) => {
+    const b = req.body as { instrumentIds: string[]; keys?: string[]; from?: string; to?: string; limit?: number; offset?: number };
+    return answerHistory(req, reply, {
+      ids: b.instrumentIds, keys: b.keys?.join(','), from: b.from, to: b.to, limit: b.limit, offset: b.offset,
     });
-    const { rows, total } = await getMultiInstrumentHistory({
-      instrumentIds: visible.map((i) => i.id),
-      keys: keyFilter.keys ?? undefined,
-      from, to,
-      limit: q.limit, offset: q.offset,
-    });
-    return { data: rows.map((r) => ({ instrumentId: r.instrumentId, ts: r.ts.toISOString(), values: r.values })), total };
   });
 
   // GET /api/instruments/:id — detail

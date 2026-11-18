@@ -20,6 +20,10 @@ import { READ_TIMEOUT_MS } from '@/lib/read-bounds';
 import { useTelemetryOverview, useTelemetrySettings, type OverviewRow } from '../use-telemetry';
 import { ALARM_REFRESH_MS, alarmScopeSelectsNothing, applyAlarmScope, type AlarmScope } from '../alarm-scope';
 import { widgetPolling } from '@/lib/polling';
+import {
+  TELEMETRY_HISTORY_PATH, fetchTelemetryHistory,
+  type TelemetryHistoryPage, type TelemetryHistoryRequest, type TelemetryHistoryRow,
+} from '@/routes/instruments/telemetry-history-request';
 
 /**
  * The ONE polling and retry policy (`lib/polling.ts`), re-exported where the
@@ -284,34 +288,25 @@ export async function fetchWidgetHistory(
   return out;
 }
 
-export interface TimeseriesRow {
-  instrumentId: string;
-  ts: string;
-  values: Record<string, unknown>;
-}
+/** One merged-history row — the shared request module's type, under the name the widgets already use. */
+export type TimeseriesRow = TelemetryHistoryRow;
 
 /**
- * THE `telemetry-history` URL — one page of the time series widget, and each
+ * THE `telemetry-history` request — one page of the time series widget, and each
  * page a time series widget's report walks for the dialog's period
- * (2026-11-02). Null when there is nothing to ask.
+ * (2026-11-02). Null when there is nothing to ask. A POST body since 2026-11-18
+ * (performance audit WA-26: a long id list does not fit a URL); the server
+ * answers it exactly as it answered the GET.
  */
-export function widgetTimeseriesUrl(
+export function widgetTimeseriesRequest(
   ids: readonly string[],
   keys: readonly string[],
   range: WidgetRange,
   limit: number,
   offset: number,
-): string | null {
+): TelemetryHistoryRequest | null {
   if (ids.length === 0 || keys.length === 0) return null;
-  const q = new URLSearchParams({
-    instrumentIds: ids.join(','),
-    keys: keys.join(','),
-    from: range.from,
-    to: range.to,
-    limit: String(limit),
-    offset: String(offset),
-  });
-  return `/api/instruments/telemetry-history?${q.toString()}`;
+  return { instrumentIds: [...ids], keys: [...keys], from: range.from, to: range.to, limit, offset };
 }
 
 /** Several instruments' readings, merged and paged on the SERVER, newest first. */
@@ -324,10 +319,10 @@ export function useWidgetTimeseries(
 ): { rows: TimeseriesRow[]; total: number; loading: boolean } {
   const { chartRefreshMs } = useTelemetrySettings();
   const polling = widgetPolling(chartRefreshMs);
-  const url = widgetTimeseriesUrl(ids, keys, range, pageSize, Math.max(page - 1, 0) * pageSize);
-  const { data, isLoading } = useSWR<{ data: TimeseriesRow[]; total: number }>(
-    url,
-    (u: string) => apiClient.get<{ data: TimeseriesRow[]; total: number }>(u),
+  const body = widgetTimeseriesRequest(ids, keys, range, pageSize, Math.max(page - 1, 0) * pageSize);
+  const { data, isLoading } = useSWR<TelemetryHistoryPage>(
+    body ? [TELEMETRY_HISTORY_PATH, body] : null,
+    ([, b]: [string, TelemetryHistoryRequest]) => fetchTelemetryHistory(b),
     polling,
   );
   return { rows: data?.data ?? [], total: data?.total ?? 0, loading: isLoading };

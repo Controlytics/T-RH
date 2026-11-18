@@ -81,6 +81,19 @@ describe('ensurePartitions', () => {
     expect(created).toEqual([`${SCRATCH}_2026_12`, `${SCRATCH}_2027_01`]);
   });
 
+  it('a new partition inherits the parent\'s indexes — the time-ordered one included (G1-05)', async () => {
+    // The same index the migration puts on the real parent, on the scratch one: `PARTITION OF` must carry it to every
+    // month the task creates. (Left on the scratch parent for the rest of the file — harmless; it is dropped in afterAll.)
+    await prisma.$executeRawUnsafe(
+      `CREATE INDEX IF NOT EXISTS "${SCRATCH}_ts_instrument_idx" ON "${SCRATCH}" ("ts" DESC, "instrument_id")`);
+    const created = await ensurePartitions(1, AT, SCRATCH);
+    for (const name of created) {
+      const idx = await prisma.$queryRaw<{ indexdef: string }[]>`
+        SELECT indexdef FROM pg_indexes WHERE tablename = ${name}`;
+      expect(idx.some((r) => r.indexdef.includes('(ts DESC, instrument_id)'))).toBe(true);
+    }
+  });
+
   it('accepts a row in a newly created partition', async () => {
     await ensurePartitions(1, AT, SCRATCH);
     await prisma.$executeRawUnsafe(`
@@ -220,6 +233,21 @@ describe('ensurePartitionsAtBoot', () => {
     );
     for (const n of names) expect(rows.map((r) => r.relname)).toContain(n);
     expect(info).toHaveLength(1);
+  });
+
+  // Performance audit G1-05 (migration 20261118120000): the merged history's pages and count are served by the
+  // time-ordered index. Every partition of the REAL parent must carry it — the ones the migration built and the months
+  // the boot / the cron create later — or a month would page by sorting its whole period again.
+  it('every partition of the real parent carries the time-ordered (ts DESC, instrument_id) index', async () => {
+    await ensurePartitionsAtBoot({ info: () => {}, error: () => { throw new Error('must not log an error'); } });
+    const rows = await prisma.$queryRawUnsafe<{ relname: string; has: boolean }[]>(`
+      SELECT c.relname,
+             EXISTS (SELECT 1 FROM pg_indexes x WHERE x.tablename = c.relname
+                       AND x.indexdef LIKE '%(ts DESC, instrument_id)%') AS has
+      FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhrelid JOIN pg_class p ON p.oid = i.inhparent
+      WHERE p.relname = 'instrument_telemetry_history'`);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.filter((r) => !r.has).map((r) => r.relname)).toEqual([]);
   });
 
   it('never throws — a failure is logged and the cron is left to retry', async () => {

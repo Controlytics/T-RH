@@ -352,38 +352,86 @@ export interface MultiHistoryRow {
  * (visibility is applied to the id set in the route); this function trusts
  * the list it is given. An empty list returns nothing rather than everything.
  */
-export async function getMultiInstrumentHistory(opts: {
+export interface HistorySelection {
   instrumentIds: string[];
   /**
    * Only these keys (widget data keys, 2026-10-28); absent or empty = every key.
-   * `total` then counts the instants carrying at least one of them — the rows
+   * The count then counts the instants carrying at least one of them — the rows
    * the pager pages.
    */
   keys?: string[];
-  from?: Date; to?: Date; limit?: number; offset?: number;
-}): Promise<{ rows: MultiHistoryRow[]; total: number }> {
-  if (opts.instrumentIds.length === 0) return { rows: [], total: 0 };
-  const limit = resolvePageSize(opts.limit, 100);
-  const offset = Math.max(opts.offset ?? 0, 0);
-  const where = Prisma.sql`
+  from?: Date; to?: Date;
+}
+
+function historyWhere(opts: HistorySelection): Prisma.Sql {
+  return Prisma.sql`
     WHERE instrument_id IN (${Prisma.join(opts.instrumentIds)})
     ${opts.keys && opts.keys.length > 0 ? Prisma.sql`AND key IN (${Prisma.join(opts.keys)})` : Prisma.empty}
     ${opts.from ? Prisma.sql`AND ts >= ${opts.from}` : Prisma.empty}
     ${opts.to ? Prisma.sql`AND ts <= ${opts.to}` : Prisma.empty}`;
+}
 
-  const rows = await prisma.$queryRaw<MultiHistoryRow[]>`
+/**
+ * Both history statements run with CUSTOM plans (performance audit G1-05, measured 2026-11-18 on the perf copy with
+ * bound parameters, as Prisma sends them). After five executions of one statement text Postgres may switch to a
+ * GENERIC plan, which cannot see the selection: the count then sorted every reading (7.3-7.8 s instead of 1.9-2.8 s),
+ * and only a custom plan can choose between the time-ordered index (a dense selection) and the instrument index (a
+ * sparse one). `SET LOCAL` keeps the setting inside this transaction — nothing else on the connection changes.
+ */
+async function withCustomPlan<T>(query: Prisma.PrismaPromise<T>): Promise<T> {
+  const [, result] = await prisma.$transaction([
+    prisma.$executeRaw`SET LOCAL plan_cache_mode = force_custom_plan`,
+    query,
+  ]);
+  return result;
+}
+
+/**
+ * The page statement, exactly as shipped — exported so `e2e/history-plans.e2e.test.ts` EXPLAINs THIS text.
+ * Served by `instrument_telemetry_history_ts_instrument_idx` (ts DESC, instrument_id) for a dense selection: the walk
+ * stops after this page's instants instead of grouping and sorting the whole period (4.2 s -> 1.7 ms, G1-05).
+ */
+export function historyPageSql(opts: HistorySelection & { limit?: number; offset?: number }): Prisma.Sql {
+  const limit = resolvePageSize(opts.limit, 100);
+  const offset = Math.max(opts.offset ?? 0, 0);
+  return Prisma.sql`
     SELECT instrument_id AS "instrumentId", ts, jsonb_object_agg(key, value) AS values
-    FROM instrument_telemetry_history ${where}
+    FROM instrument_telemetry_history ${historyWhere(opts)}
     GROUP BY instrument_id, ts
     ORDER BY ts DESC, instrument_id
     LIMIT ${limit} OFFSET ${offset}`;
+}
 
-  const [{ count }] = await prisma.$queryRaw<{ count: bigint }[]>`
+/** One page of the merged history, newest first. The caller has already applied visibility to the ids. */
+export async function getMultiInstrumentHistoryPage(
+  opts: HistorySelection & { limit?: number; offset?: number },
+): Promise<MultiHistoryRow[]> {
+  if (opts.instrumentIds.length === 0) return [];
+  return withCustomPlan(prisma.$queryRaw<MultiHistoryRow[]>(historyPageSql(opts)));
+}
+
+/**
+ * How many (instrument, instant) rows the selection holds — the pager's total. Read through
+ * `sharedHistoryCount` (`history-count-share.ts`), which counts once per selection, never per page.
+ *
+ * GROUPED IN THE INDEX'S ORDER, and the `ORDER BY` inside the subquery is a PLANNER HINT, not semantics — do not
+ * tidy it away: with the time-ordered index, `GROUP BY instrument_id, ts` chose a backward index scan plus an
+ * incremental sort and took 9.0 s (5.4 s before the index); grouped as `ts, instrument_id` in the index's own order it
+ * is an index-only scan with no sort, 2.3 s. Pinned by `e2e/history-plans.e2e.test.ts`.
+ */
+export function historyCountSql(opts: HistorySelection): Prisma.Sql {
+  return Prisma.sql`
     SELECT count(*)::bigint AS count FROM (
-      SELECT 1 FROM instrument_telemetry_history ${where} GROUP BY instrument_id, ts
+      SELECT 1 FROM instrument_telemetry_history ${historyWhere(opts)}
+      GROUP BY ts, instrument_id
+      ORDER BY ts DESC, instrument_id
     ) AS instants`;
+}
 
-  return { rows, total: Number(count) };
+export async function countHistoryInstants(opts: HistorySelection): Promise<number> {
+  if (opts.instrumentIds.length === 0) return 0;
+  const [{ count }] = await withCustomPlan(prisma.$queryRaw<{ count: bigint }[]>(historyCountSql(opts)));
+  return Number(count);
 }
 
 /**

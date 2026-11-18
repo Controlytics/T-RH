@@ -14,8 +14,13 @@ import type { CustomWidget } from '@digilog/shared';
 
 const get = vi.fn();
 const post = vi.fn();
+/** A POST that only READS (the merged history since 2026-11-18, WA-26) — routed by path below, never a blanket {}. */
+const postRead = vi.fn();
 vi.mock('@/lib/api-client', () => ({
-  apiClient: { get: (...a: unknown[]) => get(...a), post: (...a: unknown[]) => post(...a), postWithReauth: vi.fn() },
+  apiClient: {
+    get: (...a: unknown[]) => get(...a), post: (...a: unknown[]) => post(...a),
+    postRead: (...a: unknown[]) => postRead(...a), postWithReauth: vi.fn(),
+  },
 }));
 vi.mock('@/hooks/use-export-options', () => ({ useExportOptions: () => ({ pdf: true, excel: true }) }));
 const DIRECT = { mode: 'DIRECT', remarksRequired: false, passwordRequired: false };
@@ -66,7 +71,12 @@ const TEMP = { source: 'telemetry' as const, key: 'temp', label: 'Temperature' }
 beforeEach(() => {
   get.mockReset();
   post.mockReset();
+  postRead.mockReset();
   delivered.mockReset();
+  postRead.mockImplementation(async (url: string) => {
+    if (url !== '/api/instruments/telemetry-history') throw new Error(`unexpected read POST ${url}`);
+    return { data: [], total: 0 };
+  });
   post.mockImplementation(async (url: string) => {
     if (url !== '/api/instruments/latest-values') throw new Error(`unexpected POST ${url}`);
     return {
@@ -83,7 +93,7 @@ beforeEach(() => {
     if (u.pathname === '/api/report-templates/catalogue') return { fields: [] };
     if (u.pathname === '/api/report-templates') return { data: [] };
     if (/^\/api\/instruments\/i1\/telemetry$/.test(u.pathname)) return { history: [], summaries: {}, historySampled: false, historyTotal: 0 };
-    if (u.pathname === '/api/instruments/telemetry-history') return { data: [], total: 0 };
+    if (u.pathname === '/api/instruments/telemetry-history') throw new Error('the history is a POST read now — a GET is a regression');
     if (u.pathname === '/api/instruments/telemetry-buckets') {
       return { from: u.searchParams.get('from'), to: u.searchParams.get('to'), bucket: 'hour', agg: 'avg', timezone: 'UTC', bucketSeconds: 3600, series: [] };
     }
@@ -121,22 +131,31 @@ async function downloadReport() {
   await waitFor(() => expect(delivered).toHaveBeenCalledTimes(1));
 }
 
+/**
+ * The window of every READ asked of `path`, in order: a GET's query string, or a POST read's body (the merged history
+ * since 2026-11-18). One path uses one method, so the order is the order asked.
+ */
+const windows = (path: string): Array<{ from: string | null; to: string | null }> => [
+  ...urls(path).map((u) => { const p = params(u, ['from', 'to']); return { from: p.from ?? null, to: p.to ?? null }; }),
+  ...postRead.mock.calls.filter((c) => c[0] === path).map((c) => ({ from: c[1]?.from ?? null, to: c[1]?.to ?? null })),
+];
+
 /** The widget asks, the viewer changes what it shows, and the report asks the same window. */
 async function samePeriod(widget: CustomWidget, path: string) {
   renderPanel(widget);
   fireEvent.change(await screen.findByRole('combobox', { name: 'Period' }), { target: { value: '7d' } });
-  await waitFor(() => expect(urls(path).some((u) => params(u, ['from', 'to']).from !== null)).toBe(true));
+  await waitFor(() => expect(windows(path).some((w) => w.from !== null)).toBe(true));
   // The widget's LAST request is the window on screen (7 days now).
   await waitFor(() => {
-    const last = params(urls(path).at(-1)!, ['from', 'to']);
+    const last = windows(path).at(-1)!;
     expect(Date.parse(last.to!) - Date.parse(last.from!)).toBe(7 * 86_400_000);
   });
-  const shown = params(urls(path).at(-1)!, ['from', 'to']);
-  const before = urls(path).length;
+  const shown = windows(path).at(-1)!;
+  const before = windows(path).length;
   await downloadReport();
-  const asked = urls(path).slice(before);
+  const asked = windows(path).slice(before);
   expect(asked.length).toBeGreaterThan(0);
-  for (const u of asked) expect(params(u, ['from', 'to'])).toEqual(shown);
+  for (const w of asked) expect(w).toEqual(shown);
   // …and the period recorded with the download is that window too.
   expect(delivered.mock.calls[0][0].requestMeta.period).toMatchObject(shown);
 }

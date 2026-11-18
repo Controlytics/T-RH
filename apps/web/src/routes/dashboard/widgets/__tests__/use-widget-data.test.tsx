@@ -7,8 +7,12 @@ import { READ_TIMEOUT_MS } from '@/lib/read-bounds';
 
 const get = vi.fn();
 const post = vi.fn();
+/** A POST that only READS (the merged history since 2026-11-18, WA-26). */
+const postRead = vi.fn();
 vi.mock('@/lib/api-client', () => ({
-  apiClient: { get: (...a: unknown[]) => get(...a), post: (...a: unknown[]) => post(...a) },
+  apiClient: {
+    get: (...a: unknown[]) => get(...a), post: (...a: unknown[]) => post(...a), postRead: (...a: unknown[]) => postRead(...a),
+  },
 }));
 
 // Module-level constants: a fresh object per call makes an effect keyed on it
@@ -38,6 +42,7 @@ const ids = (n: number) => Array.from({ length: n }, (_, k) => `id-${k}`);
 beforeEach(() => {
   get.mockReset();
   post.mockReset();
+  postRead.mockReset();
   overviewCalls.length = 0;
   overviewHolds.length = 0;
 });
@@ -149,15 +154,19 @@ describe('history', () => {
     expect(result.current.byInstrument.has('b')).toBe(false);
   });
 
-  it('the time series table is one paged telemetry-history request', async () => {
-    get.mockResolvedValue({ data: [{ instrumentId: 'a', ts: range.to, values: { p: 1 } }], total: 31 });
+  it('the time series table is one paged telemetry-history request — a POST read with the selection in the body', async () => {
+    postRead.mockImplementation(async (url: string) => {
+      if (url !== '/api/instruments/telemetry-history') throw new Error(`unexpected read POST ${url}`);
+      return { data: [{ instrumentId: 'a', ts: range.to, values: { p: 1 } }], total: 31 };
+    });
     const { result } = renderHook(() => useWidgetTimeseries(['a', 'b'], ['p'], range, 2, 10), { wrapper });
     await waitFor(() => expect(result.current.total).toBe(31));
-    const url = get.mock.calls[0][0] as string;
-    expect(url).toContain('/api/instruments/telemetry-history?');
-    expect(url).toContain('instrumentIds=a%2Cb');
-    expect(url).toContain('limit=10');
-    expect(url).toContain('offset=10');
+    expect(postRead).toHaveBeenCalledTimes(1);
+    expect(postRead.mock.calls[0][1]).toEqual({
+      instrumentIds: ['a', 'b'], keys: ['p'], from: range.from, to: range.to, limit: 10, offset: 10,
+    });
+    // Never a GET with the ids in the URL (WA-26: 450 ids answered HTTP 431).
+    expect(get.mock.calls.some((c) => String(c[0]).includes('/telemetry-history'))).toBe(false);
     expect(result.current.rows).toHaveLength(1);
   });
 });
@@ -379,12 +388,13 @@ describe('the widget data hooks: ONE retry policy (fix round 1, I-1 / I-3)', () 
     counts.unmount();
     get.mockReset();
     SETTINGS.chartRefreshMs = 10_000;
-    get.mockRejectedValueOnce(down()).mockRejectedValueOnce(down()).mockRejectedValueOnce(down())
+    // The time series is a POST read since 2026-11-18 (WA-26) — the same retry policy over the same SWR config.
+    postRead.mockRejectedValueOnce(down()).mockRejectedValueOnce(down()).mockRejectedValueOnce(down())
       .mockResolvedValue({ data: [{ instrumentId: 'a', ts: range.from, values: {} }], total: 1 });
     const series = renderHook(() => useWidgetTimeseries(['a'], ['p'], range, 1, 25), { wrapper: appWrapper });
     await tick(0);
     await tick(30_000);
-    expect(get).toHaveBeenCalledTimes(4);
+    expect(postRead).toHaveBeenCalledTimes(4);
     expect(series.result.current.total).toBe(1);
   });
 

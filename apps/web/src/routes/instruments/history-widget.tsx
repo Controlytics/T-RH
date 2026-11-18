@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
-import { apiClient } from '@/lib/api-client';
 import { LONG_READ_TIMEOUT_MS } from '@/lib/read-bounds';
+import {
+  TELEMETRY_HISTORY_PATH, fetchTelemetryHistory,
+  type TelemetryHistoryPage, type TelemetryHistoryRequest, type TelemetryHistoryRow,
+} from './telemetry-history-request';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import { INTERVALS, coerceReading, formatDecimals, isOutOfRange, isSensorFailureValue } from '@digilog/shared';
 import { Button } from '@/components/ui/button';
@@ -60,7 +63,7 @@ import { toggleSelection } from './history-selection';
  * and the page test asserts exactly one heading.
  */
 
-interface HistoryRow { instrumentId: string; ts: string; values: Record<string, unknown> }
+type HistoryRow = TelemetryHistoryRow;
 
 const th = 'px-4 py-3 text-left text-[0.6875rem] font-bold uppercase tracking-[0.08em]';
 
@@ -97,16 +100,18 @@ export function InstrumentHistoryWidget({ scope }: { scope: HistoryScope }) {
   // scope (review, 2026-09-07).
   useEffect(() => { setPage(1); }, [period.from, period.to, selected, scopeId]);
 
-  const histQs = new URLSearchParams({
-    instrumentIds: chosenIds.join(','),
+  // The selection rides in a POST body (performance audit WA-26, 2026-11-18): a Block of 450 instruments put 450 ids
+  // in the GET's URL and the server answered HTTP 431. The key is [path, body] — SWR hashes it by content.
+  const histBody: TelemetryHistoryRequest = {
+    instrumentIds: chosenIds,
     from: period.from, to: period.to,
-    limit: String(pageSize), offset: String((page - 1) * pageSize),
-  });
-  const { data: hist, isLoading: histLoading, error: histError } = useSWR<{ data: HistoryRow[]; total: number }>(
-    chosenIds.length ? `/api/instruments/telemetry-history?${histQs}` : null,
-    // The Data Report table: 12.6 s per page at 27 instruments x 30 days (G1-05),
-    // growing with the selection — the long read bound, not a page load's.
-    (u: string) => apiClient.get<{ data: HistoryRow[]; total: number }>(u, { timeoutMs: LONG_READ_TIMEOUT_MS }),
+    limit: pageSize, offset: (page - 1) * pageSize,
+  };
+  const { data: hist, isLoading: histLoading, error: histError } = useSWR<TelemetryHistoryPage>(
+    chosenIds.length ? [TELEMETRY_HISTORY_PATH, histBody] : null,
+    // The Data Report table — the long read bound, not a page load's: the FIRST page of a large selection waits for
+    // its count (2.3 s at 30 instruments x 30 days on the perf copy, G1-05); later pages reuse the server's count.
+    ([, body]: [string, TelemetryHistoryRequest]) => fetchTelemetryHistory(body, { timeoutMs: LONG_READ_TIMEOUT_MS }),
   );
   const rows = hist?.data ?? [];
   const total = hist?.total ?? 0;

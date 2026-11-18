@@ -1,5 +1,58 @@
 # Changelog
 
+## [Unreleased] - Performance audit G1-05: the Data Report table pages through an index, counts once, and POSTs its selection (2026-11-18)
+
+Operator: "Index + count once (Recommended)" for G1-05 (with WA-26). **Migrations 57 → 58; one API route added
+(`POST /api/instruments/telemetry-history`); no model, enum, permission, reauth action, module, def, page or web route
+moved.** Every number below was measured on the perf copy (`compliance_core_db_perf`, 2.71 M readings), stated with
+how it was measured; rules for the next change in `docs/feature-notes.md` PERFORMANCE AUDIT R1 → G1-05.
+
+- **The index.** Migration `20261118120000_telemetry_history_ts_instrument_idx`: `(ts DESC, instrument_id)` on the
+  partitioned `instrument_telemetry_history` (every partition, and every month the task creates later — `PARTITION OF`
+  inherits it). The table's query groups readings into instants newest first; every existing index leads with
+  `(instrument_id, key, …)`, so a dense selection seq-scanned and sorted the whole period on every page click. An
+  `(instrument_id, ts DESC)` index was measured first and gained nothing. Plain `CREATE INDEX` (impossible
+  CONCURRENTLY on a partitioned parent; Prisma runs a migration in one transaction): it blocks writes while it builds,
+  ~6–13 s for 2.71 M readings — every deploy path (AWS, the Windows upgrade, the `.deb`) stops the service before
+  `migrate deploy`, so it lengthens that pause. Applied to `compliance_core_db`, `_test` and the perf copy; drift guard
+  PASS.
+- **The count is grouped in the index's order** (`historyCountSql`: `GROUP BY ts, instrument_id ORDER BY ts DESC,
+  instrument_id` — the `ORDER BY` is a planner hint): with the index the OLD count got WORSE (backward scan +
+  incremental sort, 5.4 → 9.0 s); this way it is an index-only scan with no sort, 2.3 s.
+- **Both statements run with custom plans** (`SET LOCAL plan_cache_mode = force_custom_plan` in their transaction):
+  measured with bound parameters, as Prisma sends them, the count's GENERIC plan (from the 6th execution) sorted every
+  reading — 7.3–7.8 s against 1.9–2.8 s — and only a custom plan can pick the time index for a dense selection and the
+  instrument index for a sparse one.
+- **Counted once per selection** (`history-count-share.ts` over the new generic `lib/shared-result.ts`, which the
+  overview share now uses too): key = the ids AFTER visibility (sorted), the keys, the period; 60 s; single-flight; a
+  failure never kept. A preset's range is fixed when chosen, so the total can lag only a reading that arrives late
+  inside the window. Page and count run side by side. The time-series widget's REPORT, which walks every page, now
+  counts once instead of once per page.
+- **WA-26: `POST /api/instruments/telemetry-history`** — the same answer with the selection in the body (a Block of
+  450 instruments put 450 ids in the GET's URL: HTTP 431). ONE implementation for both (`answerHistory`); at most
+  2,000 instruments on either (a 400, never a silent cut). The Data Report table, the time-series widget and its report
+  read it through `routes/instruments/telemetry-history-request.ts` with the new `apiClient.postRead` — a POST that
+  only reads, bounded like a GET (R0's read bounds), never like a write.
+- **Through the API (perf copy, 7 cold first pages each — the same statement, so the plan-cache switch is covered):**
+  30 instruments × 30 days (1,252,831 instants) first page 2.3–3.0 s, then page 2 **12 ms**, page 50 **22 ms**
+  (2026-11-17: 12.6 s for EVERY page); 30 of September's 101 instruments 0.37–0.47 s, then 16 / 41 ms; one sparse
+  instrument 6–20 ms. Raw: `docs/audit/2026-11-17-perf-audit-scripts/r1-retest-g105*`.
+- **Tests:** `e2e/history-plans.e2e.test.ts` (the SHIPPED text EXPLAINed with seq scans / sorts / hash aggregates off:
+  page and count served by the index with no Sort; a control proves the old count still sorts; deleting the count's
+  `ORDER BY` fails it — mutation-checked); `telemetry-history.e2e.test.ts` (GET == POST for the same selection, paging
+  and keys, the OPERATOR's scope through both; 450 ids; the 2,000 cap on both; the body judged by the GET's rules; an
+  unknown body field dropped as on every route); `history-count-share.test.ts`; the partition test (a new month
+  inherits the index; every partition of the real parent carries it); `api-client-timeout.test.ts` (`postRead`
+  bounded, a `post` still not); the web fakes now answer the POST key by its body and THROW on a GET of the history.
+- **Also: R1's `e2e/alarm-order-index.e2e.test.ts` was statistics-dependent.** It discouraged only seq scans; once the
+  test database's statistics said "22 alarms" the planner read `alarms_raised_at_id_idx` as a BITMAP scan plus a sort
+  of 22 rows and the check failed (the full API run of 2026-11-18, 13:05). It now also discourages bitmap scans, sorts
+  and incremental sorts, and a control (an order the index cannot produce) proves it still discriminates — 3 / 3 runs
+  green against the same statistics. Not a product change: the index was used either way.
+- **Verification:** full single-fork API run 2026-11-18 13:05 → 13:27: 313 / 314 files, 4,442 / 4,443 tests, the one
+  red being the test above (fixed, 4 / 4 alone ×3); `device-certificate-emqx` ran; api lint and web tsc clean. Web,
+  every file on its own (exit code straight off vitest): 252 / 252 files, 3,355 passed, 0 failed.
+
 ## [Unreleased] - Performance audit R1: capacity and the heaviest paths (2026-11-17)
 
 Operator: "continue" (R1 of `docs/audit/2026-11-17-performance-reliability-audit.md`), then chose the recommended
@@ -96,13 +149,14 @@ the next change: `docs/feature-notes.md` PERFORMANCE AUDIT R1.
     and `summaries` (Max / Min / MKT) at 2 points as at 5,000 for the report's exact call
     (`e2e/instrument-telemetry-range.test.ts`; a total taken from the sampled rows fails it, 3 ≠ 5). The ~4 s left is the server reading every row for the summaries.
     On the wire (gzip): one instrument's whole period 151 KB, its 15-minute slot rows 9.3 KB.
-- **G1-05 — NOT DONE, now measured.** The Data Report TABLE still pages by OFFSET and recounts every instant on every
+- **G1-05 — DONE 2026-11-18 in its own entry above** (the index, the count once per selection, the POST). As
+  measured before it was built: the Data Report TABLE paged by OFFSET and recounted every instant on every
   page (perf copy, 30 instruments × 30 days: page ≈ 4.2 s + count ≈ 5.4 s per click). A query rewrite measured no
   gain (1,529 → 1,724 ms), and so did the `(instrument_id, ts DESC)` index this entry first named (built, measured,
   dropped on the perf copy: 4,157 / 5,409 ms). **An index in the query's own order, `(ts DESC, instrument_id)`, takes
   page 1 to 1.7 ms and page 50 to 16 ms** and leaves sparse selections on the existing index (1.5–10.9 ms either
   way); it does not touch the count. Build: ~10 s on 2.71 M readings, blocking writes unless built per partition
-  CONCURRENTLY. Waiting for the operator. WA-26 (450 ids → HTTP 431) is also still open.
+  CONCURRENTLY. WA-26 (450 ids → HTTP 431) was closed with it.
 - **Verification (2026-11-18):** api `npm run lint` and web `tsc --noEmit` clean; full single-fork API run
   312 / 312 files, 4,427 / 4,427 tests, 0 skipped (EMQX up, so `device-certificate-emqx` ran). Web, every file on its
   own (exit code read straight off vitest): 251 / 252 files — **`trend-downloads.test.tsx` was red (4), a G1-01

@@ -84,7 +84,34 @@ through a cuttable TCP proxy — never dev DB, AWS, the shared test DB or the op
       = no gain; `(ts DESC, instrument_id)` = page 1 4,185 → 1.7 ms, page 50 → 16 ms, sparse selections unchanged
       (planner keeps the instrument index); the per-page COUNT (5.4 s) is untouched — needs count-once. Build ~10 s /
       2.71 M rows, blocks writes unless per-partition CONCURRENTLY. Report §"R1 retest", `r1-retest-g105*`
-- [ ] Operator decision G1-05: ts-first index + count once per selection + POST id list (WA-26)? — asked 2026-11-18
+- [x] Operator decision G1-05 (2026-11-18): "Index + count once (Recommended)" — ts-first index + count once per selection
+      + POST id list (WA-26). Also "Commit all five" → b34ed132 / 37c0c7ff / e6c89ea2 / 12f07a77 / c81c97fd (local, NOT pushed)
+
+### G1-05 build (2026-11-18). Measured first on the perf copy: `(ts DESC, instrument_id)` makes pages ms, but the CURRENT
+### count gets WORSE with it (5.4 → 9.0 s); grouped + ordered the index's way it is 2.3 s (index-only, no sort)
+- [x] Prepared-statement plans: the count's GENERIC plan (6th execution on) sorted every reading, 7.3–7.8 s →
+      `SET LOCAL plan_cache_mode = force_custom_plan` around BOTH statements (`withCustomPlan`); 2.8–3.1 s held
+- [x] Migration `20261118120000_telemetry_history_ts_instrument_idx` (plain CREATE INDEX — AWS, upgrade.ps1 and the .deb
+      all stop the service before migrate deploy, verified); dev + test + perf DBs; drift guard PASS (Bypass policy works)
+- [x] Count `GROUP BY ts, instrument_id ORDER BY ts DESC, instrument_id` (`historyCountSql`) + comment
+- [x] Count once per selection: `history-count-share.ts` over the new `lib/shared-result.ts` (overview share refactored
+      onto it, its 7 tests green); 60 s; `HISTORY_COUNT_SHARE_MS=0` in vitest.env.ts; presets are FIXED ranges (documented)
+- [x] POST /telemetry-history = ONE implementation with the GET (`answerHistory`); `HISTORY_IDS_MAX` 2,000 on both
+- [x] Web: `apiClient.postRead` (a read POST, bounded like a GET); `routes/instruments/telemetry-history-request.ts`;
+      history-widget, time-series widget + its report → POST; no `mutate` users of the old key
+- [x] Tests: `e2e/history-plans.e2e.test.ts` (3; deleting the count's ORDER BY fails it — mutation-checked, after a
+      first "mutation" that never applied because the file is CRLF); telemetry-history e2e +4 cases (GET == POST incl.
+      OPERATOR, 450 ids, cap on both, body rules; unknown field DROPPED like every route); count-share unit (6);
+      partition test +2; api-client-timeout +2; 4 web fakes answer the POST by body and throw on a GET
+- [x] Docs: CLAUDE.md migrations 57 → 58 (the only stale mention); CHANGELOG entry; feature-notes R1 → G1-05 rules;
+      endpoints.md (GET row + POST row); report §"G1-05 — BUILT"; scripts `r1-retest-g105*`
+- [x] Perf retest THROUGH the API: dense 30 × 30 d first page 2.3–3.0 s then 12 / 22 ms; middle 30 of 101 0.4 s then
+      ≤ 41 ms; sparse ≤ 20 ms; stable across 7 cold runs. Perf API + proxy stopped (node child by port), perf.env deleted
+- [x] Full API run on the G1-05 tree (13:05 → 13:27): 313 / 314 files, 4,442 / 4,443 — the red was R1's
+      `alarm-order-index.e2e` (statistics-dependent: bitmap scan + sort of 22 rows); fixed (bitmap/sort/incremental
+      off + a control), 4 / 4 ×3. api `npm run lint` clean
+- [x] Web per-file on the G1-05 tree: 252 / 252 files, 3,355 passed, 0 failed
+- [ ] Operator: commit G1-05 as its own commit
 - [ ] Waiting for the operator: "commit". Plan: (1) Batch 1 = the 72 STAGED files; (2) `apps/api/vitest.global-setup.ts`
       (harness reset); (3) CSV time-zone fix; (4) folder-move docs; (5) **R0 + R1 as ONE commit** — they share hunks
       line by line (`app.ts` / `test-helper.ts` imports, `lib/errors.ts`, the CLAUDE.md topic line, feature-notes'

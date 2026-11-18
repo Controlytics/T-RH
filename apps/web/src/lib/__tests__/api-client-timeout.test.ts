@@ -121,6 +121,28 @@ describe('P-03: which calls carry which bound', () => {
     expect(calls[0]!.init.signal).toBeUndefined();
   });
 
+  it('a POST that only READS (`postRead`, 2026-11-18) is bounded like a read — and sends its body as a POST', async () => {
+    globalThis.fetch = silentServer as never;
+    const { apiClient } = await import('../api-client');
+    const err = await apiClient.postRead('/api/instruments/telemetry-history', { instrumentIds: ['a'] }, { timeoutMs: 40 })
+      .catch((e) => e);
+    expect((err as { code?: string }).code).toBe('TIMEOUT');
+    expect(calls[0]!.init.method).toBe('POST');
+    expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ instrumentIds: ['a'] });
+  });
+
+  it('`postRead` with no option carries the long bound; a plain `post` (a write) still carries none', async () => {
+    globalThis.fetch = vi.fn(async (url: string, init: RequestInit = {}) => {
+      calls.push({ url, init });
+      return { ok: true, status: 200, text: async () => '{}' } as unknown as Response;
+    }) as never;
+    const { apiClient } = await import('../api-client');
+    await apiClient.postRead('/api/instruments/telemetry-history', { instrumentIds: ['a'] });
+    await apiClient.post('/api/instruments', { code: 'X' });
+    expect(calls[0]!.init.signal).toBeInstanceOf(AbortSignal);
+    expect(calls[1]!.init.signal).toBeUndefined();
+  });
+
   it('`timeoutMs: 0` means no limit (the backup download)', async () => {
     globalThis.fetch = vi.fn(async (url: string, init: RequestInit = {}) => {
       calls.push({ url, init });

@@ -72,16 +72,18 @@ const KIND_REQUEST = { mode: 'REQUEST', remarksRequired: true, passwordRequired:
 const DOWNLOADS = { 'data-report': KIND_REQUEST, 'time-series': KIND_REQUEST, 'trend-header': KIND_REQUEST, 'temperature-trend': KIND_REQUEST, 'humidity-trend': KIND_REQUEST, 'instrument-alarms': KIND_REQUEST, alarms: KIND_REQUEST, 'audit-trail': KIND_REQUEST };
 const APPROVERS = { approverRoles: ['QA'], approverUserCount: 0 };
 
-function dataFor(key: string | null): any {
+function dataFor(key: string | [string, any] | null): any {
   if (!key) return undefined;
+  // The history widget's SWR key is [path, body] (a POST since 2026-11-18, WA-26) — answered by the body.
+  if (Array.isArray(key)) {
+    if (key[0] !== '/api/instruments/telemetry-history') throw new Error(`unexpected array key ${String(key[0])}`);
+    const rows = historyRows.filter((r) => key[1].instrumentIds.includes(r.instrumentId));
+    return { data: rows, total: rows.length };
+  }
   requested.push(key);
   if (key.includes('/api/config/export-options/current')) return exportFormat ? { 'instrument-history': exportFormat } : {};
   if (key.includes('/telemetry-overview')) return { data: overview };
-  if (key.includes('/telemetry-history?')) {
-    const ids = new URLSearchParams(key.split('?')[1]).get('instrumentIds')!.split(',');
-    const rows = historyRows.filter((r) => ids.includes(r.instrumentId));
-    return { data: rows, total: rows.length };
-  }
+  if (key.includes('/telemetry-history')) throw new Error('the history is a POST now — a GET key here is a regression');
   // An INTERVAL report's slot rows, answered by the server's rule (G1-01, 2026-11-17).
   if (key.includes('/telemetry-report-rows?')) return reportRowsFake(longHistory, key);
   if (key.includes('/telemetry?')) {

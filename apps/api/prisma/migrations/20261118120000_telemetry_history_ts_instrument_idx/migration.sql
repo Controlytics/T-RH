@@ -1,0 +1,24 @@
+-- Performance audit 2026-11-17, G1-05 — hand-authored (operator 2026-11-18: "Index + count once").
+--
+-- The Data Report table and the time-series widget page the merged history of SEVERAL instruments newest first
+-- (`getMultiInstrumentHistory`: GROUP BY instrument_id, ts ORDER BY ts DESC, instrument_id LIMIT/OFFSET) and count
+-- its instants. Every existing index leads with (instrument_id, key, …), so for a dense selection — which is most of
+-- the rows of the period — the planner seq-scanned and sorted every instant, spilling to disk, on every page click
+-- (measured on the perf copy, 30 instruments x 30 days, 2.34 M readings / 1.25 M instants: page 4.2 s, count 5.4 s).
+--
+-- An index in the query's OWN order lets a page stop after its rows: page 1 1.7 ms, page 50 16 ms; sparse selections
+-- stay on the existing instrument index (1.5-10.9 ms either way). An (instrument_id, ts DESC) index was measured too
+-- and gained nothing. The COUNT must group in this order as well (`telemetry.repository.ts`) — with this index the
+-- old count chose a backward scan + incremental sort and got WORSE (5.4 -> 9.0 s); grouped this way it is an
+-- index-only scan, 2.3 s.
+--
+-- Created on the partitioned parent: Postgres builds it on every existing partition and on every partition the
+-- maintenance task creates later (`CREATE TABLE … PARTITION OF` inherits the parent's indexes). Not CONCURRENTLY
+-- (impossible on a partitioned parent, and Prisma runs a migration in one transaction): it blocks writes to each
+-- partition while it builds — ~6-13 s for 2.71 M readings here. Every deploy path stops the service before
+-- `migrate deploy` (scripts/aws/deploy-on-ubuntu.sh, the Windows upgrade, the .deb), so it lengthens that pause.
+--
+-- Nothing else: `prisma migrate diff` also proposes the usual DROP of the partitioned instrument_telemetry_history
+-- and the audit-chain noise; stripped, as in every migration since 2026-08-08.
+CREATE INDEX IF NOT EXISTS "instrument_telemetry_history_ts_instrument_idx"
+  ON "instrument_telemetry_history" ("ts" DESC, "instrument_id");

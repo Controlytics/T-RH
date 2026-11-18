@@ -47,6 +47,7 @@ import {
 import type { WidgetReportRow, WidgetReportValue } from '@/lib/widget-report';
 import type { RasterImage } from '@/lib/svg-raster';
 import { apiClient } from '@/lib/api-client';
+import { fetchTelemetryHistory } from '@/routes/instruments/telemetry-history-request';
 import { useReportTemplatePlan, type PlanSection } from '@/lib/report-template-plan';
 import type { SensorWords } from '@/hooks/use-failure-text';
 import type { AlarmWidgetFilterValue } from '@/routes/alarms/alarm-widget-filters';
@@ -69,7 +70,7 @@ import {
 import { COMPARISON_HEIGHT, buildComparisonOption, codeAxis, comparisonModel, legendRows } from './comparison-model';
 import { alarmTypeLabel, alarmTypePieModel, buildPieOption, piePlan, statusPieModel, type PieSlice } from './pie-model';
 import {
-  alarmCountsUrl, fetchLatestValues, fetchWidgetHistory, overviewQueryFor, telemetryBucketsUrl, widgetTimeseriesUrl,
+  alarmCountsUrl, fetchLatestValues, fetchWidgetHistory, overviewQueryFor, telemetryBucketsUrl, widgetTimeseriesRequest,
   type AlarmCounts, type InstrumentHistory, type TelemetryBuckets, type TimeseriesRow, type WidgetRange,
   type WidgetSelection, useWidgetInstrumentIds,
 } from './use-widget-data';
@@ -448,9 +449,11 @@ async function fetchAllTimeseries(ids: readonly string[], keys: readonly string[
   const rows: TimeseriesRow[] = [];
   let total = 0;
   for (let offset = 0; rows.length < TIMESERIES_REPORT_MAX; offset += REPORT_PAGE) {
-    const url = widgetTimeseriesUrl(ids, keys, range, REPORT_PAGE, offset);
-    if (!url) return { rows: [], total: 0 };
-    const res = await apiClient.get<{ data: TimeseriesRow[]; total: number }>(url);
+    const body = widgetTimeseriesRequest(ids, keys, range, REPORT_PAGE, offset);
+    if (!body) return { rows: [], total: 0 };
+    // Every page of this walk is one selection, so the server counts it ONCE (G1-05, 2026-11-18) — each page used to
+    // recount the whole period.
+    const res = await fetchTelemetryHistory(body);
     total = res.total ?? 0;
     rows.push(...(res.data ?? []));
     if ((res.data ?? []).length < REPORT_PAGE || rows.length >= total) break;

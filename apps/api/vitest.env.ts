@@ -90,5 +90,9 @@ process.env.JWT_SECRET ??= 'TEST_JWT_SECRET_AT_LEAST_32_CHARACTERS_LONG_FOR_HS25
 // writes and then reads, and must see what it wrote. The window itself is pinned by
 // `modules/instruments/__tests__/overview-share.test.ts`.
 process.env.OVERVIEW_SHARE_MS ??= '0';
+// Same for the merged history's instant count (performance audit G1-05): 60 s per
+// selection in the running app; here an e2e inserts readings and counts straight
+// after. The window is pinned by `modules/instruments/__tests__/history-count-share.test.ts`.
+process.env.HISTORY_COUNT_SHARE_MS ??= '0';
 // (VERIFICATION_TOKEN_SECRET used to be set here too; nothing reads it since
 // POST /api/auth/verify was removed — audit 2026-10-03, SEC-5.)

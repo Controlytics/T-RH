@@ -1,4 +1,5 @@
 import { buildTelemetryOverview } from './telemetry-overview.js';
+import { createSharedResult, envMs } from '../../lib/shared-result.js';
 
 /**
  * ONE overview computation per selection per 5 s, shared by every viewer who asks
@@ -23,11 +24,7 @@ type OverviewOpts = NonNullable<Parameters<typeof buildTelemetryOverview>[0]>;
 type OverviewRows = Awaited<ReturnType<typeof buildTelemetryOverview>>;
 
 /** How long a computed overview is served; 0 = only share what is in flight. `OVERVIEW_SHARE_MS` overrides (the test bootstrap sets 0). */
-export const OVERVIEW_SHARE_MS = (() => {
-  const n = Number(process.env.OVERVIEW_SHARE_MS);
-  return Number.isFinite(n) && n >= 0 ? n : 5_000;
-})();
-const MAX_ENTRIES = 256;
+export const OVERVIEW_SHARE_MS = envMs('OVERVIEW_SHARE_MS', 5_000);
 
 /** Every input the overview depends on; instrument ids sorted (the builder orders rows by code, not by id). */
 export function overviewShareKey(opts: OverviewOpts): string {
@@ -46,37 +43,16 @@ export function createOverviewShare(
   ttlMs: number = OVERVIEW_SHARE_MS,
   now: () => number = Date.now,
 ): (opts: OverviewOpts) => Promise<OverviewRows> {
-  const entries = new Map<string, { promise: Promise<OverviewRows>; expiresAt: number }>();
-
-  const prune = (t: number) => {
-    for (const [key, entry] of entries) if (entry.expiresAt <= t) entries.delete(key);
-    while (entries.size > MAX_ENTRIES) entries.delete(entries.keys().next().value as string);
-  };
-
-  return (opts) => {
-    const key = overviewShareKey(opts);
-    const t = now();
-    const hit = entries.get(key);
-    if (hit && hit.expiresAt > t) return hit.promise;
-
-    const entry = { promise: undefined as unknown as Promise<OverviewRows>, expiresAt: Number.POSITIVE_INFINITY };
-    entry.promise = build(opts).then(
-      (rows) => {
-        for (const row of rows) Object.freeze(row);
-        Object.freeze(rows);
-        if (ttlMs > 0) entry.expiresAt = now() + ttlMs;
-        else if (entries.get(key) === entry) entries.delete(key);
-        return rows;
-      },
-      (err: unknown) => {
-        if (entries.get(key) === entry) entries.delete(key);
-        throw err;
-      },
-    );
-    entries.set(key, entry);
-    prune(t);
-    return entry.promise;
-  };
+  return createSharedResult({
+    build,
+    keyOf: overviewShareKey,
+    ttlMs,
+    now,
+    onResult: (rows) => {
+      for (const row of rows) Object.freeze(row);
+      Object.freeze(rows);
+    },
+  });
 }
 
 /** The overview the routes serve: `buildTelemetryOverview`, shared per selection. */
