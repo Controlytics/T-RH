@@ -39,7 +39,7 @@ Development runs on local Windows. A live AWS deployment exists since 2026-09 (U
 GitHub runner because this laptop cannot build Linux native modules — no WSL, no
 Docker, virtualization off). Both bundle Node, PostgreSQL 18 and EMQX 5.3.2 and
 render the broker config from the ONE template set in `scripts/emqx/`. The .deb
-is meant to be smoke-installed on the runner by the workflow — **but no `build-deb` run had ever succeeded before 2026-10-12** (tsc ran before `prisma generate`; fixed `b1730c2`, first green run not yet confirmed); the `Setup.exe` has never had
+is smoke-installed on the runner by the workflow — **the FIRST fully green `build-deb` run is 44321799003 at `b07c7791`, 2026-11-18** (build, install, 3 services active, `/api/health` 200, superadmin login 200, backup OK, `apt purge` leaves no `/var/lib/digilog`). The 34 runs before it on T-RH were all red: tsc before `prisma generate` (fixed `b1730c2`), then the zonky PostgreSQL bundle — the `ltree` guard looked in the wrong folder, and the bundle had no `psql` / `pg_dump` / `pg_isready` at all. Since `30be198a` PostgreSQL 18.6 is BUILT from the SHA-256-verified source on the runner and links the host's libssl3 + zlib (pulled in by the declared `openssl`; zlib1g is required). Proven on Ubuntu 22.04 (the runner) only. The `Setup.exe` has never had
 a CI install. `docs/deployment-methods/method-c-ubuntu-deb.md` is the runbook.
 
 - Node.js **24.x** (pinned in root `package.json` `engines` + `.nvmrc` since 2026-10-05 — the `.deb` build refuses any other major and the Windows installer's Node zip must match the native-module ABI), PostgreSQL 18

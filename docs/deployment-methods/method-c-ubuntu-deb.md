@@ -28,15 +28,23 @@ Created at install, survive upgrade **and** `apt remove` (destroyed only by `apt
 | `/etc/digilog/initial-admin-password.txt` | Only when no `DIGILOG_ADMIN_PASSWORD` was given at install; root-only; delete after first login |
 | `/var/log/digilog/` | Provisioning and backup logs (services log to the journal) |
 
-"Any Ubuntu version from 22.04": the vendored Node, PostgreSQL and EMQX are
-self-contained downloads, but `bcrypt` and the Prisma engines are built on the
-workflow's `ubuntu-22.04` runner (glibc 2.35) — the oldest hosted runner GitHub
-still offers (20.04 retired 2025). **20.04 is untested** (corrected 2026-10-05;
-this paragraph used to say "oldest supported runner" and "20.04+"). Nothing
-links against the host's `libssl`/`libicu`. Declared dependencies are only
-`libc6 (>= 2.31)`, `openssl`, `adduser`, `procps`, `ca-certificates` — all in
-`ubuntu-minimal`. Tested by the workflow's smoke install on the runner; the
-site's IQ should repeat it on the target release.
+"Any Ubuntu version from 22.04": the vendored Node and EMQX are self-contained
+downloads, but `bcrypt`, the Prisma engines and — since 2026-11-18 —
+**PostgreSQL itself** are built on the workflow's `ubuntu-22.04` runner
+(glibc 2.35) — the oldest hosted runner GitHub still offers (20.04 retired
+2025). **20.04 is untested and cannot work**: the bundled PostgreSQL links the
+host's `libssl.so.3` / `libcrypto.so.3` (OpenSSL 3) and `libz.so.1`, and 20.04
+ships OpenSSL 1.1 (corrected 2026-10-05 and again 2026-11-18; this paragraph
+said "Nothing links against the host's `libssl`" until then — true of the zonky
+bundle, false of the source build). No `libicu` / `libreadline` link (built
+`--without-icu --without-readline`); `build-deb.sh` refuses a PostgreSQL that
+links anything outside glibc, libssl3 / libcrypto3, libz and its own `lib/`. Declared
+dependencies are `libc6 (>= 2.31)`, `openssl`, `adduser`, `procps`,
+`ca-certificates` — all in `ubuntu-minimal`; `openssl` pulls in `libssl3`
+(22.04) / `libssl3t64` (24.04), and `zlib1g` is Priority: required, so neither
+is declared by name. Tested by the workflow's smoke install on 22.04 (first
+fully green run 44321799003, 2026-11-18); the site's IQ should repeat it on
+the target release — 24.04 included, which no run has installed on.
 
 ## Install
 
@@ -120,7 +128,8 @@ own credential), `no_match = deny`, and the rendered `acl.conf`.
 ```bash
 # GitHub Actions: push a tag  v1.0.0  -> Release with the .deb attached;
 # any push to data-layer touching the packaging inputs -> workflow artifact.
-# Locally on Ubuntu 22.04+ (Node 24 — root package.json `engines`; dpkg-deb, curl, unzip, xz):
+# Locally on Ubuntu 22.04+ (Node 24 — root package.json `engines`; dpkg-deb, curl, tar, xz, bzip2,
+# file, and the PostgreSQL build deps:  sudo apt-get install build-essential libssl-dev zlib1g-dev):
 scripts/linux/build-deb.sh --version 1.0.0
 ```
 

@@ -1,5 +1,36 @@
 # Changelog
 
+## [Unreleased] - Fix: the Ubuntu `.deb` builds, installs and passes its smoke test — first green run (2026-11-18)
+
+Operator: "go ahead with the installer fix", "keep fixing till green". **No application code, model, migration,
+permission, route or page moved** — `scripts/linux/build-deb.sh`, `.github/workflows/build-deb.yml` and the runbook
+only. `build-deb` had failed on every one of its 34 runs on T-RH (since 2026-10-06); run **44321799003** at
+`b07c7791` is the first fully green one (14 min).
+
+- **Root cause — the zonky PostgreSQL bundle.** The guard looked for `share/extension/ltree.control`, which zonky keeps
+  under `share/postgresql/` — and behind that, zonky ships only `initdb` / `pg_ctl` / `postgres`: no `psql`,
+  `pg_dump` or `pg_isready`, which `digilog-lib.sh` and `digilog-backup.sh` call. A fixed guard would only have
+  failed one step later. **`30be198a`: PostgreSQL 18.6 is built from the official source** (tarball + `.sha256`
+  from ftp.postgresql.org, `sha256sum -c`) with `--prefix=/opt/digilog/pgsql --without-icu --without-readline
+  --with-ssl=openssl`, plus contrib `ltree` and `pgcrypto`; the build is cached by version + configure-flags hash.
+  New guards: the PostgreSQL tools the scripts call are READ from `scripts/linux` and each must be in the package;
+  the extensions are checked where `pg_config` says they live; `ldd` refuses any link outside glibc, libssl3 /
+  libcrypto3, libz and the bundle's own `lib/`.
+- **`b07c7791`: the smoke test's backup runs as production runs it** — `systemctl start digilog-backup.service`
+  (the oneshot, as user `digilog`) instead of the script as root, and the status file is read with `sudo`:
+  `/var/lib/digilog` is the digilog user's alone (0750) and stays so. Run 44274574572 (`30be198a`) had built and
+  installed green and failed only on the old step's `cat` without sudo.
+- **Evidence (run 44321799003, smoke step):** `active` ×3 (db, emqx, api); `health=200`; `login=200`;
+  `… OK backup complete file=/var/lib/digilog/backups/nightly-20261118-142601.sql bytes=164168`; `apt-get purge`
+  removed and purged the package; `test ! -d /var/lib/digilog` passed. Lintian stays informational (embedded
+  libraries and `/opt` by design).
+- **What changed for a site:** the bundled PostgreSQL now links the host's OpenSSL 3 and zlib — `openssl` (declared)
+  pulls `libssl3` / `libssl3t64`, and `zlib1g` is required, so the control file is unchanged. **Ubuntu 20.04 cannot
+  work** (OpenSSL 1.1); **24.04 has never been installed on** by any run. A local build now needs `build-essential
+  libssl-dev zlib1g-dev bzip2 file`. Runbook `docs/deployment-methods/method-c-ubuntu-deb.md` and `CLAUDE.md`
+  corrected (both said the `.deb` had not been seen green; the runbook said nothing links the host's libssl).
+- **Still owed:** the `Setup.exe` has never had a CI or clean-VM install (P1-3).
+
 ## [Unreleased] - Performance audit G1-05: the Data Report table pages through an index, counts once, and POSTs its selection (2026-11-18)
 
 Operator: "Index + count once (Recommended)" for G1-05 (with WA-26). **Migrations 57 → 58; one API route added

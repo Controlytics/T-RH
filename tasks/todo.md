@@ -111,7 +111,35 @@ through a cuttable TCP proxy — never dev DB, AWS, the shared test DB or the op
       `alarm-order-index.e2e` (statistics-dependent: bitmap scan + sort of 22 rows); fixed (bitmap/sort/incremental
       off + a control), 4 / 4 ×3. api `npm run lint` clean
 - [x] Web per-file on the G1-05 tree: 252 / 252 files, 3,355 passed, 0 failed
-- [ ] Operator: commit G1-05 as its own commit
+- [x] Operator 2026-11-18: "commit and push to trh" → G1-05 committed `b79c4b13` (28 files); pushed f9f2e43a..b79c4b13
+      (6 commits); local = trh/data-layer = b79c4b13. NOT deployed (AWS 61f28e6)
+- [x] build-deb run 44269150887: FAILED — `FATAL: ltree extension not in the portable PostgreSQL` (zonky 18.6.0); the
+      same failure on 2026-11-06 → pre-existing, the .deb installer only (AWS is a git clone). FIXED the same day — see "build-deb fix" below
+- [x] 2026-11-18 "deploy in aws": AWS 61f28e6 → **b79c4b1**, DEPLOYED (health 200). Pre-check read-only: max_connections
+      81 / 16 used; `datetime` already Asia/Kolkata and no `NLT-`/`NMT-` values → those two Batch 1 changes are no-ops
+      there. Post-check: migrations 58 (both index migrations), every history partition has the ts index, graphile patch
+      APPLIED, pools general/critical/long visible, POST /telemetry-history + /telemetry-report-rows 401 unauth, bundle
+      carries both. MQTT bridge "Not authorized" ×2 in the first 2 s after restart then connected + subscribed (same at
+      the 11-06 restart). No reading has reached AWS since 2026-11-05 — ingest not exercised
+- [ ] Operator: reload browsers on AWS; verify-chain after login; a device send to prove ingest on AWS
+
+### build-deb fix (2026-11-18, operator: "go ahead with the installer fix", "keep fixing till green")
+- [x] Root cause: 33/33 runs red. The guard looked for share/extension/ltree.control, zonky keeps share/postgresql/
+      — AND zonky ships only initdb/pg_ctl/postgres (no psql / pg_dump / pg_isready, which the scripts call)
+- [x] `30be198a` (pushed): PostgreSQL 18.6 built from the SHA-256-verified source (--without-icu --without-readline
+      --with-ssl=openssl + contrib ltree/pgcrypto), guards (tools read from the scripts; extensions where pg_config
+      says; ldd allow-list). Run 44274574572: **Build .deb GREEN for the first time ever**, lint green, smoke install:
+      database + 58 migrations + seed + EMQX + 3 services active + health 200 + login 200; failed only on the
+      workflow's own `cat` without sudo (backup itself succeeded)
+- [x] `b07c7791`: smoke test runs digilog-backup.service and reads the status with sudo — PUSHED after the operator's
+      `gh auth refresh -s workflow` (Controlytics token now has `workflow`; sivamunnangi1211 still does not)
+- [x] Run 44321799003 at `b07c7791`: **FULLY GREEN, the first of 35 runs on T-RH** (14 min) — active ×3, health 200,
+      login 200, `OK backup complete … bytes=164168`, purge, `test ! -d /var/lib/digilog`
+- [x] Docs: CLAUDE.md (the "first green not yet confirmed" line), CHANGELOG entry, method-c (PostgreSQL now links the
+      host's OpenSSL 3 + zlib — the "nothing links libssl" line was false; 20.04 cannot work; local build deps),
+      the workflow's header comment; memory (linux-deb-installer, EOD ledger, index)
+- [ ] Not done, not asked: a smoke install on ubuntu-24.04 (no run has installed there; AWS and most sites are 24.04);
+      control `Depends` leaves libssl3 / zlib1g to `openssl` / Priority required (verified jammy + noble)
 - [ ] Waiting for the operator: "commit". Plan: (1) Batch 1 = the 72 STAGED files; (2) `apps/api/vitest.global-setup.ts`
       (harness reset); (3) CSV time-zone fix; (4) folder-move docs; (5) **R0 + R1 as ONE commit** — they share hunks
       line by line (`app.ts` / `test-helper.ts` imports, `lib/errors.ts`, the CLAUDE.md topic line, feature-notes'
