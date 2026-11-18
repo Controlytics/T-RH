@@ -50,6 +50,19 @@ cd compliance-core
 git checkout data-layer
 ```
 
+**The checkout's full path must not contain `&`.** npm's `.cmd` shims
+(`node_modules\.bin\tsc.cmd`, `prisma.cmd`, `vite.cmd`, …) run `SET dp0=%~dp0`
+unquoted, so `cmd.exe` splits the path at the `&` and every `npm run` / `npx`
+fails with `'…' is not recognized as an internal or external command`. Spaces
+are fine. The operator's checkout is
+`C:\Users\hello\OneDrive - CONTROLYTICS AI PRIVATE LIMITED\SIVA_M_WORK\T-RH Application`
+(moved there from `C:\Users\hello\compliance-core` on 2026-11-17; a first name,
+`T&RH Application`, broke every npm command). Moving a checkout leaves absolute
+paths behind in `apps/api/.env` (`DEVICE_CA_*_PATH`), EMQX's `etc/emqx.conf`
+and `data/configs/cluster.hocon` (certificate paths), the npm workspace
+junctions `node_modules/@digilog/*`, and the git worktree links — see
+`windowsIssues.md` §19.
+
 Work and push on `data-layer`. `final-user-management` is a FROZEN backup — never
 commit to it. There is no `main`.
 
@@ -638,8 +651,8 @@ Appended to `etc/emqx.conf` (stock preserved as `etc/emqx.conf.orig`):
 listeners.ssl.default {
     bind = "0.0.0.0:8883"
     ssl_options {
-        certfile = "C:/Users/hello/compliance-core/certs/server.crt"
-        keyfile  = "C:/Users/hello/compliance-core/certs/server.key"
+        certfile = "C:/Users/hello/OneDrive - CONTROLYTICS AI PRIVATE LIMITED/SIVA_M_WORK/T-RH Application/certs/server.crt"
+        keyfile  = "C:/Users/hello/OneDrive - CONTROLYTICS AI PRIVATE LIMITED/SIVA_M_WORK/T-RH Application/certs/server.key"
         verify = verify_none
         fail_if_no_peer_cert = false
     }

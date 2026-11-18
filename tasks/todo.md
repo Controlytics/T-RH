@@ -1,5 +1,20 @@
 # tasks/todo.md
 
+## 2026-11-17 — Checkout moved (operator: "entire folder moved to another path and renamed … update everything")
+
+`C:\Users\hello\compliance-core` → `…\SIVA_M_WORK\T&RH Application` → renamed by the operator to
+`…\SIVA_M_WORK\T-RH Application` (the `&` breaks every npm `.cmd` shim). Operator rulings: rename to
+`T-RH Application`; leave dated history (plans, the 2026-11-07 audit, `.superpowers/sdd` logs) as written.
+
+- [x] `apps/api/.env` DEVICE_CA paths, EMQX `etc/emqx.conf` + `data/configs/cluster.hocon`, `LOCAL_SETUP_WINDOWS.md`,
+      `windowsIssues.md` §19, `DS/_generator/ds_content.py` (relative; DS generated OK), CHANGELOG, Claude memory copied + fixed
+- [x] AFTER the rename: `git worktree repair .claude/worktrees/deps .claude/worktrees/ui-redesign-stage2` (NOT prune)
+- [x] Recreate the 4 `node_modules/@digilog/*` junctions in the main tree and in both worktrees (absolute targets)
+- [x] `npx prisma generate`; build shared + queue; api `npm run lint`; 3 api test files against the test DB (44/44)
+- [x] Start EMQX; 8883 serves `certs/server.crt` from the new path; `start-app.bat` → `/api/health` 200 on 3001, web on 5176
+- [x] Final sweep: only the operator-kept history, the deliberate "moved from" notes, a dead permission rule in
+      `.claude/settings.local.json` and the stale root `dist/` (Sep build output) still name the old path
+
 ## 2026-11-16 — Audit remediation, Batch 1 (operator: "fix" → "Batch 1: clear-cut bugs")
 
 Plan `docs/superpowers/plans/2026-11-16-audit-remediation-batch1.md`, executed inline (ledger

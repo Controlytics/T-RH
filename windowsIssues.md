@@ -287,6 +287,12 @@ New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' `
 
 **Mitigation:** keep CI on `ubuntu-latest`; the deployable artifact (compiled JS + dist/ + node_modules bundle) is the same regardless of build OS. Build the production bundle from a Linux runner, ship the zip to Windows for `install-on-target.ps1`.
 
+### 19. A `&` in the checkout path breaks every npm command; moving a checkout strands absolute paths (2026-11-17)
+
+**Why:** npm's generated `.cmd` shims (`node_modules\.bin\*.cmd`) run `SET dp0=%~dp0` **unquoted**. When the path holds a `&`, `cmd.exe` treats it as a command separator: `tsc`, `prisma`, `vite`, `tsx`, `vitest` and every `npm run` script fail with `'RH' is not recognized as an internal or external command` followed by `Cannot find module '…\typescript\bin\tsc'`. Reproduced 2026-11-17 in a folder named `T&RH Application`. A fresh `npm install` regenerates the same shims, so it is not repairable inside the tree. Spaces in the path are fine — the launchers (`start-app.bat`, `scripts/start-app.ps1`) quote every path and derive it from `%~dp0` / `$PSScriptRoot`.
+
+**Mitigation:** keep `&` (and other `cmd.exe` metacharacters) out of the checkout's full path. After MOVING a checkout, these hold absolute paths and must be re-pointed: `apps/api/.env` `DEVICE_CA_CERT_PATH` / `DEVICE_CA_KEY_PATH`; the local EMQX's `etc/emqx.conf` and `data/configs/cluster.hocon` certificate paths; the npm workspace junctions `node_modules/@digilog/*` (Windows junctions store absolute targets — re-run `npm install` or recreate them); git worktree links (`git worktree repair <path>…`, never `prune`); the Prisma client (`npx prisma generate`). Built output (`dist/`, `*.js.map`) is rebuilt, not edited.
+
 ---
 
 ## 🟢 Things that work fine on Windows Server

@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] - The local checkout moved (2026-11-17)
+
+Operator moved the checkout from `C:\Users\hello\compliance-core` to
+`C:\Users\hello\OneDrive - CONTROLYTICS AI PRIVATE LIMITED\SIVA_M_WORK\T-RH Application`. Its first
+name, `T&RH Application`, broke every npm command on Windows: npm's `.cmd` shims run `SET dp0=%~dp0`
+unquoted, so `cmd.exe` cut the path at the `&` (`'RH' is not recognized …`, reproduced with `tsc`).
+The folder was renamed to `T-RH Application`. **No application code, schema or count moved.**
+
+- `DS/_generator/ds_content.py` finds `OQ/_generator` relative to itself instead of through a
+  hard-coded `C:\Users\hello\compliance-core` (verified by generating the DS to a scratch file).
+- `LOCAL_SETUP_WINDOWS.md` §2 says a checkout path must not contain `&` and lists what a move
+  strands. §9B.2's EMQX listener example now shows the new path. `windowsIssues.md` adds §19.
+- Untracked, on this machine only: `apps/api/.env` `DEVICE_CA_*_PATH`, the local EMQX's
+  `etc/emqx.conf` and `data/configs/cluster.hocon` certificate paths, the twelve
+  `node_modules/@digilog/*` junctions (main tree + both worktrees), the git worktree links
+  (`git worktree repair`) and the Claude project memory were re-pointed.
+- Verified from the new folder: `prisma generate`, shared + queue build, api `npm run lint`,
+  `start-app.bat` (EMQX up, `/api/health` 200 on 3001, web 200 on 5176), 8883 serves
+  `certs/server.crt` from the new path, the API offers `CN=DigiLog Device CA`, the bridge is
+  connected, and `migration-guard` / `device-certificate-tls` / `mqtt-auth` tests pass (44/44).
+- Left as written on purpose: dated plans under `docs/superpowers/plans/`,
+  `docs/audit/2026-11-07-technical-audit.md` and the `.superpowers/sdd` logs record the path that
+  was true when they were written.
+
 ## [Unreleased] - CSV backup: dates and times in the configured time zone (2026-11-17)
 
 Operator: "when im exporting csv file in csv file date and time was coming wrong". Config → Backup → **CSV** (the only
