@@ -28,10 +28,11 @@ not clean); a clean VM is an operator step.
       only; proven through a relay to the TEST DB). A3 `src/test-support` out of `dist` (scripts tsconfig
       type-checks it). A4 `acl.conf` comment. Verified: api lint, web tsc, 25 unit + 39 health/auth + 50
       rule-engine e2e + 14 web, mutation check on the health schema, scratch compile has no `test-support`
-  - [ ] build-deb run on the pushed commit green, with the new version/build assertion (record the run id).
-        Run 44553556967 (`3074d656`): `.deb` BUILT (`release.json` version `1.0.0-3074d65`, build 36), then RED on
-        the lint step's `apt-get install lintian` (stale runner apt index, mirror 404) — smoke skipped. Fixed in the
-        workflow (apt-get update step; lint `continue-on-error`); the next run decides it
+  - [x] build-deb GREEN: run **44555233380** (`d55599b0`) — the installed `.deb` answered
+        `{"version":"1.0.0-d55599b","build":37,"db":"connected","jobRunner":"running"}` (build = the run number),
+        login 200, backup OK, purge clean. Run 44553556967 (`3074d656`) before it had BUILT the `.deb`
+        (`release.json` `1.0.0-3074d65`, build 36) and went red on the lint step's `apt-get install lintian`
+        (stale runner apt index, mirror 404) — fixed in `d55599b0` (apt-get update step; lint `continue-on-error`)
   - [ ] Full API suite not completed on 2026-11-19 — the run was stopped by Claude Code for low memory (it was
         not a failure). Targeted files are green (health, system-health, db-pools, rule-engine 50, auth,
         public-paths, installer-contract, migration-guard, supervisor, queue crontab parser). Run it serially
