@@ -16,6 +16,7 @@ import notificationDeliveryRoutes from '../modules/notification-delivery/routes.
 import userGroupRoutes from '../modules/user-groups/routes.js';
 import backupRoutes from '../modules/backup/routes.js';
 import systemHealthRoutes from '../modules/system-health/routes.js';
+import { registerHealthRoute } from '../lib/health-route.js';
 import ingestRoutes from '../modules/instruments/ingest-routes.js';
 import wsIngestRoutes, { type WsIngestOptions } from '../modules/instruments/listeners/ws-listener.js';
 import mqttAuthRoutes from '../modules/instruments/mqtt-auth-routes.js';
@@ -127,8 +128,9 @@ export async function buildApp(
     return reply.code(status).send({ error: err.message || 'Internal Server Error' });
   });
 
-  // Health check
-  app.get('/api/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
+  // Health check — the production route (lib/health-route.ts), not a stand-in. This
+  // app starts no job runner, so it reports the runner as never having started.
+  registerHealthRoute(app, { jobRunnerStatus: () => 'starting' });
 
   // Routes
   if (!configsDiscovered) {

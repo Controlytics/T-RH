@@ -34,7 +34,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Package version (default: apps/api/package.json)'
+        description: 'Package version (default: the root package.json version + the commit)'
         required: false
 
 permissions:
@@ -57,7 +57,7 @@ jobs:
         run: |
           if [ -n "${{ github.event.inputs.version }}" ]; then v="${{ github.event.inputs.version }}"
           elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then v="${GITHUB_REF#refs/tags/v}"
-          else v="$(node -p "require('./apps/api/package.json').version")-${GITHUB_SHA::7}"; fi
+          else v="$(node -p "require('./package.json').version")-${GITHUB_SHA::7}"; fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "Package version: $v"
 
@@ -86,6 +86,14 @@ jobs:
           sudo DIGILOG_ADMIN_PASSWORD='Ci-Smoke-Test-1' apt-get install -y ./dist-linux/digilog_*_amd64.deb
           systemctl is-active digilog-db digilog-emqx digilog-api
           code=$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:3000/api/health); echo "health=$code"; [ "$code" = 200 ]
+          # The installed API reports the version and build this run packaged (runtime/release.json).
+          health=$(curl -sk https://127.0.0.1:3000/api/health); echo "health body: $health"
+          echo "$health" | node -e '
+            let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
+              const b = JSON.parse(s), want = process.argv[1], run = Number(process.env.GITHUB_RUN_NUMBER);
+              if (b.version !== want) { console.error(`version ${b.version} != ${want}`); process.exit(1); }
+              if (b.build !== run) { console.error(`build ${b.build} != run number ${run}`); process.exit(1); }
+            });' "${{ steps.ver.outputs.version }}"
           login=$(curl -sk -o /dev/null -w '%{http_code}' -H 'content-type: application/json' -d '{"username":"superadmin","password":"Ci-Smoke-Test-1"}' https://127.0.0.1:3000/api/auth/login); echo "login=$login"; [ "$login" = 200 ] || [ "$login" = 409 ]
           # The backup as production runs it: the oneshot unit, as user `digilog` (systemctl
           # waits for a oneshot and fails if it fails). /var/lib/digilog is the digilog

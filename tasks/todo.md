@@ -1,5 +1,38 @@
 # tasks/todo.md
 
+## 2026-11-19 — Windows packaging, install & update system (operator's 19-phase "Master Prompt")
+
+Stage by stage; nothing built before the operator reviews Stage 1. Never install on this laptop (dev EMQX
+1883/8883/18083 + dev PostgreSQL; the prompt forbids it). Test bed = a GitHub Windows runner (representative,
+not clean); a clean VM is an operator step.
+
+- [x] Stage 1 — inspection: report `docs/audit/2026-11-19-deployment-packaging-audit.md` (untracked): the
+      Inno Setup pipeline exists (~2,300 lines) but was NEVER built or installed; gap table vs all phases;
+      new findings N1–N7; open 11-07 installer findings (S9-*, S4-13, S4-1) listed with status
+- [x] Operator decisions (2026-11-19, all "(Recommended)"): **T&RH Monitoring** (folder `TRH-Monitoring`,
+      new AppId `{351D02AE-8A99-4F37-B6E6-9349E175EAF0}`); **manifest-delta Update.exe** (files roll back
+      freely, DB restored only if a migration failed before the API restarted on the new version);
+      **GitHub Windows runner**; **in this repo**. Defaults: first version 1.0.0; unsigned until a cert
+- [x] Stage 2 — spec `docs/superpowers/specs/2026-11-19-windows-packaging-design.md`, plan
+      `docs/superpowers/plans/2026-11-19-windows-packaging.md` (phases A–H, touch-point table)
+- [x] Operator 2026-11-19: "go ahead with Phase A, commit and push to trh" — taken as approval of the ONE
+      judgement call Phase A needs (the version public on `/api/health`)
+- [ ] Operator: the other three judgement calls are still OPEN — broker service stays `emqx` (only its display
+      name rebranded; `emqx.cmd` hard-codes it); DB names stay `digilog_db` / `digilog`; Node-generated
+      certificates instead of OpenSSL. **Re-ask before Phase C** (C1/C6 depend on them)
+- [x] **Phase A** (2026-11-19) — A1 version 1.0.0 in the root `package.json` (lockfile root entries matched;
+      `.deb` version from the root), `lib/release-info.ts`, `/api/health` `version`/`build`, System Health
+      `release`, rule engine `SERVER_VERSION` off `npm_package_version`; health route moved to
+      `lib/health-route.ts` (the e2e helper had a stand-in); `.deb` writes `runtime/release.json` and its smoke
+      asserts version + build. A2 `lib/wait-for-database.ts` (5 s / 10 min, PrismaClientInitializationError
+      only; proven through a relay to the TEST DB). A3 `src/test-support` out of `dist` (scripts tsconfig
+      type-checks it). A4 `acl.conf` comment. Verified: api lint, web tsc, 25 unit + 39 health/auth + 50
+      rule-engine e2e + 14 web, mutation check on the health schema, scratch compile has no `test-support`
+  - [ ] build-deb run on the pushed commit green, with the new version/build assertion (record the run id)
+  - [ ] `scripts/build-installer.ps1` still defaults `-AppVersion '0.1.0'` and `.iss` `AppVersion "0.1.0"` —
+        Phase B2 rewrites both to read the root `package.json` and write `release.json`
+- [ ] Phases B–H per the plan
+
 ## 2026-11-17 — Performance, query, API, database & reliability audit (operator's 20-section brief)
 
 Operator decisions (2026-11-17): **extend** the 2026-11-07 audit in a NEW report

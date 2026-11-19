@@ -1,5 +1,51 @@
 # Changelog
 
+## [Unreleased] - Windows packaging Phase A: one version, reported by the API; the API waits for its database (2026-11-19)
+
+Operator: "go ahead with Phase A, commit and push to trh". Phase A of
+`docs/superpowers/plans/2026-11-19-windows-packaging.md` (design
+`docs/superpowers/specs/2026-11-19-windows-packaging-design.md`; Stage 1 audit findings N3, N4, the dist leak and the
+shipped dev path). **No model, migration, permission, reauth action, module, config def, route count or page moved.**
+
+- **One version: 1.0.0, in the root `package.json`** (it had none; every workspace said 0.1.0). The lockfile's two
+  root entries match, in the form npm writes them. `scripts/linux/build-deb.sh` and `build-deb.yml` take the `.deb`
+  version from the root now, not from `apps/api/package.json`.
+- **The API reports what it is running** (`apps/api/src/lib/release-info.ts`, read once): `RELEASE_INFO_PATH` →
+  `<runtime>/release.json` (beside the installed `api/`; a path, not a new env key, because a `.deb` upgrade never
+  adds keys to an existing env file) → the root `package.json` + `-dev` in a checkout → `unknown`. A malformed or
+  unreadable file is logged at boot and the next source is used — a version label never stops the API.
+  - `GET /api/health` returns `version` and `build` (declared — null `build` stays null), plus the `timestamp` its
+    schema always declared and the handler never sent; the 503 names the version too, and is logged.
+    **This is unauthenticated**: anyone who can reach the port can read the version (accepted in the design so an
+    update can check itself without a login). The commit is NOT on it.
+  - `GET /api/system-health` returns `release {product, version, build, commit, date}`; System Health's System
+    Information line shows "Version: 1.0.0 (build 57)", the commit and the build date ("Not reported" from an older
+    API). There is no About page; the design's "Help / About" was wrong and is corrected.
+  - The rule engine's Tenant details `SERVER_VERSION` read `npm_package_version`, which npm sets only under
+    `npm run` — every installed server reported an empty version. It is Branding's Version, else the release.
+  - The `.deb` build writes `runtime/release.json` (version, the CI run number, the commit, the date) and its smoke
+    install now asserts `/api/health` reports exactly that version and build.
+- **The real `/api/health` is tested for the first time.** It moved from `app.ts` to `lib/health-route.ts`
+  (`registerHealthRoute`), which `app.ts` AND `src/e2e/test-helper.ts` register: the helper had defined its own
+  `{status, timestamp}` stand-in, so `e2e/health.test.ts` never reached the production route. Mutation-checked:
+  removing the `version` / `build` declarations fails it.
+- **The API waits for its database at boot** (`lib/wait-for-database.ts`, before `discoverAndRegisterConfigs()`,
+  whose `seedDefaults()` is the first query): a `SELECT 1` every 5 s, "waiting for database" with the target
+  (`host:port/name`, never the credentials) and Prisma's reason each time, and after 10 minutes one error and exit 1.
+  Before, a database not yet answering (power-on, an update restarting it) exited the process and the service wrapper
+  restarted it every 10 s. Only `Prisma.PrismaClientInitializationError` is waited on — measured on Prisma 6.19.2: a
+  refused port, an accepted-then-dropped connection and a rejected password all raise it with `errorCode` undefined,
+  and the same client connects on a later query. A rejected password therefore waits the full ten minutes, saying
+  "Authentication failed" each time; any other error is thrown at once. Proven on this machine through a relay to the
+  TEST database that refused for 12 s: attempt 1 refused, the relay opened, attempt 2 answered, boot continued.
+- **`src/test-support/` is no longer compiled into `dist`** (it shipped the fake AD and Modbus servers); excluded in
+  `apps/api/tsconfig.json`, and `tsconfig.scripts.json` type-checks it instead, so `npm run lint` still covers it.
+- **`scripts/emqx/acl.conf`** no longer names this laptop's `C:\Users\hello\emqx-5.3.2` in the comment every install
+  copies to the customer's broker.
+- Tests: `lib/__tests__/release-info.test.ts` (14), `lib/__tests__/wait-for-database.test.ts` (11),
+  `e2e/health.test.ts` (3, rewritten), `e2e/system-health.test.ts` and `e2e/rule-engine.e2e.test.ts` (the release
+  asserted), web `routes/system-health/__tests__/release-version.test.tsx` (4).
+
 ## [Unreleased] - Fix: the Ubuntu `.deb` builds, installs and passes its smoke test — first green run (2026-11-18)
 
 Operator: "go ahead with the installer fix", "keep fixing till green". **No application code, model, migration,

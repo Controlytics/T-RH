@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import fs from 'node:fs';
 import { type FastifyInstance } from 'fastify';
 import { buildApp, loginAs, authGet } from './test-helper.js';
+import { DEFAULT_RELEASE_FILES } from '../lib/release-info.js';
 
 describe('System Health endpoints', () => {
   let app: FastifyInstance;
@@ -21,6 +23,11 @@ describe('System Health endpoints', () => {
       expect(res.statusCode).toBe(200);
 
       const body = JSON.parse(res.body);
+
+      // Release (lib/release-info.ts) — every inner key, since Fastify strips an
+      // undeclared one. A checkout reports the root package.json version + "-dev".
+      const rootVersion = JSON.parse(fs.readFileSync(DEFAULT_RELEASE_FILES.rootPackageJson, 'utf8')).version;
+      expect(body.release).toEqual({ product: 'T&RH Monitoring', version: `${rootVersion}-dev`, build: null, commit: null, date: null });
 
       // OS
       expect(body.os).toBeDefined();

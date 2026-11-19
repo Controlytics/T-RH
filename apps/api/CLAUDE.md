@@ -1080,6 +1080,17 @@ tear-out 2026-06-11..17, the reports tear-out 2026-07-04, the Phase 0 filter-dom
   maintenance; no time limit). A route picks its pool with `config: { dbPool }`; non-request work uses `runOnPool`.
   Read `docs/feature-notes.md` PERFORMANCE AUDIT R1 before changing it, adding a pool or moving a route.
 - `sanitize.ts` — HTML stripping on all text inputs
+- **`health-route.ts`** (2026-11-19) — `GET /api/health`, registered by `app.ts` AND `src/e2e/test-helper.ts`
+  through `registerHealthRoute` (the helper had a `{status, timestamp}` stand-in until then — `e2e/health.test.ts`
+  never reached the real route). Returns `version` / `build`; every field is declared (`build` as
+  `['integer','null']` — a plain `number` would print null as 0).
+- **`release-info.ts`** (2026-11-19) — the running release, read once: `RELEASE_INFO_PATH` → `<runtime>/release.json`
+  (three levels up from `dist/lib`; both installers stage the API at `<runtime>/api/dist`) → the root `package.json`
+  + `-dev` → `unknown`. Never throws; problems are logged at boot. The root `package.json` `version` is the ONE
+  version source. Read by `/api/health`, `/api/system-health` (`release`) and the rule engine's `SERVER_VERSION`.
+- **`wait-for-database.ts`** (2026-11-19) — `app.ts` waits for the database before `discoverAndRegisterConfigs()`:
+  `SELECT 1` every 5 s for up to 10 min, only on `Prisma.PrismaClientInitializationError` (its `errorCode` is
+  undefined on 6.19.2 — do not key on it); any other error is thrown at once.
 - `config-discovery.ts` — Auto-discover config definitions at startup
 - `config-registry.ts` — Self-registering config module pattern
 - `jwt.ts` — JWT token management

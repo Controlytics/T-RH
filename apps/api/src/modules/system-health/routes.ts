@@ -3,6 +3,7 @@ import os from 'node:os';
 import { prisma } from '../../lib/prisma.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { getDiskUsage } from './disk.js';
+import { releaseInfo } from '../../lib/release-info.js';
 
 // ── In-memory request counter ──────────────────────────────────────────
 let totalRequests = 0;
@@ -100,6 +101,18 @@ const systemHealthRoutes: FastifyPluginAsync = async (app) => {
           200: {
             type: 'object',
             properties: {
+              // The running release (lib/release-info.ts). Every inner key DECLARED,
+              // or Fastify strips it on the way out.
+              release: {
+                type: 'object',
+                properties: {
+                  product: { type: 'string' },
+                  version: { type: 'string' },
+                  build: { type: ['integer', 'null'] },
+                  commit: { type: ['string', 'null'] },
+                  date: { type: ['string', 'null'] },
+                },
+              },
               os: {
                 type: 'object',
                 properties: {
@@ -202,7 +215,9 @@ const systemHealthRoutes: FastifyPluginAsync = async (app) => {
       const loadAvg = os.loadavg();
       const mem = process.memoryUsage();
 
+      const { product, version, build, commit, date } = releaseInfo();
       return {
+        release: { product, version, build, commit, date },
         os: {
           hostname: os.hostname(),
           platform: os.platform(),

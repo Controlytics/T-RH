@@ -7,6 +7,14 @@ import { SkeletonCard } from '@/components/ui/skeleton';
 import { LoadError } from '@/components/ui/load-error';
 
 interface SystemHealthData {
+  /** The running release (server `lib/release-info.ts`). Optional: an API older than 2026-11-19 sends none. */
+  release?: {
+    product: string;
+    version: string;
+    build: number | null;
+    commit: string | null;
+    date: string | null;
+  };
   os: {
     hostname: string;
     platform: string;
@@ -130,8 +138,14 @@ function MetricCard({
   );
 }
 
+/** "1.0.0 (build 57)", or the version alone; "Not reported" for an API that sends none. */
+export function releaseLabel(release: SystemHealthData['release']): string {
+  if (!release) return 'Not reported';
+  return release.build === null ? release.version : `${release.version} (build ${release.build})`;
+}
+
 export function SystemHealthPage() {
-  const { formatTime } = useDatetimeFormat();
+  const { formatTime, formatDateTime } = useDatetimeFormat();
   const [autoRefresh, setAutoRefresh] = useState(true);
   // `error` is read (audit 2026-10-03, WEB-6) so a 403 or 500 names itself.
   const { data, error, isLoading, mutate } = useSWR<SystemHealthData>('/api/system-health', {
@@ -489,6 +503,11 @@ export function SystemHealthPage() {
       <div className="rounded-xl bg-slate-50 border border-slate-200 p-4">
         <p className="text-xs text-slate-400 uppercase tracking-wider mb-2">System Information</p>
         <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm text-slate-600">
+          <span data-testid="system-version"><span className="text-slate-400">Version:</span> {releaseLabel(data.release)}</span>
+          {data.release?.commit && (
+            <span><span className="text-slate-400">Commit:</span> <span className="font-mono">{data.release.commit.slice(0, 12)}</span></span>
+          )}
+          {data.release?.date && <span><span className="text-slate-400">Built:</span> {formatDateTime(data.release.date)}</span>}
           <span><span className="text-slate-400">Hostname:</span> {data.os.hostname}</span>
           <span><span className="text-slate-400">Platform:</span> {data.os.platform}</span>
           <span><span className="text-slate-400">Architecture:</span> {data.os.arch}</span>

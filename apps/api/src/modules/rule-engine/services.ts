@@ -8,6 +8,7 @@ import { getProducer } from '@digilog/queue';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { logger } from '../../lib/logger.js';
+import { releaseInfo } from '../../lib/release-info.js';
 import { writeBatchOrDeadLetter } from '../instruments/ingest-core.js';
 import { classifyValue, DEVICE_TS_MAX_AHEAD_MS, DEVICE_TS_MIN } from '../instruments/payload-parser.js';
 import { NUMERIC_READING } from '../instruments/telemetry.repository.js';
@@ -1057,7 +1058,11 @@ export function createRuleServices(hooks: RuleServicesHooks): RuleServicesHandle
         TITLE: str(titles.companyName) || str(branding.companyName),
         APP_NAME: str(titles.appName) || str(branding.appName),
         SERVER_NAME: os.hostname(),
-        SERVER_VERSION: str(branding.version) || process.env.npm_package_version || '',
+        // Branding's Version wins when an administrator set one; otherwise the running
+        // release. `npm_package_version` stood here until 2026-11-19 — npm sets it only
+        // under `npm run`, so every installed server (a Windows or systemd service)
+        // reported an empty version.
+        SERVER_VERSION: str(branding.version) || releaseInfo().version,
       };
     },
 

@@ -119,8 +119,10 @@ page with no file of their own; `alarm-webhooks.tsx` is a page with no def.
   through. **Do not "fix" it by adding a model**: Prisma would then emit a
   plain `CREATE TABLE` for a fresh environment, producing an unpartitioned
   table, and ingest dies at the first month boundary.
-- **`/api/health` exists** (`app.ts:297`) and is the tablet's liveness probe.
-  Its `PUBLIC_PATHS` entry is required. Two documents claimed it did not exist,
+- **`/api/health` exists** (`apps/api/src/lib/health-route.ts`, registered by `app.ts` and the e2e
+  helper) and is the deploy, installer and update probe; since 2026-11-19 it reports the running
+  release's `version` and `build`. (It was the tablet's liveness probe; that tablet code went in
+  2026-07.) Its `PUBLIC_PATHS` entry is required. Two documents claimed it did not exist,
   both from a grep pattern that could not have matched it.
 - **`instrument_scope` holds two shapes permanently** — a bare `string[]` for
   rows written before 2026-08-28, `{locationIds, instrumentIds}` since.

@@ -70,6 +70,7 @@ import { newMessage, ruleNodeOrigin, type RuleMessage } from '../modules/rule-en
 import { runRuleEngineMessage } from '../workers/rule-engine-message.worker.js';
 import { createRuleServices } from '../modules/rule-engine/services.js';
 import { logger } from '../lib/logger.js';
+import { releaseInfo } from '../lib/release-info.js';
 import { runRuleEngineDebugSweep, ruleEngineDebugSweepTask } from '../workers/rule-engine-debug-sweep.worker.js';
 import { invalidateOffsetConfigCache } from '../modules/instruments/load-offsets.js';
 import { invalidateReauthCache } from '../lib/reauth-check.js';
@@ -1335,7 +1336,14 @@ describe('services (what Tasks 4-6 call)', () => {
     expect((await svc.instruments.byCode(inst.code.toLowerCase()))?.id).toBe(inst.id);
     expect(await svc.instruments.gatewayOf(inst.id)).toBeNull();
     expect(await svc.instruments.fields(inst.id)).toMatchObject({ id: inst.id, code: inst.code, name: `RE ${STAMP}`, isGateway: 'false' });
-    expect(Object.keys(await svc.appDetails()).sort()).toEqual(['APP_NAME', 'SERVER_NAME', 'SERVER_VERSION', 'TITLE']);
+    const details = await svc.appDetails();
+    expect(Object.keys(details).sort()).toEqual(['APP_NAME', 'SERVER_NAME', 'SERVER_VERSION', 'TITLE']);
+    // Branding's Version when set, else the running release — never empty, as it was
+    // under a service before 2026-11-19 (it read npm_package_version).
+    const branding = (await prisma.systemConfig.findUnique({ where: { configKey: 'branding' } }))?.configValue as { version?: unknown } | undefined;
+    const brandingVersion = typeof branding?.version === 'string' ? branding.version.trim() : '';
+    expect(details.SERVER_VERSION).toBe(brandingVersion || releaseInfo().version);
+    expect(details.SERVER_VERSION).not.toBe('');
   });
 });
 

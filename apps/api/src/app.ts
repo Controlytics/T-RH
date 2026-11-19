@@ -49,7 +49,10 @@ import { telemetryPartitionTask, ensurePartitionsAtBoot } from './workers/teleme
 import { startJobRunner, stopJobRunner, type StartJobRunnerOptions } from '@digilog/queue';
 import { superviseJobRunner, type JobRunnerSupervisor } from './lib/job-runner-supervisor.js';
 import { AppError, databaseUnavailable, prismaErrorToResponse } from './lib/errors.js';
-import { registerDbPoolHook, disconnectAllPrisma, warmPool } from './lib/prisma.js';
+import { registerDbPoolHook, disconnectAllPrisma, warmPool, prisma } from './lib/prisma.js';
+import { registerHealthRoute, type JobRunnerStatus } from './lib/health-route.js';
+import { releaseInfo, releaseInfoProblems } from './lib/release-info.js';
+import { waitForDatabase, databaseTarget, DatabaseNotReadyError } from './lib/wait-for-database.js';
 import { registerJsonCompression } from './lib/compress-json.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
 import { reconcileNotificationRetries } from './modules/notification-delivery/delivery.service.js';
@@ -349,48 +352,37 @@ app.addHook('onRequest', (_req, _reply, done) => {
 // healthy, so the notification / PM-overdue / password-expiry / session sweeps
 // stopped with nothing to notice it — the session sweep writes the LOGOUT audit
 // rows, so its silent death is a §11 gap.
-let jobRunnerStatus: 'starting' | 'running' | 'failed' = 'starting';
+let jobRunnerStatus: JobRunnerStatus = 'starting';
 // Retries a failed runner start, and restarts a runner that dies mid-run, until the
 // database answers (audit 2026-11-07, S2-H1 — see lib/job-runner-supervisor.ts).
 // Set at boot, stopped first on shutdown.
 let jobRunnerSupervisor: JobRunnerSupervisor | null = null;
 
-app.get('/api/health', {
-  // The reserved database pool (performance audit 2026-11-17, P-04): the deploy and
-  // installer probe must answer while heavy reads hold every general connection.
-  config: { dbPool: 'critical' },
-  schema: {
-    tags: ['Health'],
-    summary: 'Health check',
-    description: 'Returns API health status',
-    security: [],
-    response: {
-      200: {
-        type: 'object',
-        properties: {
-          status: { type: 'string', example: 'ok' },
-          timestamp: { type: 'string', format: 'date-time' },
-          // `db` was already being returned by the handler but was silently
-          // dropped by fast-json-stringify because it wasn't declared here.
-          db: { type: 'string', example: 'connected' },
-          jobRunner: { type: 'string', example: 'running' },
-        },
-      },
-    },
-  },
-}, async (_req, reply) => {
-  try {
-    const { prisma } = await import('./lib/prisma.js');
-    await prisma.$queryRaw`SELECT 1`;
-    // Deliberately still 200 when the job runner is down: the HTTP surface is
-    // fine, and the tablet treats a non-2xx /api/health as "server unreachable"
-    // (apps/web/src/lib/connectivity.ts probeServer) — a 503 here would flip
-    // every tablet into offline mode over a background-job fault.
-    return { status: 'ok', db: 'connected', jobRunner: jobRunnerStatus };
-  } catch (err) {
-    return reply.code(503 as any).send({ status: 'error', db: 'disconnected' });
-  }
-});
+// /api/health — the same route the e2e helper registers (lib/health-route.ts).
+registerHealthRoute(app, { jobRunnerStatus: () => jobRunnerStatus });
+
+// The running release (lib/release-info.ts), once, with anything that stopped the
+// preferred source from being used.
+{
+  const release = releaseInfo();
+  app.log.info({ version: release.version, build: release.build, commit: release.commit, source: release.source }, `${release.product} ${release.version}`);
+  for (const problem of releaseInfoProblems()) app.log.warn({ problem }, 'release information');
+}
+
+// Wait for the database before its first query, `seedDefaults()` inside
+// discoverAndRegisterConfigs() (Windows packaging plan A2, audit 2026-11-19 N4):
+// at power-on or during an update the database service may not be answering yet,
+// and exiting here only had the service wrapper restart the API every 10 s.
+try {
+  await waitForDatabase({
+    query: () => prisma.$queryRaw`SELECT 1`,
+    log: app.log,
+    target: databaseTarget(process.env.DATABASE_URL),
+  });
+} catch (err) {
+  app.log.error({ err }, err instanceof DatabaseNotReadyError ? err.message : 'the database probe at startup failed');
+  process.exit(1);
+}
 
 // Auto-discover config module definitions
 await discoverAndRegisterConfigs();

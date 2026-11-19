@@ -66,7 +66,9 @@ STAGE="$OUT_DIR/pkgroot"
 CLEAN="$OUT_DIR/cleanroom"
 DL="$OUT_DIR/downloads"
 if [ -z "$APP_VERSION" ]; then
-  APP_VERSION="$(node -p "require('$REPO/apps/api/package.json').version")"
+  # The ONE version source is the root package.json (Windows packaging design
+  # 2026-11-19, D5); apps/api/package.json's 0.1.0 is a workspace package's own.
+  APP_VERSION="$(node -p "require('$REPO/package.json').version")"
 fi
 # dpkg versions may not carry a leading 'v'
 APP_VERSION="${APP_VERSION#v}"
@@ -139,6 +141,18 @@ cp -r apps/api/prisma "$OPT/runtime/api/prisma"
 cp apps/api/package.json "$OPT/runtime/api/package.json"
 cp -r apps/web/dist "$OPT/runtime/web/dist"
 cp packages/queue/crontab.txt "$OPT/runtime/queue/crontab.txt"
+# What /api/health and System Health report (apps/api/src/lib/release-info.ts reads
+# <runtime>/release.json by default — no env key, which a .deb upgrade would never
+# add to an existing digilog.env). build = the CI run number when there is one.
+RELEASE_VERSION="$APP_VERSION" RELEASE_BUILD="${GITHUB_RUN_NUMBER:-}" \
+RELEASE_COMMIT="$(git -C "$REPO" rev-parse HEAD 2>/dev/null || true)" RELEASE_OUT="$OPT/runtime/release.json" \
+node -e '
+  const e = process.env;
+  const build = /^\d+$/.test(e.RELEASE_BUILD || "") ? Number(e.RELEASE_BUILD) : null;
+  const info = { product: "T&RH Monitoring", version: e.RELEASE_VERSION, build, commit: e.RELEASE_COMMIT || null, date: new Date().toISOString() };
+  require("node:fs").writeFileSync(e.RELEASE_OUT, JSON.stringify(info, null, 2) + "\n");
+  console.log("release.json: " + JSON.stringify(info));
+'
 # node_modules WITHOUT the workspace symlinks, which are then re-created as real
 # folders from the built dist (the Windows junction problem, same shape).
 mkdir -p "$OPT/runtime/node_modules"

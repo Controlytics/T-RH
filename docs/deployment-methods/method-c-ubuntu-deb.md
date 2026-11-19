@@ -133,6 +133,11 @@ own credential), `no_match = deny`, and the rendered `acl.conf`.
 scripts/linux/build-deb.sh --version 1.0.0
 ```
 
+Without `--version` the package takes the root `package.json` `version` (the one version source since
+2026-11-19; the workflow adds `-<commit>` on a branch push). The build writes
+`/opt/digilog/runtime/release.json` (version, CI run number, commit, date), which `/api/health` and System
+Health report — `curl -sk https://127.0.0.1:3000/api/health` shows `"version"` and `"build"`.
+
 Pinned inputs (override with env vars): `NODE_VERSION=24.20.0`,
 `PG_VERSION=18.6` (the official source, SHA-256-verified, built on the runner with `--without-icu --without-readline --with-ssl=openssl`; until 2026-11-18 a zonky portable bundle, which had no `psql` / `pg_dump` / `pg_isready`),
 `EMQX_VERSION=5.3.2`, `EMQX_DISTRO=ubuntu20.04`. The broker version is pinned to

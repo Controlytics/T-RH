@@ -253,7 +253,7 @@ the instrument and alarm routes under the viewer's own scope), plus `POST /{id}/
 
 | Method(s) | Path | Summary |
 |---|---|---|
-| GET | `/api/health` | Health check |
+| GET | `/api/health` | Health check — `status`, `timestamp`, `version`, `build`, `db`, `jobRunner` (public; `lib/health-route.ts`, 2026-11-19) |
 
 ## /system-health  — 1 paths
 
