@@ -73,6 +73,9 @@ describe('P-04: the real routes carry the right pool', () => {
       for (const route of [
         'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/auth/refresh',
         'POST /api/auth/beacon-logout', 'GET /api/auth/me', 'POST /api/alarms/:id/acknowledge',
+        // The real health route since 2026-11-19 (lib/health-route.ts) — the helper's stand-in
+        // carried no pool, so the title's "health" went unasserted until then.
+        'GET /api/health',
       ]) expect([route, pools.get(route)]).toEqual([route, 'critical']);
       for (const route of [
         'GET /api/backup/export', 'POST /api/backup/restore', 'POST /api/backup/validate', 'GET /api/audit/verify-chain',
@@ -83,6 +86,7 @@ describe('P-04: the real routes carry the right pool', () => {
       expect(critical).toEqual([
         'POST /api/alarms/:id/acknowledge', 'GET /api/auth/me', 'HEAD /api/auth/me', 'POST /api/auth/beacon-logout',
         'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/auth/refresh',
+        'GET /api/health', 'HEAD /api/health',
       ].sort());
     } finally {
       await app.close();

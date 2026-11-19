@@ -25,8 +25,9 @@ export interface HealthRouteOptions {
 const releaseProps = {
   version: { type: 'string', example: '1.0.0' },
   // A null build (a checkout, a local build) must stay null on the wire: a plain
-  // `number` would serialise it as 0.
-  build: { type: ['integer', 'null'], example: 57 },
+  // `integer` would serialise it as 0. `nullable` (not a type array) is what an
+  // OpenAPI 3.0 document — lib/swagger.ts emits 3.0.3 — can express.
+  build: { type: 'integer', nullable: true, example: 57 },
 } as const;
 
 export function registerHealthRoute(app: FastifyInstance, opts: HealthRouteOptions): void {

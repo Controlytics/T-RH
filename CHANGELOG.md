@@ -14,7 +14,8 @@ shipped dev path). **No model, migration, permission, reauth action, module, con
   `<runtime>/release.json` (beside the installed `api/`; a path, not a new env key, because a `.deb` upgrade never
   adds keys to an existing env file) → the root `package.json` + `-dev` in a checkout → `unknown`. A malformed or
   unreadable file is logged at boot and the next source is used — a version label never stops the API.
-  - `GET /api/health` returns `version` and `build` (declared — null `build` stays null), plus the `timestamp` its
+  - `GET /api/health` returns `version` and `build` (declared, `build` as `nullable: true` — null stays null, and
+    the OpenAPI 3.0.3 document stays valid), plus the `timestamp` its
     schema always declared and the handler never sent; the 503 names the version too, and is logged.
     **This is unauthenticated**: anyone who can reach the port can read the version (accepted in the design so an
     update can check itself without a login). The commit is NOT on it.
@@ -44,7 +45,14 @@ shipped dev path). **No model, migration, permission, reauth action, module, con
   copies to the customer's broker.
 - Tests: `lib/__tests__/release-info.test.ts` (14), `lib/__tests__/wait-for-database.test.ts` (11),
   `e2e/health.test.ts` (3, rewritten), `e2e/system-health.test.ts` and `e2e/rule-engine.e2e.test.ts` (the release
-  asserted), web `routes/system-health/__tests__/release-version.test.tsx` (4).
+  asserted), web `routes/system-health/__tests__/release-version.test.tsx` (4). `e2e/db-pools.e2e.test.ts` now
+  asserts `GET`/`HEAD /api/health` are on the critical pool — its title always said so, but the helper's stand-in
+  carried no pool, so it could not (found when the real route reached the helper).
+- **`build-deb.yml`: the informational lint step can no longer fail the build.** Run 44553556967 (`3074d656`) built
+  the `.deb` — the log shows `release.json: {"version":"1.0.0-3074d65","build":36,…}` — then failed installing
+  `lintian`: the runner's apt index was stale and the mirror answered 404. The smoke install was skipped, so the new
+  version assertion did not run. A "Refresh the package index" step (`apt-get update`) now precedes lint and the
+  smoke install, and the lint step is `continue-on-error`.
 
 ## [Unreleased] - Fix: the Ubuntu `.deb` builds, installs and passes its smoke test — first green run (2026-11-18)
 

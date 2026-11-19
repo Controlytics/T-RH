@@ -70,11 +70,19 @@ jobs:
       - name: Build .deb
         run: bash scripts/linux/build-deb.sh --version "${{ steps.ver.outputs.version }}"
 
+      - name: Refresh the package index
+        # The runner image's apt index goes stale: run 44553556967 (2026-11-19) failed on a
+        # 404 from the mirror for a package the old index named. The smoke install below
+        # pulls the package's dependencies through the same index.
+        run: sudo apt-get update -qq
+
       - name: Lint the package
+        # Informational: a self-contained vendor bundle trips several Debian policy checks
+        # by design (embedded libraries, /opt). Never fails the build — that includes
+        # failing to install lintian, which is what failed run 44553556967.
+        continue-on-error: true
         run: |
           sudo apt-get install -y -qq lintian >/dev/null
-          # Informational: a self-contained vendor bundle trips several Debian
-          # policy checks by design (embedded libraries, /opt). Never fails the build.
           lintian --no-tag-display-limit dist-linux/digilog_*_amd64.deb || true
 
       - name: Smoke-install on the runner

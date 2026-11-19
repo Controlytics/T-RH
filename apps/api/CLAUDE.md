@@ -1083,7 +1083,8 @@ tear-out 2026-06-11..17, the reports tear-out 2026-07-04, the Phase 0 filter-dom
 - **`health-route.ts`** (2026-11-19) — `GET /api/health`, registered by `app.ts` AND `src/e2e/test-helper.ts`
   through `registerHealthRoute` (the helper had a `{status, timestamp}` stand-in until then — `e2e/health.test.ts`
   never reached the real route). Returns `version` / `build`; every field is declared (`build` as
-  `['integer','null']` — a plain `number` would print null as 0).
+  `{type: 'integer', nullable: true}` — a plain `integer` would print null as 0, and a type array is not
+  valid in the OpenAPI 3.0.3 document `lib/swagger.ts` emits).
 - **`release-info.ts`** (2026-11-19) — the running release, read once: `RELEASE_INFO_PATH` → `<runtime>/release.json`
   (three levels up from `dist/lib`; both installers stage the API at `<runtime>/api/dist`) → the root `package.json`
   + `-dev` → `unknown`. Never throws; problems are logged at boot. The root `package.json` `version` is the ONE

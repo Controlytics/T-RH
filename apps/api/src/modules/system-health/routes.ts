@@ -108,9 +108,9 @@ const systemHealthRoutes: FastifyPluginAsync = async (app) => {
                 properties: {
                   product: { type: 'string' },
                   version: { type: 'string' },
-                  build: { type: ['integer', 'null'] },
-                  commit: { type: ['string', 'null'] },
-                  date: { type: ['string', 'null'] },
+                  build: { type: 'integer', nullable: true },
+                  commit: { type: 'string', nullable: true },
+                  date: { type: 'string', nullable: true },
                 },
               },
               os: {
