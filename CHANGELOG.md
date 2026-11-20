@@ -1,5 +1,35 @@
 # Changelog
 
+## [Unreleased] - Report downloads refused by a WebP Branding logo: the upload now saves a printable logo (2026-11-20)
+
+Operator: "when im downloading a report its showing branded logo error". **No model, migration, permission, reauth
+action, module, config def, route or page count moved.** Rules: `docs/feature-notes.md`, PAGE REPORTS ON TEMPLATES →
+"A Branding logo a report cannot print is caught at UPLOAD".
+
+- **Cause.** The Branding logo stored locally AND on AWS was a **WebP** (`data:image/webp;…`, 1280 x 466, transparent).
+  Reports print PNG and JPEG only, so every download refused: "The Branding logo could not be used, so the report was
+  not made: the uploaded logo is not a PNG or JPEG image". The upload accepted any `image/*` and its help text said
+  "PNG, JPG, SVG". The refusal itself is right and stays — jsPDF does read a WebP, but drops its transparency and
+  printed this logo on a solid black box (checked in Chrome).
+- **The Branding upload saves any other image as a PNG** (`apps/web/src/lib/printable-logo.ts`): a PNG / JPEG is kept
+  exactly as chosen; WebP, GIF, SVG, BMP, AVIF are re-encoded to a PNG of the same picture, transparency kept, longest
+  side bounded at 1600 px. The Logo card warns when the stored logo cannot be printed, and now SHOWS "Please select an
+  image file" / "Logo image must be less than 2MB" — both went to a popup that never opened, so such a file did
+  nothing on screen (pre-existing). Help text corrected.
+- **`PUT /api/config/branding` refuses a NEW logo a report cannot print** — 400 `LOGO_NOT_PRINTABLE` with a message —
+  and lets a save keep the stored one, so the other Branding fields still save. Not in `brandingConfigSchema` on
+  purpose (it would reset all of Branding on the public GET while such a logo is stored).
+- **One rule:** `imageFormatByBytes` moved from `pdf-report.ts` to `@digilog/shared` (with `BRANDING_LOGO_NOT_PRINTABLE`);
+  the report, the upload, the Logo card and the PUT all ask it.
+- **PDF size:** every image `addImage` in `pdf-report.ts` is Flate-compressed (`PDF_IMAGE_COMPRESSION = 'FAST'`,
+  lossless). jsPDF wrote a transparent PNG raw — the converted logo alone made a 2.4 MB PDF; 180 KB compressed. Chart
+  images get the same. Not stored in snapshots; a replay is only smaller.
+- **Action needed on each install with a WebP logo (local, AWS):** Configuration → Branding → Upload Logo (the same
+  file is fine) → Save. Until then reports keep refusing, now with "upload it again: it will be saved as a PNG".
+- Tests: `printable-logo.test.ts` (7), `branding-logo-upload.test.tsx` (5), `pdf-report-snapshot.test.ts` (+2, and the
+  compression asserted), `report-templates.test.ts` (+1), `config.test.ts` (+4 e2e); conversion, PUT guard and
+  compression mutation-checked.
+
 ## [Unreleased] - Windows packaging Phase A: one version, reported by the API; the API waits for its database (2026-11-19)
 
 Operator: "go ahead with Phase A, commit and push to trh". Phase A of

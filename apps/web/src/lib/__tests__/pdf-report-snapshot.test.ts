@@ -106,8 +106,8 @@ describe('ReportSnapshot v2', () => {
       .toEqual(originalTable.body.map((r: any) => Object.values(r.cells).map((c: any) => c.text.join(''))));
     expect(t.body[0].cells[1].styles.fontStyle).toBe('bold');
     expect(t.body[1].cells[1].styles.fontStyle).toBe('normal');
-    // The chart raster went in once, with the same bytes.
-    expect(addImage.mock.calls.filter((c) => c[0] === PNG_1x1)).toHaveLength(1);
+    // The chart raster went in once, with the same bytes — compressed (2026-11-20).
+    expect(addImage.mock.calls.filter((c) => c[0] === PNG_1x1).map((c) => c[7])).toEqual(['FAST']);
     // And the chrome came along: the legend prints, the app name does not.
     replay.save('x.pdf');
     const text = pageTexts(replay.doc).join(' ');
@@ -273,6 +273,9 @@ describe('ReportSnapshot v3 — the chrome is frozen', () => {
     expect(await titlesReads()).toEqual([]);
     // The logo drawn is the chrome's, in the format its BYTES name.
     expect(addImage.mock.calls.filter((c) => c[0] === PNG_1x1 && c[1] === 'PNG')).toHaveLength(1);
+    // Compressed (2026-11-20): with none named jsPDF writes a transparent PNG's
+    // pixels RAW — a 1280 x 466 logo made every PDF 2.4 MB.
+    expect(addImage.mock.calls.filter((c) => c[0] === PNG_1x1).map((c) => c[7])).toEqual(['FAST']);
     // The orientation is the chrome's.
     expect(report.pw).toBeGreaterThan(report.ph);
     report.save('v3.pdf');
@@ -297,6 +300,8 @@ describe('ReportSnapshot v3 — the chrome is frozen', () => {
     expect(addImage.mock.calls.filter((c) => c[0] === PNG_1x1 && c[1] === 'PNG')).toHaveLength(1);
     expect(replay.doc.getNumberOfPages()).toBe(pages);
     expect(replay.pw).toBeGreaterThan(replay.ph);
+    // The replay compresses the logo as a fresh report does (PDF_IMAGE_COMPRESSION).
+    expect(addImage.mock.calls.filter((c) => c[0] === PNG_1x1).map((c) => c[7])).toEqual(['FAST']);
     // The replay is itself a v3 record of the same chrome.
     expect(replay.getSnapshot().chrome).toEqual(FROZEN);
     replay.save('v3-replay.pdf');
@@ -685,8 +690,21 @@ describe('Ruling F-1 extended — Branding and its logo', () => {
     const { pdf } = await fresh();
     const spy = stubBrandingFetch({ logoUrl: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=' });
     await expect(pdf.createReport({ title: 'T', formatDateTime }))
-      .rejects.toThrow(`${REPORT_LOGO_UNUSABLE}: the uploaded logo is not a PNG or JPEG image. Check the logo in Configuration → Branding.`);
+      .rejects.toThrow(`${REPORT_LOGO_UNUSABLE}: the uploaded logo is not a PNG or JPEG image (upload it again: it will be saved as a PNG). Check the logo in Configuration → Branding.`);
     expect(spy.mock.calls.some((c) => String(c[0]).startsWith('data:'))).toBe(false);
+  });
+
+  it('(j) a WebP Branding logo — what the plant uploaded (2026-11-20) — is refused by its bytes, not its label', async () => {
+    const { pdf } = await fresh();
+    // The first bytes of the real upload: RIFF....WEBPVP8X.
+    stubBrandingFetch({ logoUrl: 'data:image/webp;base64,UklGRvS2AABXRUJQVlA4WAoAAAAQAAAA' });
+    await expect(pdf.createReport({ title: 'T', formatDateTime })).rejects.toThrow(/the uploaded logo is not a PNG or JPEG image/);
+  });
+
+  it('(j) a PNG uploaded under a WebP label is a PNG — drawn, not refused', async () => {
+    const { pdf } = await fresh();
+    stubBrandingFetch({ logoUrl: BRANDING_LOGO_PNG.replace('image/png', 'image/webp') });
+    await expect(pdf.createReport({ title: 'T', formatDateTime })).resolves.toBeDefined();
   });
 
   it('(j) a v2 REPLAY with an uploaded logo uses it as is too — no fetch, the logo in its chrome', async () => {

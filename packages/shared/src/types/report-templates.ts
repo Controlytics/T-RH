@@ -516,6 +516,29 @@ export function reportLogoFormat(dataUrl: string): 'PNG' | 'JPEG' | null {
   return null;
 }
 
+/**
+ * What image a base64 `data:` URL HOLDS — PNG or JPEG by its bytes, WHATEVER
+ * its label says (`data:image/webp;base64,<PNG bytes>` is a PNG) — or `null`:
+ * not base64, or neither format. `reportLogoFormat`'s rule with the label
+ * ignored; `null` is exactly "a report cannot print this image".
+ *
+ * The ONE answer to "can a report print this logo?" for the report itself
+ * (`pdf-report.ts` refuses on `null`, ruling F-5), the Branding upload (which
+ * converts anything else to PNG first) and the Branding PUT (which refuses a
+ * new logo it cannot name) — 2026-11-20, a WebP Branding logo was accepted on
+ * upload and then refused by every report download.
+ */
+export function imageFormatByBytes(dataUrl: string): 'PNG' | 'JPEG' | null {
+  const named = reportLogoFormat(dataUrl);
+  if (named) return named;
+  const payload = /^data:[^,]*;base64,([\s\S]*)$/.exec(dataUrl)?.[1];
+  return payload ? reportLogoFormat(`data:image/png;base64,${payload}`) : null;
+}
+
+/** What the Branding PUT says when a NEW uploaded logo is neither PNG nor JPEG. */
+export const BRANDING_LOGO_NOT_PRINTABLE =
+  'The logo must be a PNG or JPEG image — reports can print only those. Upload it again on Configuration → Branding, which saves any other image as a PNG.';
+
 // ── The document ────────────────────────────────────────────────────────────
 
 export type ReportLogoMode = 'branding' | 'custom' | 'none';

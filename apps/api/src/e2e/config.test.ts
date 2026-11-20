@@ -890,6 +890,66 @@ describe('Config endpoints', () => {
       // Restore original
       await authPut(app, '/api/config/branding', adminToken, original, ADMIN_PASSWORD);
     });
+
+    // 2026-11-20: a WebP Branding logo was accepted and then refused by EVERY
+    // report download (reports print PNG / JPEG only). A NEW logo is judged by
+    // its bytes; the stored one is let through so other fields still save.
+    describe('the logo must be one a report can print', () => {
+      const PNG_LOGO = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+      const WEBP_LOGO = 'data:image/webp;base64,UklGRvS2AABXRUJQVlA4WAoAAAAQAAAA';
+      let original: Record<string, unknown>;
+
+      beforeAll(async () => {
+        const res = await app.inject({ method: 'GET', url: '/api/config/branding' });
+        original = JSON.parse(res.body);
+      });
+      afterAll(async () => {
+        // Restore FIRST and by row: the WebP case stores a logo the PUT refuses.
+        await prisma.systemConfig.update({ where: { configKey: 'branding' }, data: { configValue: original as any } });
+      });
+
+      it('refuses a NEW WebP logo with 400 LOGO_NOT_PRINTABLE and a message, and stores nothing', async () => {
+        const res = await authPut(app, '/api/config/branding', adminToken, { ...original, logoUrl: WEBP_LOGO }, ADMIN_PASSWORD);
+        expect(res.statusCode).toBe(400);
+        const body = JSON.parse(res.body);
+        expect(body.error).toBe('LOGO_NOT_PRINTABLE');
+        expect(body.message).toMatch(/PNG or JPEG/);
+        const after = JSON.parse((await app.inject({ method: 'GET', url: '/api/config/branding' })).body);
+        expect(after.logoUrl).toBe(original.logoUrl);
+      });
+
+      it('accepts a PNG — and a PNG under a WebP label, judged by its bytes', async () => {
+        const png = await authPut(app, '/api/config/branding', adminToken, { ...original, logoUrl: PNG_LOGO }, ADMIN_PASSWORD);
+        expect(png.statusCode).toBe(200);
+        const mislabelled = PNG_LOGO.replace('image/png', 'image/webp');
+        const res = await authPut(app, '/api/config/branding', adminToken, { ...original, logoUrl: mislabelled }, ADMIN_PASSWORD);
+        expect(res.statusCode).toBe(200);
+        expect(JSON.parse(res.body).data.logoUrl).toBe(mislabelled);
+      });
+
+      it('accepts a path and no logo', async () => {
+        for (const logoUrl of ['/logo.jpg', '']) {
+          const res = await authPut(app, '/api/config/branding', adminToken, { ...original, logoUrl }, ADMIN_PASSWORD);
+          expect(res.statusCode).toBe(200);
+        }
+      });
+
+      it('lets a save KEEP an already-stored WebP logo, so the other fields still save; the GET still serves all of Branding', async () => {
+        await authPut(app, '/api/config/branding', adminToken, { ...original, appTagline: 'stored-webp' }, ADMIN_PASSWORD);
+        const row = await prisma.systemConfig.findUniqueOrThrow({ where: { configKey: 'branding' } });
+        await prisma.systemConfig.update({
+          where: { configKey: 'branding' },
+          data: { configValue: { ...(row.configValue as Record<string, unknown>), logoUrl: WEBP_LOGO } as any },
+        });
+        const stored = JSON.parse((await app.inject({ method: 'GET', url: '/api/config/branding' })).body);
+        expect(stored.logoUrl).toBe(WEBP_LOGO);
+        expect(stored.appTagline).toBe('stored-webp');
+
+        const res = await authPut(app, '/api/config/branding', adminToken, { ...stored, appTagline: 'kept-webp' }, ADMIN_PASSWORD);
+        expect(res.statusCode).toBe(200);
+        expect(JSON.parse(res.body).data.appTagline).toBe('kept-webp');
+      });
+    });
   });
 
   // =============================================

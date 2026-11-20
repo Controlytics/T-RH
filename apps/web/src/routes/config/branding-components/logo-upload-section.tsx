@@ -1,6 +1,6 @@
 import type { RefObject } from 'react';
 import type { UseFormRegister } from 'react-hook-form';
-import type { BrandingConfig } from '@digilog/shared';
+import { imageFormatByBytes, type BrandingConfig } from '@digilog/shared';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -14,6 +14,8 @@ interface LogoUploadSectionProps {
   onLogoUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onRemoveLogo: () => void;
   register: UseFormRegister<BrandingConfig>;
+  /** What went wrong with the last file chosen; '' = nothing. */
+  error?: string;
 }
 
 export function LogoUploadSection({
@@ -25,7 +27,12 @@ export function LogoUploadSection({
   onLogoUpload,
   onRemoveLogo,
   register,
+  error,
 }: LogoUploadSectionProps) {
+  // An UPLOADED logo (a data URL) a report cannot print — the shared rule the
+  // report itself refuses on. A path (`/logo.jpg`) is fetched at report time
+  // and judged there.
+  const unprintable = !!logoUrl && logoUrl.startsWith('data:') && imageFormatByBytes(logoUrl) === null;
   return (
     <Card className="border-0 shadow-[var(--elev-2)] overflow-hidden">
       <div className="h-1 bg-gradient-to-r from-violet-500 via-purple-500 to-fuchsia-500" />
@@ -101,9 +108,19 @@ export function LogoUploadSection({
                 </Button>
               )}
             </div>
+            {/* Reports print PNG and JPEG only; any other image is saved as a PNG
+                on upload (2026-11-20). This line said "PNG, JPG, SVG" while an SVG
+                or a WebP refused every report download. */}
             <p className="text-xs text-slate-500 bg-slate-50 rounded-lg p-2">
-              PNG, JPG, SVG. Max size: 2MB. If no logo, text will be displayed.
+              PNG or JPG. Other images (WebP, GIF, SVG) are saved as PNG so reports can print them. Max size: 2MB. If no logo, text will be displayed.
             </p>
+            {unprintable && (
+              <p data-testid="logo-unprintable" role="alert" className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                Reports cannot print this logo: it is not a PNG or JPEG image, so every report that uses the Branding
+                logo is refused. Upload it again — it will be saved as a PNG — and click Save.
+              </p>
+            )}
+            {error && <p data-testid="logo-error" role="alert" className="text-sm text-red-600">{error}</p>}
             <Input type="hidden" {...register('logoUrl')} />
           </div>
         </div>

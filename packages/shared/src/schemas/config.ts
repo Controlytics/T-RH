@@ -16,6 +16,9 @@ import { isModbusReadInterval } from '../types/modbus.js';
  */
 export const BRANDING_TAB_TITLE_DEFAULT = 'T&RH-Monitoring';
 
+/** `logoUrl`'s cap: ~3M chars ≈ a 2MB base64 image (raised from 500k 2026-06-29). The Branding upload's PNG conversion checks the same number. */
+export const BRANDING_LOGO_URL_MAX = 3_000_000;
+
 export const brandingConfigSchema = z.object({
   // Logo & App Identity
   // The product's own name, not upstream DigiLog's (2026-10-05, audit WEB-16):
@@ -25,7 +28,7 @@ export const brandingConfigSchema = z.object({
   appName: z.string().min(1).max(50).default(BRANDING_TAB_TITLE_DEFAULT),
   appTagline: z.string().max(100).default('21 CFR Part 11 Compliant Monitoring'),
   logoText: z.string().min(1).max(5).default('TRH'),
-  logoUrl: z.string().max(3000000).default(''), // URL or data URI for logo image; ~3M chars ≈ a 2MB base64 image (raised from 500k 2026-06-29)
+  logoUrl: z.string().max(BRANDING_LOGO_URL_MAX).default(''), // URL or data URI for logo image (cap: BRANDING_LOGO_URL_MAX)
 
   // The BROWSER TAB — its title and its icon (2026-09-03).
   //

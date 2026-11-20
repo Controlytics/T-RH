@@ -19,6 +19,7 @@ import { ColorSettingsSection } from './branding-components/color-settings-secti
 import { BrandingPreview } from './branding-components/branding-preview';
 import { LoginBgSection } from './branding-components/login-bg-section';
 import { THEMES, getThemeById } from '@/lib/themes';
+import { printableLogoDataUrl } from '@/lib/printable-logo';
 
 export function BrandingConfigPage() {
   const navigate = useNavigate();
@@ -26,6 +27,7 @@ export function BrandingConfigPage() {
   const [error, setError] = useState('');
   const [showSuccessPopup, setShowSuccessPopup] = useState(false);
   const [showErrorPopup, setShowErrorPopup] = useState(false);
+  const [logoError, setLogoError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { data, error: loadError, mutate } = useSWR('/api/config/branding', { revalidateOnMount: true, dedupingInterval: 5000 });
 
@@ -45,31 +47,45 @@ export function BrandingConfigPage() {
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // Empty the picker so choosing the SAME file again (after an error, or to
+    // re-save an old logo as PNG) fires onChange again.
+    e.target.value = '';
     if (!file) return;
+    setLogoError('');
 
-    // Validate file type
+    // These two messages went to `error`, which only the save-failure popup
+    // shows — the popup was never opened, so a wrong or oversized file did
+    // nothing at all on screen (found 2026-11-20). They are shown in the Logo
+    // card now, as the background and tab-icon cards show theirs.
     if (!file.type.startsWith('image/')) {
-      setError('Please select an image file');
+      setLogoError('Please select an image file');
       return;
     }
 
     // Validate file size (max 2MB; stored as base64 in branding config)
     if (file.size > 2 * 1024 * 1024) {
-      setError('Logo image must be less than 2MB');
+      setLogoError('Logo image must be less than 2MB');
       return;
     }
 
-    // Convert to base64 data URI
+    // Convert to base64 data URI — and to a PNG when it is neither PNG nor JPEG,
+    // the only images a report can print (2026-11-20: a WebP logo was stored
+    // and every report download was refused). `printableLogoDataUrl` decides.
     const reader = new FileReader();
-    reader.onloadend = () => {
-      // shouldDirty so the Save button (disabled unless dirty) enables after upload.
-      setValue('logoUrl', reader.result as string, { shouldDirty: true });
-      setError('');
+    reader.onerror = () => setLogoError('The file could not be read. Choose the image again.');
+    reader.onload = () => {
+      void printableLogoDataUrl(reader.result as string).then((logo) => {
+        // shouldDirty so the Save button (disabled unless dirty) enables after upload.
+        setValue('logoUrl', logo, { shouldDirty: true });
+      }, (err: unknown) => {
+        setLogoError(err instanceof Error ? err.message : 'The image could not be used as the logo.');
+      });
     };
     reader.readAsDataURL(file);
   };
 
   const handleRemoveLogo = () => {
+    setLogoError('');
     setValue('logoUrl', '', { shouldDirty: true });
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -114,6 +130,7 @@ export function BrandingConfigPage() {
               fileInputRef={fileInputRef}
               onLogoUpload={handleLogoUpload}
               onRemoveLogo={handleRemoveLogo}
+              error={logoError}
               register={register}
             />
 

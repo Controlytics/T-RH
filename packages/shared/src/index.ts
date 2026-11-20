@@ -235,7 +235,7 @@ export type { LoginInput, PasswordChangeInput } from './schemas/auth.js';
 export { createUserSchema, updateUserSchema, resetPasswordSchema, userQuerySchema, bulkDeleteUsersSchema } from './schemas/users.js';
 export type { CreateUserInput, UpdateUserInput, ResetPasswordInput, UserQueryInput, BulkDeleteUsersInput } from './schemas/users.js';
 
-export { brandingConfigSchema, BRANDING_TAB_TITLE_DEFAULT, passwordPolicySchema, loginSecuritySchema, sessionConfigSchema, datetimeConfigSchema, userIdConfigSchema, auditTemplatesSchema, paginationConfigSchema, offlineCacheConfigSchema, exportLimitConfigSchema, EXPORT_LIMIT_HARD_CEILING, EXPORT_LIMIT_DEFAULT_MAX, EXPORT_LIMIT_DEFAULT_MESSAGE, instrumentAttributesConfigSchema, INSTRUMENT_ATTRIBUTE_KEYS_DEFAULT, INSTRUMENT_PLACEMENT_COLUMNS, placementColumnFor, parseInstrumentAttributeKeys, instrumentActivityConfigSchema, INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN, INSTRUMENT_ACTIVE_INTERVAL_SLACK, isInstrumentReporting, effectiveExpectedIntervalSec } from './schemas/config.js';
+export { brandingConfigSchema, BRANDING_TAB_TITLE_DEFAULT, BRANDING_LOGO_URL_MAX,passwordPolicySchema, loginSecuritySchema, sessionConfigSchema, datetimeConfigSchema, userIdConfigSchema, auditTemplatesSchema, paginationConfigSchema, offlineCacheConfigSchema, exportLimitConfigSchema, EXPORT_LIMIT_HARD_CEILING, EXPORT_LIMIT_DEFAULT_MAX, EXPORT_LIMIT_DEFAULT_MESSAGE, instrumentAttributesConfigSchema, INSTRUMENT_ATTRIBUTE_KEYS_DEFAULT, INSTRUMENT_PLACEMENT_COLUMNS, placementColumnFor, parseInstrumentAttributeKeys, instrumentActivityConfigSchema, INSTRUMENT_ACTIVE_WINDOW_DEFAULT_MIN, INSTRUMENT_ACTIVE_INTERVAL_SLACK, isInstrumentReporting, effectiveExpectedIntervalSec } from './schemas/config.js';
 export type { BrandingConfig, PasswordPolicyConfig, LoginSecurityConfig, SessionConfig, DatetimeConfig, UserIdConfig, AuditTemplatesConfig, PaginationConfig, OfflineCacheConfig, ExportLimitConfig } from './schemas/config.js';
 
 export { createInstrumentProfileSchema, updateInstrumentProfileSchema, PROFILE_READING_MOVED_MESSAGE } from './schemas/instrument-profiles.js';
@@ -294,7 +294,7 @@ export {
   REPORT_TEMPLATE_INFO_ROWS_MAX, REPORT_TEMPLATE_HEADING_MAX, REPORT_TEMPLATE_TITLE_MAX, REPORT_TEMPLATE_TEXT_MAX,
   REPORT_TEMPLATE_LEGEND_MAX, REPORT_FIELD_ID_MAX, REPORT_VALUE_MISSING, REPORT_LOGO_MODES,
   WIDGET_REPORT_FIELDS, REPORTABLE_WIDGET_TYPES, REPORT_PLACEHOLDERS, isPlaceholder, substitutePlaceholders,
-  reportLogoFormat, reportTemplateDocumentSchema, builtinReportTemplate, coerceReportTemplateDocument, keyRowsCollapse,
+  reportLogoFormat, imageFormatByBytes, BRANDING_LOGO_NOT_PRINTABLE, reportTemplateDocumentSchema, builtinReportTemplate, coerceReportTemplateDocument, keyRowsCollapse,
   reportTemplateCreateSchema, reportTemplateUpdateSchema, WIDGET_REPORT_KIND, widgetReportType,
   widgetTypeTakesProfileFields, REPORT_TEMPLATE_RESOLVE_IDS_MAX,
   PAGE_TEMPLATE_KINDS, TEMPLATE_KINDS, isTemplateKind, isPageTemplateKind, templateKindOf,

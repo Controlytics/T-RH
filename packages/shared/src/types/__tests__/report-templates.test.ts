@@ -5,7 +5,7 @@ import {
   REPORT_TEMPLATE_LOGO_IMAGE_KB, REPORT_TEMPLATE_LOGO_TOO_LARGE,
   REPORT_PLACEHOLDERS, REPORT_VALUE_MISSING, reportTemplateDocumentSchema, reportTemplateCreateSchema,
   reportTemplateUpdateSchema, builtinReportTemplate, substitutePlaceholders, coerceReportTemplateDocument,
-  WIDGET_REPORT_KIND, widgetReportType, reportLogoFormat, keyRowsCollapse, type ReportTemplateDocument,
+  WIDGET_REPORT_KIND, widgetReportType, reportLogoFormat, imageFormatByBytes, keyRowsCollapse, type ReportTemplateDocument,
   widgetTypeTakesProfileFields,
 } from '../report-templates.js';
 import {
@@ -187,6 +187,19 @@ describe('reportTemplateDocumentSchema', () => {
     expect(reportLogoFormat(JPEG)).toBe('JPEG');
     expect(reportLogoFormat('data:image/png;base64,R0lGODlh')).toBeNull();
     expect(reportLogoFormat('not a url')).toBeNull();
+  });
+
+  it('imageFormatByBytes names PNG / JPEG by the bytes whatever the label, and nothing else', () => {
+    // A PNG / JPEG under a label that lies (a WebP label, an octet-stream label) is still that format.
+    expect(imageFormatByBytes(PNG.replace('image/png', 'image/webp'))).toBe('PNG');
+    expect(imageFormatByBytes(JPEG.replace('image/jpeg', 'application/octet-stream'))).toBe('JPEG');
+    expect(imageFormatByBytes(PNG)).toBe('PNG');
+    // WebP (RIFF....WEBP), GIF, SVG text, a path and a non-base64 data URL are not printable.
+    expect(imageFormatByBytes('data:image/webp;base64,UklGRvS2AABXRUJQVlA4WAoAAAAQAAAA')).toBeNull();
+    expect(imageFormatByBytes('data:image/gif;base64,R0lGODlhAQABAAAAACw=')).toBeNull();
+    expect(imageFormatByBytes('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4=')).toBeNull();
+    expect(imageFormatByBytes('data:image/png,iVBORw0KGgo')).toBeNull();
+    expect(imageFormatByBytes('/logo.jpg')).toBeNull();
   });
 
   it('refuses an Upload logo with no image', () => {

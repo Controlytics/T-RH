@@ -1,6 +1,6 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { BRANDING_TAB_TITLE_DEFAULT, reportLogoFormat, type ReportTemplateDocument } from '@digilog/shared';
+import { BRANDING_TAB_TITLE_DEFAULT, imageFormatByBytes, type ReportTemplateDocument } from '@digilog/shared';
 import { apiClient } from './api-client';
 import { getApiBase } from './api-base';
 
@@ -89,7 +89,10 @@ async function loadBrandingLogoDataUrl(forgiving = false): Promise<string | null
   if (logoUrl.startsWith('data:')) {
     if (imageFormatByBytes(logoUrl) === null) {
       if (forgiving) return null;
-      throw logoUnusable('the uploaded logo is not a PNG or JPEG image');
+      // A logo uploaded before 2026-11-20 could be any image (it was a WebP on
+      // the plant's installs); the upload now saves it as a PNG, so the fix is
+      // to upload it again — the message says so.
+      throw logoUnusable('the uploaded logo is not a PNG or JPEG image (upload it again: it will be saved as a PNG)');
     }
     cachedLogoDataUrl = logoUrl;
     return logoUrl;
@@ -124,7 +127,9 @@ async function loadBrandingLogoDataUrl(forgiving = false): Promise<string | null
  * uploaded under a `.jpg` name, or served as `application/octet-stream`, is a
  * PNG. One rule: `reportLogoFormat` (shared), applied to the payload whatever
  * the label says. Anything it cannot name is `'JPEG'`, the format every logo
- * was drawn with before 2026-11-02.
+ * was drawn with before 2026-11-02. The bytes rule is the shared
+ * `imageFormatByBytes` (2026-11-20; it lived here until the Branding upload and
+ * the Branding PUT needed the same answer).
  *
  * Honest note: jsPDF 4.x sniffs the bytes itself and treats the format it is
  * passed as a FALLBACK (`processImageData` → `getImageFileTypeByImageData`),
@@ -136,16 +141,15 @@ export function imageFormatOf(dataUrl: string): 'PNG' | 'JPEG' {
 }
 
 /**
- * What a base64 image `data:` URL HOLDS — PNG or JPEG by its bytes, whatever
- * its label says — or `null`: not base64, or neither format. `imageFormatOf`'s
- * rule without the fallback, so a caller can REFUSE an image a PDF cannot draw.
+ * The compression every `addImage` here passes (2026-11-20). jsPDF splits a
+ * PNG with transparency into colour + alpha planes and, with no compression
+ * named, writes both RAW: measured in Chrome on the plant's 1280 x 466 logo, a
+ * one-logo PDF was 2,389,531 bytes (1280 x 466 x 4 + the page) against
+ * 180,451 with `'FAST'` — the same pixels, Flate-compressed (lossless). A JPEG
+ * is embedded as is whatever this says. Not part of a snapshot: a replay of an
+ * approved report draws the same image, only smaller.
  */
-function imageFormatByBytes(dataUrl: string): 'PNG' | 'JPEG' | null {
-  const named = reportLogoFormat(dataUrl);
-  if (named) return named;
-  const payload = /^data:[^,]*;base64,([\s\S]*)$/.exec(dataUrl)?.[1];
-  return payload ? reportLogoFormat(`data:image/png;base64,${payload}`) : null;
-}
+export const PDF_IMAGE_COMPRESSION = 'FAST' as const;
 
 /** `#rrggbb` → RGB, or null. */
 function hexRgb(hex: string | undefined): [number, number, number] | null {
@@ -758,7 +762,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       const aspect = drawnLogo.w / drawnLogo.h;
       const logoH = maxLogoH;
       const logoW = logoH * aspect;
-      doc.addImage(drawnLogo.data, imageFormatOf(drawnLogo.data), 14, y, logoW, logoH);
+      doc.addImage(drawnLogo.data, imageFormatOf(drawnLogo.data), 14, y, logoW, logoH, undefined, PDF_IMAGE_COMPRESSION);
       logoEndX = 14 + logoW + 4;
     } catch { /* skip */ }
   }
@@ -1051,7 +1055,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     flushTitle();
     snapSections.push({ kind: 'image', dataUrl, widthMm, heightMm });
     checkPageBreak(heightMm + 4);
-    doc.addImage(dataUrl, imageFormatOf(dataUrl), GUTTER_MM, y, widthMm, heightMm);
+    doc.addImage(dataUrl, imageFormatOf(dataUrl), GUTTER_MM, y, widthMm, heightMm, undefined, PDF_IMAGE_COMPRESSION);
     y += heightMm + 6;
   };
 
